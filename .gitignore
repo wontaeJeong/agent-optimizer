@@ -1,0 +1,38 @@
+# Python
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage*
+htmlcov/
+# Local coding assistants and IDEs
+.claude/
+.codex/
+.cursor/
+.vscode/
+.idea/
+.opencode/
+CLAUDE.local.md
+AGENTS.local.md
+*.code-workspace
+*.swp
+*.swo
+# Secrets (templates remain tracked)
+.env
+.env.*
+!.env.example
+!*.env.example
+# Downloaded sources, datasets, results
+/external/
+/datasets/
+/runs/
+.cache/
+*.log
+.DS_Store
+Thumbs.db

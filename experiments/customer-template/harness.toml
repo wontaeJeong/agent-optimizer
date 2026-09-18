@@ -1,0 +1,6 @@
+id = "customer-command"
+adapter = "command"
+allow_local = true
+command = ["{python}", "{agent_dir}/main.py", "--request", "{request_file}"]
+[runtime]
+kind = "local"

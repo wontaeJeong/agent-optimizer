@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "rtl": {
+      "mode": "primary",
+      "description": "Single primary RTL debugging agent",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "external_directory": "deny",
+        "task": "deny"
+      }
+    }
+  }
+}

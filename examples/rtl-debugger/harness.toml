@@ -1,0 +1,9 @@
+id = "opencode"
+adapter = "opencode"
+agent = "rtl"
+model_env = "AGENT_OPT_MODEL"
+[runtime]
+kind = "docker"
+image = "agent-optimizer-opencode:local"
+network = "bridge"
+env_passthrough = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "NVIDIA_API_KEY"]

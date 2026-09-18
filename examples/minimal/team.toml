@@ -1,0 +1,14 @@
+schema_version = 2
+id = "rtl-team"
+description = "RTL coordinator with analyst and verifier sub-agents"
+supported_harnesses = ["fixture", "opencode", "command"]
+editable = ["prompts/**", "configs/**", "src/**", "overlays/**", "harness_source/**"]
+prompt_file = "prompts/system.md"
+# Optional argv, cwd is the trial workspace; run inside configured runtime.
+build = []
+
+[source]
+kind = "local"
+path = "agents/team"
+subdir = "."
+include = ["prompts/**", "configs/**", "src/**", "overlays/**", "harness_source/**"]

@@ -1,0 +1,9 @@
+schema_version = 2
+id = "customer-agent"
+description = "Replace with the team's Agent source"
+supported_harnesses = ["command"]
+prompt_file = "prompts/system.md"
+editable = ["prompts/**", "src/**", "workflow/**"]
+[source]
+kind = "local"
+path = "/REPLACE/WITH/TEAM/AGENT"

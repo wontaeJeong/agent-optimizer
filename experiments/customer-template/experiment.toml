@@ -1,0 +1,19 @@
+schema_version = 1
+name = "customer-experiment"
+project_root = "../.."
+agents = ["experiments/customer-template/agent.toml"]
+harnesses = ["experiments/customer-template/harness.toml"]
+benchmark = "datasets/customer/tasks.json"
+evaluator = "customer"
+[plugins.evaluators]
+customer = "experiments/customer-template/evaluator.py:Evaluator"
+[budget]
+max_trials = 10
+max_wall_time_seconds = 1200
+trial_timeout_seconds = 120
+[objective]
+mode = "lexicographic"
+[[objective.metrics]]
+name = "quality"
+source = "passed"
+direction = "maximize"

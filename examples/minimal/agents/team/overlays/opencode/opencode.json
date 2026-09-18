@@ -1,0 +1,39 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "agent": {
+    "rtl": {
+      "mode": "primary",
+      "description": "RTL coordinator with analyst and verifier sub-agents",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "external_directory": "deny",
+        "task": {
+          "*": "deny",
+          "rtl-analyst": "allow",
+          "rtl-verifier": "allow"
+        }
+      }
+    },
+    "rtl-analyst": {
+      "mode": "subagent",
+      "description": "Inspect RTL and diagnose bugs",
+      "prompt": "Read task files, explain likely RTL bugs. Do not edit files.",
+      "permission": {
+        "edit": "deny",
+        "bash": "allow",
+        "external_directory": "deny"
+      }
+    },
+    "rtl-verifier": {
+      "mode": "subagent",
+      "description": "Review RTL fixes and verification evidence",
+      "prompt": "Check the proposed repair against the specification; report corner cases.",
+      "permission": {
+        "edit": "deny",
+        "bash": "allow",
+        "external_directory": "deny"
+      }
+    }
+  }
+}

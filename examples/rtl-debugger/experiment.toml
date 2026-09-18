@@ -1,0 +1,23 @@
+schema_version = 1
+name = "rtl-debugger-smoke"
+project_root = "../.."
+agents = ["examples/rtl-debugger/agent.toml"]
+harnesses = ["examples/rtl-debugger/harness.toml"]
+benchmark = "examples/rtl-debugger/tasks.json"
+evaluator = "iverilog"
+final_test = true
+[plugins.evaluators]
+iverilog = "examples/rtl-debugger/evaluator.py:create"
+[evaluation_runtime]
+kind = "docker"
+image = "nvidia/cvdp-sim:v1.0.0"
+[budget]
+max_trials = 6
+max_wall_time_seconds = 1800
+trial_timeout_seconds = 300
+[objective]
+mode = "lexicographic"
+[[objective.metrics]]
+name = "solve_rate"
+source = "passed"
+direction = "maximize"

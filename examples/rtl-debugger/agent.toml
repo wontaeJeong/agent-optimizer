@@ -1,0 +1,9 @@
+schema_version = 2
+id = "rtl-debugger"
+description = "Small OpenCode RTL debugging example"
+supported_harnesses = ["opencode"]
+editable = ["prompts/**", "configs/**", "src/**", "overlays/**"]
+prompt_file = "prompts/system.md"
+[source]
+kind = "local"
+path = "agent"

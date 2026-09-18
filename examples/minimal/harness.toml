@@ -1,0 +1,4 @@
+id = "fixture"
+adapter = "fixture"
+[runtime]
+kind = "local"

@@ -1,0 +1,11 @@
+schema_version = 2
+id = "ace-rtl"
+description = "ACE-RTL skill executed through OpenCode; not the native runner"
+supported_harnesses = ["ace_opencode"]
+prompt_file = "skills/ace-rtl/SKILL.md"
+editable = ["skills/ace-rtl/SKILL.md", "skills/ace-rtl/references/role-guidance.md", "skills/ace-rtl/scripts/ace_rtl_agent/rtl_generator.py", "skills/ace-rtl/scripts/ace_rtl_agent/focused_debugger.py", "skills/ace-rtl/scripts/ace_rtl_agent/fresh_start_coordinator.py"]
+[source]
+kind = "git"
+url = "https://github.com/NVlabs/ACE-RTL.git"
+revision = "fead921f18bb57345b5a41ef93ba625be208e99c"
+timeout_seconds = 180

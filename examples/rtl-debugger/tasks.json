@@ -1,0 +1,71 @@
+{
+  "schema_version": 1,
+  "id": "local-rtl-smoke-v1",
+  "synthetic": true,
+  "description": "Original toy RTL smoke cases, not CVDP. Requires real Icarus simulation.",
+  "tasks": [
+    {
+      "id": "rtl-smoke-train",
+      "split": "train",
+      "family": "smoke-train",
+      "prompt": "Fix dut.sv so output y equals the 1-bit bitwise expression a ^ b. Keep the interface.",
+      "files": {
+        "dut.sv": "module dut(input [0:0] a,b, output [0:0] y); assign y = a; endmodule\n"
+      },
+      "required_simulator": "iverilog",
+      "evaluation": {
+        "private_files": {
+          "private/tb.sv": "module tb;\nreg [0:0] a,b;\nwire [0:0] y;\ninteger i,j;\ndut u(a,b,y);\ninitial begin\n for(i=0;i<=1;i=i+1) begin\n  for(j=0;j<=1;j=j+1) begin\n   a=i; b=j; #1;\n   if(y !== (a ^ b)) $fatal(1,\"Mismatch\");\n  end\n end\n $display(\"TEST_PASS\"); $finish;\nend\nendmodule\n"
+        },
+        "sources": [
+          "dut.sv",
+          "private/tb.sv"
+        ],
+        "top": "tb",
+        "pass_marker": "TEST_PASS"
+      }
+    },
+    {
+      "id": "rtl-smoke-validation",
+      "split": "validation",
+      "family": "smoke-validation",
+      "prompt": "Fix dut.sv so output y equals the 2-bit bitwise expression a | b. Keep the interface.",
+      "files": {
+        "dut.sv": "module dut(input [1:0] a,b, output [1:0] y); assign y = a; endmodule\n"
+      },
+      "required_simulator": "iverilog",
+      "evaluation": {
+        "private_files": {
+          "private/tb.sv": "module tb;\nreg [1:0] a,b;\nwire [1:0] y;\ninteger i,j;\ndut u(a,b,y);\ninitial begin\n for(i=0;i<=3;i=i+1) begin\n  for(j=0;j<=3;j=j+1) begin\n   a=i; b=j; #1;\n   if(y !== (a | b)) $fatal(1,\"Mismatch\");\n  end\n end\n $display(\"TEST_PASS\"); $finish;\nend\nendmodule\n"
+        },
+        "sources": [
+          "dut.sv",
+          "private/tb.sv"
+        ],
+        "top": "tb",
+        "pass_marker": "TEST_PASS"
+      }
+    },
+    {
+      "id": "rtl-smoke-test",
+      "split": "test",
+      "family": "smoke-test",
+      "prompt": "Fix dut.sv so output y equals the 3-bit bitwise expression a & b. Keep the interface.",
+      "files": {
+        "dut.sv": "module dut(input [2:0] a,b, output [2:0] y); assign y = a; endmodule\n"
+      },
+      "required_simulator": "iverilog",
+      "evaluation": {
+        "private_files": {
+          "private/tb.sv": "module tb;\nreg [2:0] a,b;\nwire [2:0] y;\ninteger i,j;\ndut u(a,b,y);\ninitial begin\n for(i=0;i<=7;i=i+1) begin\n  for(j=0;j<=7;j=j+1) begin\n   a=i; b=j; #1;\n   if(y !== (a & b)) $fatal(1,\"Mismatch\");\n  end\n end\n $display(\"TEST_PASS\"); $finish;\nend\nendmodule\n"
+        },
+        "sources": [
+          "dut.sv",
+          "private/tb.sv"
+        ],
+        "top": "tb",
+        "pass_marker": "TEST_PASS"
+      }
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "id": "synthetic-text-debug-v1",
+  "synthetic": true,
+  "description": "Exact text wiring tests only. Not CVDP and not an RTL correctness benchmark.",
+  "tasks": [
+    {
+      "id": "fixture-train",
+      "split": "train",
+      "family": "synthetic-train",
+      "prompt": "Repair the 1-bit bitwise ^ module in task/dut.sv.",
+      "files": {
+        "dut.sv": "module dut(input [0:0] a,b, output [0:0] y); assign y = a /*FIX:^*/ 1'b0 b; endmodule\n"
+      },
+      "evaluation": {
+        "file": "dut.sv",
+        "expected": "module dut(input [0:0] a,b, output [0:0] y); assign y = a ^ b; endmodule\n"
+      }
+    },
+    {
+      "id": "fixture-validation",
+      "split": "validation",
+      "family": "synthetic-validation",
+      "prompt": "Repair the 2-bit bitwise | module in task/dut.sv.",
+      "files": {
+        "dut.sv": "module dut(input [1:0] a,b, output [1:0] y); assign y = a /*FIX:|*/ 1'b0 b; endmodule\n"
+      },
+      "evaluation": {
+        "file": "dut.sv",
+        "expected": "module dut(input [1:0] a,b, output [1:0] y); assign y = a | b; endmodule\n"
+      }
+    },
+    {
+      "id": "fixture-test",
+      "split": "test",
+      "family": "synthetic-test",
+      "prompt": "Repair the 3-bit bitwise & module in task/dut.sv.",
+      "files": {
+        "dut.sv": "module dut(input [2:0] a,b, output [2:0] y); assign y = a /*FIX:&*/ 1'b0 b; endmodule\n"
+      },
+      "evaluation": {
+        "file": "dut.sv",
+        "expected": "module dut(input [2:0] a,b, output [2:0] y); assign y = a & b; endmodule\n"
+      }
+    }
+  ]
+}
