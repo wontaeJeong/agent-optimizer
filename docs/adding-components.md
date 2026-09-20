@@ -86,6 +86,7 @@ OpenCode 이외 CLI도 command wrapper로 먼저 연결한 후 필요한 trace p
 - `context.evaluate(candidate)`는 train split만 사용. train이 없는 실험에서 호출하면 실패.
 - `context.history()`는 train 기록만 반환.
 - `context.record_usage(input_tokens, output_tokens, cost_usd)`는 Optimizer 자체 사용량 기록.
+  호출 시 `optimizer_usage` 이벤트를 Agent/Harness/stage ID와 함께 저장하므로 이후 예산 소진·오류에도 보존된다.
 - `OptimizationResult(candidates=[...], checkpoint={...})` 반환. runner가 validation 평가/선택.
 
 stage `inputs`로 이전 stage를 조합합니다. stage 순서는 TOML 순서이며 forward reference/순환은 금지합니다.
@@ -105,6 +106,10 @@ Agent가 작성한 success.json 같은 자기보고만으로 성공 판정하지
 ## 지표·예산
 
 objective: lexicographic / weighted / pareto. metric: maximize/minimize, mean/sum/max/p95.
-constraints와 keep으로 후보 선택을 제어합니다. 비용/시간 조건은 **평가 후 선택 제약**이며 실행 중 비용
+constraints로 선택 가능 범위를 제한합니다. `keep`(기본 1)은 lexicographic/weighted에서만 사용하며,
+Pareto는 전체 비지배 frontier를 반환하므로 `keep`을 명시하면 오류입니다.
+비용/시간 조건은 **평가 후 선택 제약**이며 실행 중 비용
 차단 기능이 아닙니다. 실행 budget은 max_trials, max_wall_time_seconds, trial_timeout_seconds만 지원합니다.
 `rerank`는 이미 집계된 validation 결과의 우선순위/가중치만 바꿉니다. 새 지표/집계 변경은 재실행 필요.
+전역 예산으로 중단된 평가와 부분 split은 선택에서 제외합니다. 종료 상태와 부분 결과 형식은
+[architecture.md](architecture.md#실행-종료와-부분-결과)를 확인하세요.

@@ -57,3 +57,25 @@ uv 설치/lock 재생성, ZIP 재추출, 공식 CVDP 데이터 변환 재실행,
 
 CLI plan의 integrations_ready는 플러그인 로딩/설정 수준이며, 외부 도구 실행 성공을 의미하지 않음.
 외부 모델 비교 전 환경 doctor와 한 문제 실제 평가를 먼저 실행할 것.
+
+## 2026-09-20 MVP lifecycle/selection hardening (Task 2)
+
+환경: `.worktrees/mvp-hardening`, macOS `Darwin arm64`, Python 3.14.5.
+Ubuntu x86_64, Docker, 외부 모델/API의 실환경 실행 결과가 아니다.
+
+| 명령 | 실제 결과 |
+|---|---|
+| `PYTHONPATH=src python3 -m unittest discover -s tests -p test_run_lifecycle.py -v` | 최종 18개 통과. 초기 RED는 14개 실행, failure 16건/error 3건(하위 테스트 포함). 추가 초기화 오류 RED 확인 후 GREEN. |
+| `PYTHONPATH=src:tests python3 -m unittest test_core test_boundaries -v` | 44개 통과. T1 후보 검증-before-cache와 출력 경계 회귀 포함. |
+| `PYTHONPATH=src python3 -m unittest discover -s tests -v` | 전체 75개 실행, 74개 통과·1개 skip, 실패 없음. 전체 suite는 이 작업에서 한 번 실행. Icarus binaries not installed. |
+| `PYTHONPATH=src python3 -m agent_optimizer run examples/minimal/experiment.toml --output runs/task-2` | exit 0, `completed`, 독립 Agent 2개·9 trial. |
+| `git diff --check` | 통과. |
+
+새 테스트는 짧은 로컬 subprocess timeout 및 제어된 clock/플러그인으로 전역 deadline과 per-trial
+timeout의 구분, 마지막 평가 후 deadline 검사, 예약 실패 횟수, 소스/그룹/stage/test 중단,
+Optimizer 사용량의 호출 시점 저장, 출력 루트 symlink 오류의 trial 식별 기록, nullable report/rerank,
+Pareto `keep` 거부와 invalid/partial 선택 제외를 확인했다. Ctrl-C는 `KeyboardInterrupt` 주입으로 검증했다.
+
+최소 데모 산출물: `runs/task-2/20260920T105352Z-14ab82b7/` (Git 제외).
+summary의 `synthetic=true` 확인. rtl-solo baseline/선택 validation 0/1, test 0/1, 5 trial;
+rtl-team validation 1/1, test 1, 4 trial. 합성 연결 검증이며 실제 Agent 성능 향상 근거가 아니다.

@@ -32,6 +32,8 @@ def write_report(root, summary):
              "| Agent | Harness | Candidate | Split | Metrics |", "|---|---|---|---|---|"]
     for group in summary["groups"]:
         for row in [group["baseline"], *group["selected"], *group["final_test"]]:
+            if row is None:
+                continue
             metrics = json.dumps(row["metrics"], ensure_ascii=False)
             lines.append(f"| {group['agent_id']} | {group['harness_id']} | {row['candidate_id']} | {row['split']} | {metrics} |")
     lines += ["", "Missing metrics are null, not zero. Compare only identical datasets, models and budgets."]

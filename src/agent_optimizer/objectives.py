@@ -7,9 +7,14 @@ from agent_optimizer.contracts import ConfigurationError
 
 
 def select(rows: list[dict[str, Any]], objective: dict) -> list[dict[str, Any]]:
+    mode = objective.get("mode", "lexicographic")
+    if mode == "pareto" and "keep" in objective:
+        raise ConfigurationError("Pareto returns the whole frontier; objective.keep is not supported")
     metrics = objective["metrics"]
     eligible = []
     for row in rows:
+        if row.get("valid") is False or row.get("partial", False):
+            continue
         values = row["metrics"]
         keys = [m["name"] for m in metrics] + [c["metric"] for c in objective.get("constraints", [])]
         if any(values.get(k) is None or not math.isfinite(values[k]) for k in keys):
@@ -21,7 +26,6 @@ def select(rows: list[dict[str, Any]], objective: dict) -> list[dict[str, Any]]:
         vector = tuple(values[m["name"]] * (1 if m["direction"] == "maximize" else -1)
                        for m in metrics)
         eligible.append((row, vector))
-    mode = objective.get("mode", "lexicographic")
     if mode == "pareto":
         return [row for i, (row, vec) in enumerate(eligible)
                 if not any(i != j and all(a >= b for a, b in zip(other, vec))
@@ -59,4 +63,3 @@ def aggregate(records: list[dict], metric_specs: list[dict]) -> dict[str, float 
         else:
             raise ConfigurationError(f"Unknown aggregation: {op}")
     return result
-
