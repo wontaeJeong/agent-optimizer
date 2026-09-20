@@ -367,5 +367,13 @@ local tag를 사용하며 runtime fixture를 공유 workspace 안에 생성하�
 변수 분리로 해결했고, 실제 wrapper subprocess 회귀 및 후속 리뷰로 재확인했다.
 
 **이번 작업의 미검증 범위:** 실제 인증 proxy/TLS interception 환경, 추가 CA를 적용한
-공식 CVDP 이미지 전체 rebuild·정답/오답 smoke, Ubuntu x86_64의 이번 변경 재실행,
+공식 CVDP 이미지 전체 rebuild·정답/오답 smoke, Ubuntu x86_64에서의 proxy 포함 Docker 통합,
 실제 모델 API 호출. 기존 공식 평가 성공 기록은 이전 절의 별도 근거다.
+
+### 후속 Ubuntu 코어 CI
+
+구현 commit `a80cf85`의 [PR run 35526038105](https://github.com/wontaeJeong/agent-optimizer/actions/runs/35526038105)는
+Ubuntu Python **3.11/3.12 모두 성공**했다. lint·unit/contract tests·native simulator 검사·
+최소 데모·sdist/wheel 빌드·소스 트리 밖 wheel 설치 검사가 통과했다.
+공식 CVDP Docker job은 수동 실행 대상이므로 이 PR run에서는 skipped다.
+이는 위 Mac Docker 네트워크 통합 검사와 구별되는 원격 코어 CI 근거다.
