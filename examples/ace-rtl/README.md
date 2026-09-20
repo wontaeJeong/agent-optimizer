@@ -19,6 +19,9 @@ ACE의 native runner / 자체 반복 루프 / 역할별 모델 호출과 동일�
 Python 3.11+ 진입점, uv, Git, 동작하는 Docker Engine/Compose가 필요합니다.
 setup은 uv로 프로젝트 `.venv`와 별도 `external/cvdp-venv`를 Python 3.12로 준비합니다.
 호스트에 simulator나 Python 패키지를 전역 설치하지 않습니다.
+기존 driver 환경도 online/offline setup과 doctor에서 실제 interpreter의 major/minor를 확인합니다.
+Python 3.12가 아니면 환경을 보존한 채 중단합니다. 필요한 파일을 보관하고 해당 환경 디렉터리를
+직접 다른 위치로 옮긴 뒤 setup을 다시 실행하면 uv가 Python 3.12 환경을 생성합니다.
 
 ```bash
 python3 scripts/dev.py setup                    # Docker daemon의 native 플랫폼 선택/기록
