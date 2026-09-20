@@ -10,7 +10,9 @@ import venv
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_optimizer.contracts import ConfigurationError, UnavailableError, ExecutionResult, Task, Evaluation
+from agent_optimizer.config import load_experiment
+from agent_optimizer.contracts import ConfigurationError, UnavailableError, ExecutionResult, Task, Evaluation, RunRequest
+from agent_optimizer.harnesses.opencode import OpenCodeHarness
 from support import ROOT, module
 
 setup = module("ace_setup", ROOT / "examples/ace-rtl/environment/setup.py")
@@ -147,6 +149,35 @@ class OfficialImportTests(unittest.TestCase):
 
 
 class EnvironmentChecks(unittest.TestCase):
+    def test_existing_wrong_driver_python_is_preserved_before_online_or_offline_install(self):
+        for offline in (False, True):
+            with self.subTest(offline=offline), tempfile.TemporaryDirectory() as d:
+                root = Path(d)
+                driver = root / "external/cvdp-venv"
+                driver.mkdir(parents=True)
+                sentinel = driver / "user-owned"
+                sentinel.write_text("preserve this environment")
+                def run(argv, *args, **kwargs):
+                    self.assertNotIn("install", argv, "incompatible driver reached dependency installation")
+                with patch.object(setup, "ROOT", root), patch.object(setup, "run", side_effect=run), \
+                        patch.object(setup, "prepare_sources"), \
+                        patch.object(setup, "prepare_data", return_value=(root / "data", {})), \
+                        patch.object(setup.subprocess, "check_output", return_value="3.11\n"):
+                    with self.assertRaisesRegex(UnavailableError, "Python 3.12.*3.11"):
+                        setup.prepare_environment(offline=offline, platform="linux/arm64")
+                self.assertEqual(sentinel.read_text(), "preserve this environment")
+
+    def test_doctor_rejects_wrong_python_even_when_dependencies_and_images_execute(self):
+        for version, ready in (("3.11", False), ("3.12", True), ("3.14", False)):
+            with self.subTest(version=version), tempfile.TemporaryDirectory() as d:
+                with patch.object(setup.subprocess, "check_output", return_value=version + "\n"), \
+                        patch.object(setup.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, version, "")):
+                    report = setup.doctor(Path(d), "linux/arm64", "eval-image", "agent-image")
+                self.assertEqual(report["ready"], ready)
+                if not ready:
+                    self.assertIn("Python 3.12", report["checks"]["driver"]["error"])
+                    self.assertIn("preserved", report["checks"]["driver"]["error"])
+
     def test_omitted_platform_uses_daemon_native_platform_not_environment_default(self):
         for native in ("linux/arm64", "linux/amd64"):
             with self.subTest(native=native), patch.dict(os.environ, {"DOCKER_DEFAULT_PLATFORM": "linux/unsupported"}):
@@ -177,6 +208,7 @@ class EnvironmentChecks(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             with patch.object(setup, "ROOT", root), patch.object(setup, "run", side_effect=run), \
+                    patch.object(setup, "validate_driver_python"), \
                     patch.object(setup, "prepare_sources"), \
                     patch.object(setup, "prepare_data", return_value=(root / "dataset", {})):
                 with self.assertRaisesRegex(UnavailableError, "build failed"):
@@ -307,3 +339,32 @@ class SmokeEvidenceTests(unittest.TestCase):
             checks.require_verdict(result, "passed", official=True)
             with self.assertRaises(UnavailableError):
                 checks.require_verdict(result, "failed", official=True)
+
+
+class ShippedRTLProfileTests(unittest.TestCase):
+    def test_docker_invocation_forwards_default_provider_and_explicit_compatible_settings(self):
+        profile = load_experiment(ROOT / "examples/rtl-debugger/experiment.toml")["_profiles"][0]
+        for model, required in (
+            ("openrouter/vendor/model:free", {"AGENT_OPT_MODEL", "OPENROUTER_API_KEY"}),
+            ("compatible/example-model", {"AGENT_OPT_MODEL", "OPENCODE_CONFIG", "MODEL_BASE_URL", "MODEL_ID", "MODEL_API_KEY"}),
+        ):
+            with self.subTest(model=model), tempfile.TemporaryDirectory() as d:
+                root = Path(d)
+                stdout, stderr = root / "stdout", root / "stderr"
+                stdout.write_text("")
+                stderr.write_text("")
+                commands = []
+                def docker(argv, *args, **kwargs):
+                    commands.append(argv)
+                    return ExecutionResult("completed", 0, 0, str(stdout), str(stderr))
+                request = RunRequest(root, root / "agent", root / "task", "public task", 10, 0, profile, root / "logs")
+                with patch.dict(os.environ, {"AGENT_OPT_MODEL": model, "OPENROUTER_API_KEY": "test-only-secret", "MODEL_API_KEY": "test-only-secret"}), \
+                        patch("agent_optimizer.process.run_process", side_effect=docker), \
+                        patch("agent_optimizer.process.subprocess.run"):
+                    result = OpenCodeHarness().run(request)
+                self.assertEqual(result.status, "completed")
+                argv = commands[0]
+                forwarded = {argv[i + 1] for i, value in enumerate(argv[:-1]) if value == "--env"}
+                self.assertTrue(required <= forwarded, f"missing container environment: {required - forwarded}")
+                self.assertNotIn("test-only-secret", " ".join(argv))
+                self.assertEqual(argv[argv.index("--model") + 1], model)

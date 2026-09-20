@@ -122,6 +122,20 @@ def prepare_sources(external, *, offline=False):
             raise ConfigurationError(f"Existing checkout differs/dirty: {path}; preserved without modification")
 
 
+def validate_driver_python(python):
+    repair = (f"Existing environment is preserved. Move {python.parent.parent} aside and rerun "
+              "scripts/dev.py setup to create it with uv and Python 3.12.")
+    try:
+        version = subprocess.check_output(
+            [str(python), "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+            text=True, stderr=subprocess.PIPE, timeout=15,
+        ).strip()
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise UnavailableError(f"Cannot check CVDP driver Python at {python}. {repair}") from exc
+    if version != "3.12":
+        raise UnavailableError(f"CVDP driver requires Python 3.12, found {version} at {python}. {repair}")
+
+
 def doctor(external, platform, eval_image, agent_image):
     """Actually execute tools; presence of tags or a valid plan is insufficient."""
     validate_platform(platform)
@@ -139,8 +153,12 @@ def doctor(external, platform, eval_image, agent_image):
     checks = {}
     for name, argv in commands.items():
         try:
+            if name == "driver":
+                validate_driver_python(external / "cvdp-venv/bin/python")
             result = subprocess.run(argv, capture_output=True, text=True, timeout=120, shell=False)
             checks[name] = {"returncode": result.returncode, "stdout": result.stdout, "stderr": result.stderr}
+        except UnavailableError as exc:
+            checks[name] = {"returncode": None, "error": str(exc)}
         except (OSError, subprocess.TimeoutExpired) as exc:
             checks[name] = {"returncode": None, "error": type(exc).__name__}
     return {"ready": all(c["returncode"] == 0 for c in checks.values()), "platform": platform, "checks": checks}
@@ -149,15 +167,18 @@ def doctor(external, platform, eval_image, agent_image):
 def prepare_environment(*, offline=False, platform=None):
     platform = validate_platform(platform)
     external = ROOT / "external"
+    venv = external / "cvdp-venv"
+    if venv.exists():
+        validate_driver_python(venv / "bin/python")
     logs = external / "setup-logs"
     logs.mkdir(parents=True, exist_ok=True)
     uv = ["uv", *(["--offline"] if offline else [])]
     run([*uv, "sync", "--frozen", "--python", "3.12", "--extra", "dev"], log=logs / "project-uv.log")
     prepare_sources(external, offline=offline)
     dataset, data_lock = prepare_data(external, offline=offline)
-    venv = external / "cvdp-venv"
     if not venv.exists():
         run([*uv, "venv", "--python", "3.12", str(venv)], log=logs / "driver-venv.log")
+        validate_driver_python(venv / "bin/python")
     cvdp = external / "cvdp_benchmark"
     run([*uv, "pip", "install", "--python", str(venv / "bin/python"), "-r", str(cvdp / "requirements.txt")], log=logs / "driver-uv.log")
     arch = platform.split("/")[1]
