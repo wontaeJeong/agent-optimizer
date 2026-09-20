@@ -40,6 +40,36 @@ revision = "<실제 전체 commit SHA>"
 이미 준비한 regular-file 소스를 local로 연결하세요. 설치 의존성이 필요하면 Harness 이미지에 준비하거나
 manifest `build` argv로 trial 환경 내에서 실행합니다.
 
+### 소스 선택과 숨김 런타임 자산
+
+기본 `include = ["*"]`는 `.claude/`, `.codex/`, `.cursor/`, `.opencode/` 개발자 디렉터리를
+제외합니다. 검토한 Agent 런타임 파일이 필요하면 해당 디렉터리까지 리터럴 경로로 명시하세요.
+예를 들어 아래 설정은 일반 소스와 `.opencode/agents/` 파일만 포함하고, 같은 디렉터리의
+개인 플러그인 등은 기본 제외 상태로 둡니다.
+
+```toml
+[source]
+kind = "local"
+path = "/path/to/agent"
+include = ["*", ".opencode/agents/**"]
+```
+
+`*`, `**/*.md`, `.*/**` 같은 포괄 패턴은 개발자 디렉터리 제외를 해제하지 않습니다.
+중첩 디렉터리도 `vendor/.opencode/agents/**`처럼 해당 경로를 명시해야 하며, `exclude`가 항상 우선합니다.
+이 선택 규칙은 로컬 소스와 고정 Git 소스에 동일하게 적용됩니다.
+
+다음 항목은 명시적 `include`나 `exclude = []`로도 포함할 수 없습니다.
+
+- `.git`, `.venv`, `__pycache__`, `.pytest_cache`, `.vscode`, `.idea` 경로 요소와 `*.pyc` 파일.
+- 모든 깊이의 `.env*` 경로 요소 (`.env.example`, `.envrc` 포함).
+- 알려진 인증 파일명: `auth.json`, `auth.jsonc`, `credentials`, `credentials.json`,
+  `.credentials.json`, `.netrc`, `_netrc`, `.git-credentials`.
+
+이는 경로/파일명 기반 제외이며 임의 파일에 담긴 비밀정보를 탐지하는 기능이 아닙니다.
+포함할 런타임 자산은 직접 검토하고, 인증 값은 환경변수나 credential store로 전달하세요.
+소스 루트와 선택한 경로의 symlink 및 특수 파일은 거부합니다. 산출물 수집도 실제 디렉터리 루트와
+regular file만 허용하며, 내부를 가리키는 symlink도 허용하지 않습니다.
+
 ## Harness
 
 `run(request: RunRequest) -> ExecutionResult`. `request.agent_dir`는 후보 Agent,
@@ -61,6 +91,9 @@ OpenCode 이외 CLI도 command wrapper로 먼저 연결한 후 필요한 trace p
 stage `inputs`로 이전 stage를 조합합니다. stage 순서는 TOML 순서이며 forward reference/순환은 금지합니다.
 `when`으로 validation metric에 따른 stage 실행 조건을 지정할 수 있습니다.
 현재 후보 변경은 텍스트 파일 생성/교체이며 삭제·바이너리 패치 API는 없습니다.
+후보와 부모는 해당 그룹의 `CandidateStore`가 성공적으로 발급한 값이어야 합니다.
+ID·Agent ID·경로·hash·부모·producer를 바꾸거나 스냅샷 파일을 직접 수정하면 거부됩니다.
+검증은 캐시된 평가를 반환하기 전에도 수행합니다. 변경은 항상 `context.propose`로 새 후보를 만드세요.
 
 ## Evaluator
 
