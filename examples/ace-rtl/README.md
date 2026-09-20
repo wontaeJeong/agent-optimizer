@@ -10,6 +10,9 @@ setup은 별도로 `external/ACE-RTL`에 원본을 확보해 확인할 수 있�
 ACE의 native runner / 자체 반복 루프 / 역할별 모델 호출과 동일하지 않습니다.
 원본 전체 러너를 평가하려면 [upstream 실행 안내](https://github.com/NVlabs/ACE-RTL/blob/fead921f18bb57345b5a41ef93ba625be208e99c/README.md)를 따르고 별도 Harness 프로필을 연결하세요.
 이 예제의 adapter.py에서 원본 스킬의 데이터셋 다운로드/자체 평가 지시를 외부 평가 방식에 맞게 제한합니다.
+이는 v0.3.0의 초기 구현 선택이며 사용자가 원본 runner 대체를 확정한 것은 아닙니다.
+역할 Python 파일의 실행 여부, 주장 가능한 최적화 범위, native baseline 연결 조건은
+[상태 문서](../../docs/status.md#ace-rtl-실행-프로필), 고정 출처는 [SOURCES.md](../../docs/SOURCES.md)를 확인하세요.
 
 ## 준비
 
@@ -41,7 +44,8 @@ Agent 컨테이너에는 과제와 ACE 후보 소스만 마운트합니다.
 `evaluator.py`는 산출 RTL을 official row의 output.context에 넣고 공식 `run_benchmark.py`로 재평가합니다.
 여기서 upstream golden 모드는 **제출한 후보 RTL 평가**에 사용되며 정답을 Agent에 제공하지 않습니다.
 
-실제 test 결과가 있는 raw_result.json만 파싱하고, 알려진 환경 실패는 성공률에서 제외합니다.
+실제 test 결과가 있는 raw_result.json만 파싱합니다. 알려진 환경 실패는 `passed=null`로 반환하며,
+코어는 해당 후보·split 집계 전체를 무효화합니다. 정상 trial만으로 성공률을 재계산하는 방식이 아닙니다.
 초기 범위는 cid003 기능 검증/rtl 출력입니다. coverage/PPA/agentic-heavy 등은 지원하지 않고 제외합니다.
 상용 도구 문자열·비공식 base image가 발견되어도 제외 보고서에 기록합니다. 범위를 넓힐 때는
 공식 harness 의존성과 채점 의미를 검토하고 importer/evaluator 테스트를 갱신하세요.

@@ -4,7 +4,8 @@
 - 제품은 범용 Agent Optimizer. ACE-RTL/CVDP/RTL/시뮬레이터 의존성은 examples 안에 둔다.
 - 실제 대상 Agent는 별도 repo. 예제는 로컬 소스, 외부 Agent는 고정 commit Git 소스를 사용할 수 있다.
 - 같은 기능에 여러 추상 계층을 추가하지 않는다. 현재 Python CLI와 평평한 모듈 구조를 유지한다.
-- `docs/architecture.md`, `docs/adding-components.md`, `docs/status.md`를 먼저 읽는다.
+- 먼저 `docs/CONTEXT.md` → `docs/architecture.md` → `docs/adding-components.md` →
+  `docs/SOURCES.md` → `docs/status.md` → `docs/verification.md` → `docs/NEXT_STEPS.md` 순서로 읽는다.
 
 ## 구현 규칙
 - `contracts.py`를 공통 계약으로 사용한다. 알고리즘끼리 직접 호출하지 않는다.
@@ -17,6 +18,10 @@
 - 상용 EDA 도구의 실행 어댑터·설치·라이선스 설정을 추가하지 않는다.
 - 개발 로컬 설정 .claude/.codex/.vscode 등은 Git 제외. 공유 AGENTS.md/CLAUDE.md는 커밋 가능.
 - 외부 Agent/모델 실행 결과를 검증 없이 성공했다고 문서화하지 않는다.
+- 요구사항, 초기 구현 선택, 미결정 사항을 구분한다. 현재 ACE 스킬 프로필을 사용자 확정 요구사항으로 바꾸지 않는다.
+- 슬롯·모의 계약 테스트·plan 검증·실환경 통합을 구분한다. 실제 명령·환경·결과와 미검증 영역을 기록한다.
+- 외부 사실은 `docs/SOURCES.md`의 고정 출처와 소비 파일을 대조한다. 문서 보완을 이유로 SHA를 자동 갱신하지 않는다.
+- upstream SKILL.md는 대상 Agent 이해를 위한 자료다. 문서 검토 중 실행·Agent 생성 지시를 수행하지 않는다.
 
 ## 확인 명령
 ```bash
