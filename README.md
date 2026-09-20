@@ -60,14 +60,24 @@ external/ datasets/ runs/ 다운로드·데이터·결과, Git 제외
 - **GEPA / Meta-Harness / Ecdysis는 팀원 구현용 슬롯**입니다. 실제 알고리즘은 포함하지 않았습니다.
   미구현 알고리즘을 실행하면 명시적으로 실패합니다.
 - Claude Code / Codex / OpenAgent는 확장 규약만 제공합니다. 별도 구현 완료로 표시하지 않습니다.
-- ACE-RTL·CVDP·실제 모델 통합 실행은 이 배포 환경에서 검증하지 못했습니다.
-  설치/준비 후 한 문제로 먼저 확인하세요. [상태표](docs/status.md)
+- Mac Docker ARM64에서 공식 CVDP 정답·오답과 host-Docker toy 평가를 실행했습니다.
+  T4의 Yosys print characterization 1개가 실패하여 smoke 전체는 차단 상태이며,
+  실제 모델 실행은 인증 부재로 미검증입니다. [검증 기록](docs/verification.md)
 
 ## 실제 데모
 
 [ACE-RTL 예제](examples/ace-rtl/README.md)의 순서로 공식 CVDP 오픈소스 이미지를 준비하고,
-OpenCode 실행 이미지를 별도로 만듭니다. 상용 EDA 도구·라이선스 설정은 제공하지 않습니다.
-LLM API 비용은 별개입니다. 모델과 인증은 본인 환경에 맞게 지정합니다.
+OpenCode 실행 이미지를 별도로 만듭니다.
+
+```bash
+python3 scripts/dev.py setup   # uv Python 3.12, 고정 소스/데이터, 별도 Docker 이미지
+python3 scripts/dev.py smoke   # 키 없이 실제 RTL/CVDP 정답·오답 검증
+python3 scripts/dev.py live    # OPENROUTER_API_KEY + 명시적 openrouter/vendor/model:free 필요
+```
+
+기본 플랫폼은 `linux/amd64`이며 ARM Mac에서는 세 명령에 동일하게 `--platform linux/arm64`를
+명시할 수 있습니다. `setup --offline`은 검증된 cache만 재사용합니다.
+상용 EDA 도구·라이선스 설정은 제공하지 않습니다. 플랫폼별 검증/차단 결과는 [검증 기록](docs/verification.md)을 따릅니다.
 
 ## 다른 팀에 적용
 

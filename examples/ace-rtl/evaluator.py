@@ -3,15 +3,38 @@ import copy
 import json
 import os
 import subprocess
+import uuid
 from pathlib import Path
 from agent_optimizer.contracts import ConfigurationError, Evaluation, UnavailableError
 from agent_optimizer.process import run_process
 from agent_optimizer.workspace import safe_path
 
+
+def cleanup_network(network, logs):
+    """Clean only this evaluation's unique network, including after driver SIGKILL."""
+    logs.mkdir(parents=True, exist_ok=True)
+    commands = []
+    try:
+        listing = subprocess.run(["docker", "ps", "-aq", "--filter", f"network={network}"],
+                                 capture_output=True, text=True, timeout=15, shell=False)
+        commands.append({"command": "list-owned-containers", "returncode": listing.returncode})
+        for container in listing.stdout.split() if listing.returncode == 0 else []:
+            removed = subprocess.run(["docker", "rm", "-f", container], capture_output=True,
+                                     text=True, timeout=15, shell=False)
+            commands.append({"container": container, "returncode": removed.returncode})
+        removed = subprocess.run(["docker", "network", "rm", network], capture_output=True,
+                                 text=True, timeout=15, shell=False)
+        commands.append({"network": network, "returncode": removed.returncode})
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        commands.append({"cleanup_error": type(exc).__name__})
+    (logs / "cleanup.json").write_text(json.dumps(commands, indent=2))
+
+
 class CVDPEvaluator:
     def __init__(self, config=None):
         self.repo = Path(os.environ.get("CVDP_REPO", "external/cvdp_benchmark")).resolve()
-        self.python = Path(os.environ.get("CVDP_PYTHON", "external/cvdp-venv/bin/python")).resolve()
+        # Resolving a venv's Python symlink bypasses pyvenv.cfg and its dependencies.
+        self.python = Path(os.environ.get("CVDP_PYTHON", "external/cvdp-venv/bin/python")).absolute()
 
     def validate_benchmark(self, tasks, metadata):
         if metadata.get("synthetic"):
@@ -36,11 +59,23 @@ class CVDPEvaluator:
         dataset = scoring / "submission.jsonl"
         dataset.write_text(json.dumps(row)+"\n")
         prefix = scoring / "work"
+        network = "agent-opt-cvdp-" + uuid.uuid4().hex
+        # Official code can interpolate OPENAI_USER_KEY into a generated script.
+        # Binary OSS evaluation needs no model credentials, including dotenv ones.
+        environment = {k: v for k, v in os.environ.items() if k in {
+            "PATH", "HOME", "TMPDIR", "DOCKER_HOST", "DOCKER_CONTEXT", "DOCKER_CONFIG",
+            "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH", "SSL_CERT_FILE", "SSL_CERT_DIR",
+            "OSS_SIM_IMAGE", "DOCKER_DEFAULT_PLATFORM",
+        }}
+        environment["OPENAI_USER_KEY"] = ""
         # Golden mode here means evaluate the supplied output.context; it contains
         # candidate RTL, never a golden/reference solution.
-        result = run_process([str(self.python), str(self.repo / "run_benchmark.py"),
-                              "-f", str(dataset), "-i", row["id"], "-p", str(prefix)],
-                             self.repo, scoring / "logs", timeout_seconds)
+        try:
+            result = run_process([str(self.python), str(self.repo / "run_benchmark.py"),
+                                  "--network-name", network, "-f", str(dataset), "-i", row["id"], "-p", str(prefix)],
+                                 self.repo, scoring / "logs", timeout_seconds, env=environment)
+        finally:
+            cleanup_network(network, scoring / "logs")
         artifact = prefix / "raw_result.json"
         if result.status == "timeout":
             return Evaluation("timeout", {"passed": 0.0}, "CVDP evaluation timed out")
@@ -53,7 +88,8 @@ class CVDPEvaluator:
                 raise ValueError("Missing test status")
             # Conservative setup-error classification; do not expose private test logs.
             errors = " ".join(str(t.get("error_msg", "")) for t in tests).lower()
-            if any(term in errors for term in ["cannot connect to the docker", "no such image", "permission denied", "command not found", "no such file or directory"]):
+            if (any(t["result"] in {125, 126, 127} for t in tests) or
+                    any(term in errors for term in ["cannot connect to the docker", "no such image", "permission denied", "command not found", "no such file or directory", "failed to execute objective harness"])):
                 return Evaluation("infrastructure_error", {"passed": None}, "CVDP environment failure; inspect private evaluator logs")
             passed = all(t["result"] == 0 for t in tests)
             return Evaluation("passed" if passed else "failed", {"passed": float(passed)},

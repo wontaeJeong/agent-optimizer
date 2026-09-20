@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "compatible/{env:MODEL_ID}",
+  "small_model": "compatible/{env:MODEL_ID}",
+  "enabled_providers": ["compatible"],
+  "provider": {
+    "compatible": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "OpenAI-compatible endpoint",
+      "options": {
+        "baseURL": "{env:MODEL_BASE_URL}",
+        "apiKey": "{env:MODEL_API_KEY}"
+      },
+      "models": {"{env:MODEL_ID}": {"name": "Configured model"}}
+    }
+  },
+  "autoupdate": false,
+  "share": "disabled"
+}

@@ -3,6 +3,6 @@ adapter = "ace_opencode"
 model_env = "AGENT_OPT_MODEL"
 [runtime]
 kind = "docker"
-image = "agent-optimizer-opencode:local"
+image = "agent-optimizer-opencode:1.18.31-amd64"
 network = "bridge"
-env_passthrough = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "NVIDIA_API_KEY"]
+env_passthrough = ["OPENROUTER_API_KEY", "AGENT_OPT_MODEL"]

@@ -16,7 +16,8 @@ def row():
     return {"id": "demo", "categories": ["cid003", "easy"],
             "input": {"prompt": "Implement public spec", "context": {}},
             "output": {"response": "SECRET", "context": {"rtl/dut.sv": "SECRET"}},
-            "harness": {"files": {"Dockerfile": "FROM __OSS_SIM_IMAGE__\n", "src/test.py": "PRIVATE_TEST"}}}
+            "harness": {"files": {"Dockerfile": "FROM __OSS_SIM_IMAGE__\n", "src/test.py": "PRIVATE_TEST",
+                                  "docker-compose.yml": "services:\n  direct:\n    build: .\n"}}}
 
 class SourceTests(unittest.TestCase):
     def test_git_source_pinned_and_original_untouched(self):
@@ -73,11 +74,11 @@ class CVDPTests(unittest.TestCase):
             root = Path(d); out = root / "evaluation"; (out / "rtl").mkdir(parents=True)
             (out / "rtl/dut.sv").write_text("module dut; endmodule")
             task = Task(**prepare.convert([row()])[0][0])
-            def execute(argv, cwd, logs, timeout):
+            def execute(argv, cwd, logs, timeout, env=None):
                 prefix = Path(argv[-1]); prefix.mkdir(parents=True)
                 (prefix / "raw_result.json").write_text(json.dumps({"demo": {"tests": []}}))
                 return ExecutionResult("completed", 0, 0.1, "out", "err")
-            with patch.object(cvdp, "run_process", side_effect=execute):
+            with patch.object(cvdp, "run_process", side_effect=execute), patch.object(cvdp, "cleanup_network"):
                 result = cvdp.CVDPEvaluator().evaluate(task, out, 10)
             self.assertEqual(result.status, "infrastructure_error")
             self.assertIsNone(result.metrics["passed"])
@@ -89,13 +90,13 @@ class CVDPTests(unittest.TestCase):
             (out / "rtl/dut.sv").write_text("CANDIDATE_RTL")
             (out / "success.json").write_text('{"passed":true}')
             task = Task(**prepare.convert([row()])[0][0])
-            def execute(argv, cwd, logs, timeout):
+            def execute(argv, cwd, logs, timeout, env=None):
                 submission = json.loads(Path(argv[argv.index("-f")+1]).read_text())
                 self.assertEqual(submission["output"]["context"]["rtl/dut.sv"], "CANDIDATE_RTL")
                 prefix = Path(argv[-1]); prefix.mkdir(parents=True)
                 (prefix / "raw_result.json").write_text(json.dumps({"demo": {"tests": [{"result": 0}, {"result": 1}]}}))
                 return ExecutionResult("completed", 0, 0.1, "out", "err")
-            with patch.object(cvdp, "run_process", side_effect=execute):
+            with patch.object(cvdp, "run_process", side_effect=execute), patch.object(cvdp, "cleanup_network"):
                 result = cvdp.CVDPEvaluator().evaluate(task, out, 10)
             self.assertEqual(result.status, "failed")
             self.assertEqual(result.metrics["passed"], 0)
