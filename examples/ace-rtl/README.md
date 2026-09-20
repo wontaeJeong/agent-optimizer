@@ -21,15 +21,15 @@ setup은 uv로 프로젝트 `.venv`와 별도 `external/cvdp-venv`를 Python 3.1
 호스트에 simulator나 Python 패키지를 전역 설치하지 않습니다.
 
 ```bash
-python3 scripts/dev.py setup                    # 기본 linux/amd64
+python3 scripts/dev.py setup                    # Docker daemon의 native 플랫폼 선택/기록
 python3 scripts/dev.py smoke                    # 모델 키 없이 실제 도구/평가 확인
 python3 scripts/dev.py setup --offline          # 검증된 소스/데이터/이미지/uv cache 재사용
-# ARM Mac에서 명시적으로 선택할 수 있는 별도 플랫폼:
+# 명시적 플랫폼을 선택하는 경우 이후 명령에도 같은 값을 사용:
 python3 scripts/dev.py setup --platform linux/arm64
 python3 scripts/dev.py smoke --platform linux/arm64
 # shell에 OPENROUTER_API_KEY와 사용 가능한 명시적 무료 모델을 설정한 뒤:
 export AGENT_OPT_MODEL=openrouter/vendor/model:free
-python3 scripts/dev.py live --platform linux/arm64
+python3 scripts/dev.py live                     # 키가 없으면 blocked_auth
 ```
 
 setup은 고정 버전 CVDP의 공식 Dockerfile.sim을 변경 없이 빌드하고 OpenCode 1.18.31 이미지를 별도로 만듭니다.
@@ -39,6 +39,9 @@ Icarus, Verilator, Yosys를 호스트에 각각 설치할 필요가 없습니다
 `external/environment-lock.json`, 실제 setup 로그와 doctor 결과는 `external/setup-logs/`에 남깁니다.
 `doctor`는 이미지 존재 검사뿐 아니라 도구와 OpenCode를 실행합니다. `--offline`은
 cache 누락/hash 불일치/이미지 ID 변경 시 실패하며 네트워크로 자동 보완하지 않습니다.
+`--platform` 생략 시 호스트 CPU나 환경변수의 추정값 대신 Docker daemon의 OS/architecture를
+조회합니다. 지원 범위는 `linux/amd64`, `linux/arm64`이며 명시적 override를 존중합니다.
+빌드 실패 시 플랫폼을 바꾸는 자동 fallback은 없습니다. 주 대상인 Ubuntu x86_64는 별도 검증이 필요합니다.
 
 `live`는 키가 없으면 `blocked_auth`, 무료 모델 형식이 아니면 `blocked_model`로 중단합니다.
 실제 provider 오류도 실패로 남기며 유료 모델이나 합성 평가로 대체하지 않습니다.
