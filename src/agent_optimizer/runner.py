@@ -16,6 +16,7 @@ from agent_optimizer.contracts import (
 )
 from agent_optimizer.objectives import aggregate, select
 from agent_optimizer.process import execute
+from agent_optimizer.registry import plugin_files
 from agent_optimizer.workspace import CandidateStore, collect_outputs, copy_tree, safe_path
 from agent_optimizer.results import EventStore, write_json
 from agent_optimizer.sources import materialize_agent
@@ -255,6 +256,7 @@ class GroupRunner:
 
 
 def preflight(spec, registry):
+    plugin_files(spec["_root"], spec.get("plugins", {}), spec.get("plugin_dependencies", {}))
     registry.load_plugins(spec["_root"], spec.get("plugins", {}))
     for profile in spec["_profiles"]:
         registry.resolve("harnesses", profile["adapter"])
@@ -290,8 +292,9 @@ def run_experiment(spec, registry, output: Path | None = None):
     group = None
     try:
         manifest["plugin_sha256"] = {
-            ref: hashlib.sha256(safe_path(spec["_root"], ref.rsplit(":", 1)[0]).read_bytes()).hexdigest()
-            for entries in spec.get("plugins", {}).values() for ref in entries.values()}
+            ref: hashlib.sha256(file.read_bytes()).hexdigest()
+            for ref, file in plugin_files(spec["_root"], spec.get("plugins", {}),
+                                          spec.get("plugin_dependencies", {})).items()}
         manifest["benchmark_sha256"] = hashlib.sha256(
             safe_path(spec["_root"], spec["benchmark"]).read_bytes()).hexdigest()
         write_json(root / "manifest.json", manifest)

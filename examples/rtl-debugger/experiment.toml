@@ -8,6 +8,8 @@ evaluator = "iverilog"
 final_test = true
 [plugins.evaluators]
 iverilog = "examples/rtl-debugger/evaluator.py:create"
+[plugin_dependencies]
+"evaluators/iverilog" = ["examples/rtl-debugger/iverilog.py"]
 [evaluation_runtime]
 kind = "docker"
 image = "nvidia/cvdp-sim:v1.0.0"

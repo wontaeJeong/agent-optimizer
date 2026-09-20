@@ -141,7 +141,8 @@ def load_experiment(path: Path) -> dict:
     data = read_toml(path)
     only_keys(data, {"schema_version", "name", "project_root", "agents", "harnesses", "benchmark",
                     "evaluator", "evaluation_runtime", "objective", "budget", "stages",
-                    "repetitions", "seed", "final_test", "final_stages", "output_dir", "plugins"}, "experiment")
+                    "repetitions", "seed", "final_test", "final_stages", "output_dir", "plugins",
+                    "plugin_dependencies"}, "experiment")
     if data.get("schema_version") != 1:
         raise ConfigurationError("Unsupported experiment schema_version")
     identifier(data["name"])
