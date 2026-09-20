@@ -28,8 +28,16 @@ OPENCODE_VERSION = "1.18.31"
 
 
 def validate_platform(platform):
+    if platform is None:
+        try:
+            platform = subprocess.check_output(
+                ["docker", "version", "--format", "{{.Server.Os}}/{{.Server.Arch}}"],
+                text=True, stderr=subprocess.PIPE, timeout=15,
+            ).strip()
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+            raise UnavailableError("Cannot detect Docker daemon native platform") from exc
     if platform not in {"linux/amd64", "linux/arm64"}:
-        raise ConfigurationError("Supported platforms: linux/amd64 or linux/arm64")
+        raise ConfigurationError(f"Unsupported platform {platform!r}; supported: linux/amd64 or linux/arm64")
     return platform
 
 
@@ -138,8 +146,8 @@ def doctor(external, platform, eval_image, agent_image):
     return {"ready": all(c["returncode"] == 0 for c in checks.values()), "platform": platform, "checks": checks}
 
 
-def prepare_environment(*, offline=False, platform="linux/amd64"):
-    validate_platform(platform)
+def prepare_environment(*, offline=False, platform=None):
+    platform = validate_platform(platform)
     external = ROOT / "external"
     logs = external / "setup-logs"
     logs.mkdir(parents=True, exist_ok=True)
@@ -193,7 +201,7 @@ def main():
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--offline", action="store_true")
-    parser.add_argument("--platform", default="linux/amd64")
+    parser.add_argument("--platform", help="Default: Docker daemon native linux/amd64 or linux/arm64")
     args = parser.parse_args()
     prepare_environment(offline=args.offline, platform=args.platform)
 

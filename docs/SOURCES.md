@@ -86,6 +86,9 @@ The [pinned installer](https://github.com/anomalyco/opencode/blob/v1.18.31/packa
 was inspected when diagnosing the amd64 image build failure. No source SHA was updated.
 Context7 `/astral-sh/uv` documents the isolated `sync --frozen --python 3.12`, `venv`,
 `pip install --python`, and global `--offline` flags used by setup.
+Controller follow-up used Context7 `/docker/cli` for `docker version --format` server templates;
+actual `{{.Server.Os}}/{{.Server.Arch}}` returned `linux/arm64`. This daemon-native selection now
+replaces the original fixed-amd64 default; explicit overrides remain supported without post-failure fallback.
 
 1. 변경 대상의 고정 출처와 로컬 소비 파일을 위 표에서 찾는다. ACE SHA 두 곳은 함께 대조한다.
 2. upstream diff에서 경로·CLI·입출력·채점·의존성 변화를 확인한다. 문서 정리를 이유로 자동 최신화하지 않는다.

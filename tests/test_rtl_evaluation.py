@@ -227,6 +227,17 @@ class RTLContractTests(unittest.TestCase):
                     IcarusVerilog().run(self.root, {**self.config, **change}, 10)
                 run.assert_not_called()
 
+    def test_write_system_task_is_rejected_before_synthesis(self):
+        # No initial block or string literal: the system-task restriction itself is mandatory.
+        source = CORRECT.replace("assign y=a^b;", "always @* begin $write(1); end")
+        (self.root / "dut.sv").write_text(source)
+        with patch("example_iverilog.execute") as run:
+            result = IcarusVerilog().run(self.root, self.config, 10)
+        self.assertEqual(result.status, "failed")
+        self.assertEqual(result.metrics["passed"], 0.0)
+        self.assertIn("Unsupported", result.feedback)
+        run.assert_not_called()
+
     def test_combinational_sensitivity_lists_are_not_treated_as_attributes(self):
         for sensitivity in ("@*", "@(*)", "@ ( * )"):
             with self.subTest(sensitivity=sensitivity):
@@ -310,8 +321,9 @@ endmodule
             self.assertEqual(result.status, "timeout", result)
             self.assertIn("simulation_log", result.artifacts)
 
-    def test_yosys_display_is_synthesis_output_not_simulation_behavior(self):
-        # Characterize the actual synthesis boundary, bypassing the toy input policy.
+    def test_unfiltered_netlist_marker_cannot_override_private_failure(self):
+        # Deliberately bypass the mandatory production input policy. Yosys versions may
+        # preserve $display as $write: synthesis alone is not an arbitrary-RTL sanitizer.
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             source = WRONG.replace("endmodule", 'initial $display("TEST_PASS"); endmodule')
@@ -321,14 +333,16 @@ endmodule
                              root, root / "synthesis_logs", 10, {"kind": "local"})
             self.assertEqual(result.returncode, 0, Path(result.stderr_path).read_text())
             self.assertIn("TEST_PASS", Path(result.stdout_path).read_text())
-            self.assertNotIn("$display", (root / "netlist.v").read_text())
+            self.assertTrue((root / "netlist.v").read_text().strip())
             (root / "tb.sv").write_text(TB)
             compiled = execute(["iverilog", "-g2012", "-s", "tb", "-o", "sim.out", "netlist.v", "tb.sv"],
                                root, root / "compile_logs", 10, {"kind": "local"})
             self.assertEqual(compiled.returncode, 0)
             simulated = execute(["vvp", "sim.out"], root, root / "simulation_logs", 10, {"kind": "local"})
+            self.assertEqual(simulated.status, "process_error")
             self.assertNotEqual(simulated.returncode, 0)
-            self.assertNotIn("TEST_PASS", Path(simulated.stdout_path).read_text())
+            # A printed marker, if preserved, cannot supersede private vector failure.
+            self.assertIn("Mismatch", Path(simulated.stdout_path).read_text())
 
     def test_yosys_rejects_candidate_finish(self):
         with tempfile.TemporaryDirectory() as temp:

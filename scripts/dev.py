@@ -24,14 +24,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["setup", "doctor", "smoke", "live"])
     parser.add_argument("--offline", action="store_true", help="setup: reuse verified cached assets")
-    parser.add_argument("--platform", default="linux/amd64")
+    parser.add_argument("--platform", help="Default: Docker daemon native linux/amd64 or linux/arm64")
     args = parser.parse_args()
     os.chdir(ROOT)
     setup = load("ace_environment", "examples/ace-rtl/environment/setup.py")
     try:
-        setup.validate_platform(args.platform)
         if args.command == "live":
             setup.validate_live()  # Before image probes, data reads, or any model execution.
+        args.platform = setup.validate_platform(args.platform)
         if args.command == "setup":
             dataset, lock = setup.prepare_environment(offline=args.offline, platform=args.platform)
             prepare = load("ace_prepare", "examples/ace-rtl/prepare.py")

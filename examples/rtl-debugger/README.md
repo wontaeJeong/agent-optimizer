@@ -35,12 +35,15 @@ OpenCode 프로필은 기본 CLI 에이전트를 사용합니다. 예제 Agent o
   phase별 stdout/stderr와 생성 netlist는 trial 옆에 보존하고 `Evaluation.artifacts`로 참조합니다.
 
 **범위:** 작은 합성 가능 RTL용 예제이며 임의 Verilog 보안 sandbox가 아닙니다.
-입력 정책은 system task/function(`$finish`, `$display`, `$readmemh`, `$clog2` 등),
+입력 정책은 system task/function(`$finish`, `$display`, `$write`, `$readmemh`, `$clog2` 등),
 preprocessor/include, `#` 지연/parameter override, 문자열, escaped identifier, attribute,
 `initial`/`final`/`specify`/`force`/`release`/assertion 및 `translate_off/on`을 명시적으로 거부합니다.
 일반 `assign`, `always @*`/`always @(*)` 등의 나머지 RTL은 Yosys의 지원 범위와 합성 검사에 따릅니다.
 이 정책은 일부 정상 RTL도 제외합니다. 언어 전체의 구문/보안 검증기는 아니며, local 실행은 OS 파일 접근
 격리를 제공하지 않습니다. Yosys/Icarus 자체의 취약점이나 모든 RTL 의미 보존을 보장하지 않습니다.
+**입력 제한은 필수입니다.** 실제 Yosys 0.40은 제한을 우회한 `$display`를 netlist의 `$write`로
+보존합니다. 합성만으로 임의 RTL의 시뮬레이션 부작용이 제거되지는 않습니다. 출력 marker가
+있어도 private testbench mismatch와 vvp 비정상 종료는 실패입니다.
 
 ## 회귀 검증
 
@@ -50,9 +53,11 @@ PYTHONPATH=src:tests python3 -m unittest test_rtl_evaluation test_adapters -v
 
 실도구 테스트는 **yosys·iverilog·vvp가 모두 PATH에 있을 때** 실행합니다. 올바른 DUT/오답,
 후보의 `TEST_PASS`+`$finish`, 실제 private testbench timeout, 모든 예제 task의 정답/오답을 검사합니다.
-추가 characterization 테스트는 직접 Yosys를 실행해 `$display`의 합성 로그와 생성 netlist를 구분하고
+추가 characterization 테스트는 입력 제한을 우회한 netlist가 marker를 출력하더라도
+private mismatch/비정상 종료가 유지됨을 확인하고,
 `$finish`의 실제 거부 동작을 확인합니다. Mock 계약 테스트만으로 이 도구 동작을 입증하지 않습니다.
 
-Task 4 개발 호스트(macOS arm64)에는 세 도구가 없어 실도구 테스트는 skip입니다.
-공식 CVDP 이미지의 도구 버전에서 이 테스트를 실제 실행하는 검증과 전체 환경 구성은 Task 5에 남습니다.
+Task 4 개발 호스트(macOS arm64)에는 세 도구가 없어 호스트 실도구 테스트는 skip입니다.
+Task 5에서 공식 CVDP ARM64 이미지로 실제 도구 테스트 9개 및 host-Docker 정답/오답/조기 종료
+검사를 모두 통과했습니다. 정확한 명령과 결과는 [검증 기록](../../docs/verification.md)을 확인하세요.
 Ubuntu x86_64 및 실제 OpenCode/모델 통합 결과는 아직 없습니다.

@@ -147,6 +147,42 @@ class OfficialImportTests(unittest.TestCase):
 
 
 class EnvironmentChecks(unittest.TestCase):
+    def test_omitted_platform_uses_daemon_native_platform_not_environment_default(self):
+        for native in ("linux/arm64", "linux/amd64"):
+            with self.subTest(native=native), patch.dict(os.environ, {"DOCKER_DEFAULT_PLATFORM": "linux/unsupported"}):
+                with patch.object(setup.subprocess, "check_output", return_value=native + "\n"):
+                    self.assertEqual(setup.validate_platform(None), native)
+
+    def test_explicit_platform_is_honored_without_native_detection(self):
+        with patch.object(setup.subprocess, "check_output", side_effect=AssertionError("unexpected detection")):
+            self.assertEqual(setup.validate_platform("linux/amd64"), "linux/amd64")
+            self.assertEqual(setup.validate_platform("linux/arm64"), "linux/arm64")
+
+    def test_unsupported_native_architecture_errors_without_substitution(self):
+        with patch.object(setup.subprocess, "check_output", return_value="linux/riscv64\n"):
+            with self.assertRaisesRegex(ConfigurationError, "linux/riscv64"):
+                setup.validate_platform(None)
+
+    def test_unavailable_daemon_cannot_select_a_guessed_platform(self):
+        with patch.object(setup.subprocess, "check_output", side_effect=subprocess.CalledProcessError(1, ["docker", "version"])):
+            with self.assertRaises(UnavailableError):
+                setup.validate_platform(None)
+
+    def test_failed_explicit_build_never_retries_another_architecture(self):
+        builds = []
+        def run(argv, *args, **kwargs):
+            if argv[:2] == ["docker", "build"]:
+                builds.append(argv[argv.index("--platform") + 1])
+                raise UnavailableError("build failed")
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            with patch.object(setup, "ROOT", root), patch.object(setup, "run", side_effect=run), \
+                    patch.object(setup, "prepare_sources"), \
+                    patch.object(setup, "prepare_data", return_value=(root / "dataset", {})):
+                with self.assertRaisesRegex(UnavailableError, "build failed"):
+                    setup.prepare_environment(platform="linux/amd64")
+        self.assertEqual(builds, ["linux/amd64"])
+
     def test_setup_missing_executable_is_named_unavailable(self):
         with tempfile.TemporaryDirectory() as d, patch.object(setup.subprocess, "run", side_effect=FileNotFoundError("missing uv")):
             with self.assertRaises(UnavailableError):

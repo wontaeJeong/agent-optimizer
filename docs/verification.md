@@ -80,7 +80,7 @@ Pareto `keep` 거부와 invalid/partial 선택 제외를 확인했다. Ctrl-C는
 summary의 `synthetic=true` 확인. rtl-solo baseline/선택 validation 0/1, test 0/1, 5 trial;
 rtl-team validation 1/1, test 1, 4 trial. 합성 연결 검증이며 실제 Agent 성능 향상 근거가 아니다.
 
-## 2026-09-20 Task 5 실제 환경 검증 — 전체 smoke는 차단 상태
+## 2026-09-20 Task 5 초기 환경 검증 — 아래 후속 결정으로 차단 해소
 
 환경: Mac arm64, Colima Docker Engine 29.2.1 (`linux/arm64`), Compose 5.1.3,
 uv 0.10.7, isolated host Python 3.12.12. **Ubuntu x86_64 실행 결과가 아니다.**
@@ -108,7 +108,7 @@ uv 0.10.7, isolated host Python 3.12.12. **Ubuntu x86_64 실행 결과가 아니
 - 최종 실제 smoke: `runs/dev-smoke-a4ad10789069/`; 독립 재현 netlist:
   `runs/task5-independent-runtime-venv-fixed/characterization/netlist.v`.
 
-### Controller 결정이 필요한 T4 차이
+### 초기 T4 차이와 결정 요청 (후속 결정으로 해소)
 
 `test_yosys_display_is_synthesis_output_not_simulation_behavior`가 실패했다.
 Yosys는 입력 `initial $display("TEST_PASS")`를 netlist의 `initial $write("TEST_PASS\n")`로
@@ -122,3 +122,25 @@ T4 테스트/정책을 임의로 완화하지 않았다. Controller가 character
 실패시키는 문제를 RED/GREEN 테스트로 수정했다. 공식 driver는 subjective model 생성 문구를
 로그에 출력하지만, 검토한 `cid003` + Compose 경로는 `repo.obj()`만 실행한다. Driver에
 모델 자격증명을 전달하지 않는다. 공식 pytest의 cache 경로 권한 warning은 현재 남아 있다.
+
+## 2026-09-20 Task 5 후속 결정 적용 — 실제 smoke 통과
+
+실제 print 보존을 허용하면서 **private mismatch + nonzero exit는 실패**임을 확인하도록
+characterization을 수정했다. Production 입력 거부/scorer는 변경하지 않았고 `$write` 전용
+입력 정책 회귀를 추가했다. 합성만으로 임의 RTL을 정화한다는 가정은 사용하지 않는다.
+
+`--platform` 생략 시 `docker version --format '{{.Server.Os}}/{{.Server.Arch}}'`로 daemon native를
+빌드 전에 선택한다. 명시적 override는 유지하고, 미지원 architecture/daemon 조회 실패는 오류이며
+실패한 빌드를 다른 architecture로 자동 재시도하지 않는다. 이번 native 선택은 `linux/arm64`다.
+
+| 실제 명령 | 결과 |
+|---|---|
+| `python3 scripts/dev.py setup --offline` | exit 0 / ready, `linux/arm64` 기록, 기존 검증된 이미지/데이터 재사용 |
+| `python3 scripts/dev.py smoke` | **exit 0 / passed**: 실제 도구 9/9, skip 0; host-Docker 정답/오답/조기 종료 1/0/0; 공식 CVDP 정답/기능 오답 1/0, 양쪽 raw tests 비어 있지 않음 |
+| `python3 scripts/dev.py live` | exit 2 / blocked_auth, OPENROUTER_API_KEY 부재, 실제 모델 호출 없음 |
+| `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v` | 134개: **125 통과, 호스트 도구 미설치 skip 9**, 실패 0 (3.637초) |
+| `.venv/bin/python -m ruff check src tests scripts examples`, `git diff --check` | 통과 |
+
+최신 실제 smoke 산출물: `runs/dev-smoke-70aff9715455/`. 이미지 ID와 데이터 SHA는 앞서 기록한 값과
+동일하다. 이전 실패 로그도 보존한다. 이 결과는 Mac Docker ARM64이며 주 대상 **Ubuntu x86_64 및
+실제 무료 모델 inference는 아직 미검증**이다. integration dependency lock과 나머지 minor review는 T6 범위다.
