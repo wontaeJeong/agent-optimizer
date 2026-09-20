@@ -10,6 +10,9 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = []
 
+[project.optional-dependencies]
+dev = ["build==1.2.2.post1", "ruff==0.11.13"]
+
 [project.scripts]
 agent-opt = "agent_optimizer.cli:main"
 
@@ -19,3 +22,7 @@ where = ["src"]
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+
+[tool.ruff.lint]
+# MVP: syntax errors and definite name/control-flow errors, without style churn.
+select = ["E9", "F63", "F7", "F82"]
