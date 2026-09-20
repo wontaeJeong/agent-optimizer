@@ -14,6 +14,7 @@ from urllib.parse import urlsplit
 from agent_optimizer.contracts import AgentSpec, ConfigurationError, SourceSpec, UnavailableError
 from agent_optimizer.workspace import digest, safe_path
 from agent_optimizer.results import write_json
+from agent_optimizer.network import host_environment
 
 
 IGNORED_PARTS = {".git", ".venv", "__pycache__", ".pytest_cache", ".vscode", ".idea"}
@@ -64,7 +65,7 @@ def _git(cwd: Path, args: list[str], deadline: float, env: dict | None = None) -
         raise UnavailableError("Agent source resolution timed out")
     try:
         result = subprocess.run(["git", "-c", "core.hooksPath=/dev/null", *args], cwd=cwd,
-                                env={**os.environ, "GIT_TERMINAL_PROMPT": "0", **(env or {})},
+                                env=host_environment({**os.environ, "GIT_TERMINAL_PROMPT": "0", **(env or {})}),
                                 capture_output=True, timeout=remaining, check=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise UnavailableError(f"Git source command failed: {type(exc).__name__}") from exc

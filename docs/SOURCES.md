@@ -122,6 +122,21 @@ Context7 `/astral-sh/uv`에서 universal compile, Python target, sync, offline �
 `scripts/dev.py`가 이 tag를 공식 driver에 전달한다. `evaluator.py`는 owned prefix에서 검증한
 private log의 Docker 오류를 환경 실패로 분류한다. upstream SHA/파일 변경은 없다.
 
+## 선택적 네트워크 설정 출처 (2026-09-21)
+
+- Context7 `/docker/docs`: [proxy build args](https://docs.docker.com/engine/cli/proxy/),
+  [named contexts](https://docs.docker.com/build/building/context/#named-contexts),
+  [Compose environment](https://docs.docker.com/reference/compose-file/services/#environment).
+  `network.py`의 이름 기반 proxy 전달·CA 전용 context와 `network_driver.py`의 null 환경 참조 근거.
+- Context7 `/astral-sh/uv`: `SSL_CERT_FILE`은 PEM bundle이며 기본 trust를 대체한다.
+  `network.py`는 전체 번들을 명시적으로 요구하고 TLS 검증을 해제하지 않는다.
+- [OpenCode network](https://opencode.ai/docs/network/): HTTP_PROXY/HTTPS_PROXY/NO_PROXY,
+  NODE_EXTRA_CA_CERTS 지원 및 localhost 우회 지침. `network.py`와 `docs/network.md`에서 사용.
+  문서는 가변 출처이며 이번 실제 확인은 1.18.31 설치/버전·이미지 설정까지다.
+- 위 고정 CVDP `Dockerfile.sim`과 `src/repository.py`를 재열람했다. Dockerfile의 첫 apt 뒤
+  Git/curl/uv 설치와, driver가 private harness Compose를 복원하여 `compose run`으로 실행하는 경로에
+  적용한다. upstream SHA·도구 버전·채점 코드는 변경하지 않았다.
+
 ## 버전 변경 절차
 
 1. 변경 대상의 고정 출처와 로컬 소비 파일을 위 표에서 찾는다. ACE SHA 두 곳은 함께 대조한다.

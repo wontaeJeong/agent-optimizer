@@ -19,6 +19,9 @@
 
 Python 3.11+ / Linux 기준, 프로젝트 루트에서 실행합니다.
 
+프록시·추가 CA가 필요한 환경은 먼저 [선택적 네트워크 설정](docs/network.md)을 적용하세요.
+설정하지 않으면 기존 직접 연결 방식을 사용합니다.
+
 ```bash
 uv sync --frozen
 uv run agent-opt run examples/minimal/experiment.toml

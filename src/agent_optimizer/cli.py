@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -13,6 +14,7 @@ from agent_optimizer.contracts import ConfigurationError, UnavailableError, json
 from agent_optimizer.objectives import select
 from agent_optimizer.runner import preflight, run_experiment
 from agent_optimizer.registry import Registry
+from agent_optimizer.network import network_environment
 
 
 def show(value):
@@ -55,6 +57,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     registry = Registry()
     try:
+        os.environ.update(network_environment())
         if args.command == "plugins":
             show(registry.describe())
         elif args.command == "doctor":

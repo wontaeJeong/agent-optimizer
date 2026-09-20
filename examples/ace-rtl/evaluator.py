@@ -8,6 +8,7 @@ from pathlib import Path
 from agent_optimizer.contracts import ConfigurationError, Evaluation, UnavailableError
 from agent_optimizer.process import run_process
 from agent_optimizer.workspace import safe_path
+from agent_optimizer.network import network_environment
 
 
 def cleanup_network(network, logs):
@@ -68,10 +69,16 @@ class CVDPEvaluator:
             "OSS_SIM_IMAGE", "DOCKER_DEFAULT_PLATFORM",
         }}
         environment["OPENAI_USER_KEY"] = ""
+        network_settings = network_environment()
+        environment.update(network_settings)
+        driver = [str(self.python)]
+        if network_settings:
+            driver.append(str(Path(__file__).parent / "environment/network_driver.py"))
+        driver.append(str(self.repo / "run_benchmark.py"))
         # Golden mode here means evaluate the supplied output.context; it contains
         # candidate RTL, never a golden/reference solution.
         try:
-            result = run_process([str(self.python), str(self.repo / "run_benchmark.py"),
+            result = run_process([*driver,
                                   "--network-name", network, "-f", str(dataset), "-i", row["id"], "-p", str(prefix)],
                                  self.repo, scoring / "logs", timeout_seconds, env=environment)
         finally:

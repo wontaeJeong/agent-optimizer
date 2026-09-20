@@ -5,10 +5,12 @@ import os
 import re
 import subprocess
 import tempfile
+import ssl
 import urllib.request
 from pathlib import Path
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.results import write_json
+from agent_optimizer.network import host_environment, configured_build, ca_bundle, ca_fingerprint
 ROOT = Path(__file__).resolve().parents[3]
 REPOS = {
     "ACE-RTL": ("https://github.com/NVlabs/ACE-RTL.git", "fead921f18bb57345b5a41ef93ba625be208e99c"),
@@ -69,7 +71,9 @@ def fetch_asset(url, destination, expected_sha256, *, offline=False):
         with tempfile.NamedTemporaryFile(dir=destination.parent, delete=False) as stream:
             temporary = Path(stream.name)
             digest = hashlib.sha256()
-            with urllib.request.urlopen(url, timeout=120) as response:
+            bundle = ca_bundle()
+            tls = {"context": ssl.create_default_context(cafile=str(bundle))} if bundle else {}
+            with urllib.request.urlopen(url, timeout=120, **tls) as response:
                 while chunk := response.read(1024 * 1024):
                     digest.update(chunk)
                     stream.write(chunk)
@@ -93,7 +97,12 @@ def prepare_data(external, *, offline=False):
     return cache / DATA_FILE, {"revision": DATA_REVISION, "files": locks}
 
 def run(args, cwd=ROOT, log=None):
-    environment = {**os.environ, "UV_PROJECT_ENVIRONMENT": str(ROOT / ".venv")}
+    environment = host_environment({**os.environ, "UV_PROJECT_ENVIRONMENT": str(ROOT / ".venv")})
+    with configured_build(args, cwd, environment) as command:
+        _run(command, cwd, log, environment)
+
+
+def _run(args, cwd, log, environment):
     try:
         if log is None:
             subprocess.run(args, cwd=cwd, check=True, shell=False, env=environment)
@@ -212,6 +221,11 @@ def doctor(external, platform, eval_image, agent_image):
 def prepare_environment(*, offline=False, platform=None):
     platform = validate_platform(platform)
     external = ROOT / "external"
+    fingerprint = ca_fingerprint()
+    previous_path = external / "environment-lock.json"
+    previous = json.loads(previous_path.read_text()) if previous_path.exists() else {}
+    if offline and previous.get("ca_bundle_sha256") != fingerprint:
+        raise ConfigurationError("CA bundle differs from prepared images; rerun online setup")
     venv = external / "cvdp-venv"
     if venv.exists():
         validate_driver_python(venv / "bin/python")
@@ -221,8 +235,6 @@ def prepare_environment(*, offline=False, platform=None):
     run([*uv, "sync", "--frozen", "--python", "3.12", "--extra", "dev"], log=logs / "project-uv.log")
     prepare_sources(external, offline=offline)
     requirements = driver_requirements(external)
-    previous_path = external / "environment-lock.json"
-    previous = json.loads(previous_path.read_text()) if previous_path.exists() else {}
     if offline:
         validate_driver_lock(external, previous)
     dataset, data_lock = prepare_data(external, offline=offline)
@@ -259,7 +271,7 @@ def prepare_environment(*, offline=False, platform=None):
     if not capability["ready"]:
         raise UnavailableError(f"Environment doctor failed; see {logs / 'doctor.json'}")
     freeze = driver_packages(external)
-    lock = {"repos": REPOS, "dataset": data_lock, "platform": platform,
+    lock = {"repos": REPOS, "dataset": data_lock, "platform": platform, "ca_bundle_sha256": fingerprint,
             "images": image_locks, "opencode_version": OPENCODE_VERSION, "driver_packages": freeze,
             "driver_requirements": requirements, "doctor": capability}
     write_json(previous_path, lock)

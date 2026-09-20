@@ -11,6 +11,8 @@ final_stages = ["baseline", "brief-guidance"]
 ace_opencode = "examples/ace-rtl/adapter.py:ACEOpenCode"
 [plugins.evaluators]
 cvdp = "examples/ace-rtl/evaluator.py:CVDPEvaluator"
+[plugin_dependencies]
+"evaluators/cvdp" = ["examples/ace-rtl/environment/network_driver.py"]
 [budget]
 max_trials = 4
 max_wall_time_seconds = 2400
