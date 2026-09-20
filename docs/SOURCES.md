@@ -54,6 +54,39 @@
 
 ## 버전 변경 절차
 
+### Task 5 pinned data / provider inspection (2026-09-20)
+
+`examples/ace-rtl/environment/setup.py` downloads exactly three files from HF dataset revision
+`5b807d945f6a99aa645f7e43a64a2115e281b4bf`. Expected SHA-256 values were obtained **after**
+checking downloaded bytes against the independent Git blob OIDs in the
+[fixed-revision HF tree metadata](https://huggingface.co/api/datasets/nvidia/cvdp-benchmark-dataset/tree/5b807d945f6a99aa645f7e43a64a2115e281b4bf?recursive=false).
+For these non-LFS files, the metadata hash is SHA-1 of `blob <byte-size>\0<content>`.
+Cache acceptance subsequently uses the recorded SHA-256, not a newly observed download hash.
+
+| File | Trusted Git blob OID | Verified SHA-256 |
+|---|---|---|
+| `cvdp_v1.1.0_nonagentic_code_generation_no_commercial.jsonl` | `53ffadb3c7159b192692a9e23f8fc1dbc262feda` | `cbcd81295561ebb16e4d857e096f4d9908d042c33aff3b58abf236e868411857` |
+| `LICENSE` | `1dcd8913d705dd3a13df25520f6220be8a333a86` | `cedcd612607018ad841d87d7f1c877630778a50c71692610fe76acdc22700719` |
+| `NOTICE` | `74a3fc2c3ec54b780888f86ec72b705dfd444fcf` | `3d8753e57eab52910ccb61a1ee09113c43e9382ccd98d5860b5621aff8d932dd` |
+
+Inspected all 302 row metadata records (78 `cid003`), actual QAM16 rows, and the pinned CVDP
+LFSR reference/checker. All 302 rows have output target keys with reference contents removed;
+250 rows have no Dockerfile and use a Compose image directly. `prepare.py` supports that reviewed
+shape and literal source metadata, while recording exclusion reasons for unsupported categories/images/paths.
+The fixed CVDP `run_benchmark.py`, `src/dataset_processor.py`, `src/repository.py`, and
+`src/network_util.py` establish candidate `output.context` evaluation in golden mode, raw result
+paths, `OSS_SIM_IMAGE`, and the `--network-name` CLI. This inspection is distinct from runtime verification.
+
+OpenCode `v1.18.31` tag resolves to `014614d35b397775e5d397a490fc72368c894ec2`.
+Context7 `/anomalyco/opencode` provider docs and the
+[pinned provider implementation](https://github.com/anomalyco/opencode/blob/v1.18.31/packages/opencode/src/provider/provider.ts)
+were checked for OpenRouter and bundled `@ai-sdk/openai-compatible` support.
+The example configs use documented `{env:VAR}` substitution and `model`/`small_model`.
+The [pinned installer](https://github.com/anomalyco/opencode/blob/v1.18.31/packages/opencode/script/postinstall.mjs)
+was inspected when diagnosing the amd64 image build failure. No source SHA was updated.
+Context7 `/astral-sh/uv` documents the isolated `sync --frozen --python 3.12`, `venv`,
+`pip install --python`, and global `--offline` flags used by setup.
+
 1. 변경 대상의 고정 출처와 로컬 소비 파일을 위 표에서 찾는다. ACE SHA 두 곳은 함께 대조한다.
 2. upstream diff에서 경로·CLI·입출력·채점·의존성 변화를 확인한다. 문서 정리를 이유로 자동 최신화하지 않는다.
 3. 소스 SHA와 데이터 hash, OpenCode 버전, 이미지 ID/digest, 모델·예산을 기록한다.

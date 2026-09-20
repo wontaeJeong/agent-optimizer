@@ -1,0 +1,15 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "{env:AGENT_OPT_MODEL}",
+  "small_model": "{env:AGENT_OPT_MODEL}",
+  "enabled_providers": ["openrouter"],
+  "provider": {
+    "openrouter": {"options": {"apiKey": "{env:OPENROUTER_API_KEY}"}}
+  },
+  "autoupdate": false,
+  "share": "disabled",
+  "permission": {
+    "read": "allow", "edit": "allow", "bash": "allow",
+    "task": "deny", "question": "deny", "external_directory": "deny"
+  }
+}

@@ -1,5 +1,10 @@
 # 구현·검증 상태 (v0.3.0)
 
+**Task 5 환경 검증 추가:** Mac Docker ARM64에서 고정 공식 OSS/OpenCode 이미지를 빌드하고
+host-Docker toy 및 공식 CVDP 정답·오답 평가를 실행했다. T4 실제 도구 gate는 8/9 통과로
+전체 smoke는 차단 상태이며, live는 인증 부재로 미실행이다. 아래 기존 기준표의 실환경 미검증
+항목은 이 추가 범위에 한해 [최신 검증 기록](verification.md#2026-09-20-task-5-실제-환경-검증--전체-smoke는-차단-상태)을 우선한다.
+
 2026-09-20에 기준 commit `aeb732c0f1c138a568903c971baa17bfaa6b55e4`의 코드를 재확인했다.
 이번 변경은 문서 보완이다. 요구사항은 [CONTEXT.md](CONTEXT.md), 외부 판단 근거는
 [SOURCES.md](SOURCES.md), 실행 명령·환경·과거 기록은 [verification.md](verification.md)를 따른다.

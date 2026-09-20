@@ -9,5 +9,11 @@ setup에서 공식 repo를 내려받으며 각 프로젝트의 LICENSE/데이터
 - CVDP: https://github.com/NVlabs/cvdp_benchmark/tree/8e894cf74414ab1eaea1e2b4e80a02f123df07b6
 - CVDP Dockerfile: https://github.com/NVlabs/cvdp_benchmark/blob/8e894cf74414ab1eaea1e2b4e80a02f123df07b6/docker/Dockerfile.sim
 - OpenCode CLI: https://opencode.ai/docs/cli/
+- CVDP dataset/license/notice: https://huggingface.co/datasets/nvidia/cvdp-benchmark-dataset/tree/5b807d945f6a99aa645f7e43a64a2115e281b4bf
+
+고정 데이터의 LICENSE는 non-code에 CC BY 4.0, original code에 Apache-2.0을 기재하며
+NOTICE에 개별 파생 소스의 별도 조건을 기록합니다. `no_commercial`은 상용 EDA 의존성 구분이며
+데이터 전체에 대한 단일 라이선스 선언이 아닙니다. setup은 LICENSE/NOTICE를 원본 그대로
+`external/cvdp-data/<revision>/`에 보존합니다. 과제 변환은 정답을 제거하고 평가 입력을 분리합니다.
 
 알고리즘 폴더명은 담당 영역이며 해당 연구의 공식 구현이나 결과를 재현했다는 의미가 아닙니다.
