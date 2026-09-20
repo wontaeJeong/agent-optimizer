@@ -100,6 +100,20 @@ class PluginContractTests(unittest.TestCase):
                 with self.assertRaises(ConfigurationError):
                     preflight(self.spec, Registry())
 
+    def test_malformed_plugin_inventory_has_configuration_diagnostic_before_loading(self):
+        for plugins, diagnostic in (
+            ([], "plugins must be a mapping"),
+            ({"unknown": {}}, "Unknown plugin kind"),
+            ({"unknown": 1}, "Unknown plugin kind"),
+            ({"evaluators": 1}, "plugins.evaluators must be a mapping"),
+            ({"evaluators": {"demo": 1}}, "file.py:Symbol"),
+            ({"evaluators": {"demo": "missing_symbol"}}, "file.py:Symbol"),
+        ):
+            with self.subTest(plugins=plugins):
+                self.spec["plugins"] = plugins
+                with self.assertRaisesRegex(ConfigurationError, diagnostic):
+                    preflight(self.spec, Registry())
+
     def test_invalid_dependency_is_rejected_before_plugin_code_executes(self):
         plugin = self.root / "examples/minimal/optimizer.py"
         plugin.write_text('raise AssertionError("plugin executed before dependency validation")\n')

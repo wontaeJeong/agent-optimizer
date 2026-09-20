@@ -31,6 +31,7 @@ my_evaluator = "experiments/my-team/evaluator.py:Evaluator"
 키는 같은 experiment의 `[plugins.<kind>]`에 등록된 `kind/name`이어야 합니다.
 미등록 이름(내장/설치 entry point만 존재하는 이름 포함), 문자열 목록이 아닌 값,
 누락 파일·디렉터리·절대 경로·경로 이탈·symlink는 플러그인 코드 로딩 전 preflight에서 거부합니다.
+알 수 없는 plugin kind, 매핑이 아닌 section, 잘못된 `file.py:Symbol` 참조도 설정 오류로 진단합니다.
 선언을 생략한 기존 파일 등록도 그대로 유효합니다.
 
 manifest의 `plugin_sha256`은 직접 등록 파일을 기존 `file.py:Symbol` 키로,
@@ -110,6 +111,8 @@ OpenCode 이외 CLI도 command wrapper로 먼저 연결한 후 필요한 trace p
 Meta-Harness 연결 후보를 위한 텍스트 변경·train 피드백·사용량·checkpoint 지점을 설명하며,
 알고리즘을 공급하기 전 `optimize`는 `UnavailableError`를 냅니다. template의 `plan` 성공은
 등록 검사만 뜻합니다. 실제 실행 가능한 계약 예제는 기존 `file_variants`입니다.
+`tests/test_plugin_contracts.py`는 train 피드백/이력, 사용량 보존, 원본 보존과 runner의 validation/test
+소유권을 실제 최소 데모로 검사합니다. 상세 알고리즘과 upstream API 대응은 팀 담당자가 구현합니다.
 
 `optimize(context, seeds, config) -> OptimizationResult`.
 - `context.propose(parent, {"relative/file": "new content"}, producer)`로 후보 생성.

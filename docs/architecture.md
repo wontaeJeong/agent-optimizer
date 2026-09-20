@@ -37,6 +37,17 @@ manifest에 실험 설정, Agent resolved commit/content hash, 모델 환경변�
 seed는 요청 메타데이터이며 모든 LLM backend의 결정성을 보장하지 않는다.
 외부 환경 lock은 예제 setup에서 기록하고 과제 준비 시 metadata에 포함한다.
 
+`scripts/dev.py`는 예제-local setup/checks를 연결한다. CVDP host driver만 별도 Python 3.12
+환경에서 committed `requirements-cvdp-py312.txt`로 `uv pip sync`한다. 입력 upstream requirements
+hash와 compiled lock hash를 확인/기록하며 offline setup 및 doctor/smoke/live 진입은 준비된 lock과
+설치 목록이 달라지면 실패한다. offline은 패키지나 이미지를 네트워크로 보완하지 않는다.
+공식 Dockerfile 내부 OS/도구 설치는 이 Python lock의 범위 밖이며 이미지 ID와 실제 도구 버전을 별도로 기록한다.
+
+작은 RTL evaluator는 제한된 DUT 입력만 Yosys에 주고 성공 후 별도 디렉터리에서 생성 netlist와
+private testbench를 Icarus로 검사한다. `$display`가 `$write`로 보존되는 실제 Yosys 동작 때문에
+**합성만으로 임의 RTL을 정화한다고 가정하지 않는다.** 입력 정책의 system task 등 거부와
+private 검사 완료(marker 한 줄 + 정상 종료)가 모두 필요하다. 이는 ACE/CVDP 공식 checker를 바꾸지 않는다.
+
 ## 실행 종료와 부분 결과
 
 `summary.json`의 상태는 `completed`, `no_eligible_candidate`, `budget_exhausted`,

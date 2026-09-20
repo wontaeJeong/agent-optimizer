@@ -1,6 +1,6 @@
 # MVP 신뢰성 보강과 재현 가능한 개발 환경
 
-작성일: 2026-09-20. 상태: 사용자 승인, 구현 진행.
+작성일: 2026-09-20. 상태: 사용자 승인, Task 1–6 구현 및 로컬 통합 검증. Ubuntu/live 검증은 남음.
 
 ## 1. 목표와 접근
 
@@ -45,6 +45,11 @@ GEPA/Ecdysis 등도 같은 계약으로 연결한다. 이름 등록이나 모의
 | 외부 Agent 설정 제거 | 개인 설정의 기본 제외는 유지하되 명시적으로 선택한 대상 Agent 실행 자산을 포함할 수 있게 한다. 인증 파일·환경 비밀은 제외한다. | 기본 제외, 명시 포함, 인증 파일 제외 |
 | Pareto keep 무시 | Pareto는 전체 frontier를 반환한다. 명시적 keep 조합은 거부하고 문서화한다. 다른 모드의 keep 동작은 유지한다. | 모드별 설정 검증·선택 결과 |
 
+RTL 경계의 실제 도구 확인 결과: Yosys 0.40은 제한을 우회한 `$display`를 netlist의 `$write`로
+보존할 수 있다. 합성 자체가 시뮬레이션 제어 코드를 모두 제거한다는 주장은 사용하지 않는다.
+제한된 입력 정책(system task, initial/final 등 거부)은 필수이며 private mismatch/nonzero exit는
+marker가 있어도 실패해야 한다. 이 결정을 실제 도구 characterization과 production 거부 테스트로 검증한다.
+
 trial 상태와 split 집계 유효성은 분리한다. 환경 오류·지원 불가·전역 예산 중단을
 정상 성능 결과로 만들지 않는다. 누락 사용량은 null/미보고 상태를 유지한다.
 출력 경계 위반도 trial의 식별 가능한 오류로 기록한다.
@@ -64,10 +69,15 @@ runner가 validation 선택과 final test를 소유하며 알고리즘끼리 직
 ## 5. Docker와 모델 실행 환경
 
 주 검증 대상은 Ubuntu Linux x86_64이며 Mac Docker에서도 같은 준비/실행 명령을 제공한다.
+`--platform` 생략 시 Docker daemon의 native `linux/amd64` 또는 `linux/arm64`를 빌드 전에 선택한다.
+명시적 override는 유지하고 미지원 플랫폼/조회 실패/빌드 실패 후 다른 아키텍처로 자동 대체하지 않는다.
 이미지 platform과 실제 실행 아키텍처를 기록한다. ARM64 호스트에서 amd64 실행이 필요하면
 에뮬레이션 요구와 성능 차이를 명시하고 실제 smoke로 확인한다.
 
 - Python 실행 환경·개발 의존성은 잠금 파일과 명시한 Python 버전으로 준비한다.
+  코어는 `uv.lock`, CVDP Python 3.12 host driver는 고정 upstream requirements를 변경 없이
+  universal uv-compiled 전이 의존성 lock으로 만든다. 예제-local lock으로 설치/offline 확인하고
+  lock hash를 기록한다. 공식 Dockerfile 내부 패키지의 완전한 hermetic build까지 의미하지 않는다.
 - Agent/OpenCode 이미지와 공식 OSS CVDP 평가 이미지를 분리한다.
 - Docker를 호출하는 신뢰한 호스트 준비/평가 프로세스와 Agent 컨테이너를 구분한다.
   Agent에 Docker socket이나 비공개 평가 파일을 전달하지 않는다.
@@ -107,16 +117,19 @@ LICENSE/NOTICE와 문제별 의존성을 보존하며 상용 EDA 어댑터는 �
 6. 무료 API 인증이 제공되면 OpenCode → 과제 산출물 → CVDP 한 문제를 실행.
    인증/무료 모델 용량 부족이면 정확한 차단 원인을 기록하며 실행 성공으로 표시하지 않는다.
 7. CI는 코어와 결정적인 로컬/Docker 검증을 담당한다. 외부 모델 호출은 명시적 통합 실행으로 구분한다.
+   Python 3.11/3.12 코어 CI는 native Ubuntu Yosys/Icarus를 사용하고, 공식 Docker 평가는 기존
+   `ci.yml`의 `workflow_dispatch` boolean 입력으로 분리한다. PR CI에서 live/model은 호출하지 않는다.
 8. Mac Docker와 Ubuntu x86_64의 실제 검증 결과를 구분한다. 한 환경의 성공으로 다른 환경의 검증을 대체하지 않는다.
 
 README에는 시작 명령과 한 문제 실행을, architecture에는 책임·오류·데이터 경계를,
 adding-components에는 팀원 계약을, SOURCES에는 고정 출처를 반영한다.
 status/verification/NEXT_STEPS는 실제 실행 결과와 남은 팀원 작업에 맞춰 갱신한다.
 
-## 8. 현재 기준과 설계 검토
+## 8. 설계 승인 당시 기준
 
 - 작업 기준: origin/main `12d9caf`.
 - 작업공간: `.worktrees/mvp-hardening`, 브랜치 `feat/mvp-hardening`.
 - 기준 테스트: Python 3.14.5에서 32개 중 31개 통과, Icarus 미설치로 1개 생략.
-- 현재 문서는 구현·Docker/CVDP 통합 성공 기록이 아니다.
-- 설계 승인 후 구현 계획을 작성하고 회귀 테스트부터 진행한다.
+- 당시 이 문서는 구현·Docker/CVDP 통합 성공 기록이 아니었다.
+- 승인 후 회귀 테스트부터 구현했다. 실제 완료/차단 결과와 8개 발견 사항의 coverage audit는
+  [verification.md](../../verification.md#2026-09-20-task-6-cihandoffintegration)를 따른다.

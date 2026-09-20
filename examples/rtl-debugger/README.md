@@ -48,6 +48,7 @@ unset하고 무료 모델/auth 환경을 다시 선택하세요. 설정은 새 �
   Icarus는 명시한 testbench top을 컴파일하고 vvp로 실행합니다. 각 Docker 실행은 해당 phase
   디렉터리 하나만 마운트합니다. 후보가 제출한 testbench·netlist·실행 파일은 소비하지 않습니다.
 - vvp의 정상 종료와 stdout의 **완전한 한 줄** `pass_marker`가 모두 있어야 통과합니다.
+  marker 설정 자체에 CR/LF 등 줄 구분자를 넣으면 실행 전에 설정 오류입니다.
   합성/컴파일 로그의 `TEST_PASS`나 문자열 일부 일치는 통과 근거가 아닙니다.
   하나의 wall-time deadline을 파일 준비·합성·컴파일·시뮬레이션이 공유합니다.
 - 도구/이미지 실행 불가와 합성 성공 후 netlist 누락은 `infrastructure_error`, `passed=null`입니다.
@@ -81,3 +82,5 @@ Task 4 개발 호스트(macOS arm64)에는 세 도구가 없어 호스트 실도
 Task 5에서 공식 CVDP ARM64 이미지로 실제 도구 테스트 9개 및 host-Docker 정답/오답/조기 종료
 검사를 모두 통과했습니다. 정확한 명령과 결과는 [검증 기록](../../docs/verification.md)을 확인하세요.
 Ubuntu x86_64 및 실제 OpenCode/모델 통합 결과는 아직 없습니다.
+코어 CI는 Ubuntu native Yosys/Icarus를 설치하고 세 실행 파일을 필수 확인하여 이 9개 검사를
+전체 suite에서 실행합니다. 공식 이미지 기반 검사는 수동 `official_cvdp` job으로 구분합니다.

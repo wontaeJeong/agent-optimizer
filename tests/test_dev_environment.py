@@ -209,6 +209,7 @@ class EnvironmentChecks(unittest.TestCase):
             root = Path(d)
             with patch.object(setup, "ROOT", root), patch.object(setup, "run", side_effect=run), \
                     patch.object(setup, "validate_driver_python"), \
+                    patch.object(setup, "driver_requirements", return_value={}), \
                     patch.object(setup, "prepare_sources"), \
                     patch.object(setup, "prepare_data", return_value=(root / "dataset", {})):
                 with self.assertRaisesRegex(UnavailableError, "build failed"):
@@ -256,6 +257,79 @@ class EnvironmentChecks(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             with self.assertRaises(UnavailableError):
                 setup.prepare_sources(Path(d), offline=True)
+
+
+class DriverLockTests(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.external = self.root / "external"
+        self.requirements = self.external / "cvdp_benchmark/requirements.txt"
+        self.requirements.parent.mkdir(parents=True)
+        self.requirements.write_text("pyyaml==6.0.2\n")
+        self.lockfile = self.root / "examples/ace-rtl/environment/requirements-cvdp-py312.txt"
+        self.lockfile.parent.mkdir(parents=True)
+        self.lockfile.write_text("pyyaml==6.0.2\n")
+        self.expected = {
+            "path": "examples/ace-rtl/environment/requirements-cvdp-py312.txt",
+            "sha256": hashlib.sha256(b"pyyaml==6.0.2\n").hexdigest(),
+            "upstream_sha256": hashlib.sha256(b"pyyaml==6.0.2\n").hexdigest(),
+            "python": "3.12",
+        }
+        self.addCleanup(patch.stopall)
+        patch.object(setup, "ROOT", self.root).start()
+        patch.object(setup, "REQUIREMENTS_SHA256", self.expected["upstream_sha256"], create=True).start()
+
+    def test_changed_upstream_requirements_cannot_use_stale_compiled_lock(self):
+        self.assertTrue(hasattr(setup, "driver_requirements"), "driver lock validation missing")
+        self.assertEqual(setup.driver_requirements(self.external), self.expected)
+        self.requirements.write_text("pyyaml==0.0.0\n")
+        with self.assertRaisesRegex(ConfigurationError, "requirements.*hash"):
+            setup.driver_requirements(self.external)
+        self.assertEqual(self.requirements.read_text(), "pyyaml==0.0.0\n")
+
+    def test_offline_check_rejects_changed_lock_or_installed_packages(self):
+        self.assertTrue(hasattr(setup, "validate_driver_lock"), "offline driver check missing")
+        lock = {"driver_requirements": self.expected, "driver_packages": "PyYAML==6.0.2\n"}
+        with patch.object(setup.subprocess, "check_output", return_value="PyYAML==6.0.2\n"):
+            setup.validate_driver_lock(self.external, lock)
+            self.lockfile.write_text("pyyaml==0.0.0\n")
+            with self.assertRaisesRegex(ConfigurationError, "lock.*differs"):
+                setup.validate_driver_lock(self.external, lock)
+        self.lockfile.write_text("pyyaml==6.0.2\n")
+        with patch.object(setup.subprocess, "check_output", return_value="PyYAML==0.0.0\n"):
+            with self.assertRaisesRegex(ConfigurationError, "packages.*differ"):
+                setup.validate_driver_lock(self.external, lock)
+
+    def test_online_and_offline_setup_sync_only_compiled_lock_and_record_hash(self):
+        images = {
+            "evaluation": {"tag": "agent-optimizer-cvdp:8e894cf-arm64", "id": "sha256:eval"},
+            "agent": {"tag": f"agent-optimizer-opencode:{setup.OPENCODE_VERSION}-arm64", "id": "sha256:agent"},
+        }
+        (self.external / "cvdp-venv").mkdir()
+        def output(argv, **kwargs):
+            if argv[:3] == ["docker", "image", "inspect"]:
+                identity = next(image["id"] for image in images.values() if image["tag"] == argv[-1])
+                return json.dumps([{"Os": "linux", "Architecture": "arm64", "Id": identity}])
+            return "PyYAML==6.0.2\n"
+        for offline in (False, True):
+            with self.subTest(offline=offline):
+                commands = []
+                with patch.object(setup, "validate_driver_python"), \
+                        patch.object(setup, "prepare_sources"), \
+                        patch.object(setup, "prepare_data", return_value=(self.external / "data", {})), \
+                        patch.object(setup, "doctor", return_value={"ready": True}), \
+                        patch.object(setup, "run", side_effect=lambda argv, *a, **kw: commands.append(argv)), \
+                        patch.object(setup.subprocess, "check_output", side_effect=output):
+                    _, lock = setup.prepare_environment(offline=offline, platform="linux/arm64")
+                installs = [cmd for cmd in commands if "pip" in cmd]
+                self.assertEqual(installs, [["uv", *(["--offline"] if offline else []), "pip", "sync",
+                                            "--python", str(self.external / "cvdp-venv/bin/python"),
+                                            str(self.lockfile)]])
+                self.assertEqual(lock.get("driver_requirements"), self.expected)
+                recorded = json.loads((self.external / "environment-lock.json").read_text())
+                self.assertEqual(recorded["driver_requirements"], self.expected)
 
 
 class EvaluatorRuntimeTests(unittest.TestCase):

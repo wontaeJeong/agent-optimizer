@@ -39,7 +39,7 @@ class IcarusVerilog:
         if config["design_top"] == config["top"]:
             raise ConfigurationError("DUT and private testbench tops must differ")
         marker = config.get("pass_marker", "TEST_PASS")
-        if not isinstance(marker, str) or not marker.strip() or len(marker.splitlines()) != 1:
+        if not isinstance(marker, str) or not marker.strip() or marker.splitlines() != [marker]:
             raise ConfigurationError("pass_marker must be a nonempty single line")
 
     def run(self, workspace: Path, config: dict, timeout_seconds: float) -> Evaluation:

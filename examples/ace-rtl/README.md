@@ -23,6 +23,12 @@ setup은 uv로 프로젝트 `.venv`와 별도 `external/cvdp-venv`를 Python 3.1
 Python 3.12가 아니면 환경을 보존한 채 중단합니다. 필요한 파일을 보관하고 해당 환경 디렉터리를
 직접 다른 위치로 옮긴 뒤 setup을 다시 실행하면 uv가 Python 3.12 환경을 생성합니다.
 
+driver 의존성은 [requirements-cvdp-py312.txt](environment/requirements-cvdp-py312.txt)의
+universal uv-compiled 전이 pin으로 `uv pip sync`합니다. 고정 upstream requirements는 변경하지 않으며
+입력 hash를 검증합니다. compiled lock hash와 실제 설치 목록은 환경 lock에 저장합니다.
+offline setup 및 doctor/smoke/live는 lock/설치 목록 drift를 거부하므로 예전 환경은 한 번 online setup을
+실행하세요. Python lock은 공식 이미지 내부의 OS/도구 패키지까지 고정하지 않습니다.
+
 ```bash
 python3 scripts/dev.py setup                    # Docker daemon의 native 플랫폼 선택/기록
 python3 scripts/dev.py smoke                    # 모델 키 없이 실제 도구/평가 확인
@@ -76,6 +82,8 @@ private `src/.env`의 literal `VERILOG_SOURCES=/code/rtl/...`에서만 추출합
 toy RTL 정답/오답/조기 종료, 공식 LFSR 정답/오답 제출을 확인합니다.
 정답은 고정 CVDP repo의 reviewed reference를 trusted evaluator에서만 사용합니다.
 공식 성공 판정에는 비어 있지 않은 raw tests가 필요합니다. 산출물은 `runs/dev-smoke-*/`에 남습니다.
+공식 checker의 pytest cache-permission warning(`/rundir/harness/.cache`)과 cocotb deprecation은
+현재 비치명적이다. 정답/기능 오답 모두 실제 검사 결과를 확인했고 upstream checker/Compose는 수정하지 않았다.
 
 실제 test 결과가 있는 raw_result.json만 파싱합니다. 알려진 환경 실패는 `passed=null`로 반환하며,
 코어는 해당 후보·split 집계 전체를 무효화합니다. 정상 trial만으로 성공률을 재계산하는 방식이 아닙니다.
@@ -99,6 +107,7 @@ runs를 Git에 추가하지 마세요.
 과제 공개/비공개 분리와 공식 결과 형식 처리는 오프라인 테스트합니다.
 플랫폼별 실제 실행 결과와 차단 사유는 [검증 기록](../../docs/verification.md)을 확인하세요.
 source/evaluator 버전이 바뀌면 한 문제로 입출력과 보고서 형식을 먼저 검증하세요.
+수동 공식 CI는 [기존 ci.yml 입력](../../CONTRIBUTING.md#ci와-pr-병합)으로 같은 public 명령을 실행합니다.
 
 외부 CVDP 프로세스 종료 시 해당 trial의 고유 network에 연결된 컨테이너만 정리합니다.
 정리 결과는 private evaluator의 `logs/cleanup.json`에 남습니다. 자동 resume은 지원하지 않습니다.
