@@ -3,6 +3,17 @@
 범용 Agent 최적화 실험용 Python CLI입니다. **ACE-RTL은 데모 대상이며 제품 코어가 아닙니다.**
 다른 팀 Agent의 repo·실행 방식·평가 방법·수정 허용 범위를 연결해 같은 실험 흐름을 사용합니다.
 실제 Agent는 별도 repo, 작은 개발용 Agent는 `examples/`에 포함합니다.
+대상에 따라 실행·평가 어댑터 개발이 필요하며, 모든 Agent를 설정만으로 자동 지원하지는 않습니다.
+
+## 후속 개발자 읽기 순서
+
+1. [배경·확정 요구사항·설계 결정](docs/CONTEXT.md)
+2. [구조와 실행 흐름](docs/architecture.md) → [공통 계약·확장 방법](docs/adding-components.md)
+3. [외부 출처·고정 버전](docs/SOURCES.md) → [현재 구현 상태](docs/status.md) → [검증 기록](docs/verification.md)
+4. [다음 작업과 완료 기준](docs/NEXT_STEPS.md), [개발 규칙](AGENTS.md), [팀 담당 영역](CONTRIBUTING.md)
+
+도메인 코드는 `examples/`에 두고, 슬롯·미검증 통합을 완료로 표현하지 않습니다.
+외부 기술 판단은 고정 출처와 실제 설정을 대조하며 문서 정리를 이유로 upstream 버전을 자동 갱신하지 않습니다.
 
 ## 3분 시작: API·Docker 없는 최소 데모
 
