@@ -1,7 +1,6 @@
 from pathlib import Path
 
 from agent_optimizer.contracts import ConfigurationError, Task
-from agent_optimizer.workspace import safe_path
 
 
 class SimulationEvaluator:
@@ -12,13 +11,10 @@ class SimulationEvaluator:
         for task in tasks:
             if task.required_simulator and task.required_simulator != self.simulator.id:
                 raise ConfigurationError(f"Task {task.id} requires {task.required_simulator}")
+            self.simulator.validate_config(task.evaluation)
 
     def evaluate(self, task: Task, output_dir: Path, timeout_seconds: float):
-        # Private verification files enter a separate workspace AFTER the agent exits.
-        for relative, content in task.evaluation.get("private_files", {}).items():
-            dest = safe_path(output_dir, relative)
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text(content, encoding="utf-8")
+        # The simulator prepares DUT-only synthesis before materializing private files.
         return self.simulator.run(output_dir, task.evaluation, timeout_seconds)
 
 
