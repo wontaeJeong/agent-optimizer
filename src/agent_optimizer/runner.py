@@ -16,7 +16,7 @@ from agent_optimizer.contracts import (
 )
 from agent_optimizer.objectives import aggregate, select
 from agent_optimizer.process import execute
-from agent_optimizer.workspace import CandidateStore, collect_outputs, copy_tree, digest, safe_path
+from agent_optimizer.workspace import CandidateStore, collect_outputs, copy_tree, safe_path
 from agent_optimizer.results import EventStore, write_json
 from agent_optimizer.sources import materialize_agent
 
@@ -78,11 +78,7 @@ class GroupRunner:
         self.records, self.optimizer_usage, self.cache = [], [], {}
 
     def verify_candidate(self, candidate):
-        if candidate.agent_id != self.agent.id or not candidate.path.resolve().is_relative_to(
-                self.candidates.root.resolve()):
-            raise ConfigurationError("Candidate belongs to another agent/group")
-        if digest(candidate.path) != candidate.content_hash:
-            raise ConfigurationError("Candidate snapshot was mutated; create a new candidate")
+        self.candidates.verify(candidate)
 
     def trial(self, candidate, task, repeat):
         timeout = self.budget.reserve()
@@ -122,6 +118,7 @@ class GroupRunner:
                 evaluation = Evaluation("timeout", {"passed": 0.0}, "Per-trial timeout exhausted")
             else:
                 eval_dir = trial / "evaluation_workspace"
+                safe_path(trial, task_dir.relative_to(trial).as_posix())
                 collect_outputs(task_dir, eval_dir)
                 evaluation = self.evaluator.evaluate(task, eval_dir, remaining)
         else:

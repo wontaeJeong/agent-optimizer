@@ -16,7 +16,10 @@ from agent_optimizer.workspace import digest, safe_path
 from agent_optimizer.results import write_json
 
 
-IGNORED_PARTS = {".git", ".venv", "__pycache__", ".pytest_cache", ".claude", ".codex", ".vscode", ".idea", ".cursor", ".opencode"}
+IGNORED_PARTS = {".git", ".venv", "__pycache__", ".pytest_cache", ".vscode", ".idea"}
+DEVELOPER_PARTS = {".claude", ".codex", ".cursor", ".opencode"}
+CREDENTIAL_FILES = {"auth.json", "auth.jsonc", "credentials", "credentials.json",
+                    ".credentials.json", ".netrc", "_netrc", ".git-credentials"}
 
 
 def validate_source(source: SourceSpec) -> None:
@@ -44,10 +47,15 @@ def validate_source(source: SourceSpec) -> None:
 
 def selected(relative: str, source: SourceSpec) -> bool:
     path = Path(relative)
-    return (not any(part in IGNORED_PARTS for part in path.parts)
-            and path.suffix != ".pyc"
-            and any(fnmatch.fnmatchcase(relative, pat) for pat in source.include)
-            and not any(fnmatch.fnmatchcase(relative, pat) for pat in source.exclude))
+    if (any(part in IGNORED_PARTS or part.startswith(".env") or part in CREDENTIAL_FILES
+            for part in path.parts) or path.suffix == ".pyc"
+            or any(fnmatch.fnmatchcase(relative, pat) for pat in source.exclude)):
+        return False
+    developer_prefixes = ["/".join(path.parts[:index + 1]) + "/"
+                          for index, part in enumerate(path.parts) if part in DEVELOPER_PARTS]
+    return any(fnmatch.fnmatchcase(relative, pattern)
+               and all(pattern.startswith(prefix) for prefix in developer_prefixes)
+               for pattern in source.include)
 
 
 def _git(cwd: Path, args: list[str], deadline: float, env: dict | None = None) -> bytes:
@@ -120,8 +128,7 @@ def materialize_agent(agent: AgentSpec, target: Path) -> tuple[AgentSpec, dict]:
                     continue
                 if time.monotonic() >= deadline:
                     raise UnavailableError("Local source snapshot timed out")
-                if path.is_symlink():
-                    raise ConfigurationError(f"Local source symlinks are not supported: {name}")
+                safe_path(root, name)
                 if path.is_file():
                     out = safe_path(bundle, name)
                     out.parent.mkdir(parents=True, exist_ok=True)
