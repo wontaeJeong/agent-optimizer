@@ -60,7 +60,7 @@ external/ datasets/ runs/ 다운로드·데이터·결과, Git 제외
 - **GEPA / Meta-Harness / Ecdysis는 팀원 구현용 슬롯**입니다. 실제 알고리즘은 포함하지 않았습니다.
   미구현 알고리즘을 실행하면 명시적으로 실패합니다.
 - Claude Code / Codex / OpenAgent는 확장 규약만 제공합니다. 별도 구현 완료로 표시하지 않습니다.
-- Mac Docker ARM64에서 공식 CVDP 정답·오답과 host-Docker toy 평가를 실행했습니다.
+- Mac Docker ARM64와 native Ubuntu x86_64에서 공식 CVDP 정답·오답과 host-Docker toy 평가를 실행했습니다.
   실제 도구 테스트 9개와 전체 smoke가 통과했습니다. 입력 제한은 필수이며 합성만으로 임의 RTL을
   정화하지 않습니다. 실제 모델 실행은 인증 부재로 미검증입니다. [검증 기록](docs/verification.md)
 
@@ -84,8 +84,9 @@ Python 3.12 CVDP driver는 예제의 [전이 의존성 lock](examples/ace-rtl/en
 
 PR CI는 Python 3.11/3.12와 Ubuntu native Yosys/Icarus로 코어·실제 RTL·패키징을 검사합니다.
 공식 Docker 통합은 기존 `ci.yml`의 수동 `official_cvdp` 입력으로 실행합니다. 두 경로 모두 모델 호출은 없습니다.
-`751e99f`의 Ubuntu 코어 CI와 공식 setup/offline/tools는 통과했습니다. 첫 공식 smoke에서 발견된
-이미지 FROM 참조/환경 오류 분류를 수정했으며, 수정 후 native Ubuntu 공식 smoke는 재검증 대기 중입니다.
+`10baa46`의 Ubuntu 코어 CI와 공식 setup/offline/smoke·provider config 검사가 통과했습니다.
+첫 공식 smoke의 FROM 참조 실패와 수정 후 native 정답·오답 근거는
+[최종 재검증 기록](docs/verification.md#2026-09-20-native-ubuntu-repeat--passed)에 보존합니다.
 브랜치 실행 명령과 준비 조건은 [CONTRIBUTING.md](CONTRIBUTING.md#ci와-pr-병합)를 참고하세요.
 
 ## 다른 팀에 적용

@@ -268,7 +268,66 @@ Docker 29.2.1 `linux/arm64`, Compose 5.1.3. 기존 검증된 이미지와 cache�
 `result=0` / `result=1, error_msg=null`; 오답은 cocotb sequence assertion 3개 실패로 0점 유지다.
 기존 pytest cache-permission/cocotb deprecation warning은 남아 있으며 환경 실패로 오분류하지 않는다.
 
-**수정 후 native Ubuntu/BuildKit 공식 smoke는 controller의 push·원격 재실행 대기 중이다.**
+**이 로컬 검증 종료 당시에는 수정 후 native Ubuntu/BuildKit 공식 smoke가 원격 재실행 대기 상태였다.**
 이 로컬 smoke의 build 로그는 legacy `Step 1/2` 형식이며 native Ubuntu fix 검증을 대신하지 않는다.
-본 wave는 모델 inference를 실행하지 않았다. 새 원격 정답/오답 raw 결과를 확인하기 전 native 공식
-통합 완료로 표시하지 않는다.
+본 wave는 모델 inference를 실행하지 않았다. 아래 후속 원격 정답/오답 raw 결과 확인으로
+native 공식 통합 재검증 대기를 해소했다.
+
+## 2026-09-20 Native Ubuntu repeat — passed
+
+검증한 runtime commit: `10baa467906c8ac944a56b340a7025e82dbf1408` (`10baa46`).
+이 절은 완료된 원격 실행과 내려받은 실제 artifact를 대조한 문서 기록이며 테스트·빌드를 새로 실행한 결과가 아니다.
+
+- [PR core run 35515595857](https://github.com/wontaeJeong/agent-optimizer/actions/runs/35515595857):
+  Python 3.11/3.12 모두 **success**. 수동 공식 job은 이 PR run에서는 의도적으로 skipped다.
+- [수동 full run 35515600629](https://github.com/wontaeJeong/agent-optimizer/actions/runs/35515600629):
+  Python 3.11/3.12 및 **Official CVDP Docker 모두 success**.
+  [공식 job 106090901194](https://github.com/wontaeJeong/agent-optimizer/actions/runs/35515600629/job/106090901194)은
+  14:09:12–14:26:29 UTC, **17분 17초**였다.
+- 플랫폼: **Ubuntu 24.04.5 x86_64**, native Docker `linux/amd64` (Mac 에뮬레이션 아님).
+  공식 job은 Docker 28.0.4, Compose 2.38.2, uv 0.10.7, host CVDP driver Python 3.12.14를 사용했다.
+
+### 명령·실제 결과
+
+| 원격 실행 명령 / 검사 | 확인 결과 |
+|---|---|
+| PR 코어 `.venv/bin/python -m unittest discover -s tests -v` | Python 3.11/3.12 각각 **151개: 150 통과·1 optional Docker config skip**. native `RealRTLTests` **9/9** 포함. apt 도구는 Yosys 0.33 (`2584903a060`), Icarus 12.0. |
+| PR lint / minimal / build / 독립 wheel 설치 검사 | 모두 통과. 최소 데모 **9 trial**(합성 연결 검증), sdist/wheel 생성 및 source tree 밖 설치 CLI 검사 성공. |
+| `python3 scripts/dev.py setup` | 성공. 공식 OSS/OpenCode 이미지 준비, source/data/driver lock 및 실제 도구 doctor 확인. |
+| `python3 scripts/dev.py setup --offline` | 성공. 준비한 환경 재사용 검사 통과. |
+| `python3 scripts/dev.py smoke` | **passed**, `runs/dev-smoke-b8b127226b34/`. 공식 이미지 실도구 **9/9, skip 0** (1.833초); host-Docker 정답/오답/조기 종료 **1/0/0**; 공식 LFSR 정답/기능 오답 **1/0**. |
+| lock의 Agent image ID 및 `linux/amd64`를 환경으로 지정한 `PYTHONPATH=src:tests .venv/bin/python -m unittest test_adapters.DockerEnvironmentTests -v` | **1/1 통과** (3.156초). 실제 OpenCode 기본 OpenRouter 설정·명시 compatible override·빈 env 보존 확인. inference 없음. |
+
+### 내려받아 확인한 판정·환경 증거
+
+[artifact `official-cvdp-35515600629`](https://github.com/wontaeJeong/agent-optimizer/actions/runs/35515600629/artifacts/10607246174)의
+`external/`과 `runs/`를 확인했다. 로컬 사본은 Git 제외 경로
+`.superpowers/sdd/2026-09-20-mvp-hardening/ubuntu-ci-35515600629/`에 있다.
+
+- `external/environment-lock.json`, `external/setup-logs/doctor.json`: `linux/amd64`, ready=true.
+  공식 이미지 도구는 **Yosys 0.40 (`a1bb0255d`), Icarus/vvp 13.0 (`v13_0-dirty`), Verilator 5.038**,
+  별도 Agent 이미지는 **OpenCode 1.18.31**. 실제 CVDP 로그의 cocotb는 **2.0.1**이다.
+- 평가 이미지 `agent-optimizer-cvdp:8e894cf-amd64`:
+  `sha256:5973392d727b6a03f29f0f03be5aeb53dc628adb07934d39fa1955f9d0834294`.
+  Agent 이미지 `agent-optimizer-opencode:1.18.31-amd64`:
+  `sha256:3e1a56d217cb9f7c78bfee5cf39b9745610f84aa637e7817ad6f8f9a43291323`.
+- Python driver lock SHA-256 `8de4e036b1fd7c670fc9cca44d7d3f5cac2f31cf320ce96b2593a4db6883d039`,
+  upstream requirements SHA-256 `f79bf21e2e98b96016cf7992afb6a4df4bcfac64d07ff811195d22ddf0af6ad2` 및
+  전이 포함 32개 설치 목록 확인. ACE/CVDP SHA, HF revision·파일 hash는 [기존 고정값](SOURCES.md) 그대로다.
+- `runs/dev-smoke-b8b127226b34/summary.json`은 `status=passed`이며
+  `real-tool-tests/stderr.log`에 실도구 9개 모두 `ok`가 있다.
+  toy 오답은 private simulation 실패, 조기 종료 입력은 지원하지 않는 construct로 먼저 거부됐다.
+- `cvdp-{positive,negative}/cvdp_evaluation/work/raw_result.json`은 각각 **비어 있지 않은 test 1개**,
+  `result=0` / `result=1`, 양쪽 `error_msg=null`이다. evaluator 점수는 각각 passed=1 / passed=0이다.
+  각 `cvdp_copilot_lfsr/reports/1.txt`에서 BuildKit의
+  `FROM docker.io/library/agent-optimizer-cvdp:8e894cf-amd64` 성공과 lock의 평가 image ID를 확인했다.
+  양쪽 모두 실제 Icarus compile/vvp를 실행했다. 정답은 cocotb **3/3 PASS**, 오답은
+  **3/3 sequence assertion FAIL**로, Docker 환경 실패를 HDL 실패로 오채점한 이전 결과와 다르다.
+- `runs/docker-env-regression-a56484403ce3/`의 OpenRouter/compatible stdout과 빈 env stdout을
+  확인했다. 이는 모델 설정 검사이며 endpoint 접속·무료 모델 가용성·inference 증거가 아니다.
+- 기존 pytest cache-permission 및 cocotb deprecation warning은 양쪽 공식 로그에 남아 있다.
+  앞선 Mac amd64 에뮬레이션 실패와 `751e99f`의 첫 Ubuntu 공식 smoke 실패는 위 역사 기록으로 유지한다.
+
+**남은 범위:** API 키는 여전히 없어 live는 `blocked_auth`다. 실제 OpenCode→모델→CVDP end-to-end,
+native ACE runner, 전체 sub-agent 사용량 및 성능 개선은 미검증이다. Meta-Harness/GEPA/Ecdysis는
+팀 구현용 슬롯이며 이번 evaluator-only 통과가 알고리즘 구현·논문 재현·성능 개선을 뜻하지 않는다.
