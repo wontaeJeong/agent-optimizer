@@ -7,7 +7,9 @@ import subprocess
 import tempfile
 import unittest
 import venv
+from contextlib import redirect_stdout
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from agent_optimizer.config import load_experiment
@@ -332,6 +334,67 @@ class DriverLockTests(unittest.TestCase):
                 self.assertEqual(recorded["driver_requirements"], self.expected)
 
 
+class PreparedImageTests(unittest.TestCase):
+    def run_dev(self, command, *, actual_id=None, missing=False, tag="agent-optimizer-cvdp:8e894cf-amd64",
+                architecture="amd64"):
+        dev = module("dev_image_test", ROOT / "scripts/dev.py")
+        identity = "sha256:" + "a" * 64
+        lock = {"platform": "linux/amd64", "images": {
+            "evaluation": {"tag": tag, "id": identity},
+            "agent": {"tag": "agent-optimizer-opencode:test", "id": "sha256:" + "b" * 64},
+        }}
+        observed = []
+        def dispatch(prepared):
+            observed.append((os.environ["OSS_SIM_IMAGE"], os.environ["DOCKER_DEFAULT_PLATFORM"], prepared))
+            return 0
+        def inspect(argv, **kwargs):
+            self.assertEqual(argv, ["docker", "image", "inspect", tag])
+            if missing:
+                raise subprocess.CalledProcessError(1, argv)
+            return json.dumps([{"Id": actual_id or identity, "Os": "linux", "Architecture": architecture}])
+        def doctor(external, platform, eval_image, agent_image):
+            self.assertEqual((eval_image, agent_image), (identity, lock["images"]["agent"]["id"]))
+            return {"ready": True}
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            (root / "external").mkdir()
+            (root / "external/environment-lock.json").write_text(json.dumps(lock))
+            stdout = io.StringIO()
+            with patch.object(dev, "ROOT", root), patch.object(dev.os, "chdir"), \
+                    patch.object(dev, "load", side_effect=[setup, SimpleNamespace(smoke=dispatch, live=dispatch)]), \
+                    patch.object(setup, "prepare_sources"), patch.object(setup, "prepare_data"), \
+                    patch.object(setup, "validate_driver_lock"), patch.object(setup, "doctor", side_effect=doctor), \
+                    patch.object(setup.subprocess, "check_output", side_effect=inspect), \
+                    patch("sys.argv", ["dev.py", command, "--platform", "linux/amd64"]), \
+                    patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-only", "AGENT_OPT_MODEL": "openrouter/vendor/model:free"}), \
+                    redirect_stdout(stdout):
+                code = dev.main()
+        return code, observed, stdout.getvalue()
+
+    def test_smoke_and_live_use_dockerfile_safe_tag_verified_against_locked_id(self):
+        for command in ("smoke", "live"):
+            with self.subTest(command=command):
+                code, observed, _ = self.run_dev(command)
+                self.assertEqual(code, 0)
+                self.assertEqual(observed[0][:2], ("agent-optimizer-cvdp:8e894cf-amd64", "linux/amd64"))
+
+    def test_changed_or_missing_image_blocks_before_smoke_live_or_doctor_success(self):
+        for command in ("smoke", "live", "doctor"):
+            for changes in ({"actual_id": "sha256:" + "c" * 64}, {"missing": True}, {"architecture": "arm64"}):
+                with self.subTest(command=command, changes=changes):
+                    code, observed, stdout = self.run_dev(command, **changes)
+                    self.assertEqual(code, 2)
+                    self.assertEqual(observed, [])
+                    self.assertIn("image", stdout.lower())
+
+    def test_bare_id_or_invalid_tag_in_lock_cannot_enter_dockerfile(self):
+        for tag in ("sha256:" + "a" * 64, "agent-optimizer-cvdp:test\nRUN false", "nvidia/cvdp-sim:latest"):
+            with self.subTest(tag=tag):
+                code, observed, _ = self.run_dev("smoke", tag=tag)
+                self.assertEqual(code, 2)
+                self.assertEqual(observed, [])
+
+
 class EvaluatorRuntimeTests(unittest.TestCase):
     def test_driver_keeps_virtualenv_identity_when_python_is_a_symlink(self):
         with tempfile.TemporaryDirectory() as d:
@@ -371,12 +434,12 @@ class EvaluatorRuntimeTests(unittest.TestCase):
                 prefix.mkdir(parents=True)
                 (prefix / "raw_result.json").write_text(json.dumps({task.id: {"tests": [{"result": 0}]}}))
                 return ExecutionResult("completed", 0, 0.1, "out", "err")
-            with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-only-secret", "OSS_SIM_IMAGE": "sha256:abc", "DOCKER_DEFAULT_PLATFORM": "linux/amd64"}):
+            with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-only-secret", "OSS_SIM_IMAGE": "agent-optimizer-cvdp:8e894cf-amd64", "DOCKER_DEFAULT_PLATFORM": "linux/amd64"}):
                 with patch.object(cvdp, "run_process", side_effect=execute), patch.object(cvdp.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "", "")):
                     result = cvdp.CVDPEvaluator().evaluate(task, output, 10)
             self.assertEqual(result.status, "passed")
             self.assertIsNotNone(observed["env"], "driver inherited host credentials")
-            self.assertEqual(observed["env"]["OSS_SIM_IMAGE"], "sha256:abc")
+            self.assertEqual(observed["env"]["OSS_SIM_IMAGE"], "agent-optimizer-cvdp:8e894cf-amd64")
             self.assertEqual(observed["env"]["DOCKER_DEFAULT_PLATFORM"], "linux/amd64")
             self.assertNotIn("OPENROUTER_API_KEY", observed["env"])
             self.assertIn("--network-name", observed["argv"])
@@ -395,6 +458,105 @@ class EvaluatorRuntimeTests(unittest.TestCase):
             cvdp.cleanup_network("agent-opt-cvdp-test", Path(d))
         self.assertIn(["docker", "rm", "-f", "owned-id"], commands)
         self.assertFalse(any("prune" in cmd for cmd in commands))
+
+
+class PrivateResultLogTests(unittest.TestCase):
+    def evaluate_log(self, contents, *, path_kind="absolute", status=1):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d).resolve()
+            output = root / "output"
+            (output / "rtl").mkdir(parents=True)
+            (output / "rtl/dut.sv").write_text("module dut; endmodule")
+            task = Task(**prepare.convert([official_row()])[0][0])
+            def execute(argv, cwd, logs, timeout, env=None):
+                prefix = Path(argv[-1])
+                report = prefix / "demo/reports/1.txt"
+                report.parent.mkdir(parents=True)
+                report.write_text(contents)
+                outside = root / "outside.txt"
+                outside.write_text(contents)
+                if path_kind == "absolute":
+                    log = str(report)
+                elif path_kind == "relative":
+                    log = "demo/reports/1.txt"
+                elif path_kind == "outside":
+                    log = str(outside)
+                elif path_kind == "traversal":
+                    log = "../../outside.txt"
+                elif path_kind == "absolute-traversal":
+                    log = str(prefix / "../../outside.txt")
+                elif path_kind == "symlink":
+                    report.unlink()
+                    report.symlink_to(outside)
+                    log = str(report)
+                elif path_kind == "directory-symlink":
+                    (prefix / "linked").symlink_to(root, target_is_directory=True)
+                    log = str(prefix / "linked/outside.txt")
+                elif path_kind == "prefix-symlink":
+                    moved = prefix.with_name("moved")
+                    prefix.rename(moved)
+                    prefix.symlink_to(moved, target_is_directory=True)
+                    log = str(report)
+                elif path_kind == "directory":
+                    log = str(report.parent)
+                elif path_kind == "missing":
+                    log = str(report.with_name("missing.txt"))
+                else:
+                    log = None
+                (prefix / "raw_result.json").write_text(json.dumps({task.id: {"tests": [
+                    {"result": status, "log": log, "error_msg": None, "execution": 0.866, "pid": 36711}
+                ], "errors": int(status != 0)}}))
+                return ExecutionResult("completed", 0, 0.1, "out", "err")
+            read_text = Path.read_text
+            def guarded_read(path, *args, **kwargs):
+                self.assertNotEqual(path.resolve(), root / "outside.txt", "unsafe private log was read")
+                return read_text(path, *args, **kwargs)
+            with patch.object(cvdp, "run_process", side_effect=execute), patch.object(cvdp, "cleanup_network"), \
+                    patch.object(Path, "read_text", guarded_read):
+                result = cvdp.CVDPEvaluator().evaluate(task, output, 10)
+            self.assertNotIn("PRIVATE_SENTINEL", result.feedback)
+            return result
+
+    def test_result_one_null_error_uses_private_docker_build_or_launch_evidence(self):
+        for diagnostic in (
+            "#3 [internal] load metadata for docker.io/library/sha256:abc\n"
+            "#3 ERROR: pull access denied, repository does not exist or may require authorization: "
+            "server message: insufficient_scope: authorization failed",
+            "failed to solve: image: failed to resolve source metadata for docker.io/library/image:tag",
+            "Cannot connect to the Docker daemon at unix:///var/run/docker.sock. Is the docker daemon running?",
+            "Error response from daemon: failed to create task for container: OCI runtime create failed",
+        ):
+            for path_kind in ("absolute", "relative"):
+                with self.subTest(diagnostic=diagnostic, path_kind=path_kind):
+                    result = self.evaluate_log("PRIVATE_SENTINEL\n" + diagnostic, path_kind=path_kind)
+                    self.assertEqual(result.status, "infrastructure_error")
+                    self.assertIsNone(result.metrics["passed"])
+
+    def test_hdl_compile_and_functional_failures_remain_candidate_zero(self):
+        for diagnostic in (
+            "rtl/dut.sv:12: syntax error\nmake: *** [sim.vvp] Error 2",
+            "AssertionError: sequence mismatch\nTESTS=3 PASS=0 FAIL=3",
+            "rtl/missing.sv: No such file or directory\niverilog failed",
+            "rtl/dut.sv: Permission denied\nmake: *** [compile] Error 1",
+        ):
+            with self.subTest(diagnostic=diagnostic):
+                result = self.evaluate_log("PRIVATE_SENTINEL\n" + diagnostic)
+                self.assertEqual(result.status, "failed")
+                self.assertEqual(result.metrics["passed"], 0.0)
+
+    def test_unsafe_or_unreadable_private_log_is_invalid_without_reading_outside(self):
+        for path_kind in ("outside", "traversal", "absolute-traversal", "symlink", "directory-symlink",
+                          "prefix-symlink", "directory", "missing"):
+            with self.subTest(path_kind=path_kind):
+                result = self.evaluate_log("PRIVATE_SENTINEL", path_kind=path_kind)
+                self.assertEqual(result.status, "infrastructure_error")
+                self.assertIsNone(result.metrics["passed"])
+
+    def test_absent_optional_log_keeps_existing_binary_verdict(self):
+        for status, expected in ((0, "passed"), (1, "failed")):
+            with self.subTest(status=status):
+                result = self.evaluate_log("", path_kind="none", status=status)
+                self.assertEqual(result.status, expected)
 
 
 class SmokeEvidenceTests(unittest.TestCase):

@@ -48,9 +48,13 @@ Icarus, Verilator, Yosys를 호스트에 각각 설치할 필요가 없습니다
 `external/environment-lock.json`, 실제 setup 로그와 doctor 결과는 `external/setup-logs/`에 남깁니다.
 `doctor`는 이미지 존재 검사뿐 아니라 도구와 OpenCode를 실행합니다. `--offline`은
 cache 누락/hash 불일치/이미지 ID 변경 시 실패하며 네트워크로 자동 보완하지 않습니다.
+`doctor/smoke/live`는 평가 이미지 tag의 로컬 ID/platform을 lock과 대조합니다. 공식 driver의
+`OSS_SIM_IMAGE`에는 검증된 tag를 전달합니다. bare `sha256:<local image ID>`는 Dockerfile FROM에서
+registry 이름으로 해석될 수 있으므로 사용하지 않습니다. Docker run에는 계속 locked ID를 사용합니다.
 `--platform` 생략 시 호스트 CPU나 환경변수의 추정값 대신 Docker daemon의 OS/architecture를
 조회합니다. 지원 범위는 `linux/amd64`, `linux/arm64`이며 명시적 override를 존중합니다.
-빌드 실패 시 플랫폼을 바꾸는 자동 fallback은 없습니다. 주 대상인 Ubuntu x86_64는 별도 검증이 필요합니다.
+빌드 실패 시 플랫폼을 바꾸는 자동 fallback은 없습니다. Ubuntu x86_64 setup/offline/tools는 통과했지만
+첫 공식 smoke의 FROM 참조 오류 수정 후 native 재검증은 대기 중입니다.
 
 `live`는 키가 없으면 `blocked_auth`, 무료 모델 형식이 아니면 `blocked_model`로 중단합니다.
 실제 provider 오류도 실패로 남기며 유료 모델이나 합성 평가로 대체하지 않습니다.
@@ -87,6 +91,8 @@ toy RTL 정답/오답/조기 종료, 공식 LFSR 정답/오답 제출을 확인�
 
 실제 test 결과가 있는 raw_result.json만 파싱합니다. 알려진 환경 실패는 `passed=null`로 반환하며,
 코어는 해당 후보·split 집계 전체를 무효화합니다. 정상 trial만으로 성공률을 재계산하는 방식이 아닙니다.
+`result=1, error_msg=null`일 때도 owned output prefix 내부의 검증된 private log로 Docker build/launch
+오류를 구분합니다. 공개 feedback에 로그 내용을 넣지 않으며 일반 HDL compile/기능 실패는 0점입니다.
 초기 범위는 cid003 기능 검증/rtl 출력입니다. coverage/PPA/agentic-heavy 등은 지원하지 않고 제외합니다.
 상용 도구 문자열·비공식 base image가 발견되어도 제외 보고서에 기록합니다. 범위를 넓힐 때는
 공식 harness 의존성과 채점 의미를 검토하고 importer/evaluator 테스트를 갱신하세요.

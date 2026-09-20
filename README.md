@@ -84,6 +84,8 @@ Python 3.12 CVDP driver는 예제의 [전이 의존성 lock](examples/ace-rtl/en
 
 PR CI는 Python 3.11/3.12와 Ubuntu native Yosys/Icarus로 코어·실제 RTL·패키징을 검사합니다.
 공식 Docker 통합은 기존 `ci.yml`의 수동 `official_cvdp` 입력으로 실행합니다. 두 경로 모두 모델 호출은 없습니다.
+`751e99f`의 Ubuntu 코어 CI와 공식 setup/offline/tools는 통과했습니다. 첫 공식 smoke에서 발견된
+이미지 FROM 참조/환경 오류 분류를 수정했으며, 수정 후 native Ubuntu 공식 smoke는 재검증 대기 중입니다.
 브랜치 실행 명령과 준비 조건은 [CONTRIBUTING.md](CONTRIBUTING.md#ci와-pr-병합)를 참고하세요.
 
 ## 다른 팀에 적용

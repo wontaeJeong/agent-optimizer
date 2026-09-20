@@ -3,11 +3,13 @@
 요구사항은 [CONTEXT.md](CONTEXT.md), 출처·버전은 [SOURCES.md](SOURCES.md), 현재 제한은
 [status.md](status.md)를 먼저 확인한다. 한 경로를 끝까지 검증한 뒤 확장한다.
 
-1. **native Ubuntu x86_64 CI와 공식 Docker 통합 실행**
-   - 코어 Python 3.11/3.12 CI는 native apt Yosys/Icarus까지 검사한다. 브랜치가 원격에 올라간 뒤
-     `gh workflow run ci.yml --ref feat/mvp-hardening -f official_cvdp=true`로 공식 setup/offline/smoke를 실행한다.
+1. **최종 수정 후 native Ubuntu x86_64 공식 Docker 통합 재실행**
+   - `751e99f`의 코어 Python 3.11/3.12 CI와 공식 setup/offline/tools는 통과했다. 첫 공식 smoke는
+     bare image ID가 Dockerfile FROM에 들어가 BuildKit pull 오류로 실패했다. 로컬 tag의 locked ID 검증과
+     private log 기반 환경 오류 분류를 함께 수정했다. Controller가 커밋을 push한 뒤
+     `gh workflow run ci.yml --ref feat/mvp-hardening -f official_cvdp=true`로 재검증한다.
    - 완료 기준: 코어·wheel 및 공식 정답/오답 raw 결과, 이미지/driver lock hash와 도구 버전 보존.
-     현재 [Mac Docker ARM64 결과](verification.md)는 Ubuntu 실행을 대신하지 않는다.
+      수정 후 [Mac Docker ARM64 결과](verification.md)는 native Ubuntu 재검증을 대신하지 않는다.
 2. **대표 ACE 실행 프로필 결정 및 upstream 차이 확인**
    - 스킬 프로필 또는 원본 runner 중 데모에서 평가할 대상을 정하고, 변경 파일이 실제 읽히거나
      실행되는 경로를 확인한다. native 선택 시 별도 어댑터, 의존성, 역할별 모델/반복 예산,

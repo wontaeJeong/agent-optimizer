@@ -163,6 +163,24 @@ def validate_driver_lock(external, lock):
         raise ConfigurationError("CVDP driver packages differ from the prepared lock; rerun online setup")
 
 
+def verified_sim_image(lock):
+    """FROM needs a named image, not a bare local config ID; verify the local tag."""
+    image = lock["images"]["evaluation"]
+    tag = image["tag"]
+    if (not re.fullmatch(r"agent-optimizer-cvdp:[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}", tag) or
+            not re.fullmatch(r"sha256:[0-9a-f]{64}", image["id"])):
+        raise ConfigurationError("Invalid prepared evaluation image tag or ID")
+    try:
+        info = json.loads(subprocess.check_output(
+            ["docker", "image", "inspect", tag], text=True, stderr=subprocess.PIPE, timeout=15,
+        ))[0]
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise UnavailableError(f"Required local evaluation image missing/unavailable: {tag}") from exc
+    if info["Id"] != image["id"] or f"{info['Os']}/{info['Architecture']}" != lock["platform"]:
+        raise ConfigurationError(f"Evaluation image identity/platform differs from prepared lock: {tag}")
+    return tag
+
+
 def doctor(external, platform, eval_image, agent_image):
     """Actually execute tools; presence of tags or a valid plan is insufficient."""
     validate_platform(platform)

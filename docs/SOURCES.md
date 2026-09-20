@@ -26,7 +26,7 @@ Task 5/6에서 실제 setup/평가를 실행한 범위는 [verification.md](veri
 | [ACE 구성 요소](https://github.com/NVlabs/ACE-RTL/blob/fead921f18bb57345b5a41ef93ba625be208e99c/skills/ace-rtl/references/agent-components.md) | `ace_agent_runner.py`, `ace_cvdp_native_runner.py`, Generator/FocusedDebugger/FreshStartCoordinator 위치 안내. `source.toml`의 editable 역할 파일과 향후 native 어댑터 검토 근거. | 구성 지도 확인. 파일 위치 안내만으로 해당 코드가 로컬 실행에서 호출된다고 주장하지 않음. 새 프로필에서는 실제 호출 경로·trace 확인 필요. |
 | [ACE 역할·실행 흐름](https://github.com/NVlabs/ACE-RTL/blob/fead921f18bb57345b5a41ef93ba625be208e99c/skills/ace-rtl/references/agent-workflow.md) | 원본 지침에는 평가 보고서 기반 반복·재시작·역할 상태·병렬 시도가 있다. `adapter.py` 및 `runner.py`의 단일 Harness 호출 후 외부 평가와 구별하는 근거. | 문서상 루프 확인. 원본 Python 전체 호출 그래프·런타임 동작은 미검증. 반복 중 피드백 경계와 예산을 native 연결 전에 재검토. |
 | [CVDP README](https://github.com/NVlabs/cvdp_benchmark/blob/8e894cf74414ab1eaea1e2b4e80a02f123df07b6/README.md) | 공식 OSS 이미지 빌드, Python 3.12 권장, golden/LLM/agentic 경로 및 heavy 데이터의 별도 요구사항. `examples/ace-rtl/environment/setup.py`, `setup.sh`, `evaluator.py`의 환경·범위 판단에 사용. | 본문 확인. `run_benchmark.py`의 옵션·제출 처리 전체를 검증한 것은 아님. 이미지 변수, 데이터 형식, golden 모드에서 후보 output.context 평가 여부를 한 문제로 재확인. |
-| [공식 Dockerfile.sim](https://github.com/NVlabs/cvdp_benchmark/blob/8e894cf74414ab1eaea1e2b4e80a02f123df07b6/docker/Dockerfile.sim) | Icarus `v13_0`, Yosys `yosys-0.40`, Verilator `v5.038` 설치 단계가 있다. `environment/setup.py`가 변경 없이 재사용한다. | ARM64 실제 빌드/실행 및 도구 버전 확인. amd64 에뮬레이션 실패는 보존. host driver lock과 이미지 내부 패키지 설치는 별개이며 native Ubuntu x86_64는 미검증. |
+| [공식 Dockerfile.sim](https://github.com/NVlabs/cvdp_benchmark/blob/8e894cf74414ab1eaea1e2b4e80a02f123df07b6/docker/Dockerfile.sim) | Icarus `v13_0`, Yosys `yosys-0.40`, Verilator `v5.038` 설치 단계가 있다. `environment/setup.py`가 변경 없이 재사용한다. | ARM64 및 native Ubuntu x86_64 실제 빌드/도구 실행 확인. Mac amd64 에뮬레이션 실패는 별도 보존. Ubuntu 첫 공식 smoke의 FROM 참조 실패와 수정 후 재검증 대기는 verification에 기록. |
 | [CVDP report.py](https://github.com/NVlabs/cvdp_benchmark/blob/8e894cf74414ab1eaea1e2b4e80a02f123df07b6/src/report.py) | binary 문제는 test result=0을 통과로 집계하지만 score-based 범주는 별도 처리한다. `examples/ace-rtl/evaluator.py`의 binary 판정과 `prepare.py`의 제한 범위 근거. | 소스 확인. 로컬 evaluator는 공식 report 전체를 재현하지 않으며 빈 tests는 거부한다. raw_result 구조, 범주별 점수 의미, 환경 오류 분류를 버전 변경 시 재검토. |
 | [CVDP 데이터셋](https://huggingface.co/datasets/nvidia/cvdp-benchmark-dataset) | 공식 데이터 배포처. `prepare.py`의 importer와 데이터 사용 조건 근거. | 아래 고정 HF revision/신뢰 hash로 full no_commercial 파일을 확보. 302개 중 71개 지원 형태·231개 제외. 이는 71개 시뮬레이션 통과가 아니며 실제 evaluator smoke는 별도 고정 repo LFSR 예제. |
 | [OpenCode CLI](https://opencode.ai/docs/cli/) | `opencode run`, `--format json`, `--model`, `--agent`의 비대화형 실행 계약. `src/agent_optimizer/harnesses/opencode.py`, `examples/rtl-debugger/Dockerfile`에서 사용. | 공식 문서/Context7 및 실제 1.18.31 CLI/config 확인. URL은 가변 문서다. 모델 inference trace·child session 전체 사용량은 미검증. |
@@ -109,14 +109,24 @@ OS package까지 고정하는 hermetic lock은 아니다.
 Context7 `/astral-sh/uv`에서 universal compile, Python target, sync, offline 계약을 확인했다.
 `/websites/github_en_actions`에서 boolean dispatch 입력과 `gh workflow run --ref`를 확인했다.
 `.github/workflows/ci.yml`은 이미 존재하는 workflow의 수동 입력을 확장한다. 원격 Ubuntu 실행 결과는
-아직 없으며 아래 로컬 검증 기록과 구분한다.
+후속 run `35513674595`(코어 통과), `35513687494`(공식 setup/offline 통과·첫 smoke 실패)에 있으며
+수정 후 로컬 ARM64 검증과 구분한다. 정확한 범위는 [verification.md](verification.md)를 따른다.
+
+최종 수정에서 같은 고정 CVDP `src/repository.py`의 `apply_template_substitution`과 `log_run`을
+재확인했다. `OSS_SIM_IMAGE`는 Dockerfile에도 그대로 치환되며 Compose build/launch 실패도
+`result=1, error_msg=null`로 저장할 수 있다. Context7 `/docker/docs`의
+[FROM 문법](https://docs.docker.com/reference/dockerfile/#from)은 `<image>:<tag>` 또는
+`<image>@<digest>`이며 로컬 config image ID와 registry manifest digest는 다르다.
+`environment/setup.py:verified_sim_image`는 로컬 tag의 inspect ID/platform을 lock과 대조하고
+`scripts/dev.py`가 이 tag를 공식 driver에 전달한다. `evaluator.py`는 owned prefix에서 검증한
+private log의 Docker 오류를 환경 실패로 분류한다. upstream SHA/파일 변경은 없다.
 
 ## 버전 변경 절차
 
 1. 변경 대상의 고정 출처와 로컬 소비 파일을 위 표에서 찾는다. ACE SHA 두 곳은 함께 대조한다.
 2. upstream diff에서 경로·CLI·입출력·채점·의존성 변화를 확인한다. 문서 정리를 이유로 자동 최신화하지 않는다.
 3. 소스 SHA와 데이터 hash, OpenCode 버전, 이미지 ID/digest, 모델·예산을 기록한다.
-   dev 명령은 평가/Agent 이미지 ID를 사용한다. 직접 작성한 profile도 선택 ID에 맞추고 모델 서비스의
-   가변성을 별도로 기록한다.
+   dev의 Docker run은 평가/Agent 이미지 ID를 사용하고 공식 FROM/Compose는 ID 검증된 로컬 tag를 쓴다.
+   직접 작성한 profile도 선택 ID에 맞추고 모델 서비스의 가변성을 별도로 기록한다.
 4. 모의 계약 테스트 후 지원하는 OSS 한 문제를 실환경 검증한다. 결과와 미검증 영역을
    [verification.md](verification.md), [status.md](status.md)에 갱신한다.

@@ -82,6 +82,7 @@ class CVDPEvaluator:
         if not artifact.is_file() or result.status != "completed":
             return Evaluation("infrastructure_error", {"passed": None}, "CVDP did not produce a valid evaluation", {"logs": str(scoring / "logs")})
         try:
+            artifact = safe_path(scoring, "work/raw_result.json")
             record = json.loads(artifact.read_text())[row["id"]]
             tests = record["tests"]
             if not tests or any(type(t.get("result")) is not int for t in tests):
@@ -91,8 +92,27 @@ class CVDPEvaluator:
             if (any(t["result"] in {125, 126, 127} for t in tests) or
                     any(term in errors for term in ["cannot connect to the docker", "no such image", "permission denied", "command not found", "no such file or directory", "failed to execute objective harness"])):
                 return Evaluation("infrastructure_error", {"passed": None}, "CVDP environment failure; inspect private evaluator logs")
+            for test in tests:
+                # Upstream log_run returns result=1/error_msg=null even when Compose
+                # cannot build or launch. Read only this run's owned private artifact.
+                if test["result"] == 0 or test.get("log") is None:
+                    continue
+                log = Path(test["log"])
+                relative = log.relative_to(prefix.absolute()).as_posix() if log.is_absolute() else test["log"]
+                private_log = safe_path(prefix, relative).read_text(errors="replace").lower()
+                # Keep these Docker-specific: HDL diagnostics can also say missing
+                # file, permission denied, compilation failed, or make Error 1/2.
+                if any(term in private_log for term in (
+                    "pull access denied", "insufficient_scope: authorization failed",
+                    "failed to resolve source metadata for", "cannot connect to the docker daemon",
+                    "error response from daemon:", "oci runtime create failed",
+                )):
+                    return Evaluation("infrastructure_error", {"passed": None},
+                                      "CVDP environment failure; inspect private evaluator logs", {"raw_result": str(artifact)})
             passed = all(t["result"] == 0 for t in tests)
             return Evaluation("passed" if passed else "failed", {"passed": float(passed)},
                               f"Official CVDP: {sum(t['result'] == 0 for t in tests)}/{len(tests)} tests passed", {"raw_result": str(artifact)})
         except (KeyError, TypeError, ValueError):
             return Evaluation("infrastructure_error", {"passed": None}, "Unsupported CVDP result schema")
+        except (OSError, ConfigurationError):
+            return Evaluation("infrastructure_error", {"passed": None}, "Invalid CVDP private result artifact")

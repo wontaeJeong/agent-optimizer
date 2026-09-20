@@ -62,7 +62,8 @@ CVDP는 RTL 데모의 벤치마크·평가 환경이다. ACE-RTL 데모만으로
 - **개발 환경과 CI:** Docker daemon native 플랫폼을 기본 선택하고 명시적 override만 허용한다.
   코어 CI의 apt Yosys/Icarus는 빠른 회귀 검증용이며 공식 CVDP 이미지는 수동 integration에서 검증한다.
   CVDP Python 3.12 driver의 전이 의존성 lock은 예제에 두며 코어에 패키지 관리 프레임워크를 추가하지 않는다.
-  Mac Docker ARM64에서 실제 평가를 확인했지만 Ubuntu x86_64·live 모델 결과는 별도 확인 대상이다.
+  Mac Docker ARM64에서 실제 평가를 확인했다. Ubuntu x86_64 코어 CI·공식 환경 준비는 통과했으며,
+  첫 공식 smoke 실패의 수정 후 native 재검증과 live 모델 결과는 별도 확인 대상이다.
 
 ## 미결정 항목
 
