@@ -53,8 +53,9 @@ cache 누락/hash 불일치/이미지 ID 변경 시 실패하며 네트워크로
 registry 이름으로 해석될 수 있으므로 사용하지 않습니다. Docker run에는 계속 locked ID를 사용합니다.
 `--platform` 생략 시 호스트 CPU나 환경변수의 추정값 대신 Docker daemon의 OS/architecture를
 조회합니다. 지원 범위는 `linux/amd64`, `linux/arm64`이며 명시적 override를 존중합니다.
-빌드 실패 시 플랫폼을 바꾸는 자동 fallback은 없습니다. Ubuntu x86_64 setup/offline/tools는 통과했지만
-첫 공식 smoke의 FROM 참조 오류 수정 후 native 재검증은 대기 중입니다.
+빌드 실패 시 플랫폼을 바꾸는 자동 fallback은 없습니다. `10baa46`의 native Ubuntu x86_64
+setup/offline/smoke·provider config 재검증은 통과했습니다. 첫 FROM 참조 실패와 수정 후 정답·오답
+근거는 [최종 검증 기록](../../docs/verification.md#2026-09-20-native-ubuntu-repeat--passed)에 보존합니다.
 
 `live`는 키가 없으면 `blocked_auth`, 무료 모델 형식이 아니면 `blocked_model`로 중단합니다.
 실제 provider 오류도 실패로 남기며 유료 모델이나 합성 평가로 대체하지 않습니다.
@@ -111,6 +112,8 @@ runs를 Git에 추가하지 마세요.
 ## 현재 검증 범위
 
 과제 공개/비공개 분리와 공식 결과 형식 처리는 오프라인 테스트합니다.
+Mac Docker ARM64와 native Ubuntu x86_64에서 evaluator-only 정답/오답을 확인했습니다.
+API 키 부재로 live는 여전히 `blocked_auth`이며 실제 ACE/OpenCode→모델→CVDP 결과는 미검증입니다.
 플랫폼별 실제 실행 결과와 차단 사유는 [검증 기록](../../docs/verification.md)을 확인하세요.
 source/evaluator 버전이 바뀌면 한 문제로 입출력과 보고서 형식을 먼저 검증하세요.
 수동 공식 CI는 [기존 ci.yml 입력](../../CONTRIBUTING.md#ci와-pr-병합)으로 같은 public 명령을 실행합니다.

@@ -3,9 +3,9 @@
 **2026-09-20 MVP hardening:** 후보/파일 경계, 실행 중단·사용량, 플러그인 hash 및 RTL 검증을 보강했다.
 Mac Docker ARM64에서 공식 OSS/OpenCode 이미지를 빌드하고 host-Docker toy 및 공식 CVDP
 정답·오답 평가를 실행했다. Python 3.12 driver lock 적용 후 setup/offline/smoke도 통과했다.
-플랫폼 기본값은 Docker daemon native다. Ubuntu x86_64 코어 CI·공식 이미지 setup/offline/tool 검사는
-통과했지만 첫 공식 smoke는 Dockerfile 이미지 참조 오류로 실패했다. 수정 후 ARM64 smoke는 통과했고
-native Ubuntu 공식 smoke 재실행과 live inference는 아직 미검증이다.
+플랫폼 기본값은 Docker daemon native다. 첫 Ubuntu 공식 smoke의 Dockerfile 이미지 참조 실패를 수정한
+`10baa46`에서 native Ubuntu x86_64 코어 CI·공식 setup/offline/smoke·provider config 검사가 통과했다.
+실제 OpenCode→모델→CVDP live inference는 API 키 부재로 여전히 `blocked_auth`다.
 입력 제한은 필수이며 합성만으로 임의 RTL을 정화하지 않는다.
 
 요구사항은 [CONTEXT.md](CONTEXT.md), 외부 판단 근거는
@@ -27,9 +27,9 @@ native Ubuntu 공식 smoke 재실행과 live inference는 아직 미검증이다
 | train / validation / test | `runner.py:Context`, `GroupRunner.run`, `config.py:load_tasks` | train-only 탐색 API, validation 선택, 선택 고정 후 선택적 test. family split 중복 거부. 최소 데모는 test까지 실행. |
 | 결과·재현 자료 | `runner.py`, `results.py` | manifest, source-lock, 후보 diff/metadata, trial result/logs, events, frozen_selection, summary/report 저장. |
 | command / OpenCode / Docker | `harnesses/command.py`, `harnesses/opencode.py`, `process.py` | argv/timeout·이벤트 계약 검증. 실제 Docker 실행, OpenCode 1.18.31 CLI/config에서 absent/default·명시 override·빈 env 확인. 실제 inference는 미검증. |
-| Yosys/Icarus 예제 | `examples/rtl-debugger/{evaluator,iverilog}.py` | 제한 입력 → 합성 netlist → private 검사. 공식 ARM64 이미지 실도구 9/9 및 host-Docker 정답/오답/조기 종료 1/0/0. |
+| Yosys/Icarus 예제 | `examples/rtl-debugger/{evaluator,iverilog}.py` | 제한 입력 → 합성 netlist → private 검사. 공식 ARM64·native amd64 이미지 각각 실도구 9/9 및 host-Docker 정답/오답/조기 종료 1/0/0. |
 | ACE 스킬 / CVDP | `examples/ace-rtl/` | 고정 HF 다운로드·변환, 공식 LFSR reference/기능 오답의 비어 있지 않은 raw result 1/0 확인. ACE/OpenCode/model end-to-end는 키 부재로 미실행. |
-| 개발 환경·CI | `scripts/dev.py`, 예제 `environment/`, `.github/workflows/ci.yml` | frozen core 및 universal Python 3.12 driver lock. Ubuntu Python 3.11/3.12 코어 CI 통과. 공식 setup/offline/tools 통과 후 첫 smoke 실패; 이미지 참조/환경 오류 분류 수정의 native 재검증 대기. |
+| 개발 환경·CI | `scripts/dev.py`, 예제 `environment/`, `.github/workflows/ci.yml` | frozen core 및 universal Python 3.12 driver lock. `10baa46`에서 Ubuntu Python 3.11/3.12 코어 CI와 공식 setup/offline/smoke·provider config 통과. 첫 smoke 실패와 수정 후 native 증거는 검증 기록에 보존. |
 | 팀 Optimizer 계약 | `experiments/optimizer-template/`, `tests/test_plugin_contracts.py` | 파일 플러그인·helper fingerprint·train 피드백·usage·checkpoint 연결점. 템플릿 실행은 명시적으로 미구현 오류. |
 | GEPA / Meta-Harness / Ecdysis | `optimizers/{gepa,meta_harness,ecdysis}.py`, `registry.py` | **슬롯**. 내장 실행 등록 없음, 사용 시 not implemented 오류. 파일을 구현한 뒤에도 플러그인 등록 필요. 출처·채택 버전 미확정. |
 | Claude Code / Codex / OpenAgent | `registry.py:reserved`, `harnesses/README.md` | **예정**. 전용 어댑터 미구현. command wrapper 등 별도 연결 작업 필요. |
@@ -102,9 +102,10 @@ Agent 종료 후 `evaluator.py:CVDPEvaluator`가 제출 RTL을 공식 CVDP로 �
   공개 CVDP 과제 변환 확인 보고. 이번에 그 환경·배포 ZIP을 재현한 것은 아니다.
 - **현재 실제 실행:** macOS arm64 + uv Python 3.12.12, 공식 Docker ARM64 setup/offline/smoke 통과.
   패키징은 [Task 6 기록](verification.md#2026-09-20-task-6-cihandoffintegration), 최신 회귀·smoke 수치는 아래 최종 수정 기록을 따른다.
-- **Ubuntu 실제 실행:** `751e99f`의 코어 CI(각 144개 중 143 통과·1 optional skip), 공식 이미지
-  setup/offline/tools 통과. 첫 공식 smoke의 이미지 참조 오류와 후속 로컬 검증은 [최종 수정 기록](verification.md#2026-09-20-final-fix--native-ubuntu-integration)에 구분한다.
-- **미검증:** 수정 후 native Ubuntu 공식 smoke, 실제 OpenCode→모델→CVDP end-to-end, native ACE runner,
+- **Ubuntu 실제 실행:** `10baa46`의 PR 코어 CI는 Python 3.11/3.12 각각 151개 중 150 통과·1 optional
+  Docker config skip이며 native 실도구 9개를 포함한다. 수동 공식 run은 setup/offline/smoke와 별도
+  실제 Docker config 검사까지 통과했다. [최종 native 재검증](verification.md#2026-09-20-native-ubuntu-repeat--passed)에 raw 정답/오답과 도구·이미지 근거를 기록한다.
+- **미검증:** 실제 OpenCode→모델→CVDP end-to-end(API 키 부재), native ACE runner,
   전체 sub-agent 사용량, 실제 성능 개선. 개발 Harness 세션 자체는 제품 통합 검증이 아니다.
 
 자세한 명령·산출물·검증 구분은 [verification.md](verification.md)에 기록한다.
