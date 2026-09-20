@@ -1,0 +1,68 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    needs: checks
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Check release tag matches package version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+          version = tomllib.loads(Path('pyproject.toml').read_text())['project']['version']
+          tag = os.environ['RELEASE_TAG']
+          if tag != f'v{version}':
+              raise SystemExit(f'Tag {tag!r} must match package version v{version}')
+          PY
+      - name: Build release packages
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -e '.[dev]'
+          .venv/bin/python -m build
+      - name: Generate release checksums
+        working-directory: dist
+        run: sha256sum -- *.whl *.tar.gz > SHA256SUMS
+      - name: Publish GitHub or GHES release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_ENTERPRISE_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          export GH_HOST="${SERVER_URL#https://}"
+          gh --version
+          gh release create "$RELEASE_TAG" dist/*.whl dist/*.tar.gz dist/SHA256SUMS \
+            --verify-tag --draft --title "$RELEASE_TAG" \
+            --notes "Validated demo package. See CONTRIBUTING.md for installation and verification."
+          gh release edit "$RELEASE_TAG" --draft=false
