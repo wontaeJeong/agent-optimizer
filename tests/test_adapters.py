@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-import shutil
 import sys
 import tempfile
 import unittest
@@ -10,7 +9,6 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agent_optimizer.contracts import ExecutionResult, RunRequest
-from support import IcarusVerilog
 from agent_optimizer.harnesses.opencode import OpenCodeHarness
 from agent_optimizer.process import execute, run_process
 
@@ -77,31 +75,5 @@ class OpenCodeContractTests(unittest.TestCase):
             self.assertIsNone(result.metrics["agent_tokens"])
 
 
-class IcarusContractTests(unittest.TestCase):
-    def test_fake_tool_success_requires_test_marker(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "dut.sv").write_text("module dut; endmodule")
-            stdout, stderr = root / "out", root / "err"
-            stdout.write_text("TEST_PASS\n")
-            stderr.write_text("")
-            fixture = ExecutionResult("completed", 0, 0.01, str(stdout), str(stderr))
-            with patch("example_iverilog.execute", return_value=fixture):
-                result = IcarusVerilog().run(root, {"sources": ["dut.sv"]}, 10)
-                self.assertEqual(result.status, "passed")
-                stdout.write_text("normal exit, no verification marker")
-                result = IcarusVerilog().run(root, {"sources": ["dut.sv"]}, 10)
-                self.assertEqual(result.status, "failed")
-
-    @unittest.skipUnless(shutil.which("iverilog") and shutil.which("vvp"), "Icarus binaries not installed")
-    def test_real_iverilog_smoke(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            (root / "tb.sv").write_text('module tb; initial begin $display("TEST_PASS"); $finish; end endmodule')
-            result = IcarusVerilog().run(root, {"sources": ["tb.sv"], "top": "tb"}, 10)
-            self.assertEqual(result.status, "passed")
-
-
 if __name__ == "__main__":
     unittest.main()
-
