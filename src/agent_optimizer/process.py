@@ -57,7 +57,9 @@ def execute(argv: list[str], workspace: Path, logs: Path, timeout: float,
     for key, value in env.items():
         command += ["--env", f"{key}={value}"]
     for key in runtime.get("env_passthrough", []):
-        command += ["--env", key]
+        # An absent bare --env would erase an image default. Empty host values are intentional.
+        if key in os.environ:
+            command += ["--env", key]
     command += [runtime["image"], *argv]
     try:
         result = run_process(command, workspace, logs, timeout)

@@ -5,15 +5,36 @@ import os
 import sys
 import tempfile
 import unittest
+import uuid
 from pathlib import Path
 from unittest.mock import patch
 
 from agent_optimizer.contracts import ExecutionResult, RunRequest
 from agent_optimizer.harnesses.opencode import OpenCodeHarness
 from agent_optimizer.process import execute, run_process
+from agent_optimizer.config import load_experiment
+from support import ROOT
 
 
 class ProcessTests(unittest.TestCase):
+    def test_passthrough_omits_absent_but_keeps_empty_and_present_values_by_name(self):
+        with tempfile.TemporaryDirectory() as d:
+            root = Path(d)
+            runtime = {"kind": "docker", "image": "example:tag",
+                       "env_passthrough": ["OPTIONAL_ABSENT", "PRESENT", "EMPTY"]}
+            fixture = ExecutionResult("completed", 0, 0, "stdout", "stderr")
+            with patch.dict(os.environ, {"PRESENT": "fixture-private-value", "EMPTY": ""}, clear=True), \
+                    patch("agent_optimizer.process.run_process", return_value=fixture) as run, \
+                    patch("agent_optimizer.process.subprocess.run"):
+                execute(["agent"], root, root / "logs", 1, runtime)
+            argv = run.call_args.args[0]
+            forwarded = [argv[i + 1] for i, arg in enumerate(argv[:-1]) if arg == "--env"]
+            self.assertNotIn("OPTIONAL_ABSENT", forwarded)
+            self.assertIn("PRESENT", forwarded)
+            self.assertIn("EMPTY", forwarded)
+            self.assertNotIn("fixture-private-value", " ".join(argv))
+            self.assertNotIn("EMPTY=", forwarded)
+
     def test_process_timeout(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -48,6 +69,49 @@ class ProcessTests(unittest.TestCase):
             self.assertIn("--cap-drop=ALL", argv)
             self.assertEqual(output.status, "infrastructure_error")
             cleanup.assert_called_once()
+
+
+@unittest.skipUnless(os.environ.get("AGENT_OPT_TEST_DOCKER_IMAGE"),
+                     "Set AGENT_OPT_TEST_DOCKER_IMAGE to an existing OpenCode image")
+class DockerEnvironmentTests(unittest.TestCase):
+    def test_image_default_survives_absence_and_explicit_compatible_override_wins(self):
+        # Retain real config results without mounting host config/credentials or using a model.
+        root = ROOT / "runs" / ("docker-env-regression-" + uuid.uuid4().hex[:12])
+        root.mkdir(parents=True)
+        runtime = load_experiment(ROOT / "examples/rtl-debugger/experiment.toml")["_profiles"][0]["runtime"].copy()
+        runtime.update(image=os.environ["AGENT_OPT_TEST_DOCKER_IMAGE"], network="none")
+        overlay = (ROOT / "examples/rtl-debugger/agent/overlays/opencode/opencode.json").read_text()
+        for provider in ("openrouter", "compatible"):
+            with self.subTest(provider=provider):
+                work = root / provider
+                (work / "agent").mkdir(parents=True)
+                (work / "opencode.json").write_text(overlay)
+                (work / "agent/provider-compatible.json").write_text(
+                    (ROOT / "examples/ace-rtl/environment/openai-compatible.json").read_text())
+                model = "openrouter/vendor/model:free" if provider == "openrouter" else "compatible/example-model"
+                with patch.dict(os.environ, {"AGENT_OPT_MODEL": model}):
+                    for key in ("OPENCODE_CONFIG", "OPENROUTER_API_KEY", "MODEL_API_KEY", "MODEL_ID", "MODEL_BASE_URL"):
+                        os.environ.pop(key, None)
+                    if provider == "compatible":
+                        os.environ.update(OPENCODE_CONFIG="/work/agent/provider-compatible.json",
+                                          MODEL_ID="example-model", MODEL_BASE_URL="http://example.invalid/v1")
+                    else:
+                        self.assertNotIn("OPENCODE_CONFIG", os.environ)
+                    result = execute(["opencode", "debug", "config"], work, work / "logs", 60, runtime)
+                self.assertEqual(result.returncode, 0, Path(result.stderr_path).read_text())
+                config = json.loads(Path(result.stdout_path).read_text())
+                self.assertEqual(config.get("model"), model)
+                self.assertEqual(config.get("small_model"), model)
+                self.assertEqual(config.get("enabled_providers"), [provider])
+                self.assertEqual(config["provider"][provider]["options"]["apiKey"], "")
+                self.assertEqual(config["agent"]["rtl"]["mode"], "primary")
+        # Deliberately empty host values must override image values, not be treated as absent.
+        with patch.dict(os.environ, {"OPENCODE_CONFIG": ""}):
+            result = execute(["python3", "-c", "import os; print(repr(os.environ.get('OPENCODE_CONFIG')))"],
+                             root, root / "empty-value-logs", 30, runtime)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(Path(result.stdout_path).read_text().strip(), "''")
+        print(f"Docker environment evidence: {root}")
 
 
 class OpenCodeContractTests(unittest.TestCase):

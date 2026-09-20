@@ -361,10 +361,16 @@ class ShippedRTLProfileTests(unittest.TestCase):
                 with patch.dict(os.environ, {"AGENT_OPT_MODEL": model, "OPENROUTER_API_KEY": "test-only-secret", "MODEL_API_KEY": "test-only-secret"}), \
                         patch("agent_optimizer.process.run_process", side_effect=docker), \
                         patch("agent_optimizer.process.subprocess.run"):
+                    os.environ.pop("OPENCODE_CONFIG", None)
+                    if model.startswith("compatible/"):
+                        os.environ.update(OPENCODE_CONFIG="/work/agent/provider-compatible.json",
+                                          MODEL_ID="example-model", MODEL_BASE_URL="http://example.invalid/v1")
                     result = OpenCodeHarness().run(request)
                 self.assertEqual(result.status, "completed")
                 argv = commands[0]
                 forwarded = {argv[i + 1] for i, value in enumerate(argv[:-1]) if value == "--env"}
                 self.assertTrue(required <= forwarded, f"missing container environment: {required - forwarded}")
+                if model.startswith("openrouter/"):
+                    self.assertNotIn("OPENCODE_CONFIG", forwarded)
                 self.assertNotIn("test-only-secret", " ".join(argv))
                 self.assertEqual(argv[argv.index("--model") + 1], model)
