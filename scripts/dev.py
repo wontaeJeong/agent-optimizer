@@ -51,6 +51,7 @@ def main():
         setup.prepare_sources(ROOT / "external", offline=True)
         setup.prepare_data(ROOT / "external", offline=True)
         setup.validate_driver_lock(ROOT / "external", lock)
+        sim_image = setup.verified_sim_image(lock)
         capability = setup.doctor(ROOT / "external", args.platform,
                                   lock["images"]["evaluation"]["id"], lock["images"]["agent"]["id"])
         write_json(ROOT / "external/setup-logs/doctor.json", capability)
@@ -60,7 +61,7 @@ def main():
             print(json.dumps(capability))
             return 0
         os.environ["DOCKER_DEFAULT_PLATFORM"] = args.platform
-        os.environ["OSS_SIM_IMAGE"] = lock["images"]["evaluation"]["id"]
+        os.environ["OSS_SIM_IMAGE"] = sim_image
         example = load("ace_dev_checks", "examples/ace-rtl/environment/checks.py")
         return example.smoke(lock) if args.command == "smoke" else example.live(lock)
     except (ConfigurationError, UnavailableError) as exc:

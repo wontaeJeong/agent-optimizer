@@ -3,7 +3,9 @@
 **2026-09-20 MVP hardening:** 후보/파일 경계, 실행 중단·사용량, 플러그인 hash 및 RTL 검증을 보강했다.
 Mac Docker ARM64에서 공식 OSS/OpenCode 이미지를 빌드하고 host-Docker toy 및 공식 CVDP
 정답·오답 평가를 실행했다. Python 3.12 driver lock 적용 후 setup/offline/smoke도 통과했다.
-플랫폼 기본값은 Docker daemon native이며 Ubuntu x86_64 및 live inference는 아직 미검증이다.
+플랫폼 기본값은 Docker daemon native다. Ubuntu x86_64 코어 CI·공식 이미지 setup/offline/tool 검사는
+통과했지만 첫 공식 smoke는 Dockerfile 이미지 참조 오류로 실패했다. 수정 후 ARM64 smoke는 통과했고
+native Ubuntu 공식 smoke 재실행과 live inference는 아직 미검증이다.
 입력 제한은 필수이며 합성만으로 임의 RTL을 정화하지 않는다.
 
 요구사항은 [CONTEXT.md](CONTEXT.md), 외부 판단 근거는
@@ -27,7 +29,7 @@ Mac Docker ARM64에서 공식 OSS/OpenCode 이미지를 빌드하고 host-Docker
 | command / OpenCode / Docker | `harnesses/command.py`, `harnesses/opencode.py`, `process.py` | argv/timeout·이벤트 계약 검증. 실제 Docker 실행, OpenCode 1.18.31 CLI/config에서 absent/default·명시 override·빈 env 확인. 실제 inference는 미검증. |
 | Yosys/Icarus 예제 | `examples/rtl-debugger/{evaluator,iverilog}.py` | 제한 입력 → 합성 netlist → private 검사. 공식 ARM64 이미지 실도구 9/9 및 host-Docker 정답/오답/조기 종료 1/0/0. |
 | ACE 스킬 / CVDP | `examples/ace-rtl/` | 고정 HF 다운로드·변환, 공식 LFSR reference/기능 오답의 비어 있지 않은 raw result 1/0 확인. ACE/OpenCode/model end-to-end는 키 부재로 미실행. |
-| 개발 환경·CI | `scripts/dev.py`, 예제 `environment/`, `.github/workflows/ci.yml` | frozen core 및 universal Python 3.12 driver lock, setup/offline/doctor/smoke/live 진입점. CI는 native simulator와 수동 공식 Docker job을 구성했으며 원격 Ubuntu 실행 증거는 아직 없음. |
+| 개발 환경·CI | `scripts/dev.py`, 예제 `environment/`, `.github/workflows/ci.yml` | frozen core 및 universal Python 3.12 driver lock. Ubuntu Python 3.11/3.12 코어 CI 통과. 공식 setup/offline/tools 통과 후 첫 smoke 실패; 이미지 참조/환경 오류 분류 수정의 native 재검증 대기. |
 | 팀 Optimizer 계약 | `experiments/optimizer-template/`, `tests/test_plugin_contracts.py` | 파일 플러그인·helper fingerprint·train 피드백·usage·checkpoint 연결점. 템플릿 실행은 명시적으로 미구현 오류. |
 | GEPA / Meta-Harness / Ecdysis | `optimizers/{gepa,meta_harness,ecdysis}.py`, `registry.py` | **슬롯**. 내장 실행 등록 없음, 사용 시 not implemented 오류. 파일을 구현한 뒤에도 플러그인 등록 필요. 출처·채택 버전 미확정. |
 | Claude Code / Codex / OpenAgent | `registry.py:reserved`, `harnesses/README.md` | **예정**. 전용 어댑터 미구현. command wrapper 등 별도 연결 작업 필요. |
@@ -74,6 +76,9 @@ Agent 종료 후 `evaluator.py:CVDPEvaluator`가 제출 RTL을 공식 CVDP로 �
 - 알려진 환경 오류는 `infrastructure_error`, `passed=null`. `runner.py:GroupRunner.evaluate`는
   split 내 infrastructure_error/unsupported가 있으면 **해당 후보·split의 모든 집계 지표를 null**로 만든다.
   정상 trial만 남겨 성공률 분모를 줄이는 방식이 아니다. 모든 환경 오류 메시지의 포괄적 분류는 보장하지 않는다.
+- 공식 `result=1, error_msg=null`도 실패한 test의 private log에서 Docker build/launch 오류를 확인한다.
+  읽기 전 owned output prefix 내부 regular file인지 검증하며 로그 본문은 공개 feedback에 넣지 않는다.
+  일반 HDL compile/기능 오답은 계속 `failed`, `passed=0`이다.
 - `final_test=false`, 변환 과제는 모두 validation이다. 한 문제 smoke로 일반화 성능을 판단할 수 없다.
 
 ## 요구사항과 현재 구현 사이의 간극·후속 점검
@@ -84,7 +89,7 @@ Agent 종료 후 `evaluator.py:CVDPEvaluator`가 제출 RTL을 공식 CVDP로 �
 | `workspace.py:CandidateStore.create`, `sources.py:_export_git` | 코드·설정도 텍스트로 수정할 수 있지만 삭제/바이너리 패치 API는 없다. symlink/submodule/LFS는 자동 처리하지 않으므로 대상에 따라 소스 준비 작업 필요. |
 | `harnesses/opencode.py:run`, `runner.py:Context.record_usage` | OpenCode root step_finish의 input+output/cost만 `harness_reported_*` partial 지표. 전체 Agent 토큰/비용은 null. Optimizer usage는 플러그인의 명시적 보고 목록이며 빈 목록을 사용량 0으로 해석하지 않는다. |
 | `config.py:budget`, `runner.py:Budget` | trial 수·시간·timeout만 지원. 비용 constraint는 평가 후 선택 제약이다. Optimizer 동기 호출 전후 시간 검사이지 내부 모델 호출을 선점 차단하는 기능이 아니다. |
-| `runner.py:run_experiment`, `examples/ace-rtl/environment/setup.py` | source/benchmark/plugin/helper hash, HF hash, driver lock/설치 목록, 이미지 ID/도구 버전을 기록한다. dev 실행은 준비된 이미지 ID를 사용하지만 Dockerfile 내부 OS 저장소와 모델 서비스까지 완전히 고정하지 않는다. 직접 RTL 실행은 예제 안내대로 이미지 ID를 설정해야 한다. |
+| `runner.py:run_experiment`, `examples/ace-rtl/environment/setup.py` | source/benchmark/plugin/helper hash, HF hash, driver lock/설치 목록, 이미지 ID/도구 버전을 기록한다. dev의 Docker run은 ID, 공식 Dockerfile/Compose는 lock의 ID·platform과 대조한 로컬 tag를 사용한다. 이미지 내부 OS 저장소와 모델 서비스까지 완전히 고정하지 않는다. 직접 RTL 실행은 예제 안내대로 이미지 ID를 설정해야 한다. |
 | `cli.py:main`, `runner.py:preflight` | plan의 integrations_ready는 registry/설정 및 evaluator별 사전검사 수준. Docker daemon·모델 인증·실제 결과 스키마까지 검증하지 않는다. 미구현 슬롯도 plan은 valid=true와 integrations_ready=false를 함께 출력할 수 있다. |
 | `process.py`, `examples/ace-rtl/evaluator.py` | 코어 Agent 및 CVDP 정리는 별개다. 실제 CVDP timeout에서 전용 network의 컨테이너 제거와 별도 sentinel 보존을 확인했다. upstream의 초 단위 Compose project 이름은 외부 동시 실행 충돌 가능성이 있어 새 scheduler 보장으로 해석하지 않는다. |
 
@@ -96,8 +101,10 @@ Agent 종료 후 `evaluator.py:CVDPEvaluator`가 제출 RTL을 공식 CVDP로 �
 - **전달 당시 기록:** Python 3.12, 32개 중 31개 통과·Icarus 1개 생략, uv 설치/최소 데모/ZIP 재실행/
   공개 CVDP 과제 변환 확인 보고. 이번에 그 환경·배포 ZIP을 재현한 것은 아니다.
 - **현재 실제 실행:** macOS arm64 + uv Python 3.12.12, 공식 Docker ARM64 setup/offline/smoke 통과.
-  최소 합성 데모·패키징과 회귀 suite의 정확한 명령/수는 [최신 기록](verification.md#2026-09-20-task-6-cihandoffintegration)에 둔다.
-- **미검증:** Ubuntu x86_64/원격 CI, 실제 OpenCode→모델→CVDP end-to-end, native ACE runner,
+  패키징은 [Task 6 기록](verification.md#2026-09-20-task-6-cihandoffintegration), 최신 회귀·smoke 수치는 아래 최종 수정 기록을 따른다.
+- **Ubuntu 실제 실행:** `751e99f`의 코어 CI(각 144개 중 143 통과·1 optional skip), 공식 이미지
+  setup/offline/tools 통과. 첫 공식 smoke의 이미지 참조 오류와 후속 로컬 검증은 [최종 수정 기록](verification.md#2026-09-20-final-fix--native-ubuntu-integration)에 구분한다.
+- **미검증:** 수정 후 native Ubuntu 공식 smoke, 실제 OpenCode→모델→CVDP end-to-end, native ACE runner,
   전체 sub-agent 사용량, 실제 성능 개선. 개발 Harness 세션 자체는 제품 통합 검증이 아니다.
 
 자세한 명령·산출물·검증 구분은 [verification.md](verification.md)에 기록한다.
