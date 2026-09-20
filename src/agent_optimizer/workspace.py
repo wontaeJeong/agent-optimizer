@@ -125,6 +125,9 @@ def collect_outputs(source: Path, target: Path) -> None:
     files = list(regular_files(source))
     safe_path(target, ".")
     outputs = [safe_path(target, path.relative_to(source).as_posix()) for path in files]
+    for out in outputs:
+        if out.is_dir():
+            raise ConfigurationError(f"Output file destination is a directory: {out}")
     target.mkdir(parents=True, exist_ok=True)
     for path, out in zip(files, outputs):
         out.parent.mkdir(parents=True, exist_ok=True)

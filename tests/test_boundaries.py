@@ -85,6 +85,20 @@ class OutputBoundaryTests(BoundaryFixture):
         with self.assertRaises(ConfigurationError):
             safe_path(self.source, "link/new.txt")
 
+    def test_directory_output_destination_rejected_before_any_copy(self):
+        (self.source / "foo").write_bytes(b"attacker output")
+        private = self.root / "private.txt"
+        private.write_bytes(b"host sentinel")
+        target = self.root / "evaluation"
+        (target / "foo").mkdir(parents=True)
+        (target / "foo/foo").symlink_to(private)
+        try:
+            with self.assertRaises(ConfigurationError):
+                collect_outputs(self.source, target)
+        finally:
+            self.assertEqual(private.read_bytes(), b"host sentinel")
+            self.assertFalse((target / "fixed.txt").exists())
+
     def test_normal_outputs_and_host_ancestor_alias_are_supported(self):
         alias = self.root / "host-alias"
         alias.symlink_to(self.root, target_is_directory=True)
