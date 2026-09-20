@@ -12,14 +12,19 @@ dist/
 .coverage*
 htmlcov/
 # Local coding assistants and IDEs
+.agent/
+.agents/
 .claude/
 .codex/
 .cursor/
 .vscode/
 .idea/
 .opencode/
+.codegraph/
+.worktrees/
 CLAUDE.local.md
 AGENTS.local.md
+AGENTS.override.md
 *.code-workspace
 *.swp
 *.swo
