@@ -8,6 +8,7 @@ import uuid
 from pathlib import Path
 
 from agent_optimizer.contracts import ExecutionResult
+from agent_optimizer.network import host_environment, container_network
 
 
 def run_process(argv: list[str], cwd: Path, logs: Path, timeout: float,
@@ -41,10 +42,11 @@ def run_process(argv: list[str], cwd: Path, logs: Path, timeout: float,
 
 def execute(argv: list[str], workspace: Path, logs: Path, timeout: float,
             runtime: dict, env: dict[str, str] | None = None) -> ExecutionResult:
-    """Docker mounts exactly one trial workspace. Agent receives no Docker socket."""
+    """Docker mounts the trial workspace and optional read-only CA, never the socket."""
     env = env or {}
     if runtime.get("kind", "local") == "local":
-        return run_process(argv, workspace, logs, timeout, {**os.environ, **env})
+        return run_process(argv, workspace, logs, timeout, host_environment({**os.environ, **env}))
+    network_args, network_env = container_network({**os.environ, **env})
     name = "agent-opt-" + uuid.uuid4().hex[:16]
     command = ["docker", "run", "--rm", "--name", name, "--init",
                "--user", f"{os.getuid()}:{os.getgid()}",
@@ -55,14 +57,17 @@ def execute(argv: list[str], workspace: Path, logs: Path, timeout: float,
                "--mount", f"type=bind,source={workspace.resolve()},target=/work",
                "--workdir", "/work", "--env", "HOME=/tmp/agent-home"]
     for key, value in env.items():
+        if key in network_env or key == "AGENT_OPT_CA_BUNDLE":
+            continue
         command += ["--env", f"{key}={value}"]
     for key in runtime.get("env_passthrough", []):
         # An absent bare --env would erase an image default. Empty host values are intentional.
-        if key in os.environ:
+        if key in os.environ and key not in network_env and key != "AGENT_OPT_CA_BUNDLE":
             command += ["--env", key]
+    command += network_args
     command += [runtime["image"], *argv]
     try:
-        result = run_process(command, workspace, logs, timeout)
+        result = run_process(command, workspace, logs, timeout, env={**os.environ, **network_env})
         if result.returncode in {125, 126, 127}:
             result.status = "infrastructure_error"
             result.detail = "Docker/image/entrypoint failure; see stderr log"

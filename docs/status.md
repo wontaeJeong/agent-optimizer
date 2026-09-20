@@ -13,6 +13,10 @@ Mac Docker ARM64에서 공식 OSS/OpenCode 이미지를 빌드하고 host-Docker
 
 ## 현재 기능과 근거
 
+**2026-09-21 선택적 네트워크 설정:** proxy/NO_PROXY/전체 CA bundle을 호스트 설치·소스 확보·
+데이터 다운로드·이미지 빌드·Agent 실행·지원하는 평가 Compose에 전달한다.
+사용법과 지원 범위는 [network.md](network.md), 실제 검증은 [verification.md](verification.md#2026-09-21-optional-network-environment)를 따른다.
+
 아래 코어 경로는 `src/agent_optimizer/` 기준이다. **구현**은 코드 존재를,
 **오프라인 검증**은 합성 실행/로컬 프로세스/모의 계약 테스트를 뜻하며 실환경 통합과 구별한다.
 

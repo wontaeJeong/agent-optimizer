@@ -331,3 +331,41 @@ native 공식 통합 재검증 대기를 해소했다.
 **남은 범위:** API 키는 여전히 없어 live는 `blocked_auth`다. 실제 OpenCode→모델→CVDP end-to-end,
 native ACE runner, 전체 sub-agent 사용량 및 성능 개선은 미검증이다. Meta-Harness/GEPA/Ecdysis는
 팀 구현용 슬롯이며 이번 evaluator-only 통과가 알고리즘 구현·논문 재현·성능 개선을 뜻하지 않는다.
+
+## 2026-09-21 Optional network environment
+
+환경: macOS arm64, 기본 Python 3.14.5 / uv 환경 Python 3.12.12, uv 0.10.7,
+Docker native `linux/arm64`, Compose 5.1.3. Buildx가 기본 CLI에 없어 검증용 임시 Docker config에만
+Buildx 0.37.1 darwin-arm64를 설치했다. 공식 release API SHA-256
+`c3cbbc820d578b0aa8158dd62ef1af25a0c8a75ef53331dbe4e219471e1dbe8c`와 다운로드 파일을 대조했다.
+기본 Docker 설정·데몬은 변경하지 않았다.
+
+| 실제 명령 / 검사 | 결과 |
+|---|---|
+| `PYTHONPATH=src python3 -m unittest discover -s tests -v` | **169개 중 155 통과·14 skip**, 실패 0. skip: 기존 실도구 9·OpenCode 이미지 선택 1 + 신규 Docker 2·PyYAML 2. 아래에서 Docker/OpenCode/PyYAML을 별도 실행했다. |
+| `PYTHONPATH=src python3 -m agent_optimizer run examples/minimal/experiment.toml` | exit 0, completed, 9 trial. `runs/20260920T172527Z-ae724b41/`; 합성 연결 검증. |
+| `uv run --frozen --extra dev ruff check .`; `git diff --check` | 통과. |
+| `PYTHONPATH=src:tests uv run --frozen --extra dev --with PyYAML==6.0.2 python -m unittest test_network.EvaluatorNetworkTests -v` | **5/5 통과**. 실제 Python wrapper → driver 계약 fixture 실행·결과 수집 포함. 공식 CVDP 시뮬레이션은 아님. |
+| `AGENT_OPT_NETWORK_DOCKER=1 PYTHONPATH=src:tests python3 -m unittest test_network.DockerNetworkIntegrationTests.test_actual_build_trust_proxy_history_and_runtime_readonly_ca -v` (임시 `DOCKER_CONFIG`, 현재 context의 `DOCKER_HOST` 지정) | **1/1 통과**. 실제 BuildKit 빌드 중 CA trust/proxy 적용, proxy 비밀값의 image history·ENV 비포함, non-root runtime CA readonly mount와 환경 전달 확인. |
+| `AGENT_OPT_NETWORK_DOCKER=1 PYTHONPATH=src:tests uv run --frozen --extra dev --with PyYAML==6.0.2 python -m unittest test_network.DockerNetworkIntegrationTests.test_actual_compose_receives_proxy_and_readonly_ca -v` | **1/1 통과**. 실제 Compose container에서 SSL trust·proxy/NO_PROXY 전달 확인. |
+| `AGENT_OPT_CA_BUNDLE=/etc/ssl/cert.pem python3 scripts/network.py -- docker build -f examples/rtl-debugger/Dockerfile -t agent-opt-network-opencode:validation examples/rtl-debugger` (동일 임시 Docker config/host) | exit 0. 공개 CA bundle을 지정한 실제 OpenCode 1.18.31 npm 설치 및 apt Python/Git/CA 설치 통과. |
+| `docker run --rm --network none agent-opt-network-opencode:validation opencode --version` 및 Python SSL trust 확인 | `1.18.31`; CA 128개 읽음. |
+| `AGENT_OPT_TEST_DOCKER_IMAGE=agent-opt-network-opencode:validation PYTHONPATH=src:tests uv run --frozen --extra dev python -m unittest test_adapters.DockerEnvironmentTests -v` | **1/1 통과**. 기본/명시 provider 설정과 빈 값 동작 유지. `runs/docker-env-regression-f2d2fabc2a77/`. 모델 inference 없음. |
+
+네트워크 회귀는 실제 로컬 HTTPS 서버의 추가 CA 신뢰/미설정 거부와 실제 HTTP proxy 및
+NO_PROXY 우회를 포함한다. 프록시 자격증명은 합성 fixture 값이며 외부 proxy 서비스에 접속하지 않았다.
+공통 설정의 전달 자체와 특정 배포 환경에서의 연결 성공을 구분한다.
+
+초기 통합 fixture는 Buildx의 registry 인증도 host proxy를 사용한다는 점과 Colima의
+macOS 임시 디렉터리 비공유를 반영하지 못해 실패했다. base image를 정상 환경으로 pull하고
+local tag를 사용하며 runtime fixture를 공유 workspace 안에 생성하도록 수정 후 통과했다.
+실제 npm/apt 빌드에는 bundle을 단일 local CA 파일로 등록하여 `rehash`의 복수 인증서 경고가
+있었으나 bundle 기반 trust와 설치는 성공했다. 해당 경고를 TLS 검증 해제로 우회하지 않았다.
+
+코드 리뷰에서 evaluator의 UUID network 이름을 설정 dict로 덮어쓰는 회귀를 발견했다.
+설정 없음/있음 두 경우의 문자열 argv·동일 UUID cleanup 검사가 먼저 실패함을 확인한 뒤
+변수 분리로 해결했고, 실제 wrapper subprocess 회귀 및 후속 리뷰로 재확인했다.
+
+**이번 작업의 미검증 범위:** 실제 인증 proxy/TLS interception 환경, 추가 CA를 적용한
+공식 CVDP 이미지 전체 rebuild·정답/오답 smoke, Ubuntu x86_64의 이번 변경 재실행,
+실제 모델 API 호출. 기존 공식 평가 성공 기록은 이전 절의 별도 근거다.

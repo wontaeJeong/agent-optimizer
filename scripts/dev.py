@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.results import write_json
+from agent_optimizer.network import network_environment
 
 
 def load(name, path):
@@ -29,6 +30,7 @@ def main():
     os.chdir(ROOT)
     setup = load("ace_environment", "examples/ace-rtl/environment/setup.py")
     try:
+        os.environ.update(network_environment())
         if args.command == "live":
             setup.validate_live()  # Before image probes, data reads, or any model execution.
         args.platform = setup.validate_platform(args.platform)
