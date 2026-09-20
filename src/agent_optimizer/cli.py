@@ -105,7 +105,8 @@ def main(argv=None):
                     raise ConfigurationError("rerank cannot change metric source/aggregation; re-aggregate or rerun")
             output = []
             for group in summary["groups"]:
-                rows = {group["baseline"]["candidate_id"]: group["baseline"]}
+                baseline = group["baseline"]
+                rows = {baseline["candidate_id"]: baseline} if baseline is not None else {}
                 for stage in group["stages"]:
                     for row in stage.get("evaluated", []):
                         rows[row["candidate_id"]] = row

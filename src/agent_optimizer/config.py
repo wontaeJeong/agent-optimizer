@@ -106,6 +106,8 @@ def validate_objective(objective: dict) -> None:
     only_keys(objective, {"mode", "metrics", "constraints", "keep"}, "objective")
     if objective.get("mode", "lexicographic") not in {"lexicographic", "weighted", "pareto"}:
         raise ConfigurationError("Unsupported objective mode")
+    if objective.get("mode") == "pareto" and "keep" in objective:
+        raise ConfigurationError("Pareto returns the whole frontier; objective.keep is not supported")
     if not objective.get("metrics"):
         raise ConfigurationError("At least one objective metric is required")
     names = set()

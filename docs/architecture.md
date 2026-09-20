@@ -36,3 +36,29 @@ manifest에 실험 설정, Agent resolved commit/content hash, 모델 환경변�
 후보별 changes.diff와 candidate.json, trial별 로그/result.json, frozen_selection.json을 저장한다.
 seed는 요청 메타데이터이며 모든 LLM backend의 결정성을 보장하지 않는다.
 외부 환경 lock은 예제 setup에서 기록하고 과제 준비 시 metadata에 포함한다.
+
+## 실행 종료와 부분 결과
+
+`summary.json`의 상태는 `completed`, `no_eligible_candidate`, `budget_exhausted`,
+`interrupted`(Ctrl-C), `source_error`, `error`다. 소스 확보부터 전역 wall-time 예산을 사용한다.
+소스/Optimizer 등 동기 Python 호출은 선점하지 않으며 호출 전후에 남은 시간을 확인한다.
+소스 명령과 trial의 build/Harness/evaluator에는 남은 시간으로 제한한 timeout을 전달한다.
+
+- 전역 deadline 때문에 평가가 중단되면 trial은 `status="interrupted"`, `valid=false`,
+  `passed=null`로 기록하고 실험은 `budget_exhausted`로 끝난다. 정상적인 0점 후보로 선택하지 않는다.
+  설정한 per-trial timeout만 소진된 경우에는 기존처럼 채점 가능한 실패(`passed=0`)다.
+- 예약에 실패한 trial은 사용 횟수에 더하지 않는다. 실제 시도한 trial은 오류/Ctrl-C에도
+  `result.json`과 `trial_completed` 이벤트를 남긴다. 이 이벤트명은 기록 종료를 뜻하며 성공을 뜻하지 않는다.
+  `trial_id`, Agent/Harness/후보/과제/split/repeat, 사용량과 실행 결과(반환 전 중단이면 null)를 보존한다.
+- 출력 경계 위반 등 예외는 `valid=false`, `status="error"`, `error_type`과 함께 기록한 뒤 다시 발생시킨다.
+  구현 오류를 합성 결과나 정상 완료로 대체하지 않는다.
+- 시작한 그룹은 부분 상태도 summary에 남는다. baseline 평가가 끝나지 않으면 `baseline=null`,
+  선택 고정 전이면 `selected=[]`다. 진행 중 stage의 완료된 평가와 Optimizer 사용량을 보존한다.
+  test 중 중단되면 이미 고정된 validation 선택과 완료된 test 행을 유지하고 미완료 test를 집계하지 않는다.
+  소스 확보 중 종료되면 그룹 목록은 비어 있을 수 있다.
+- `optimizer_usage` 이벤트는 `record_usage` 호출 시 Agent/Harness/stage ID와 함께 저장된다.
+  보고하지 않은 사용량을 0으로 간주하지 않는다. report/rerank는 nullable baseline을 지원하며,
+  rerank는 완료된 validation 집계만 사용하고 invalid/partial 행은 선택에서 제외한다.
+
+CLI `run`은 정상 완료 시 0, 예산 소진·Ctrl-C·선택 불가 시 3을 반환한다. 설정/파일 오류는 2이며,
+예상하지 못한 구현 오류는 summary를 저장한 뒤 호출자에게 전파된다. 결과 저장은 재시작 기능이 아니다.
