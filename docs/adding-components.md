@@ -16,6 +16,31 @@ my_evaluator = "experiments/my-team/evaluator.py:Evaluator"
 미구현 슬롯을 구현해도 자동 활성화되지 않습니다. 위 등록으로 명시적으로 연결합니다.
 `plan`도 플러그인 Python 코드를 로딩하므로 신뢰한 파일만 사용하세요.
 
+### 플러그인 파일 의존성 기록
+
+직접 등록한 `file.py:Symbol` 외에 결과에 영향을 주는 helper 파일은 선택적 매핑으로 선언합니다.
+경로는 플러그인 파일 위치가 아니라 experiment의 `project_root` 기준입니다.
+
+```toml
+[plugin_dependencies]
+"evaluators/my_evaluator" = ["experiments/my-team/scoring.py"]
+"optimizers/my_optimizer" = ["experiments/my-team/search_helpers.py"]
+"harnesses/my_harness" = ["experiments/my-team/trace_parser.py"]
+```
+
+키는 같은 experiment의 `[plugins.<kind>]`에 등록된 `kind/name`이어야 합니다.
+미등록 이름(내장/설치 entry point만 존재하는 이름 포함), 문자열 목록이 아닌 값,
+누락 파일·디렉터리·절대 경로·경로 이탈·symlink는 플러그인 코드 로딩 전 preflight에서 거부합니다.
+선언을 생략한 기존 파일 등록도 그대로 유효합니다.
+
+manifest의 `plugin_sha256`은 직접 등록 파일을 기존 `file.py:Symbol` 키로,
+선언 의존성은 프로젝트 상대 파일 경로 키로 각각 SHA-256 기록합니다.
+동일 helper가 여러 플러그인에 선언되면 hash는 한 번 기록하고 연결 관계는
+`experiment.plugin_dependencies`에 남습니다. helper만 바뀌어도 fingerprint 매핑이 바뀝니다.
+등록 참조와 같은 문자열인 의존성 파일명은 hash 키 충돌로 거부합니다.
+자동 Python import 탐색·의존성 설치·버전 고정 기능은 아닙니다. 누락된 helper와 설치 패키지,
+외부 모델/실행 환경은 자동 추적하지 않으므로 담당자가 선언/고정해야 합니다.
+
 ## Agent 소스
 
 Agent manifest schema_version은 2, experiment/benchmark schema_version은 1입니다.
@@ -80,6 +105,11 @@ command 어댑터 argv placeholder: `{python}`, `{agent_dir}`, `{task_dir}`, `{r
 OpenCode 이외 CLI도 command wrapper로 먼저 연결한 후 필요한 trace parsing을 추가할 수 있습니다.
 
 ## Optimizer
+
+팀 구현은 [`experiments/optimizer-template/`](../experiments/optimizer-template/README.md)에서 시작하세요.
+Meta-Harness 연결 후보를 위한 텍스트 변경·train 피드백·사용량·checkpoint 지점을 설명하며,
+알고리즘을 공급하기 전 `optimize`는 `UnavailableError`를 냅니다. template의 `plan` 성공은
+등록 검사만 뜻합니다. 실제 실행 가능한 계약 예제는 기존 `file_variants`입니다.
 
 `optimize(context, seeds, config) -> OptimizationResult`.
 - `context.propose(parent, {"relative/file": "new content"}, producer)`로 후보 생성.

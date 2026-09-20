@@ -10,6 +10,30 @@ from agent_optimizer.harnesses.opencode import OpenCodeHarness
 from agent_optimizer.optimizers.baseline import BaselineOptimizer
 from agent_optimizer.optimizers.file_variants import FileVariantsOptimizer
 
+
+def plugin_files(root, plugins, dependencies):
+    """Validate explicit file dependencies; do not discover Python imports."""
+    if not isinstance(dependencies, dict):
+        raise ConfigurationError("plugin_dependencies must be a mapping of kind/name to path lists")
+    registered = {f"{kind}/{name}" for kind, entries in plugins.items() for name in entries}
+    files = {ref: safe_path(root, ref.rsplit(":", 1)[0])
+             for entries in plugins.values() for ref in entries.values()}
+    for key, paths in dependencies.items():
+        if key not in registered:
+            raise ConfigurationError(f"plugin_dependencies references an unregistered file plugin: {key}")
+        if not isinstance(paths, list) or not all(isinstance(path, str) for path in paths):
+            raise ConfigurationError(f"plugin_dependencies[{key!r}] must be a string list")
+        for path in paths:
+            file = safe_path(root, path)
+            if path in files and files[path] != file:
+                raise ConfigurationError(f"Plugin dependency conflicts with a registered fingerprint key: {path}")
+            files[path] = file
+    for reference, file in files.items():
+        if not file.is_file():
+            raise ConfigurationError(f"Plugin file does not exist or is not a regular file: {reference}")
+    return files
+
+
 class Registry:
     def __init__(self):
         self.factories = {

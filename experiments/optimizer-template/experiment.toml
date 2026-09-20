@@ -1,0 +1,33 @@
+schema_version = 1
+name = "team-optimizer-template"
+project_root = "../.."
+agents = ["examples/minimal/solo.toml"]
+harnesses = ["examples/minimal/harness.toml"]
+benchmark = "examples/minimal/tasks.json"
+evaluator = "text_fixture"
+seed = 42
+final_test = true
+final_stages = ["team-search"]
+
+[plugins.optimizers]
+meta_harness = "experiments/optimizer-template/optimizer.py:Optimizer"
+[plugins.evaluators]
+text_fixture = "examples/minimal/evaluator.py:TextFixtureEvaluator"
+
+[budget]
+max_trials = 10
+max_wall_time_seconds = 120
+trial_timeout_seconds = 10
+
+[objective]
+mode = "lexicographic"
+[[objective.metrics]]
+name = "solve_rate"
+source = "passed"
+direction = "maximize"
+
+[[stages]]
+id = "team-search"
+optimizer = "meta_harness"
+inputs = ["baseline"]
+[stages.config]
