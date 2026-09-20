@@ -11,8 +11,9 @@
 | ACE-RTL | `fead921f18bb57345b5a41ef93ba625be208e99c` | `examples/ace-rtl/source.toml`의 revision과 `environment/setup.py`의 REPOS가 모두 일치 |
 | CVDP | `8e894cf74414ab1eaea1e2b4e80a02f123df07b6` | `examples/ace-rtl/environment/setup.py`의 REPOS가 일치 |
 
-두 SHA는 최신 버전이라는 뜻이 아니다. 이번 문서 작업에서 변경하지 않았다.
-아래 고정 URL의 본문은 같은 SHA의 raw 파일로 열람했다. 외부 checkout 설치·실행은 하지 않았다.
+두 SHA는 최신 버전이라는 뜻이 아니다. MVP hardening에서도 변경하지 않았다.
+아래 고정 URL의 본문은 같은 SHA의 raw 파일 및 실제 checkout과 대조했다.
+Task 5/6에서 실제 setup/평가를 실행한 범위는 [verification.md](verification.md)에 별도로 기록한다.
 
 ## 판단별 1차 출처
 
@@ -25,11 +26,11 @@
 | [ACE 구성 요소](https://github.com/NVlabs/ACE-RTL/blob/fead921f18bb57345b5a41ef93ba625be208e99c/skills/ace-rtl/references/agent-components.md) | `ace_agent_runner.py`, `ace_cvdp_native_runner.py`, Generator/FocusedDebugger/FreshStartCoordinator 위치 안내. `source.toml`의 editable 역할 파일과 향후 native 어댑터 검토 근거. | 구성 지도 확인. 파일 위치 안내만으로 해당 코드가 로컬 실행에서 호출된다고 주장하지 않음. 새 프로필에서는 실제 호출 경로·trace 확인 필요. |
 | [ACE 역할·실행 흐름](https://github.com/NVlabs/ACE-RTL/blob/fead921f18bb57345b5a41ef93ba625be208e99c/skills/ace-rtl/references/agent-workflow.md) | 원본 지침에는 평가 보고서 기반 반복·재시작·역할 상태·병렬 시도가 있다. `adapter.py` 및 `runner.py`의 단일 Harness 호출 후 외부 평가와 구별하는 근거. | 문서상 루프 확인. 원본 Python 전체 호출 그래프·런타임 동작은 미검증. 반복 중 피드백 경계와 예산을 native 연결 전에 재검토. |
 | [CVDP README](https://github.com/NVlabs/cvdp_benchmark/blob/8e894cf74414ab1eaea1e2b4e80a02f123df07b6/README.md) | 공식 OSS 이미지 빌드, Python 3.12 권장, golden/LLM/agentic 경로 및 heavy 데이터의 별도 요구사항. `examples/ace-rtl/environment/setup.py`, `setup.sh`, `evaluator.py`의 환경·범위 판단에 사용. | 본문 확인. `run_benchmark.py`의 옵션·제출 처리 전체를 검증한 것은 아님. 이미지 변수, 데이터 형식, golden 모드에서 후보 output.context 평가 여부를 한 문제로 재확인. |
-| [공식 Dockerfile.sim](https://github.com/NVlabs/cvdp_benchmark/blob/8e894cf74414ab1eaea1e2b4e80a02f123df07b6/docker/Dockerfile.sim) | Icarus `v13_0`, Yosys `yosys-0.40`, Verilator `v5.038` 설치 단계가 있다. `environment/setup.py`가 이를 재사용하므로 별도 시뮬레이터 Dockerfile을 만들지 않는다. | 파일 확인, 빌드 미실행. 베이스 이미지·도구 태그·Python 패키지·생성 이미지 ID 재확인 필요. OpenCode/ACE native 의존성 준비를 대신하지 않음. |
+| [공식 Dockerfile.sim](https://github.com/NVlabs/cvdp_benchmark/blob/8e894cf74414ab1eaea1e2b4e80a02f123df07b6/docker/Dockerfile.sim) | Icarus `v13_0`, Yosys `yosys-0.40`, Verilator `v5.038` 설치 단계가 있다. `environment/setup.py`가 변경 없이 재사용한다. | ARM64 실제 빌드/실행 및 도구 버전 확인. amd64 에뮬레이션 실패는 보존. host driver lock과 이미지 내부 패키지 설치는 별개이며 native Ubuntu x86_64는 미검증. |
 | [CVDP report.py](https://github.com/NVlabs/cvdp_benchmark/blob/8e894cf74414ab1eaea1e2b4e80a02f123df07b6/src/report.py) | binary 문제는 test result=0을 통과로 집계하지만 score-based 범주는 별도 처리한다. `examples/ace-rtl/evaluator.py`의 binary 판정과 `prepare.py`의 제한 범위 근거. | 소스 확인. 로컬 evaluator는 공식 report 전체를 재현하지 않으며 빈 tests는 거부한다. raw_result 구조, 범주별 점수 의미, 환경 오류 분류를 버전 변경 시 재검토. |
-| [CVDP 데이터셋](https://huggingface.co/datasets/nvidia/cvdp-benchmark-dataset) | 공식 데이터 배포처. `prepare.py`의 importer 확장과 데이터 사용 조건 확인에 사용. | 배포 페이지 확인. 전체 데이터·개별 문제 호환성 미검증, HF revision 미고정. 현재 `setup.sh`는 HF 전체 다운로드 대신 고정 CVDP repo의 `example_dataset/cvdp_v1.1.0_example_nonagentic_code_generation_no_commercial.jsonl`을 사용한다. 전환 시 파일명·revision·hash·의존성·출력 대상 재검토. |
-| [OpenCode CLI](https://opencode.ai/docs/cli/) | `opencode run`, `--format json`, `--model`, `--agent`의 비대화형 실행 계약. `src/agent_optimizer/harnesses/opencode.py`, `examples/rtl-debugger/Dockerfile`에서 사용. | 공식 문서 및 Context7의 명령 정의 확인. 이 URL은 고정 버전 문서가 아니다. 로컬 Dockerfile은 정확한 OPENCODE_VERSION을 요구하지만 값은 미선정. 선택 버전의 JSON 이벤트·오류·child session 사용량을 실제 trace로 검증해야 함. |
-| [Yosys 0.40 read_verilog](https://yosyshq.readthedocs.io/projects/yosys/en/0.40/cmd/read_verilog.html), [write_verilog](https://yosyshq.readthedocs.io/projects/yosys/en/0.40/cmd/write_verilog.html), [synth 구현](https://github.com/YosysHQ/yosys/blob/yosys-0.40/techlibs/common/synth.cc) | `examples/rtl-debugger/iverilog.py`의 `-sv`, `-noautowire`, `-noattr`, `synth -top ... -flatten -noabc` 구문과 합성 netlist 출력 근거. frontend의 작은 SystemVerilog 부분집합, synthesis-time display 출력, process 변환 이후 netlist 출력 경계와 synth의 hierarchy 검사를 확인. | Task 4에서 Context7 우선 검색에 Yosys 결과가 없어 공식 0.40 문서/소스를 직접 확인. 실제 Yosys/Icarus 미설치로 동작 검증은 skip. `tests/test_rtl_evaluation.py`의 실제 도구 characterization과 정답/오답 검증을 공식 CVDP 이미지에서 실행해야 함. |
+| [CVDP 데이터셋](https://huggingface.co/datasets/nvidia/cvdp-benchmark-dataset) | 공식 데이터 배포처. `prepare.py`의 importer와 데이터 사용 조건 근거. | 아래 고정 HF revision/신뢰 hash로 full no_commercial 파일을 확보. 302개 중 71개 지원 형태·231개 제외. 이는 71개 시뮬레이션 통과가 아니며 실제 evaluator smoke는 별도 고정 repo LFSR 예제. |
+| [OpenCode CLI](https://opencode.ai/docs/cli/) | `opencode run`, `--format json`, `--model`, `--agent`의 비대화형 실행 계약. `src/agent_optimizer/harnesses/opencode.py`, `examples/rtl-debugger/Dockerfile`에서 사용. | 공식 문서/Context7 및 실제 1.18.31 CLI/config 확인. URL은 가변 문서다. 모델 inference trace·child session 전체 사용량은 미검증. |
+| [Yosys 0.40 read_verilog](https://yosyshq.readthedocs.io/projects/yosys/en/0.40/cmd/read_verilog.html), [write_verilog](https://yosyshq.readthedocs.io/projects/yosys/en/0.40/cmd/write_verilog.html), [synth 구현](https://github.com/YosysHQ/yosys/blob/yosys-0.40/techlibs/common/synth.cc) | `examples/rtl-debugger/iverilog.py`의 `-sv`, `-noautowire`, `-noattr`, `synth -top ... -flatten -noabc` 및 hierarchy 검사 근거. | 공식 ARM64 이미지에서 실도구 9개 통과. 실제 `$display` → netlist `$write` 보존 확인: 합성 단독 정화 주장은 틀리며 입력 제한과 private mismatch/nonzero-exit 검사가 필수. |
 
 상용 EDA를 제외한다는 결정은 **사용자 요구사항**이다. upstream에 상용 경로가 존재해도 이 제품의
 지원 범위가 되지 않는다. 외부 소스/데이터의 포함·사용 조건은 [THIRD_PARTY.md](../THIRD_PARTY.md)도 확인한다.
@@ -52,9 +53,7 @@
 첫 알고리즘 담당자가 저자/논문과 repo 관계를 대조하고 채택 SHA 또는 release를 고정한 뒤,
 이 표를 갱신하고 공통 계약·train/validation 경계에 맞춰 연결한다.
 
-## 버전 변경 절차
-
-### Task 5 pinned data / provider inspection (2026-09-20)
+## Task 5 pinned data / provider inspection (2026-09-20)
 
 `examples/ace-rtl/environment/setup.py` downloads exactly three files from HF dataset revision
 `5b807d945f6a99aa645f7e43a64a2115e281b4bf`. Expected SHA-256 values were obtained **after**
@@ -90,9 +89,34 @@ Controller follow-up used Context7 `/docker/cli` for `docker version --format` s
 actual `{{.Server.Os}}/{{.Server.Arch}}` returned `linux/arm64`. This daemon-native selection now
 replaces the original fixed-amd64 default; explicit overrides remain supported without post-failure fallback.
 
+## Task 6 Python driver lock / CI 확인
+
+입력은 [고정 CVDP requirements.txt](https://github.com/NVlabs/cvdp_benchmark/blob/8e894cf74414ab1eaea1e2b4e80a02f123df07b6/requirements.txt)이며
+SHA-256은 `f79bf21e2e98b96016cf7992afb6a4df4bcfac64d07ff811195d22ddf0af6ad2`다.
+upstream 12개 직접 pin을 그대로 사용하여 uv 0.10.7로 32개 전이 포함 pin을 생성했다.
+
+```bash
+uv pip compile --universal --python-version 3.12 --no-annotate --no-header external/cvdp_benchmark/requirements.txt
+```
+
+출력과 provenance 주석을 `examples/ace-rtl/environment/requirements-cvdp-py312.txt`에 보존했다.
+lock SHA-256: `8de4e036b1fd7c670fc9cca44d7d3f5cac2f31cf320ce96b2593a4db6883d039`.
+setup은 입력 hash를 검증하고 `uv pip sync`로 별도 driver를 맞춘다. 환경 lock에 compiled hash와
+실제 설치 목록을 남기며 offline/doctor/smoke에서 drift를 거부한다. 재생성은 명시적 유지보수 작업이며
+setup에서 dependency resolution을 새 버전으로 갱신하지 않는다. 배포 wheel hash나 Docker 내부
+OS package까지 고정하는 hermetic lock은 아니다.
+
+Context7 `/astral-sh/uv`에서 universal compile, Python target, sync, offline 계약을 확인했다.
+`/websites/github_en_actions`에서 boolean dispatch 입력과 `gh workflow run --ref`를 확인했다.
+`.github/workflows/ci.yml`은 이미 존재하는 workflow의 수동 입력을 확장한다. 원격 Ubuntu 실행 결과는
+아직 없으며 아래 로컬 검증 기록과 구분한다.
+
+## 버전 변경 절차
+
 1. 변경 대상의 고정 출처와 로컬 소비 파일을 위 표에서 찾는다. ACE SHA 두 곳은 함께 대조한다.
 2. upstream diff에서 경로·CLI·입출력·채점·의존성 변화를 확인한다. 문서 정리를 이유로 자동 최신화하지 않는다.
 3. 소스 SHA와 데이터 hash, OpenCode 버전, 이미지 ID/digest, 모델·예산을 기록한다.
-   현재 setup lock은 CVDP 이미지 ID와 패키지 목록을 기록하지만 OpenCode 이미지 고정까지 자동 보장하지 않는다.
+   dev 명령은 평가/Agent 이미지 ID를 사용한다. 직접 작성한 profile도 선택 ID에 맞추고 모델 서비스의
+   가변성을 별도로 기록한다.
 4. 모의 계약 테스트 후 지원하는 OSS 한 문제를 실환경 검증한다. 결과와 미검증 영역을
    [verification.md](verification.md), [status.md](status.md)에 갱신한다.

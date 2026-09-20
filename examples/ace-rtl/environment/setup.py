@@ -25,6 +25,8 @@ ASSETS = {
     "NOTICE": "3d8753e57eab52910ccb61a1ee09113c43e9382ccd98d5860b5621aff8d932dd",
 }
 OPENCODE_VERSION = "1.18.31"
+DRIVER_LOCK = "examples/ace-rtl/environment/requirements-cvdp-py312.txt"
+REQUIREMENTS_SHA256 = "f79bf21e2e98b96016cf7992afb6a4df4bcfac64d07ff811195d22ddf0af6ad2"
 
 
 def validate_platform(platform):
@@ -136,6 +138,31 @@ def validate_driver_python(python):
         raise UnavailableError(f"CVDP driver requires Python 3.12, found {version} at {python}. {repair}")
 
 
+def driver_requirements(external):
+    upstream = external / "cvdp_benchmark/requirements.txt"
+    if hashlib.sha256(upstream.read_bytes()).hexdigest() != REQUIREMENTS_SHA256:
+        raise ConfigurationError("CVDP requirements input hash differs; review and recompile the driver lock")
+    return {"path": DRIVER_LOCK, "sha256": hashlib.sha256((ROOT / DRIVER_LOCK).read_bytes()).hexdigest(),
+            "upstream_sha256": REQUIREMENTS_SHA256, "python": "3.12"}
+
+
+def driver_packages(external):
+    try:
+        return subprocess.check_output(
+            ["uv", "--offline", "pip", "freeze", "--python", str(external / "cvdp-venv/bin/python")],
+            text=True, stderr=subprocess.PIPE, timeout=30,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+        raise UnavailableError("Cannot inspect CVDP driver packages with uv") from exc
+
+
+def validate_driver_lock(external, lock):
+    if lock.get("driver_requirements") != driver_requirements(external):
+        raise ConfigurationError("CVDP driver lock differs or is missing; rerun online setup")
+    if sorted(driver_packages(external).splitlines()) != sorted(lock.get("driver_packages", "").splitlines()):
+        raise ConfigurationError("CVDP driver packages differ from the prepared lock; rerun online setup")
+
+
 def doctor(external, platform, eval_image, agent_image):
     """Actually execute tools; presence of tags or a valid plan is insufficient."""
     validate_platform(platform)
@@ -175,17 +202,20 @@ def prepare_environment(*, offline=False, platform=None):
     uv = ["uv", *(["--offline"] if offline else [])]
     run([*uv, "sync", "--frozen", "--python", "3.12", "--extra", "dev"], log=logs / "project-uv.log")
     prepare_sources(external, offline=offline)
+    requirements = driver_requirements(external)
+    previous_path = external / "environment-lock.json"
+    previous = json.loads(previous_path.read_text()) if previous_path.exists() else {}
+    if offline:
+        validate_driver_lock(external, previous)
     dataset, data_lock = prepare_data(external, offline=offline)
     if not venv.exists():
         run([*uv, "venv", "--python", "3.12", str(venv)], log=logs / "driver-venv.log")
         validate_driver_python(venv / "bin/python")
     cvdp = external / "cvdp_benchmark"
-    run([*uv, "pip", "install", "--python", str(venv / "bin/python"), "-r", str(cvdp / "requirements.txt")], log=logs / "driver-uv.log")
+    run([*uv, "pip", "sync", "--python", str(venv / "bin/python"), str(ROOT / DRIVER_LOCK)], log=logs / "driver-uv.log")
     arch = platform.split("/")[1]
     images = {"evaluation": f"agent-optimizer-cvdp:8e894cf-{arch}",
               "agent": f"agent-optimizer-opencode:{OPENCODE_VERSION}-{arch}"}
-    previous_path = external / "environment-lock.json"
-    previous = json.loads(previous_path.read_text()) if previous_path.exists() else {}
     if offline and previous.get("platform") != platform:
         raise UnavailableError("Offline verified environment lock missing or platform differs")
     builds = {
@@ -210,10 +240,10 @@ def prepare_environment(*, offline=False, platform=None):
     write_json(logs / "doctor.json", capability)
     if not capability["ready"]:
         raise UnavailableError(f"Environment doctor failed; see {logs / 'doctor.json'}")
-    freeze = subprocess.check_output(["uv", "pip", "freeze", "--python", str(venv / "bin/python")], text=True)
+    freeze = driver_packages(external)
     lock = {"repos": REPOS, "dataset": data_lock, "platform": platform,
             "images": image_locks, "opencode_version": OPENCODE_VERSION, "driver_packages": freeze,
-            "doctor": capability}
+            "driver_requirements": requirements, "doctor": capability}
     write_json(previous_path, lock)
     return dataset, lock
 

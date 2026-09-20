@@ -43,10 +43,10 @@ src/agent_optimizer/       공통 계약·실험 실행·소스 스냅샷·결�
   harnesses/              command / OpenCode
 examples/
   minimal/                즉시 실행하는 합성 데모, 두 Agent
-  rtl-debugger/           작은 RTL Agent + OpenCode + Icarus 평가
+  rtl-debugger/           작은 RTL Agent + OpenCode + Yosys/Icarus 평가
   ace-rtl/                외부 ACE-RTL + OpenCode 스킬 + 공식 CVDP 평가
 experiments/              다른 팀 Agent 연결 템플릿
-scripts/                  최소 데모 편의 명령
+scripts/                  setup / doctor / smoke / live 및 최소 데모 명령
 docs/                     설계·확장·구현 상태
 tests/                    의미 있는 경계·실험 검증
 external/ datasets/ runs/ 다운로드·데이터·결과, Git 제외
@@ -78,7 +78,13 @@ python3 scripts/dev.py live    # OPENROUTER_API_KEY + 명시적 openrouter/vendo
 `--platform`을 생략하면 빌드 전에 Docker daemon의 native `linux/amd64` 또는 `linux/arm64`를
 선택해 기록합니다. 명시적 `--platform`은 그대로 사용하며 미지원 architecture는 오류입니다.
 빌드 실패 후 다른 architecture로 자동 재시도하지 않습니다. `setup --offline`은 검증된 cache만 재사용합니다.
+Python 3.12 CVDP driver는 예제의 [전이 의존성 lock](examples/ace-rtl/environment/requirements-cvdp-py312.txt)으로
+동기화하며 lock hash와 실제 설치 목록을 기록합니다. 이전 환경은 한 번 online setup으로 갱신하세요.
 상용 EDA 도구·라이선스 설정은 제공하지 않습니다. 플랫폼별 검증/차단 결과는 [검증 기록](docs/verification.md)을 따릅니다.
+
+PR CI는 Python 3.11/3.12와 Ubuntu native Yosys/Icarus로 코어·실제 RTL·패키징을 검사합니다.
+공식 Docker 통합은 기존 `ci.yml`의 수동 `official_cvdp` 입력으로 실행합니다. 두 경로 모두 모델 호출은 없습니다.
+브랜치 실행 명령과 준비 조건은 [CONTRIBUTING.md](CONTRIBUTING.md#ci와-pr-병합)를 참고하세요.
 
 ## 다른 팀에 적용
 
@@ -89,6 +95,8 @@ python3 scripts/dev.py live    # OPENROUTER_API_KEY + 명시적 openrouter/vendo
 5. 동일 데이터·모델·예산으로 비교하고 diff와 지표 공유.
 
 [확장 가이드](docs/adding-components.md) · [구조](docs/architecture.md) · [팀 개발](CONTRIBUTING.md)
+알고리즘 담당자는 [Optimizer 템플릿](experiments/optimizer-template/README.md)과
+`tests/test_plugin_contracts.py`의 train/validation/test 계약부터 확인하세요.
 
 ## 결과와 제한
 

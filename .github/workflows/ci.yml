@@ -4,6 +4,11 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+    inputs:
+      official_cvdp:
+        description: Build official Docker images and run key-free CVDP integration
+        type: boolean
+        default: false
   workflow_call:
 
 permissions:
@@ -34,8 +39,19 @@ jobs:
           python-version: ${{ matrix.python }}
       - name: Install isolated development environment
         run: |
-          python -m venv .venv
-          .venv/bin/python -m pip install -e '.[dev]'
+          python -m venv "$RUNNER_TEMP/agent-opt-uv"
+          "$RUNNER_TEMP/agent-opt-uv/bin/python" -m pip install uv==0.10.7
+          "$RUNNER_TEMP/agent-opt-uv/bin/uv" sync --frozen --python '${{ matrix.python }}' --extra dev
+      - name: Install native Ubuntu simulators
+        if: runner.environment == 'github-hosted'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends yosys iverilog
+      - name: Require actual simulator coverage (preinstall on self-hosted runners)
+        run: |
+          yosys -V
+          iverilog -V
+          vvp -V
       - name: Lint
         run: .venv/bin/ruff check .
       - name: Unit and contract tests
@@ -53,3 +69,47 @@ jobs:
           cd "$smoke_dir"
           "$smoke_dir/venv/bin/python" -I -m agent_optimizer --help
           "$smoke_dir/venv/bin/agent-opt" --help
+
+  official-cvdp:
+    name: Official CVDP Docker (manual)
+    if: github.event_name == 'workflow_dispatch' && inputs.official_cvdp
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Bootstrap pinned uv
+        run: |
+          python -m venv "$RUNNER_TEMP/agent-opt-uv"
+          "$RUNNER_TEMP/agent-opt-uv/bin/python" -m pip install uv==0.10.7
+          echo "$RUNNER_TEMP/agent-opt-uv/bin" >> "$GITHUB_PATH"
+      - name: Prepare native Docker environment
+        run: python3 scripts/dev.py setup
+      - name: Verify offline reuse
+        run: python3 scripts/dev.py setup --offline
+      - name: Real tools, host-Docker and official positive/negative evaluation
+        run: python3 scripts/dev.py smoke
+      - name: Check actual image defaults and explicit provider configuration (no inference)
+        run: |
+          AGENT_OPT_TEST_DOCKER_IMAGE=$(python3 -c 'import json; print(json.load(open("external/environment-lock.json"))["images"]["agent"]["id"])')
+          DOCKER_DEFAULT_PLATFORM=$(python3 -c 'import json; print(json.load(open("external/environment-lock.json"))["platform"])')
+          export AGENT_OPT_TEST_DOCKER_IMAGE DOCKER_DEFAULT_PLATFORM
+          PYTHONPATH=src:tests .venv/bin/python -m unittest test_adapters.DockerEnvironmentTests -v
+      - name: Retain official integration evidence
+        if: always() && github.server_url == 'https://github.com'
+        uses: actions/upload-artifact@v4
+        with:
+          name: official-cvdp-${{ github.run_id }}
+          retention-days: 7
+          path: |
+            external/environment-lock.json
+            external/setup-logs/
+            runs/dev-smoke-*/
+            runs/docker-env-regression-*/

@@ -136,6 +136,15 @@ class RTLContractTests(unittest.TestCase):
             return result
         self.assertEqual(self.evaluate(tool).metrics["passed"], 0.0)
 
+    def test_pass_marker_rejects_line_terminators_before_tool_execution(self):
+        for marker in ("TEST_PASS\n", "TEST_PASS\r", "TEST_PASS\r\n", "TEST\nPASS"):
+            with self.subTest(marker=marker):
+                self.calls = []
+                self.config["pass_marker"] = marker
+                with self.assertRaisesRegex(ConfigurationError, "single line"):
+                    self.evaluate()
+                self.assertEqual(self.calls, [])
+
     def test_missing_tools_are_infrastructure_errors_at_each_phase(self):
         for missing in ("yosys", "iverilog", "vvp"):
             with self.subTest(missing=missing):

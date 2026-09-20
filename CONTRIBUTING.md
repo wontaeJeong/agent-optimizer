@@ -19,8 +19,17 @@ uv run --frozen --extra dev python -m agent_optimizer run examples/minimal/exper
 uv run --frozen --extra dev python -m build
 ```
 
+wheel은 별도 venv에 설치하고 소스 밖 작업 디렉터리에서 `python -I -m agent_optimizer --help`와
+`agent-opt --help`를 확인합니다. 로컬 임시 환경은 Git 제외 `runs/` 아래에 둘 수 있습니다.
+
 의존성을 추가하면 pyproject.toml과 `uv lock`을 함께 커밋합니다. 알고리즘 라이브러리는 가능하면
 optional dependencies로 분리해 최소 데모가 무거운 연구 의존성을 요구하지 않도록 합니다.
+공식 CVDP host driver는 별도 Python 3.12 환경과 예제-local
+`examples/ace-rtl/environment/requirements-cvdp-py312.txt`를 사용합니다. 이 lock은 고정 upstream
+requirements를 uv 0.10.7의 `pip compile --universal --python-version 3.12`로 전이 의존성까지
+고정한 것입니다. 갱신 절차·입력 hash는 [SOURCES.md](docs/SOURCES.md)에 있습니다.
+upstream checkout을 수정하지 말고 lock diff 검토 후 `scripts/dev.py setup`, `setup --offline`,
+`smoke`를 실행하세요. 환경 lock은 생성물이며 Git에 추가하지 않습니다.
 
 PR에는 문제/변경/검증/미검증 영역을 짧게 적습니다. 외부 API 실행은 모델·데이터·예산을 기록합니다.
 실험 로그, 외부 소스, 데이터셋, API 키, 개인 IDE/Agent 설정은 커밋하지 않습니다.
@@ -29,11 +38,26 @@ PR에는 문제/변경/검증/미검증 영역을 짧게 적습니다. 외부 AP
 ## CI와 PR 병합
 
 `core-tests`는 PR, main push, 수동 실행에서 Python 3.11/3.12로 lint, 테스트, 최소 데모,
-sdist/wheel 빌드, 소스 트리 밖 wheel 설치와 CLI 실행을 검사합니다. CI는 별도 venv에서
-`pip install -e '.[dev]'`를 사용합니다. 개발 도구 버전은 pyproject.toml에 고정하며,
-uv.lock의 전이 의존성까지 CI에 강제하는 구성은 아닙니다.
-lint는 문법 오류·일부 확정적인 코드 오류만 차단합니다. 외부 모델/API/Docker는 실행하지 않습니다.
-Icarus가 없는 러너에서는 실제 Icarus smoke가 skip됩니다.
+sdist/wheel 빌드, 소스 트리 밖 wheel 설치와 CLI 실행을 검사합니다. uv 0.10.7을 격리 설치하고
+`uv sync --frozen --python <matrix version> --extra dev`로 프로젝트 lock을 사용합니다.
+lint는 문법 오류·일부 확정적인 코드 오류만 차단합니다.
+Hosted Ubuntu는 apt의 Yosys/Icarus를 설치하며 세 실행 파일(`yosys`, `iverilog`, `vvp`)이 없으면
+실패합니다. 실제 도구 테스트 9개가 전체 suite에서 실행됩니다. 이 CI 편의 설치는 공식 CVDP 이미지의
+정확한 버전 재현을 대신하지 않습니다. PR CI에 외부 live/model 호출이나 공식 이미지 빌드는 없습니다.
+
+공식 Docker 평가는 **기존 `ci.yml`**의 수동 boolean 입력 `official_cvdp=true`로 실행합니다.
+Docker Engine/Compose가 필요하며 native 플랫폼에서 public `setup` → `setup --offline` → `smoke`와
+실제 OpenCode config 검사를 수행합니다. 모델 키·inference는 사용하지 않습니다.
+GitHub.com에서는 setup lock/logs와 smoke 산출물을 7일 artifact로 보존합니다. 다른 서버에서는
+runner의 해당 경로와 job 로그를 직접 보존하세요.
+
+```bash
+# 해당 브랜치가 원격에 올라간 후 (기존 ci.yml은 default branch에 있어야 함):
+gh workflow run ci.yml --ref feat/mvp-hardening -f official_cvdp=true
+```
+
+수동 분기 실행 지원은 workflow 구성이지 실행 증거가 아닙니다. native Ubuntu x86_64의 실제
+결과는 이 job 실행 후 [검증 기록](docs/verification.md)에 추가하세요. 현재 실환경 근거는 Mac Docker ARM64입니다.
 
 저장소 관리자는 main의 branch protection/ruleset에서 다음을 설정합니다.
 
@@ -60,11 +84,13 @@ Draft를 삭제한 뒤 실패 job을 재실행하세요. 이미 게시한 버전
 - 저장소 Actions variable `CI_RUNNER_LABELS`를 JSON 배열로 설정합니다.
   예: `["self-hosted", "linux", "x64"]`. 미설정 시 `["ubuntu-latest"]`입니다.
 - Linux 러너에 bash, Git, Python venv/pip 지원, `sha256sum`, GitHub CLI(`gh`)를 준비합니다.
+  self-hosted에서는 Yosys, Icarus/vvp도 미리 설치해야 하며 없는 도구를 skip으로 처리하지 않습니다.
+  수동 공식 integration에는 Docker Engine/Compose 및 이미지 빌드 공간도 필요합니다.
   `actions/setup-python@v5`가 Python 3.11/3.12를 확보할 수 있어야 합니다.
   폐쇄망에서는 러너 tool cache를 미리 구성하고 내부 패키지 인덱스를 설정하세요.
 - `actions/checkout@v4`, `actions/setup-python@v5`의 GHES 제공/미러링과 Node 20 지원
   러너 버전을 확인합니다. 실제 GHES 버전과 네트워크 정책에 맞게 액션 참조를 조정하세요.
-- pip 및 격리된 패키지 빌드에 필요한 의존성(build, ruff, setuptools 등)을 내부 인덱스에
+- uv 0.10.7 및 격리된 패키지 빌드에 필요한 의존성(build, ruff, setuptools 등)을 내부 인덱스에
   준비합니다. pip 인덱스와 사내 CA는 러너 환경/credential store에서 설정합니다.
 - 릴리즈는 `github.server_url`과 `GITHUB_TOKEN`으로 해당 서버에 인증합니다.
   publish job만 `contents: write`를 요청하며, 조직 정책에서 허용되어야 합니다.

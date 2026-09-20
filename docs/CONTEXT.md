@@ -59,6 +59,10 @@ CVDP는 RTL 데모의 벤치마크·평가 환경이다. ACE-RTL 데모만으로
 - **`baseline`/`file_variants`:** 무변경 기준선 및 명시적 파일 변형의 연결 예제다. 연구 알고리즘을 대체하지 않는다.
 - **전체 Agent × Harness 조합, 순차 stage 실행, 텍스트 파일 생성·교체:** 현재 구현 범위다.
   임의 조합 지원이나 모든 구조 변경이 이미 가능하다는 뜻이 아니다.
+- **개발 환경과 CI:** Docker daemon native 플랫폼을 기본 선택하고 명시적 override만 허용한다.
+  코어 CI의 apt Yosys/Icarus는 빠른 회귀 검증용이며 공식 CVDP 이미지는 수동 integration에서 검증한다.
+  CVDP Python 3.12 driver의 전이 의존성 lock은 예제에 두며 코어에 패키지 관리 프레임워크를 추가하지 않는다.
+  Mac Docker ARM64에서 실제 평가를 확인했지만 Ubuntu x86_64·live 모델 결과는 별도 확인 대상이다.
 
 ## 미결정 항목
 

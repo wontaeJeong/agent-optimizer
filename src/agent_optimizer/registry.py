@@ -13,6 +13,17 @@ from agent_optimizer.optimizers.file_variants import FileVariantsOptimizer
 
 def plugin_files(root, plugins, dependencies):
     """Validate explicit file dependencies; do not discover Python imports."""
+    if not isinstance(plugins, dict):
+        raise ConfigurationError("plugins must be a mapping")
+    for kind, entries in plugins.items():
+        if kind not in {"optimizers", "harnesses", "evaluators"}:
+            raise ConfigurationError(f"Unknown plugin kind: {kind}")
+        if not isinstance(entries, dict):
+            raise ConfigurationError(f"plugins.{kind} must be a mapping")
+        for name, reference in entries.items():
+            if (not isinstance(reference, str) or ":" not in reference
+                    or not all(reference.rsplit(":", 1))):
+                raise ConfigurationError(f"plugins.{kind}.{name} requires a file.py:Symbol reference")
     if not isinstance(dependencies, dict):
         raise ConfigurationError("plugin_dependencies must be a mapping of kind/name to path lists")
     registered = {f"{kind}/{name}" for kind, entries in plugins.items() for name in entries}

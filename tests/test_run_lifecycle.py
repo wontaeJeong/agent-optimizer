@@ -5,6 +5,7 @@ import io
 import json
 import sys
 import tempfile
+import time
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -76,14 +77,23 @@ class LifecycleTests(unittest.TestCase):
         self.assertEqual(budget.used, 0)
 
     def test_global_timeout_is_invalid_and_not_selected(self):
+        owner = self
+
         class SleepingHarness:
             def run(self, request):
-                return run_process([sys.executable, "-c", "import time; time.sleep(2)"],
-                                   request.workspace, request.logs, request.timeout_seconds)
+                owner.assertAlmostEqual(request.timeout_seconds, 0.2)
+                result = run_process([sys.executable, "-c", "import time; time.sleep(2)"],
+                                     request.workspace, request.logs, request.timeout_seconds)
+                owner.now += request.timeout_seconds
+                return result
 
         self.registry.factories["harnesses"]["fixture"] = SleepingHarness
         self.spec["budget"]["max_wall_time_seconds"] = 0.2
-        _, summary = self.run_experiment()
+        # Freeze only the runner's clock during setup, not subprocess timeout clocks.
+        # Source/setup budget accounting is covered separately below.
+        with patch("agent_optimizer.runner.time", wraps=time) as clock:
+            clock.monotonic.side_effect = lambda: self.now
+            _, summary = self.run_experiment()
         self.assertEqual(summary["status"], "budget_exhausted")
         group = summary["groups"][0]
         self.assertIsNone(group["baseline"])

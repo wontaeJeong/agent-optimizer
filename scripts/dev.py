@@ -50,6 +50,7 @@ def main():
             raise ConfigurationError("Prepared platform differs; use matching --platform")
         setup.prepare_sources(ROOT / "external", offline=True)
         setup.prepare_data(ROOT / "external", offline=True)
+        setup.validate_driver_lock(ROOT / "external", lock)
         capability = setup.doctor(ROOT / "external", args.platform,
                                   lock["images"]["evaluation"]["id"], lock["images"]["agent"]["id"])
         write_json(ROOT / "external/setup-logs/doctor.json", capability)
