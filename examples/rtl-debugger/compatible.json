@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "enabled_providers": ["compatible"],
+  "provider": {
+    "compatible": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Configured model endpoint",
+      "options": {"apiKey": "{env:MODEL_API_KEY}"},
+      "models": {}
+    }
+  },
+  "plugin": ["./endpoint-plugin.mjs"],
+  "autoupdate": false,
+  "share": "disabled",
+  "permission": {
+    "read": "allow", "edit": "allow", "bash": "allow",
+    "task": "deny", "question": "deny", "external_directory": "deny"
+  }
+}
