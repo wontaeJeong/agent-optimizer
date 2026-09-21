@@ -5,6 +5,8 @@ LLM 피드백 Optimizer, priority encoder train/QAM16 validation, setup 사전�
 아래 2026-09-20/21 기록은 기존 기반 검증이다. 최신 명령·범위는
 [반복 데모 검증](verification.md#2026-09-22-iterative-demo-and-environment-cleanup)을 따른다.
 실제 배포 모델의 ACE end-to-end와 성능 개선은 여전히 미검증이다.
+`ed4fea4`의 Ubuntu Python 3.11/3.12 코어 CI와 시스템 CA 적용 공식 Docker
+setup/doctor/offline/smoke·OpenCode SSE/tool fixture가 모두 통과했다.
 
 **2026-09-22 온보딩 최종 검증:** `4972c8f`의 CA 집계·timeout·bytecode 수정을 확인하고
 `cbca34f`에서 Mac watchdog 정리 메시지를 보완했다. 로컬 **229개: 215 통과·14 skip**,

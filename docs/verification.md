@@ -48,6 +48,26 @@ proxy 인증·추가 CA를 사용하는 전체 이미지 재빌드, Claude Code/
 명시적 네트워크 설정만 유지하도록 수정했다. 실제 Linux ARM64 평가 이미지에서 신규 core 명령
 CA 비전파 검사와 기존 실패 2개, 총 3개 회귀가 통과했다. 모델/평가 실행의 CA 적용은 유지한다.
 
+### Ubuntu x86_64 최종 재검증
+
+코드 commit **ed4fea4**의 [PR 코어 CI](https://github.com/wontaeJeong/agent-optimizer/actions/runs/35625090539)는
+Python 3.11/3.12 모두 성공했다. 이어 [수동 공식 통합](https://github.com/wontaeJeong/agent-optimizer/actions/runs/35625113210)도
+코어 두 버전과 공식 Docker job **모두 성공**했다. 공식 job은 18분 45초였다.
+
+- Ubuntu native `linux/amd64`, Docker 28.0.4 / Compose 2.38.2, driver Python 3.12.14.
+- 시스템 CA bundle 자동 선택과 BuildKit 적용 빌드 → `make setup` → `make doctor` →
+  offline setup → 공식 smoke 성공. CA hash `ecd9dc38bc3efb7dbd6431f57e29d2f8d6a0f0d211e1464b3fef2cbfe266fcd2`.
+- `dev-smoke-34a42867db3b`: 실제 도구 9/9, toy 1/0/0, 공식 정답/기능 오답 1/0.
+  내려받은 양쪽 `raw_result.json`의 비어 있지 않은 tests와 `result=0/1`을 대조했다.
+- OpenCode 설정 검사 1/1 및 실제 Docker+로컬 API fixture의 SSE/tool 실행·후속 요청 3회 통과.
+- 평가 이미지 `sha256:421a866b2b29a94c24d6ef0f7d38c3c3e248f64bf6c764d2923329bff2b3257a`,
+  Agent 이미지 `sha256:6edea939fbe16f00f81fd89988b6a0162fa27e6c86995b43eae25d32e0afa786`.
+- [artifact](https://github.com/wontaeJeong/agent-optimizer/actions/runs/35625113210/artifacts/10652982722)의
+  로컬 사본은 Git 제외 경로 `runs/ubuntu-ci-35625113210/`이다.
+
+이 결과는 기본 시스템 CA와 공개 다운로드 환경의 설치·평가 검증이다. 실제 인증 proxy/TLS interception,
+배포 모델 API 인증과 실제 ACE 최적화 성능은 위 미검증 범위대로 남아 있다.
+
 ## 2026-09-22 Developer onboarding final verification
 
 기존 `4972c8f`의 최종 리뷰 수정(F1–F3)을 보존·검토하고, Mac shell의 watchdog 정리 메시지를
