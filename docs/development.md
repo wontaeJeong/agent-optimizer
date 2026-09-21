@@ -1,7 +1,7 @@
 # 개발환경 온보딩
 
 프로젝트 루트에서 실행합니다. 기본 `make setup`은 코어와 전체 예제 환경을 준비합니다.
-제품 모델 호출은 `make live`를 명시적으로 실행할 때만 합니다.
+제품 모델 호출은 `make live` 또는 명시적 `make doctor ARGS="--model"`에서 수행합니다.
 
 ## 1. Mac / Ubuntu 사전 요구사항
 
@@ -31,6 +31,9 @@ make setup
 sh scripts/bootstrap.sh setup
 make doctor
 make doctor ARGS="--json"
+# MODEL_ENDPOINT(또는 MODEL_BASE_URL), MODEL_API_KEY, 선택적 MODEL_ID 설정 후:
+make doctor ARGS="--model"  # 실제 호스트 API와 컨테이너 도구 호출
+make live ARGS="--iterations 3"
 make demo
 ```
 
@@ -81,7 +84,7 @@ smoke는 공식 이미지에서 실제 도구 및 host-Docker·공식 CVDP 정�
 
 ## 4. Doctor 문제 해결
 
-doctor는 설치·다운로드·모델 호출 없이 독립 검사를 계속합니다. 이미지가 준비되면 network=none의
+기본 doctor는 설치·다운로드·모델 호출 없이 독립 검사를 계속합니다. 이미지가 준비되면 network=none의
 임시 컨테이너로 도구를 실행하고 정리합니다. `error`는 해당 검사 실패, `blocked`는 표시된 선행
 검사 문제로 실행하지 못했다는 뜻입니다. core/evaluation 준비 여부가 종료 코드를 정하며,
 live 설정 부재만으로는 setup/doctor가 실패하지 않습니다. 성공은 smoke/inference 성공과 다릅니다.
@@ -101,12 +104,15 @@ live 설정 부재만으로는 setup/doctor가 실패하지 않습니다. 성공
 | `driver.lock`, `driver.packages`, `driver.imports` | 고정 requirements와 설치 상태 확인 후 online setup. 소스·lock drift는 검토 없이 pin 갱신하지 않음. |
 | `image.evaluation`, `image.agent`, `tools.evaluation`, `tools.opencode` | setup으로 이미지 identity/platform·실도구 복구; `external/setup-logs/` 확인. |
 | `setup offline: uv missing` / offline sync 실패 | online setup으로 uv/Python/패키지 cache를 준비한 뒤 offline 재실행. |
-| `live.key`, `live.model` | live를 실행할 때만 환경에 `OPENROUTER_API_KEY`, 명시적 `AGENT_OPT_MODEL=openrouter/vendor/model:free` 설정. |
+| `live.key`, `live.model` | `MODEL_API_KEY`, `MODEL_ENDPOINT` 또는 `MODEL_BASE_URL`, 선택적 `MODEL_ID`(기본 `glm5.3-flash`) 설정. |
+| `environment.ca` | 준비 시점과 CA가 다름. 명시한 전체 bundle 또는 Ubuntu 시스템 CA를 확인하고 online setup 재실행. |
+| `live.execution` | `doctor --model`의 실제 모델/도구 호출 실패. endpoint/auth·proxy/NO_PROXY·CA와 `runs/doctor-model-*/logs` 확인. |
 
 Python >=3.11 자체가 없으면 doctor 대신 shell bootstrap setup부터 실행하세요.
 JSON은 `make doctor ARGS="--json"` 또는 `sh scripts/bootstrap.sh doctor --json`의 stdout에 단일 문서로
-출력됩니다. 키 값은 문서·설정 파일·로그에 넣지 않습니다. live 설정 검사는 인증 성공이나 무료 모델의
-현재 가용성을 검증하지 않으며 유료 모델로 자동 대체하지 않습니다.
+출력됩니다. 키 값은 문서·설정 파일·로그에 넣지 않습니다. 기본 live 설정 검사는 인증 성공이나 모델의
+현재 가용성을 검증하지 않습니다. `doctor --model`은 실제 API·컨테이너 도구 호출을 추가하고,
+실패하면 종료 코드 2를 반환합니다. 다른 모델로 자동 대체하지 않습니다.
 
 실제 실행 근거와 미검증 플랫폼은 [verification.md](verification.md), 설치 문서 출처는
 [SOURCES.md](SOURCES.md#개발환경-온보딩-설치-출처-2026-09-21)를 따릅니다.

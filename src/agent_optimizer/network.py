@@ -5,6 +5,7 @@ import os
 import ssl
 import hashlib
 import re
+import sys
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -16,6 +17,14 @@ CA_VARIABLES = ("SSL_CERT_FILE", "REQUESTS_CA_BUNDLE", "CURL_CA_BUNDLE", "GIT_SS
                 "PIP_CERT", "NODE_EXTRA_CA_CERTS", "npm_config_cafile")
 CONTAINER_CA = "/opt/agent-optimizer/ca-bundle.pem"
 SYSTEM_CA = "/etc/ssl/certs/ca-certificates.crt"
+
+
+def demo_environment(env=None):
+    """Select the existing Ubuntu system trust for demo entry points, without mutation."""
+    result = dict(os.environ if env is None else env)
+    if "AGENT_OPT_CA_BUNDLE" not in result and sys.platform == "linux" and Path(SYSTEM_CA).is_file():
+        result["AGENT_OPT_CA_BUNDLE"] = SYSTEM_CA
+    return result
 
 
 def ca_bundle(env=None) -> Path | None:

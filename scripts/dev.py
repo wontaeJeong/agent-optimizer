@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.results import write_json
-from agent_optimizer.network import network_environment
+from agent_optimizer.network import network_environment, ca_fingerprint, demo_environment
 
 
 def load(name, path):
@@ -65,7 +65,7 @@ def main(argv=None):
         "lint": "Run Ruff in the project .venv",
         "demo": "Run the minimal synthetic demo without Docker/API",
         "smoke": "Run real RTL/CVDP evaluator checks",
-        "live": "Run the model example (explicit free model and authentication required)",
+        "live": "Run iterative optimization with the configured model (authentication required)",
         "help": "Show this help without probing or installing tools",
     }
     for name, description in descriptions.items():
@@ -77,20 +77,30 @@ def main(argv=None):
             command.add_argument("--offline", action="store_true", help="Reuse verified cached assets; no downloads/builds")
         if name == "doctor":
             command.add_argument("--json", action="store_true", help="Emit a single JSON report")
+            command.add_argument("--model", action="store_true", help="Explicitly call host API and container OpenCode tools")
+        if name == "live":
+            command.add_argument("--iterations", type=int, help="Override optimizer iterations (1..20, default 3)")
     args = parser.parse_args(argv)
     if args.command in {None, "help"}:
         parser.print_help()
         return 0
+    if args.command == "live" and args.iterations is not None and not 1 <= args.iterations <= 20:
+        parser.error("--iterations must be from 1 to 20")
     stage = args.command
     try:
         if args.command == "doctor":
             doctor = load("dev_doctor", Path(__file__).resolve().with_name("dev_doctor.py"))
             report = doctor.collect_report(ROOT, args.platform)
+            if args.model:
+                checks = load("ace_model_checks", "examples/ace-rtl/environment/model_checks.py")
+                checks.check_models(ROOT, report)
             doctor.render_report(report, json_output=args.json)
             return 0 if report["ready"] else 2
         local_bin = str(ROOT / ".cache/uv/bin")
         if local_bin not in os.environ.get("PATH", "").split(os.pathsep):
             os.environ["PATH"] = local_bin + os.pathsep + os.environ.get("PATH", "")
+        if args.command in {"setup", "smoke", "live"}:
+            os.environ.update(demo_environment())
         os.environ.update(network_environment())
         if args.command in {"test", "lint", "demo"}:
             return run_core(args.command)
@@ -111,9 +121,8 @@ def main(argv=None):
             print(f"[setup] {stage}: starting; output: {ROOT / 'datasets/ace-demo'}", flush=True)
             prepare = load("ace_prepare", "examples/ace-rtl/prepare.py")
             manifest = prepare.prepare_dataset(dataset, ROOT / "datasets/ace-demo/all-tasks.json", lock)
-            manifest["tasks"] = [t for t in manifest["tasks"] if t["id"] == "cvdp_copilot_16qam_mapper_0001"]
-            if not manifest["tasks"]:
-                raise ConfigurationError("Reviewed QAM16 live task absent from pinned dataset")
+            demo = load("ace_demo", "examples/ace-rtl/environment/demo.py")
+            manifest = demo.select_tasks(manifest)
             write_json(ROOT / "datasets/ace-demo/tasks.json", manifest)
             print(f"[setup] {stage}: complete", flush=True)
             stage = "final doctor"
@@ -139,6 +148,8 @@ def main(argv=None):
         lock = setup.read_environment_lock(lock_path)
         if lock["platform"] != args.platform:
             raise ConfigurationError("Prepared platform differs; use matching --platform")
+        if lock.get("ca_bundle_sha256") != ca_fingerprint():
+            raise ConfigurationError("CA bundle differs from prepared images; rerun setup")
         setup.prepare_sources(ROOT / "external", offline=True)
         setup.prepare_data(ROOT / "external", offline=True)
         setup.validate_driver_lock(ROOT / "external", lock)
@@ -151,7 +162,9 @@ def main(argv=None):
         os.environ["DOCKER_DEFAULT_PLATFORM"] = args.platform
         os.environ["OSS_SIM_IMAGE"] = sim_image
         example = load("ace_dev_checks", "examples/ace-rtl/environment/checks.py")
-        return example.smoke(lock) if args.command == "smoke" else example.live(lock)
+        if args.command == "smoke":
+            return example.smoke(lock)
+        return example.live(lock, iterations=args.iterations) if args.iterations is not None else example.live(lock)
     except (ConfigurationError, UnavailableError, OSError, subprocess.SubprocessError) as exc:
         print(json.dumps({"status": "blocked", "stage": stage, "reason": str(exc),
                           "repair": "Inspect external/setup-logs/ and rerun sh scripts/bootstrap.sh setup"}))

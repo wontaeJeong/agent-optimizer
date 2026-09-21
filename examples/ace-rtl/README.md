@@ -10,13 +10,13 @@ setup은 별도로 `external/ACE-RTL`에 원본을 확보해 확인할 수 있�
 ACE의 native runner / 자체 반복 루프 / 역할별 모델 호출과 동일하지 않습니다.
 원본 전체 러너를 평가하려면 [upstream 실행 안내](https://github.com/NVlabs/ACE-RTL/blob/fead921f18bb57345b5a41ef93ba625be208e99c/README.md)를 따르고 별도 Harness 프로필을 연결하세요.
 이 예제의 adapter.py에서 원본 스킬의 데이터셋 다운로드/자체 평가 지시를 외부 평가 방식에 맞게 제한합니다.
-이는 v0.3.0의 초기 구현 선택이며 사용자가 원본 runner 대체를 확정한 것은 아닙니다.
+이번 반복 최적화 데모는 이 스킬 프로필을 사용합니다. 원본 ACE 전체 알고리즘 최적화라는 주장은 하지 않습니다.
 역할 Python 파일의 실행 여부, 주장 가능한 최적화 범위, native baseline 연결 조건은
 [상태 문서](../../docs/status.md#ace-rtl-실행-프로필), 고정 출처는 [SOURCES.md](../../docs/SOURCES.md)를 확인하세요.
 
 ## 준비
 
-Python 3.11+ 진입점, uv, Git, 동작하는 Docker Engine/Compose가 필요합니다.
+Python 3.11+ 진입점, uv, Git, 동작하는 Docker Engine/Compose가 필요합니다. CA 포함 빌드는 Buildx가 필요합니다.
 setup은 uv로 프로젝트 `.venv`와 별도 `external/cvdp-venv`를 Python 3.12로 준비합니다.
 호스트에 simulator나 Python 패키지를 전역 설치하지 않습니다.
 기존 driver 환경도 online/offline setup과 doctor에서 실제 interpreter의 major/minor를 확인합니다.
@@ -31,14 +31,17 @@ offline setup 및 doctor/smoke/live는 lock/설치 목록 drift를 거부하므�
 
 ```bash
 python3 scripts/dev.py setup                    # Docker daemon의 native 플랫폼 선택/기록
+python3 scripts/dev.py doctor                   # 모델 호출 없이 환경 검사
 python3 scripts/dev.py smoke                    # 모델 키 없이 실제 도구/평가 확인
 python3 scripts/dev.py setup --offline          # 검증된 소스/데이터/이미지/uv cache 재사용
 # 명시적 플랫폼을 선택하는 경우 이후 명령에도 같은 값을 사용:
 python3 scripts/dev.py setup --platform linux/arm64
 python3 scripts/dev.py smoke --platform linux/arm64
-# shell에 OPENROUTER_API_KEY와 사용 가능한 명시적 무료 모델을 설정한 뒤:
-export AGENT_OPT_MODEL=openrouter/vendor/model:free
-python3 scripts/dev.py live                     # 키가 없으면 blocked_auth
+# 실제 endpoint와 MODEL_API_KEY를 셸에 설정한 뒤:
+export MODEL_ENDPOINT=https://model.example/v1/chat/completion
+export MODEL_ID=glm5.3-flash
+python3 scripts/dev.py doctor --model           # 호스트 API + 컨테이너 OpenCode 실제 도구 호출
+python3 scripts/dev.py live --iterations 3      # 기본 3회 수정; 1..20 범위
 ```
 
 setup은 고정 버전 CVDP의 공식 Dockerfile.sim을 변경 없이 빌드하고 OpenCode 1.18.31 이미지를 별도로 만듭니다.
@@ -57,13 +60,14 @@ registry 이름으로 해석될 수 있으므로 사용하지 않습니다. Dock
 setup/offline/smoke·provider config 재검증은 통과했습니다. 첫 FROM 참조 실패와 수정 후 정답·오답
 근거는 [최종 검증 기록](../../docs/verification.md#2026-09-20-native-ubuntu-repeat--passed)에 보존합니다.
 
-`live`는 키가 없으면 `blocked_auth`, 무료 모델 형식이 아니면 `blocked_model`로 중단합니다.
-실제 provider 오류도 실패로 남기며 유료 모델이나 합성 평가로 대체하지 않습니다.
-이미지의 OpenCode 설정은 `{env:...}` 치환을 사용하며 main/small 모델 모두 선택한 무료 모델을 사용합니다.
-호스트 credential store를 마운트하지 않고 키를 이미지나 설정 파일에 복사하지 않습니다.
-일반 OpenAI-compatible 연결 예시는 `environment/openai-compatible.json`입니다.
-`MODEL_BASE_URL`, `MODEL_ID`, `MODEL_API_KEY` 환경변수를 사용하며 무료 OpenRouter `live` 명령의 대체 경로는 아닙니다.
-설정은 새 OpenCode 컨테이너가 시작할 때 적용됩니다.
+`MODEL_ENDPOINT`는 완전한 completion URL을 그대로 사용합니다. 표준 경로이면 대신
+`MODEL_BASE_URL`을 지정하고 `/chat/completions`를 붙입니다. 둘을 동시에 지정하면 오류입니다.
+`MODEL_API_KEY`는 Bearer 토큰, `MODEL_ID`는 기본 `glm5.3-flash`를 덮어씁니다.
+`live`는 main/small 모델을 모두 `compatible/<MODEL_ID>`로 설정합니다. API 오류는 중단하며 대체 모델을 호출하지 않습니다.
+이미지의 `compatible.json`과 dependency-free endpoint plugin이 스트리밍/도구 호출을 유지하며 URL만 연결합니다.
+호스트 credential store를 마운트하거나 토큰을 이미지에 복사하지 않습니다.
+설정은 새 OpenCode 컨테이너 시작 시 적용됩니다. 별도로 실행 중인 OpenCode는 종료 후 다시 시작해야 합니다.
+`doctor --model`은 실제 모델 호출을 수행합니다. 일반 `doctor` 통과만으로 API 연결 성공을 주장하지 않습니다.
 
 ## 평가
 
@@ -79,7 +83,8 @@ Agent 컨테이너에는 과제와 ACE 후보 소스만 마운트합니다.
 정답 본문이 없는 공식 데이터도 명시적 output/context 경로를 사용하고, 경로가 없으면 검토한
 private `src/.env`의 literal `VERILOG_SOURCES=/code/rtl/...`에서만 추출합니다. 경로를 추측하지 않습니다.
 전체 지원 과제는 `datasets/ace-demo/all-tasks.json`, 제외 사유는 `.excluded.json`에 저장합니다.
-기본 live 실험용 `tasks.json`에는 명시적으로 선택한 `cvdp_copilot_16qam_mapper_0001`만 넣습니다.
+기본 live `tasks.json`은 `cvdp_copilot_8x3_priority_encoder_0001`(train)과
+`cvdp_copilot_16qam_mapper_0001`(validation)을 사용합니다. 서로 다른 문제 family이며 test는 설정하지 않습니다.
 공식 LFSR smoke는 별도의 고정 repo 예제입니다. HF 전체 파일의 LFSR은 `cid004`인
 `lfsr_0007`뿐이므로 live 과제로 대체하거나 지원 범위를 넓히지 않습니다.
 
@@ -100,10 +105,13 @@ toy RTL 정답/오답/조기 종료, 공식 LFSR 정답/오답 제출을 확인�
 
 ## 최적화
 
-experiment.toml은 원본과 짧은 role-guidance 후보를 비교합니다. 알고리즘은 실제 연구 optimizer가 아닌
-file_variants입니다. 팀원이 GEPA 등 구현을 연결하면 같은 source/evaluator를 사용합니다.
-이 한 문제는 validation-only smoke이므로 일반화 성능 근거가 아닙니다. 본 실험은 서로 다른 family의
-train/validation/test 과제를 준비하고 호출·시간 예산 및 모델을 맞추세요.
+experiment.toml은 [단순 feedback Optimizer](../../experiments/simple-feedback/README.md)를 파일 플러그인으로 등록합니다.
+원본 train 평가 → LLM이 role-guidance 수정 → train 재평가를 기본 3회 수행합니다.
+adapter가 지침 내용을 prompt에 직접 포함하므로 변경이 실제 Harness 입력에 반영됩니다.
+runner는 원본과 세 후보를 validation으로 비교합니다. 기본 8 trial, trial당 최대 600초이며 실제 소요 시간은 모델/과제에 따릅니다.
+`--iterations`는 반복 횟수와 그에 맞는 trial/시간 예산을 조정합니다. `runs/dev-live/<id>/report.md`에서
+baseline·선택 결과·Optimizer usage를, 후보별 `changes.diff`에서 변경을 확인합니다.
+연구 알고리즘은 팀 플러그인으로 교체합니다. 작은 train/validation 데모는 일반화 성능 근거가 아닙니다.
 
 기본 timeout은 OpenCode + CVDP 평가 합산입니다. 첫 Docker 빌드는 setup에서 완료해야 합니다.
 토큰 전체 합산은 미지원이며 partial 지표만 관측됩니다. API 응답/trace에는 민감정보가 있을 수 있으므로

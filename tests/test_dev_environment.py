@@ -231,16 +231,17 @@ class EnvironmentChecks(unittest.TestCase):
             with self.assertRaises(ConfigurationError):
                 setup.validate_platform(value)
 
-    def test_live_auth_and_free_model_validation_precedes_any_execution(self):
+    def test_live_model_configuration_precedes_any_execution(self):
         self.assertTrue(hasattr(setup, "validate_live"), "live preflight missing")
-        with patch.dict(os.environ, {}, clear=True):
+        with patch.dict(os.environ, {"MODEL_ENDPOINT": "https://example.invalid/v1/chat/completion"}, clear=True):
             with self.assertRaisesRegex(UnavailableError, "blocked_auth"):
                 setup.validate_live()
-        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-only", "AGENT_OPT_MODEL": "openrouter/vendor/paid"}, clear=True):
-            with self.assertRaisesRegex(ConfigurationError, "free"):
+        with patch.dict(os.environ, {"MODEL_API_KEY": "test-only"}, clear=True):
+            with self.assertRaisesRegex(ConfigurationError, "MODEL_ENDPOINT"):
                 setup.validate_live()
-        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-only", "AGENT_OPT_MODEL": "openrouter/vendor/model:free"}, clear=True):
-            self.assertEqual(setup.validate_live(), "openrouter/vendor/model:free")
+        with patch.dict(os.environ, {"MODEL_API_KEY": "test-only", "MODEL_ID": "model-a",
+                                    "MODEL_BASE_URL": "https://example.invalid/v1"}, clear=True):
+            self.assertEqual(setup.validate_live(), "compatible/model-a")
 
     def test_doctor_cannot_report_ready_from_image_presence_only(self):
         self.assertTrue(hasattr(setup, "doctor"), "execution capability doctor missing")
@@ -358,19 +359,21 @@ class PreparedImageTests(unittest.TestCase):
             return json.dumps([{"Id": actual_id or identity, "Os": "linux", "Architecture": architecture}])
         def doctor(external, platform, eval_image, agent_image):
             self.assertEqual((eval_image, agent_image), (identity, lock["images"]["agent"]["id"]))
-            return {"ready": True}
+            return {"ready": True, "checks": {}}
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             (root / "external").mkdir()
             (root / "external/environment-lock.json").write_text(json.dumps(lock))
             stdout = io.StringIO()
             with patch.object(dev, "ROOT", root), patch.object(dev.os, "chdir"), \
+                    patch.object(setup, "ROOT", root), \
+                    patch.object(dev, "demo_environment", side_effect=lambda: dict(os.environ)), \
                     patch.object(dev, "load", side_effect=[setup, SimpleNamespace(smoke=dispatch, live=dispatch)]), \
                     patch.object(setup, "prepare_sources"), patch.object(setup, "prepare_data"), \
                     patch.object(setup, "validate_driver_lock"), patch.object(setup, "doctor", side_effect=doctor), \
                     patch.object(setup.subprocess, "check_output", side_effect=inspect), \
                     patch("sys.argv", ["dev.py", command, "--platform", "linux/amd64"]), \
-                    patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-only", "AGENT_OPT_MODEL": "openrouter/vendor/model:free"}), \
+                    patch.dict(os.environ, {"MODEL_API_KEY": "test-only", "MODEL_ENDPOINT": "https://example.invalid/v1/chat/completion", "AGENT_OPT_CA_BUNDLE": ""}), \
                     redirect_stdout(stdout):
                 code = dev.main()
         return code, observed, stdout.getvalue()

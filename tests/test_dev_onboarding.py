@@ -96,6 +96,35 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
         self.assertFalse((self.root / ".venv").exists())
         self.assertEqual(self.trace_text(), "")
 
+    def test_model_and_iteration_flags_reach_python_without_installing(self):
+        self.tool("python3", 'case "$1" in -I) exit 0;; esac\nprintf "arg:%s\\n" "$@" >> "$TRACE"\n')
+        for args in (("doctor", "--model", "--json"), ("live", "--iterations", "3")):
+            result = self.invoke(*args)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            for arg in args:
+                self.assertIn("arg:" + arg, self.trace_text())
+        self.assertFalse((self.root / ".venv").exists())
+        self.assertEqual(self.invoke("live", "--iterations", "0").returncode, 2)
+
+    def test_core_commands_do_not_select_demo_ca_implicitly(self):
+        self.tool("python3", 'case "$1" in -I) exit 0;; esac\nprintf "ca:%s\\n" "${AGENT_OPT_CA_BUNDLE-unset}" >> "$TRACE"\n')
+        self.environment.pop("AGENT_OPT_CA_BUNDLE", None)
+        for command in ("test", "lint", "demo"):
+            result = self.invoke(command)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.trace_text().splitlines(), ["ca:unset"] * 3)
+
+    def test_missing_buildx_blocks_ca_setup_before_installation(self):
+        self.prerequisites()
+        self.tool("docker", 'case "$1" in buildx) exit 1;; *) exit 0;; esac\n')
+        bundle = self.outside / "bundle.pem"
+        bundle.write_text("fixture")
+        self.environment["AGENT_OPT_CA_BUNDLE"] = str(bundle)
+        result = self.invoke("setup")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("docker-buildx-plugin", result.stderr)
+        self.assertEqual(self.trace_text(), "")
+
     def test_missing_prerequisites_aggregate_actionable_git_and_docker_guidance(self):
         result = self.invoke("setup")
         self.assertNotEqual(result.returncode, 0)
@@ -541,7 +570,8 @@ class DeveloperCommandsTests(unittest.TestCase):
         setup = SimpleNamespace(validate_platform=lambda value: value, prepare_environment=environment)
         def dataset(*args):
             events.append("dataset")
-            return {"tasks": [{"id": "cvdp_copilot_16qam_mapper_0001"}]}
+            return {"tasks": [{"id": "cvdp_copilot_16qam_mapper_0001", "family": "qam"},
+                              {"id": "cvdp_copilot_8x3_priority_encoder_0001", "family": "priority"}]}
         def report(*args):
             events.append("doctor")
             return {"ready": ready}
@@ -550,7 +580,8 @@ class DeveloperCommandsTests(unittest.TestCase):
             events.append(command)
             return demo_code
         with patch.dict(os.environ, {"AGENT_OPT_BOOTSTRAPPED": str(ROOT)}), \
-                patch.object(self.dev, "load", side_effect=[setup, SimpleNamespace(prepare_dataset=dataset), doctor]), \
+                patch.object(self.dev, "load", side_effect=[setup, SimpleNamespace(prepare_dataset=dataset),
+                    module("onboarding_demo_selector", ROOT / "examples/ace-rtl/environment/demo.py"), doctor]), \
                 patch.object(self.dev, "write_json"), \
                 patch.object(self.dev, "run_core", side_effect=execute, create=True):
             code = self.main(["setup", "--offline", "--platform", "linux/amd64"])
@@ -588,7 +619,7 @@ class DeveloperCommandsTests(unittest.TestCase):
 
     def test_live_auth_is_checked_before_docker_or_prepared_assets(self):
         setup = module("onboarding_auth", ROOT / "examples/ace-rtl/environment/setup.py")
-        with patch.dict(os.environ, {}, clear=True), patch.object(self.dev, "load", return_value=setup), \
+        with patch.dict(os.environ, {"MODEL_ENDPOINT": "https://example.invalid/chat/completion"}, clear=True), patch.object(self.dev, "load", return_value=setup), \
                 patch.object(setup, "validate_platform", side_effect=AssertionError("Docker before auth")):
             self.assertEqual(self.main(["live"]), 2)
         self.assertIn("blocked_auth", self.output.getvalue())
@@ -618,7 +649,7 @@ class DeveloperCommandsTests(unittest.TestCase):
                                 patch.object(setup, "driver_requirements", return_value={}), \
                                 patch.object(setup, "prepare_data", side_effect=AssertionError("later data work")), \
                                 patch.dict(os.environ, {"AGENT_OPT_BOOTSTRAPPED": str(root),
-                                           "OPENROUTER_API_KEY": "test", "AGENT_OPT_MODEL": "openrouter/vendor/model:free"}):
+                                            "MODEL_API_KEY": "test", "MODEL_ENDPOINT": "https://example.invalid/chat/completion"}):
                             code = self.main([command, "--platform", "linux/amd64", *(["--offline"] if offline else [])])
                         self.assertEqual(code, 2)
                         blocked = json.loads(self.output.getvalue().splitlines()[-1])

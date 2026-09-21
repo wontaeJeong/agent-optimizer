@@ -21,12 +21,14 @@ python3 scripts/dev.py smoke
 ```
 
 `AGENT_OPT_CA_BUNDLE`은 **공개 루트와 필요한 추가 CA를 포함한 전체 PEM 신뢰 번들**입니다.
-Ubuntu에서 추가 CA가 이미 설치됐다면 위 시스템 번들을 사용할 수 있습니다.
+Ubuntu에서 추가 CA가 이미 설치됐다면 위 시스템 번들을 사용합니다. `scripts/dev.py`는 Linux에서
+이 파일이 있으면 자동 선택하며 명시적 `AGENT_OPT_CA_BUNDLE`이 우선합니다.
+자동 선택을 끄려면 `AGENT_OPT_CA_BUNDLE=''`를 export하세요. 코어 CLI와 network wrapper는 명시적 설정을 따릅니다.
 단일 추가 CA만 지정하면 번들을 사용하는 클라이언트는 공개 사이트를 신뢰하지 못할 수 있습니다.
 파일 부재·잘못된 PEM·개인키 포함은 명시적 오류입니다. TLS 검증은 끄지 않습니다.
 
 프록시 없이 추가 CA만, 추가 CA 없이 프록시만 사용하는 것도 가능합니다.
-직접 연결 환경에서는 위 변수를 설정하지 않고 기존 명령을 실행합니다.
+직접 연결 환경에서는 proxy 변수를 생략합니다. Ubuntu 데모 명령은 시스템 CA를 계속 활용합니다.
 이미 설정된 값을 없애려면 대문자·소문자를 모두 unset하세요.
 
 ```bash
@@ -93,10 +95,18 @@ CA 어댑터는 현재 제공하는 **단일 stage·단일 행 FROM·로컬 Dock
 
 - CA 번들이 바뀌면 online `setup`으로 이미지와 lock을 갱신합니다. `setup --offline`은 이전 CA hash와
   다른 설정을 거부합니다. 프록시 주소 변경은 CA/image identity 변경으로 취급하지 않습니다.
-- 런타임은 현재 지정한 bundle을 mount하므로 CA 교체가 가능합니다. `doctor`의 도구 실행 성공은
-  프록시·모델 endpoint 통신 성공을 뜻하지 않습니다.
+- CA를 교체하면 `setup`을 다시 실행하세요. demo의 doctor/smoke/live도 준비 시점의 CA hash를 대조합니다.
+  `python3 scripts/dev.py doctor --model`은 호스트와 Agent 컨테이너의 실제 모델/도구 호출을 확인합니다.
+  일반 doctor는 모델 호출을 하지 않습니다.
 - 기본 이미지 ENV/기존 Docker client 설정은 미설정 시 그대로 유지됩니다. 빌드에 사용한 도구가
   자신의 설정이나 로그에 환경값을 출력하지 않도록 하세요. 실행 중 proxy 환경은 Docker 권한을
   가진 사용자가 조회할 수 있습니다.
 
 검증 명령·실제 수행 범위는 [verification.md](verification.md#2026-09-21-optional-network-environment)를 참고하세요.
+
+### 실패 위치별 확인
+
+- 이미지 `FROM`/pull 실패: Docker daemon 또는 별도 BuildKit daemon의 proxy/registry CA를 확인합니다.
+- `RUN apt/npm/uv` 실패: 셸 proxy 변수와 전체 CA bundle, `docker buildx version`을 확인합니다.
+- 호스트 모델만 성공: 컨테이너의 NO_PROXY, CA readonly mount 접근 권한, 모델 주소의 네트워크 도달성을 확인합니다.
+- `localhost` 모델 주소: Docker 안에서는 컨테이너 자신을 뜻합니다. 서버에서 도달 가능한 실제 모델 주소를 사용하세요.

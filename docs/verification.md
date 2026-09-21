@@ -1,5 +1,73 @@
 # 검증 기록
 
+## 2026-09-22 Iterative demo and environment cleanup
+
+환경: macOS ARM64, 프로젝트/driver Python 3.12.12, uv 0.10.7, Docker 29.2.1
+`linux/arm64`, Compose 5.1.3. 실제 배포 모델 자격증명은 사용하지 않았다.
+PR 전 `origin/main`의 **21b9e68**(온보딩)을 병합하여 Make/bootstrap·읽기 전용 집계 doctor를
+보존하고 모델 실행 검사를 별도 `environment/model_checks.py`로 통합했다.
+
+| 명령 / 검사 | 실제 결과 |
+|---|---|
+| `python3 scripts/dev.py setup` (병합 전 새 worktree) | 소스·데이터 다운로드, 독립 venv, 기존 Docker layer cache를 사용한 두 이미지 준비 성공. |
+| `make setup ARGS="--offline"` (병합 후) | bootstrap frozen sync, pinned source/data/image/driver 재검사, 최종 doctor와 합성 데모까지 성공. |
+| `make doctor ARGS="--json"` | exit 0, core/evaluation ready. live 설정은 미준비로 false; API 호출 없음. |
+| `make test` (병합 후) | **251개: 237 통과·14 skip**, 실패 0 (33.330초). skip은 호스트 simulator 9, 선택적 Docker provider 1, Docker network 2, PyYAML 2. |
+| `make lint`, `node --test tests/endpoint-plugin.test.mjs`, `actionlint .github/workflows/ci.yml`, `shellcheck scripts/bootstrap.sh` | 모두 통과. |
+| `make smoke` (병합 후) | **passed**, `runs/dev-smoke-00f6c8068a81/`; 실도구 9/9, host-Docker toy 1/0/0, 공식 LFSR 정답/기능 오답 1/0. |
+| 실제 Agent 이미지에서 `python3 /fixture.py` (`tests/opencode_endpoint_fixture.py` readonly mount, network=none) | **passed**, 로컬 API 3회 요청, 정확한 단수형 endpoint·Bearer·모델 override·SSE·bash 실행 후 tool 결과 재전송 확인. 배포 모델 inference가 아닌 통합 fixture. |
+| `AGENT_OPT_TEST_DOCKER_IMAGE=agent-optimizer-opencode:1.18.31-arm64 PYTHONPATH=src:tests .venv/bin/python -m unittest test_adapters.DockerEnvironmentTests -v` | 실제 이미지 설정 검사 1/1 통과, `runs/docker-env-regression-aecf52a88cfa/`. |
+| `PYTHONPATH=src:tests external/cvdp-venv/bin/python -m unittest test_network.EvaluatorNetworkTests -v` | 5/5 통과. PyYAML wrapper subprocess 포함, 공식 평가 자체와 구분. |
+| `uv run --frozen --extra dev python -m build` (병합 전) | sdist/wheel 생성 성공. |
+| `PYTHONPATH=src python3 -m agent_optimizer plan examples/ace-rtl/experiment.toml` | train=1, validation=1, simple-feedback 등록 확인. 실환경 성공 판정 아님. |
+
+새 데이터 선택은 priority encoder train과 QAM16 validation이다. trusted evaluator-only 추가 검증에서
+공개 명세로 작성한 priority encoder는 1점, compile-negative는 0점, QAM16 compile-negative는
+0점이었다. 모두 비어 있지 않은 공식 raw tests를 확인했다. 산출물은
+`runs/selected-task-evaluation-83d77b894058/`. 이 입력은 Agent/Optimizer에 전달하지 않았다.
+배포 모델의 QAM16 정답 생성이나 실제 최적화 성능을 확인한 것은 아니다.
+
+단순 Optimizer는 로컬 API fixture와 실제 runner로 3회 생성, train 4회·validation 4회,
+선택 후 test, 원본 보존·diff·nullable usage를 검증했다. 모델의 잘못된 JSON·허용 밖 변경은
+실패하며 성공 후보로 대체하지 않는다. 요청 전체 timeout은 별도 프로세스로 제한한다.
+리뷰에서 발견한 trickling body의 socket timeout 초과와 전역 예산 오분류를 먼저 재현한 뒤
+수정·회귀 통과를 확인했다. 병합 후 손상 checkout 진단은 upstream의 안전한 Runner로 통합했다.
+
+평가 image ID: `sha256:ee167c7cd486111a2a807a703ae6bbb30debf2d26f5bb9d0d760ec07c96a58ec`.
+Agent image ID: `sha256:97682cb16ac85e1653207983f75715caa9665285734f4ad994a1de69d74216a6`.
+Yosys 0.40, Icarus/vvp 13.0, Verilator 5.038, OpenCode 1.18.31. 소스·데이터·driver pin 변경 없음.
+
+**미검증:** 실제 배포 endpoint 인증/모델과 ACE end-to-end, 실제 개선 효과, 이번 변경의
+proxy 인증·추가 CA를 사용하는 전체 이미지 재빌드, Claude Code/Codex 실행. 확장 템플릿은
+미구현 오류를 반환한다. 이전 네트워크 통합과 Ubuntu 검증은 아래 날짜별 근거와 구분한다.
+실환경 확인 명령은 `make doctor ARGS="--model"` 후 `make live ARGS="--iterations 3"`이다.
+
+첫 PR Ubuntu run [35624798890](https://github.com/wontaeJeong/agent-optimizer/actions/runs/35624798890)은
+자동 시스템 CA가 `make test`까지 전달되어 기존 무설정 fixture의 mount 개수와 offline lock 검사에서
+실패했다. bootstrap의 자동 선택을 setup/doctor/smoke/live로 한정하고 core test/lint/demo의
+명시적 네트워크 설정만 유지하도록 수정했다. 실제 Linux ARM64 평가 이미지에서 신규 core 명령
+CA 비전파 검사와 기존 실패 2개, 총 3개 회귀가 통과했다. 모델/평가 실행의 CA 적용은 유지한다.
+
+### Ubuntu x86_64 최종 재검증
+
+코드 commit **ed4fea4**의 [PR 코어 CI](https://github.com/wontaeJeong/agent-optimizer/actions/runs/35625090539)는
+Python 3.11/3.12 모두 성공했다. 이어 [수동 공식 통합](https://github.com/wontaeJeong/agent-optimizer/actions/runs/35625113210)도
+코어 두 버전과 공식 Docker job **모두 성공**했다. 공식 job은 18분 45초였다.
+
+- Ubuntu native `linux/amd64`, Docker 28.0.4 / Compose 2.38.2, driver Python 3.12.14.
+- 시스템 CA bundle 자동 선택과 BuildKit 적용 빌드 → `make setup` → `make doctor` →
+  offline setup → 공식 smoke 성공. CA hash `ecd9dc38bc3efb7dbd6431f57e29d2f8d6a0f0d211e1464b3fef2cbfe266fcd2`.
+- `dev-smoke-34a42867db3b`: 실제 도구 9/9, toy 1/0/0, 공식 정답/기능 오답 1/0.
+  내려받은 양쪽 `raw_result.json`의 비어 있지 않은 tests와 `result=0/1`을 대조했다.
+- OpenCode 설정 검사 1/1 및 실제 Docker+로컬 API fixture의 SSE/tool 실행·후속 요청 3회 통과.
+- 평가 이미지 `sha256:421a866b2b29a94c24d6ef0f7d38c3c3e248f64bf6c764d2923329bff2b3257a`,
+  Agent 이미지 `sha256:6edea939fbe16f00f81fd89988b6a0162fa27e6c86995b43eae25d32e0afa786`.
+- [artifact](https://github.com/wontaeJeong/agent-optimizer/actions/runs/35625113210/artifacts/10652982722)의
+  로컬 사본은 Git 제외 경로 `runs/ubuntu-ci-35625113210/`이다.
+
+이 결과는 기본 시스템 CA와 공개 다운로드 환경의 설치·평가 검증이다. 실제 인증 proxy/TLS interception,
+배포 모델 API 인증과 실제 ACE 최적화 성능은 위 미검증 범위대로 남아 있다.
+
 ## 2026-09-22 Developer onboarding final verification
 
 기존 `4972c8f`의 최종 리뷰 수정(F1–F3)을 보존·검토하고, Mac shell의 watchdog 정리 메시지를

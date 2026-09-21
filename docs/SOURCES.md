@@ -157,6 +157,23 @@ Context7 `/astral-sh/uv`, `/docker/docs`로 아래 설치 계약을 확인하고
 
 ## 버전 변경 절차
 
+### 2026-09-22 모델 endpoint 연결 확인
+
+- Context7 `/anomalyco/opencode`의 custom provider(`@ai-sdk/openai-compatible`), 환경 치환,
+  로컬 plugin의 `config` hook 문서를 확인했다.
+- 위 고정 OpenCode **v1.18.31**의 `packages/opencode/src/provider/provider.ts`에서 config hook 이후
+  provider 옵션을 읽고 custom `fetch`를 감싸는 경로를 대조했다. 소비 파일은
+  `examples/rtl-debugger/{compatible.json,endpoint-plugin.mjs}`다.
+- bundled SDK의 `/chat/completions` 조립을 유지하되 지정된 전체 endpoint로 fetch 대상만 변경한다.
+  실제 고정 OpenCode Docker + 로컬 API fixture에서 단수형 경로, Bearer, 모델 override,
+  SSE와 bash tool 호출/결과 후속 요청을 확인했다. 실제 배포 endpoint의 실행 증거는 아니다.
+- Context7 `/docker/docs`의 build args/runtime env와 daemon proxy 설정을 대조했다.
+  daemon의 이미지 pull trust와 이미지 내부 설치/runtime CA 전달은 별개다.
+- ACE/CVDP/HF SHA와 OpenCode 버전은 변경하지 않았다. 신규 train priority encoder는 고정 HF의
+  `cid003`, 명시적 `rtl/priority_encoder.v`, OSS Compose/Icarus 형태를 대조했다.
+
+### 절차
+
 1. 변경 대상의 고정 출처와 로컬 소비 파일을 위 표에서 찾는다. ACE SHA 두 곳은 함께 대조한다.
 2. upstream diff에서 경로·CLI·입출력·채점·의존성 변화를 확인한다. 문서 정리를 이유로 자동 최신화하지 않는다.
 3. 소스 SHA와 데이터 hash, OpenCode 버전, 이미지 ID/digest, 모델·예산을 기록한다.

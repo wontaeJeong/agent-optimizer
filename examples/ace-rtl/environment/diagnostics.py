@@ -8,6 +8,10 @@ from pathlib import Path
 from types import ModuleType
 import json
 
+from agent_optimizer.contracts import ConfigurationError, UnavailableError
+from agent_optimizer.models import ModelSettings
+from agent_optimizer.network import ca_fingerprint
+
 # This adapter also works when loaded by file path, from any working directory.
 _helper_path = Path(__file__).resolve().parents[3] / "scripts/dev_doctor.py"
 _helper = ModuleType("diagnostic_runner")
@@ -101,6 +105,8 @@ def collect_checks(root: Path, platform: str | None = None, *, environment=None)
     runner.add("environment.platform", locked and lock["platform"] == selected,
                "Prepared lock matches selected platform.", "Use the prepared --platform or rerun setup for the intended platform.",
                requires=("environment.lock", "docker.platform"))
+    runner.add("environment.ca", locked and lock.get("ca_bundle_sha256") == ca_fingerprint(environment),
+               "Prepared images match the selected CA bundle.", SETUP, requires=("environment.lock",))
 
     # Source and data checks remain independent of a missing or malformed lock.
     git = shutil.which("git", path=environment.get("PATH", os.defpath)) is not None
@@ -167,7 +173,10 @@ def collect_checks(root: Path, platform: str | None = None, *, environment=None)
                 argv += ["python3", "-B", "-c", "import subprocess; [subprocess.run(cmd, check=True) for cmd in "
                          "[['yosys','-V'], ['iverilog','-V'], ['vvp','-V'], ['verilator','--version']]]"]
             else:
-                argv += ["opencode", "--version"]
+                argv += ["python3", "-B", "-c", "from pathlib import Path; import json, subprocess, sys; "
+                         "p=Path('/opt/agent-optimizer'); json.loads((p/'compatible.json').read_text()); "
+                         "assert (p/'endpoint-plugin.mjs').is_file(); subprocess.run(sys.argv[1:], check=True)",
+                         "opencode", "--version"]
         try:
             runner.probe("tools.evaluation" if name == "evaluation" else "tools.opencode", argv,
                          "Actual simulator execution." if name == "evaluation" else "Actual pinned OpenCode execution.",
@@ -175,15 +184,16 @@ def collect_checks(root: Path, platform: str | None = None, *, environment=None)
                          expected=setup.OPENCODE_VERSION if name == "agent" else None)
         finally:
             if container is not None:
-                # Killing the attached Docker client does not stop its container.
-                # --rm may already have removed it; cleanup failure is best-effort.
                 runner.run(["docker", "rm", "--force", container], timeout=15)
 
     runner.area = "live"
-    runner.add("live.key", bool(environment.get("OPENROUTER_API_KEY", "").strip()),
-               "Live credential presence (not authentication).", "Set OPENROUTER_API_KEY in your environment.")
-    runner.add("live.model", re.fullmatch(r"openrouter/[A-Za-z0-9_.-]+/[A-Za-z0-9_.:-]+:free",
-                                          environment.get("AGENT_OPT_MODEL", "")) is not None,
-               "Explicit free-model configuration (not endpoint availability).",
-               "Set AGENT_OPT_MODEL to an explicit openrouter/vendor/model:free identifier.")
+    runner.add("live.key", bool(environment.get("MODEL_API_KEY", "").strip()),
+               "Live credential presence (not authentication).", "Set MODEL_API_KEY in your environment.")
+    try:
+        ModelSettings.from_env({**environment, "MODEL_API_KEY": "configuration-check"})
+        model_valid = True
+    except (ConfigurationError, UnavailableError, ValueError):
+        model_valid = False
+    runner.add("live.model", model_valid, "OpenAI-compatible model configuration (not endpoint availability).",
+               "Set exactly one of MODEL_ENDPOINT/MODEL_BASE_URL; optional MODEL_ID defaults to glm5.3-flash.")
     return runner.checks

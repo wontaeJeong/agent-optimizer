@@ -9,7 +9,7 @@ from pathlib import Path
 from types import ModuleType
 
 from agent_optimizer.contracts import ConfigurationError
-from agent_optimizer.network import CA_VARIABLES, network_environment
+from agent_optimizer.network import CA_VARIABLES, demo_environment, network_environment
 
 SETUP = "Run sh scripts/bootstrap.sh setup (or python3 scripts/dev.py setup)."
 
@@ -111,7 +111,7 @@ def example_adapter():
 def collect_report(root: Path, platform: str | None = None) -> dict:
     # Own validation here so malformed optional trust never bypasses aggregation.
     # Child-only settings prevent normalized proxies/CA paths leaking into later calls.
-    environment = dict(os.environ)
+    environment = demo_environment()
     network = Runner(root, "core")
     try:
         environment.update(network_environment(environment))
@@ -148,4 +148,7 @@ def render_report(report: dict, *, json_output: bool = False) -> None:
         print(f"[{check['status']}] {check['id']}: {check['message']}")
         if check["remedy"]:
             print(f"  Fix: {check['remedy']}")
-    print("Live checks validate configuration only; no model endpoint or smoke was exercised.")
+    if "model_status" in report:
+        print("Explicit model probes: " + report["model_status"])
+    else:
+        print("Live checks validate configuration only; no model endpoint or smoke was exercised. Use doctor --model for actual calls.")

@@ -9,7 +9,7 @@ help() {
         'Start: sh scripts/bootstrap.sh setup; then make doctor and make demo.' \
         'No make? Use sh scripts/bootstrap.sh <command> [options].' \
         'setup: --offline, --platform linux/amd64|linux/arm64' \
-        'doctor: --json, --platform; smoke/live: --platform' \
+        'doctor: --json, --platform, --model (actual API calls); smoke/live: --platform; live: --iterations 1..20' \
         'test/lint/demo use .venv without installing or requiring Docker.' \
         'make doctor ARGS="--json" (ARGS uses normal shell command arguments).' \
         'Full command help: python3 scripts/dev.py --help or <command> --help.'
@@ -28,8 +28,15 @@ esac
 # Validate before prerequisites, installers, or Python, keeping argv untouched.
 offline=false
 want_platform=false
+want_iterations=false
 show_help=false
 for option do
+    if [ "$want_iterations" = true ]; then
+        case "$option" in ''|*[!0-9]*) fail '--iterations requires an integer from 1 to 20' ;; esac
+        [ "$option" -ge 1 ] && [ "$option" -le 20 ] || fail '--iterations requires 1..20'
+        want_iterations=false
+        continue
+    fi
     if [ "$want_platform" = true ]; then
         if [ "$command" != doctor ]; then
             case "$option" in linux/amd64|linux/arm64) ;; *) fail "Unsupported platform: $option" ;; esac
@@ -41,6 +48,12 @@ for option do
         *:--help|*:-h) show_help=true ;;
         setup:--offline) offline=true ;;
         doctor:--json) ;;
+        doctor:--model) ;;
+        live:--iterations) want_iterations=true ;;
+        live:--iterations=*)
+            count=${option#*=}
+            case "$count" in ''|*[!0-9]*) fail '--iterations requires an integer from 1 to 20' ;; esac
+            [ "$count" -ge 1 ] && [ "$count" -le 20 ] || fail '--iterations requires 1..20' ;;
         setup:--platform|doctor:--platform|smoke:--platform|live:--platform) want_platform=true ;;
         setup:--platform=*|doctor:--platform=*|smoke:--platform=*|live:--platform=*)
             if [ "$command" != doctor ]; then
@@ -50,6 +63,7 @@ for option do
     esac
 done
 [ "$want_platform" = false ] || fail '--platform requires linux/amd64 or linux/arm64'
+[ "$want_iterations" = false ] || fail '--iterations requires 1..20'
 if [ "$show_help" = true ]; then help; exit 0; fi
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
@@ -58,6 +72,15 @@ export PATH
 # Diagnostics must not write bytecode or obtain tools through interpreter startup.
 export PYTHONDONTWRITEBYTECODE=1
 unset PYTHONHOME
+
+# Use Ubuntu's existing full system trust, including installed proxy CAs. Explicit empty opts out.
+case "$command" in
+    setup|doctor|smoke|live)
+        if [ "${AGENT_OPT_CA_BUNDLE+x}" != x ] && [ -r /etc/ssl/certs/ca-certificates.crt ]; then
+            AGENT_OPT_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+            export AGENT_OPT_CA_BUNDLE
+        fi ;;
+esac
 
 # POSIX tools available on Mac/Ubuntu; no Python or GNU timeout prerequisite.
 # Stop parents before walking their children so a waiting wrapper cannot resume
@@ -160,6 +183,11 @@ else
     fi
     if ! short_probe 'setup prerequisites: Docker Compose' docker compose version; then
         printf '%s\n' 'Docker Compose unavailable. Mac: update Docker Desktop; Ubuntu: install docker-compose-plugin from the Docker apt repository: https://docs.docker.com/compose/install/linux/' >&2
+        missing=true
+    fi
+    if [ -n "${AGENT_OPT_CA_BUNDLE:-}" ] && [ "$offline" = false ] &&
+        ! short_probe 'setup prerequisites: Docker Buildx' docker buildx version; then
+        printf '%s\n' 'CA-enabled builds require docker buildx; install docker-buildx-plugin and rerun setup.' >&2
         missing=true
     fi
 fi
