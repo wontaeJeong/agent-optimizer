@@ -136,6 +136,15 @@ class MenuFlows(unittest.TestCase):
         _, _, calls = self.flow(["4", "", "", "", "0"], env=env)
         self.assertEqual(calls[0][1], env)
 
+    def test_empty_inherited_model_id_uses_default_on_enter(self):
+        env = {**self.env, "MODEL_ID": ""}
+        code, _, calls = self.flow(["4", "", "", "", "0"], env=env)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][0][-2:], ["doctor", "--model"])
+        self.assertEqual(calls[0][1]["MODEL_ID"], "glm5.3-flash")
+        self.assertEqual(env["MODEL_ID"], "")
+
     def test_invalid_model_input_does_not_commit_partial_settings(self):
         for values in (["9"], ["1", "http://remote.invalid", ""],
                        ["1", "https://valid.invalid", "bad model"]):
