@@ -164,7 +164,11 @@ class BuildNetworkTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             (root / "external").mkdir()
-            (root / "external/environment-lock.json").write_text(json.dumps({"ca_bundle_sha256": "old"}))
+            (root / "external/environment-lock.json").write_text(json.dumps({
+                "ca_bundle_sha256": "old", "platform": "linux/arm64", "images": {
+                    "evaluation": {"tag": "eval", "id": "sha256:eval"},
+                    "agent": {"tag": "agent", "id": "sha256:agent"},
+                }}))
             with patch.dict(os.environ, {}, clear=True), patch.object(setup, "ROOT", root), \
                     patch.object(setup, "run") as run:
                 with self.assertRaisesRegex(ConfigurationError, "CA"):

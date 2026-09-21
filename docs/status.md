@@ -6,6 +6,21 @@ LLM 피드백 Optimizer, priority encoder train/QAM16 validation, setup 사전�
 [반복 데모 검증](verification.md#2026-09-22-iterative-demo-and-environment-cleanup)을 따른다.
 실제 배포 모델의 ACE end-to-end와 성능 개선은 여전히 미검증이다.
 
+**2026-09-22 온보딩 최종 검증:** `4972c8f`의 CA 집계·timeout·bytecode 수정을 확인하고
+`cbca34f`에서 Mac watchdog 정리 메시지를 보완했다. 로컬 **229개: 215 통과·14 skip**,
+doctor/JSON·잘못된 CA 회귀·offline setup·데모·lint·shell 검사가 통과했다.
+[PR #7 코어 CI](https://github.com/wontaeJeong/agent-optimizer/actions/runs/35617263750)는 Ubuntu
+Python 3.11/3.12 각각 **224 통과·5 skip**이며 native 실도구 9/9·wheel 검사도 통과했다.
+수동 공식 Docker job은 skipped, live 미호출이다. [최종 근거](verification.md#2026-09-22-developer-onboarding-final-verification)를 따른다.
+
+**2026-09-21 개발환경 온보딩:** Make/shell setup·집계 doctor·일상 개발 명령과
+[설치/복구 가이드](development.md)를 제공한다. `e669340` 기반 Mac ARM64에서 공개
+setup → doctor/JSON → offline setup → smoke 통과. 전체 suite **200개: 190 통과·10 skip**,
+Docker 실도구 **9/9**, host-Docker **1/0/0**, 공식 CVDP 정답/오답 **1/0**을 확인했다.
+lint·데모·패키징·actionlint도 통과했다. 이 단계 당시 변경된 CI의 Ubuntu 원격 실행은 미검증이었으며
+아래 `10baa46` 결과와 별개다. live는 호출하지 않았고 doctor의 key/model 설정이 미준비다.
+정확한 명령·산출물·초기 setup 시간 제한은 [온보딩 검증](verification.md#2026-09-21-developer-onboarding-task-3)에 기록한다.
+
 **2026-09-20 MVP hardening:** 후보/파일 경계, 실행 중단·사용량, 플러그인 hash 및 RTL 검증을 보강했다.
 Mac Docker ARM64에서 공식 OSS/OpenCode 이미지를 빌드하고 host-Docker toy 및 공식 CVDP
 정답·오답 평가를 실행했다. Python 3.12 driver lock 적용 후 setup/offline/smoke도 통과했다.

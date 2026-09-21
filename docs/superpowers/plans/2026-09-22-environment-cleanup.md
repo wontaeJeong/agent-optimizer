@@ -21,6 +21,20 @@
 - Docker target is Ubuntu Linux x86_64; distinguish Mac ARM64 and mock evidence.
 - Fetch and merge latest `origin/main` immediately before PR; rerun verification and merge after CI.
 
+## Execution record
+
+- Tasks 1–4 implemented and verified. Local HTTP/runner fixtures, actual pinned OpenCode SSE/tool
+  fixture, setup/offline/doctor and official CVDP smoke passed; see `docs/verification.md`.
+- Review follow-up: bound the entire model HTTP request in a short-lived stdlib process, preserve
+  global budget classification, and include observed partial Agent usage without filling unknowns.
+- Integrated `origin/main` commit `21b9e68` before PR. Reused its Make/bootstrap and aggregate
+  read-only doctor instead of retaining parallel diagnostic implementations. Explicit model probes
+  live in `examples/ace-rtl/environment/model_checks.py`; bootstrap checks Buildx before CA builds.
+- After conflict resolution: 251 tests, 237 passed / 14 environment skips; Make offline setup,
+  aggregate doctor, official smoke, lint, Node hook test, actionlint and shellcheck passed.
+- Real deployment model execution remains unverified without endpoint credentials. Task 5's final
+  PR/CI/merge results are recorded in the PR and final handoff rather than inferred from fixtures.
+
 ## Task 1: Model transport and exact endpoint integration
 
 **Files:** create `src/agent_optimizer/models.py`, `tests/test_models.py`, `examples/rtl-debugger/endpoint-plugin.mjs`; modify the example Dockerfile and compatible config.

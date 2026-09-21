@@ -122,6 +122,21 @@ Context7 `/astral-sh/uv`에서 universal compile, Python target, sync, offline �
 `scripts/dev.py`가 이 tag를 공식 driver에 전달한다. `evaluator.py`는 owned prefix에서 검증한
 private log의 Docker 오류를 환경 실패로 분류한다. upstream SHA/파일 변경은 없다.
 
+## 개발환경 온보딩 설치 출처 (2026-09-21)
+
+Context7 `/astral-sh/uv`, `/docker/docs`로 아래 설치 계약을 확인하고 실제
+`scripts/bootstrap.sh`, `scripts/dev.py`, `examples/ace-rtl/environment/diagnostics.py`와 대조했다.
+소비 문서는 [development.md](development.md), README와 CONTRIBUTING이다. 아래 URL은 가변 설치
+안내이며 기존 ACE/CVDP/HF SHA·driver lock·OpenCode/uv 신규 설치 pin은 갱신하지 않았다.
+
+| 공식 출처 | 확인·사용 범위 |
+|---|---|
+| [uv 설치](https://docs.astral.sh/uv/getting-started/installation/), [installer 설정](https://docs.astral.sh/uv/reference/installer/) | 버전별 installer URL, `UV_INSTALL_DIR`, `UV_NO_MODIFY_PATH`. bootstrap은 `https://astral.sh/uv/0.10.7/install.sh`와 repo-local 경로를 사용하며 기존 uv는 재사용한다. |
+| [uv Python 설치](https://docs.astral.sh/uv/guides/install-python/), [CLI reference](https://docs.astral.sh/uv/reference/cli/) | 필요한 Python 자동 준비, offline 네트워크 차단과 `UV_PYTHON_DOWNLOADS=never`. 신규 환경 Python 3.12와 frozen sync 명령 안내 근거. |
+| [Docker Desktop Mac](https://docs.docker.com/desktop/setup/install/mac-install/) | CPU별 설치와 Desktop 시작. 이 작업의 실제 실행은 기존 Colima Docker daemon이며 Desktop 신규 설치를 재현한 것은 아니다. |
+| [Docker Engine Ubuntu](https://docs.docker.com/engine/install/ubuntu/), [Compose plugin](https://docs.docker.com/compose/install/linux/) | Docker apt 저장소에서 Engine/Buildx/Compose plugin 설치. 현재 작업에서 Ubuntu OS 설치를 실행한 것은 아니다. |
+| [daemon 시작](https://docs.docker.com/engine/daemon/start/), [Linux 후속 설정](https://docs.docker.com/engine/install/linux-postinstall/) | `sudo systemctl start docker`, 사용자 socket 접근과 docker 그룹 권한 안내. |
+
 ## 선택적 네트워크 설정 출처 (2026-09-21)
 
 - Context7 `/docker/docs`: [proxy build args](https://docs.docker.com/engine/cli/proxy/),
@@ -130,6 +145,9 @@ private log의 Docker 오류를 환경 실패로 분류한다. upstream SHA/파�
   `network.py`의 이름 기반 proxy 전달·CA 전용 context와 `network_driver.py`의 null 환경 참조 근거.
 - Context7 `/astral-sh/uv`: `SSL_CERT_FILE`은 PEM bundle이며 기본 trust를 대체한다.
   `network.py`는 전체 번들을 명시적으로 요구하고 TLS 검증을 해제하지 않는다.
+- 온보딩 통합 시 [uv 0.10.7 installer](https://astral.sh/uv/0.10.7/install.sh)의
+  curl/wget archive 다운로드를 대조했다. `scripts/bootstrap.sh`는 curl/uv CA 환경과
+  wget의 임시 `WGETRC`를 installer 자식에도 전달한다. 신규 설치는 격리된 계약 테스트로 확인했다.
 - [OpenCode network](https://opencode.ai/docs/network/): HTTP_PROXY/HTTPS_PROXY/NO_PROXY,
   NODE_EXTRA_CA_CERTS 지원 및 localhost 우회 지침. `network.py`와 `docs/network.md`에서 사용.
   문서는 가변 출처이며 이번 실제 확인은 1.18.31 설치/버전·이미지 설정까지다.
