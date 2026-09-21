@@ -1,6 +1,7 @@
 import json
 import os
 import threading
+import time
 import unittest
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -11,7 +12,7 @@ from agent_optimizer.models import ModelSettings, complete, probe_model
 
 
 @contextmanager
-def model_server(responses):
+def model_server(responses, *, trickle=False):
     requests = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -29,7 +30,16 @@ def model_server(responses):
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(body)
+            try:
+                if trickle:
+                    for byte in body:
+                        self.wfile.write(bytes([byte]))
+                        self.wfile.flush()
+                        time.sleep(0.02)
+                else:
+                    self.wfile.write(body)
+            except (BrokenPipeError, ConnectionResetError):
+                pass
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     worker = threading.Thread(target=server.serve_forever, daemon=True)
@@ -50,6 +60,14 @@ def completion(content="hello", usage=None):
 
 
 class ModelTests(unittest.TestCase):
+    def test_trickling_response_cannot_extend_total_request_deadline(self):
+        with model_server([(200, completion())], trickle=True) as (url, _requests):
+            settings = ModelSettings.from_env({"MODEL_ENDPOINT": url + "/chat/completion", "MODEL_API_KEY": "key"})
+            started = time.monotonic()
+            with self.assertRaises(UnavailableError):
+                complete([], settings=settings, timeout=0.5)
+            self.assertLess(time.monotonic() - started, 1.5)
+
     def test_exact_endpoint_and_default_model_reach_server_with_bearer(self):
         with model_server([(200, completion())]) as (url, requests), patch.dict(os.environ, {
             "MODEL_ENDPOINT": url + "/v1/chat/completion", "MODEL_API_KEY": "fixture-secret",

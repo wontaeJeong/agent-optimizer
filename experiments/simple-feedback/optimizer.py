@@ -46,7 +46,12 @@ class Optimizer:
                 raise ConfigurationError("Train feedback exceeds the small demo prompt limit")
             request_timeout = min(timeout, context.remaining_seconds()) if hasattr(context, "remaining_seconds") else timeout
             print(f"[optimizer] iteration {iteration}/{iterations}: propose from {parent.id}", file=sys.stderr, flush=True)
-            reply = complete(messages, settings=settings, timeout=request_timeout)
+            try:
+                reply = complete(messages, settings=settings, timeout=request_timeout)
+            except UnavailableError:
+                if hasattr(context, "remaining_seconds"):
+                    context.remaining_seconds()  # Preserve budget_exhausted rather than an API error at the deadline.
+                raise
             usage = reply.get("usage") or {}
             # A response without usage is still a real call, with unknown usage, never zero.
             tokens = [usage.get(key) for key in ("prompt_tokens", "completion_tokens")] if isinstance(usage, dict) else [None, None]

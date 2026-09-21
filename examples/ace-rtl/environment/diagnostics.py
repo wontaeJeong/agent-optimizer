@@ -75,7 +75,7 @@ def inspect_environment(setup, platform=None, *, check_model=False):
             action()
             checks[name] = {"status": "passed"}
             return True
-        except (ConfigurationError, UnavailableError, OSError, ValueError, KeyError, TypeError):
+        except (ConfigurationError, UnavailableError, OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
             # Do not print environment values, provider payloads or subprocess output.
             checks[name] = {"status": "blocked", "repair": repair}
             return False

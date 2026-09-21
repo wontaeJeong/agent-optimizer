@@ -5,9 +5,11 @@ import json
 import math
 import os
 import ssl
+import subprocess
+import sys
 import urllib.error
 import urllib.request
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from urllib.parse import urlsplit
 
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
@@ -50,6 +52,28 @@ def complete(messages, *, settings=None, timeout=60, tools=None, tool_choice=Non
     settings = settings or ModelSettings.from_env()
     if isinstance(timeout, bool) or not isinstance(timeout, (int, float)) or not math.isfinite(timeout) or timeout <= 0:
         raise ConfigurationError("Model timeout must be finite and positive")
+    # A socket timeout is not a whole-request deadline (DNS and trickling bodies can exceed it).
+    # A short-lived stdlib worker gives every caller a bounded, cancellable request on all platforms.
+    payload = {"settings": asdict(settings), "messages": messages, "timeout": timeout,
+               "tools": tools, "tool_choice": tool_choice}
+    try:
+        result = subprocess.run([sys.executable, "-m", "agent_optimizer.models", "--request"],
+                                input=json.dumps(payload), text=True, capture_output=True, timeout=timeout,
+                                env={**os.environ, "PYTHONPATH": os.pathsep.join(sys.path)}, shell=False)
+    except subprocess.TimeoutExpired:
+        raise UnavailableError("Model request exceeded its total timeout") from None
+    except OSError:
+        raise UnavailableError("Cannot start model request worker") from None
+    try:
+        output = json.loads(result.stdout)
+    except ValueError:
+        raise UnavailableError("Model request worker failed") from None
+    if result.returncode:
+        raise UnavailableError(output.get("error", "Model request worker failed"))
+    return output
+
+
+def _complete(messages, *, settings, timeout, tools=None, tool_choice=None):
     body = {"model": settings.model, "messages": messages, "stream": False}
     if tools is not None:
         body.update(tools=tools, tool_choice=tool_choice)
@@ -62,7 +86,7 @@ def complete(messages, *, settings=None, timeout=60, tools=None, tool_choice=Non
     network = network_environment()
     proxies = {name: network[name.upper() + "_PROXY"] for name in ("http", "https", "no")
                if name.upper() + "_PROXY" in network}
-    opener = urllib.request.build_opener(_NoRedirect(), urllib.request.ProxyHandler(proxies or None),
+    opener = urllib.request.build_opener(_NoRedirect(), urllib.request.ProxyHandler(proxies),
                                         urllib.request.HTTPSHandler(context=context))
     try:
         with opener.open(request, timeout=timeout) as response:
@@ -103,7 +127,12 @@ def probe_model(*, settings=None, timeout=30):
 
 if __name__ == "__main__":
     try:
-        print(json.dumps(probe_model()))
+        if sys.argv[1:] == ["--request"]:
+            payload = json.load(sys.stdin)
+            payload["settings"] = ModelSettings(**payload["settings"])
+            print(json.dumps(_complete(**payload)))
+        else:
+            print(json.dumps(probe_model()))
     except (ConfigurationError, UnavailableError) as exc:
-        print(json.dumps({"status": "blocked", "reason": str(exc)}))
+        print(json.dumps({"status": "blocked", "error": str(exc)}))
         raise SystemExit(2)

@@ -26,6 +26,11 @@ Docker 실행 시 평가 코드/데이터를 Agent 컨테이너에 마운트하�
 local 실행은 논리적 분리만 제공하며, 파일 접근 권한까지 막는 보안 격리는 아니다.
 optimizer plugin 역시 신뢰한 프로세스 내부 코드다.
 
+`experiments/simple-feedback/optimizer.py`는 기존 context로 train 피드백을 받아 지침 하나를
+기본 3회 수정한다. 모델 요청은 `models.py`의 짧은 subprocess worker로 실행하여 DNS/응답 지연까지
+요청 전체 timeout으로 제한한다. 토큰은 stdin/environment로만 전달하고 응답 오류 본문은 진단에 노출하지 않는다.
+timeout이 전역 예산을 소진하면 `budget_exhausted`로 보존한다. 연구 알고리즘은 같은 파일 플러그인 계약으로 교체한다.
+
 ACE-RTL/CVDP 연결은 examples 아래의 일반 플러그인이다. 코어에는 특별한 등록이나 분기가 없다.
 첫 ACE 예제는 **OpenCode를 통한 ACE 스킬 사용**이다. ACE native runner의 자체 반복·평가·모델 호출과
 동일한 실행으로 간주하지 않는다. native runner 연결 시 별도 profile과 신뢰한 evaluator를 연결한다.

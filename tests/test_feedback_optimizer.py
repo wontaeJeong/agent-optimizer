@@ -1,20 +1,41 @@
 import json
 import os
 import shutil
+import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from agent_optimizer.config import load_experiment
-from agent_optimizer.contracts import ConfigurationError, UnavailableError
+from agent_optimizer.contracts import BudgetExceeded, ConfigurationError, UnavailableError
 from agent_optimizer.registry import Registry
 from agent_optimizer.runner import run_experiment
 from agent_optimizer.workspace import digest
-from support import ROOT, test_project
+from support import ROOT, module, test_project
 from test_models import completion, model_server
 
 
 class FeedbackOptimizerTests(unittest.TestCase):
+    def test_deadline_expiry_on_model_failure_keeps_budget_status(self):
+        optimizer = module("feedback_deadline", ROOT / "experiments/simple-feedback/optimizer.py")
+        with tempfile.TemporaryDirectory() as directory:
+            candidate = SimpleNamespace(id="c1", path=Path(directory))
+            class Context:
+                calls = 0
+                def evaluate(self, _candidate):
+                    return {"valid": True, "split": "train"}
+                def history(self):
+                    return []
+                def remaining_seconds(self):
+                    self.calls += 1
+                    if self.calls > 1:
+                        raise BudgetExceeded("deadline")
+                    return 0.01
+            with patch.dict(os.environ, {"MODEL_ENDPOINT": "https://example.invalid/chat/completion", "MODEL_API_KEY": "key"}, clear=True), patch.object(
+                    optimizer, "complete", side_effect=UnavailableError("timed out")), self.assertRaises(BudgetExceeded):
+                optimizer.Optimizer().optimize(Context(), [candidate], {"file": "guidance.md", "iterations": 1})
+
     def setUp(self):
         temporary, self.root = test_project()
         self.addCleanup(temporary.cleanup)

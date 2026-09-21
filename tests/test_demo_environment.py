@@ -14,6 +14,21 @@ setup = module("demo_setup", ROOT / "examples/ace-rtl/environment/setup.py")
 
 
 class DemoEnvironmentTests(unittest.TestCase):
+    def test_corrupt_checkout_remains_a_structured_independent_diagnostic(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "external").mkdir()
+            (root / "external/environment-lock.json").write_text(json.dumps({"platform": "linux/amd64", "images": {
+                "evaluation": {"id": "eval"}, "agent": {"id": "agent"}}}))
+            with patch.object(setup, "ROOT", root), patch.dict(os.environ, {}, clear=True), patch.object(
+                    diagnostics, "prerequisites", return_value={"ready": True, "checks": {}}), patch.object(
+                    setup, "prepare_sources", side_effect=subprocess.CalledProcessError(128, ["git"])), patch.object(
+                    setup, "prepare_data", side_effect=ConfigurationError("bad data")):
+                report = diagnostics.inspect_environment(setup, "linux/amd64")
+            self.assertFalse(report["ready"])
+            self.assertEqual(report["checks"]["sources"]["status"], "blocked")
+            self.assertEqual(report["checks"]["data"]["status"], "blocked")
+
     def test_prerequisites_accumulate_failures_and_never_echo_process_output(self):
         def run(argv, **_kwargs):
             return subprocess.CompletedProcess(argv, 0 if argv[0] == "git" else 1, "fixture-secret", "fixture-secret")

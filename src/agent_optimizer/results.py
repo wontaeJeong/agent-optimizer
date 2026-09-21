@@ -36,6 +36,24 @@ def write_report(root, summary):
                 continue
             metrics = json.dumps(row["metrics"], ensure_ascii=False)
             lines.append(f"| {group['agent_id']} | {group['harness_id']} | {row['candidate_id']} | {row['split']} | {metrics} |")
+    events_path = root / "events.jsonl"
+    trials = [json.loads(line) for line in events_path.read_text().splitlines()] if events_path.exists() else []
+    trials = [r for r in trials if r.get("event") == "trial_completed"]
+    lines += ["", "## Agent usage (Harness-reported partial; not complete totals)", "",
+              "| Agent | Harness | Candidate | Split | IO tokens | Cost USD |", "|---|---|---|---|---|---|"]
+    for group in summary["groups"]:
+        rows = [group["baseline"], *group["selected"], *group["final_test"]]
+        rows = {(r["candidate_id"], r["split"]): r for r in rows if r is not None}
+        for (candidate, split), row in rows.items():
+            matching = [r for r in trials if (r["agent_id"], r["harness_id"], r["candidate_id"], r["split"]) ==
+                        (group["agent_id"], group["harness_id"], candidate, split)]
+            usage = []
+            for key in ("harness_reported_io_tokens", "harness_reported_cost_usd"):
+                values = [r["metrics"].get(key) for r in matching]
+                known = (values and len(values) == row.get("trial_count") and all(v is not None for v in values)
+                         and all(r.get("valid", True) for r in matching))
+                usage.append(json.dumps(sum(values) if known else None))
+            lines.append(f"| {group['agent_id']} | {group['harness_id']} | {candidate} | {split} | {' | '.join(usage)} |")
     lines += ["", "## Optimization", "", "| Agent | Harness | Stage | Status | Checkpoint |",
               "|---|---|---|---|---|"]
     for group in summary["groups"]:
