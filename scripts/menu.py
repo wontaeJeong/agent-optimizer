@@ -61,7 +61,7 @@ def configure_model(env):
     staged[name] = url or staged.get(name, "")
     staged.pop(unused, None)
     model = input("MODEL_ID (빈 입력: 기존 값 또는 glm5.3-flash): ").strip()
-    staged["MODEL_ID"] = model or staged.get("MODEL_ID", "glm5.3-flash")
+    staged["MODEL_ID"] = model or staged.get("MODEL_ID") or "glm5.3-flash"
     # getpass warns before falling back to echoed input: turn that warning into an abort.
     with warnings.catch_warnings():
         warnings.simplefilter("error", getpass.GetPassWarning)
