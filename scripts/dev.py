@@ -66,6 +66,7 @@ def main(argv=None):
         "demo": "Run the minimal synthetic demo without Docker/API",
         "smoke": "Run real RTL/CVDP evaluator checks",
         "live": "Run iterative optimization with the configured model (authentication required)",
+        "menu": "Open the numbered interactive menu (TTY required; session-only model settings)",
         "help": "Show this help without probing or installing tools",
     }
     for name, description in descriptions.items():
@@ -84,6 +85,8 @@ def main(argv=None):
     if args.command in {None, "help"}:
         parser.print_help()
         return 0
+    if args.command == "menu":
+        return load("dev_menu", "scripts/menu.py").main([])
     if args.command == "live" and args.iterations is not None and not 1 <= args.iterations <= 20:
         parser.error("--iterations must be from 1 to 20")
     stage = args.command
