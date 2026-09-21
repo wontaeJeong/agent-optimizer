@@ -21,7 +21,7 @@ command=${1:-help}
 [ "$#" -eq 0 ] || shift
 case "$command" in
     help|-h|--help) [ "$#" -eq 0 ] || fail 'help takes no options'; help; exit 0 ;;
-    setup|doctor|test|lint|demo|smoke|live) ;;
+    setup|doctor|test|lint|demo|smoke|live|menu) ;;
     *) fail "Unknown command: $command. Run sh scripts/bootstrap.sh help." ;;
 esac
 
@@ -64,7 +64,15 @@ for option do
 done
 [ "$want_platform" = false ] || fail '--platform requires linux/amd64 or linux/arm64'
 [ "$want_iterations" = false ] || fail '--iterations requires 1..20'
-if [ "$show_help" = true ]; then help; exit 0; fi
+if [ "$show_help" = true ]; then
+    if [ "$command" = menu ]; then
+        printf '%s\n' 'menu: interactive numbered frontend (TTY and Python >=3.11 required).' \
+            'Run sh scripts/bootstrap.sh menu; setup/doctor/demo/live remain available for automation.'
+    else
+        help
+    fi
+    exit 0
+fi
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd -P)
 PATH="$ROOT/.cache/uv/bin:$PATH"

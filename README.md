@@ -7,6 +7,10 @@
 
 ## 개발환경 빠른 시작
 
+Python 3.11+가 있으면 터미널에서 **`make menu`** (또는 **`sh scripts/bootstrap.sh menu`**)로
+설치·진단·LLM 없는 테스트·모델 설정·반복 실행·보고서 확인을 번호로 선택할 수 있습니다.
+모델 토큰은 숨김 입력하며 설정은 메뉴 세션에만 유지됩니다. [메뉴 안내](docs/development.md#번호-메뉴)
+
 Mac/Ubuntu에 **Git, 실행 중인 Docker Engine과 Compose**를 먼저 준비하세요.
 [OS별 설치·문제 해결](docs/development.md)을 따른 뒤 프로젝트 루트에서 실행합니다.
 
@@ -22,7 +26,7 @@ setup은 uv가 없으면 0.10.7을 로컬에 설치하고 Python 3.12·개발 �
 이미지를 준비합니다. 첫 이미지 컴파일은 수십 분 걸릴 수 있습니다. 단계별 로그 위치를 출력하며
 `external/setup-logs/`에 빌드·설치 로그를 보존합니다. 완료 시 출력된
 `runs/<run-id>/report.md`, `summary.json`을 확인하세요. 최소 데모는 두 합성 Agent·9 trial의
-연결 검증이며 실제 모델 성능 수치가 아닙니다. API 키는 **live 실행에만** 필요합니다.
+연결 검증이며 실제 모델 성능 수치가 아닙니다. API 키는 **live 및 명시적 모델 연결 검사**에 필요합니다.
 
 | 명령 | 용도 |
 |---|---|
