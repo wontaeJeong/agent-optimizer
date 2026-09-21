@@ -56,6 +56,11 @@ jobs:
         run: .venv/bin/ruff check .
       - name: Unit and contract tests
         run: .venv/bin/python -m unittest discover -s tests -v
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Exact endpoint hook contract
+        run: node --test tests/endpoint-plugin.test.mjs
       - name: Minimal demo
         run: .venv/bin/python -m agent_optimizer run examples/minimal/experiment.toml
       - name: Build sdist and wheel
@@ -102,6 +107,9 @@ jobs:
           DOCKER_DEFAULT_PLATFORM=$(python3 -c 'import json; print(json.load(open("external/environment-lock.json"))["platform"])')
           export AGENT_OPT_TEST_DOCKER_IMAGE DOCKER_DEFAULT_PLATFORM
           PYTHONPATH=src:tests .venv/bin/python -m unittest test_adapters.DockerEnvironmentTests -v
+          docker run --rm --network none \
+            --mount "type=bind,source=$PWD/tests/opencode_endpoint_fixture.py,target=/fixture.py,readonly" \
+            "$AGENT_OPT_TEST_DOCKER_IMAGE" python3 /fixture.py
       - name: Retain official integration evidence
         if: always() && github.server_url == 'https://github.com'
         uses: actions/upload-artifact@v4

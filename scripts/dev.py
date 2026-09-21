@@ -31,11 +31,14 @@ def main():
     parser.add_argument("--platform", help="Default: Docker daemon native linux/amd64 or linux/arm64")
     parser.add_argument("--model", action="store_true", help="doctor: make explicit host and container model/tool calls")
     parser.add_argument("--json", action="store_true", help="doctor: emit machine-readable diagnostics")
+    parser.add_argument("--iterations", type=int, help="live: override optimizer iterations (1..20, default 3)")
     args = parser.parse_args()
     if args.model and args.command != "doctor":
         parser.error("--model is only available for doctor")
     if args.offline and args.command != "setup":
         parser.error("--offline is only available for setup")
+    if args.iterations is not None and (args.command != "live" or not 1 <= args.iterations <= 20):
+        parser.error("--iterations requires live and a value from 1 to 20")
     os.chdir(ROOT)
     setup = load("ace_environment", "examples/ace-rtl/environment/setup.py")
     try:
@@ -61,9 +64,8 @@ def main():
             dataset, lock = setup.prepare_environment(offline=args.offline, platform=args.platform)
             prepare = load("ace_prepare", "examples/ace-rtl/prepare.py")
             manifest = prepare.prepare_dataset(dataset, ROOT / "datasets/ace-demo/all-tasks.json", lock)
-            manifest["tasks"] = [t for t in manifest["tasks"] if t["id"] == "cvdp_copilot_16qam_mapper_0001"]
-            if not manifest["tasks"]:
-                raise ConfigurationError("Reviewed QAM16 live task absent from pinned dataset")
+            demo = load("ace_demo", "examples/ace-rtl/environment/demo.py")
+            manifest = demo.select_tasks(manifest)
             write_json(ROOT / "datasets/ace-demo/tasks.json", manifest)
             print(json.dumps({"status": "ready", "environment_lock": "external/environment-lock.json"}))
             return 0
@@ -87,7 +89,9 @@ def main():
         os.environ["DOCKER_DEFAULT_PLATFORM"] = args.platform
         os.environ["OSS_SIM_IMAGE"] = sim_image
         example = load("ace_dev_checks", "examples/ace-rtl/environment/checks.py")
-        return example.smoke(lock) if args.command == "smoke" else example.live(lock)
+        if args.command == "smoke":
+            return example.smoke(lock)
+        return example.live(lock, iterations=args.iterations) if args.iterations is not None else example.live(lock)
     except (ConfigurationError, UnavailableError) as exc:
         print(json.dumps({"status": "blocked", "reason": str(exc)}))
         return 2

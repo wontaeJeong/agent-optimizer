@@ -108,6 +108,8 @@ OpenCode 이외 CLI도 command wrapper로 먼저 연결한 후 필요한 trace p
 ## Optimizer
 
 팀 구현은 [`experiments/optimizer-template/`](../experiments/optimizer-template/README.md)에서 시작하세요.
+실행 가능한 LLM 반복 예제는 [`experiments/simple-feedback/`](../experiments/simple-feedback/README.md)입니다.
+새 Harness 연결 계약과 등록 절차는 [`experiments/harness-template/`](../experiments/harness-template/README.md)에 있습니다.
 Meta-Harness 연결 후보를 위한 텍스트 변경·train 피드백·사용량·checkpoint 지점을 설명하며,
 알고리즘을 공급하기 전 `optimize`는 `UnavailableError`를 냅니다. template의 `plan` 성공은
 등록 검사만 뜻합니다. 실제 실행 가능한 계약 예제는 기존 `file_variants`입니다.
@@ -119,6 +121,7 @@ Meta-Harness 연결 후보를 위한 텍스트 변경·train 피드백·사용�
 - `context.evaluate(candidate)`는 train split만 사용. train이 없는 실험에서 호출하면 실패.
 - `context.history()`는 train 기록만 반환.
 - `context.record_usage(input_tokens, output_tokens, cost_usd)`는 Optimizer 자체 사용량 기록.
+  각 값은 미수집이면 `None`을 사용합니다. 선택적 런타임 메서드 `remaining_seconds()`는 남은 벽시계 예산입니다.
   호출 시 `optimizer_usage` 이벤트를 Agent/Harness/stage ID와 함께 저장하므로 이후 예산 소진·오류에도 보존된다.
 - `OptimizationResult(candidates=[...], checkpoint={...})` 반환. runner가 validation 평가/선택.
 

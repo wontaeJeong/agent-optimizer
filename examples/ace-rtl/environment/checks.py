@@ -6,7 +6,7 @@ from dataclasses import asdict
 from pathlib import Path
 
 from agent_optimizer.config import load_experiment
-from agent_optimizer.contracts import Task, UnavailableError
+from agent_optimizer.contracts import ConfigurationError, Task, UnavailableError
 from agent_optimizer.process import execute
 from agent_optimizer.registry import Registry
 from agent_optimizer.results import write_json
@@ -97,8 +97,17 @@ def smoke(lock):
     return 0
 
 
-def live(lock):
+def live(lock, iterations=None):
     spec = load_experiment(ROOT / "examples/ace-rtl/experiment.toml")
+    if iterations is not None:
+        if type(iterations) is not int or not 1 <= iterations <= 20:
+            raise ConfigurationError("Iterations must be an integer from 1 to 20")
+        spec["stages"][0]["config"]["iterations"] = iterations
+    count = spec["stages"][0]["config"]["iterations"]
+    if {t.split for t in spec["_tasks"]} != {"train", "validation"} or len(spec["_tasks"]) != 2:
+        raise ConfigurationError("Live demo needs prepared train/validation tasks; rerun setup")
+    spec["budget"]["max_trials"] = 2 * (count + 1)
+    spec["budget"]["max_wall_time_seconds"] = 2 * (count + 1) * spec["budget"]["trial_timeout_seconds"] + count * 60 + 180
     for profile in spec["_profiles"]:
         profile["runtime"]["image"] = lock["images"]["agent"]["id"]
     root, summary = run_experiment(spec, Registry(), ROOT / "runs/dev-live")
