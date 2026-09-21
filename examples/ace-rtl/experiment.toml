@@ -6,16 +6,19 @@ harnesses = ["examples/ace-rtl/harness.toml"]
 benchmark = "datasets/ace-demo/tasks.json"
 evaluator = "cvdp"
 final_test = false
-final_stages = ["baseline", "brief-guidance"]
+final_stages = ["feedback"]
 [plugins.harnesses]
 ace_opencode = "examples/ace-rtl/adapter.py:ACEOpenCode"
 [plugins.evaluators]
 cvdp = "examples/ace-rtl/evaluator.py:CVDPEvaluator"
+[plugins.optimizers]
+simple_feedback = "experiments/simple-feedback/optimizer.py:Optimizer"
 [plugin_dependencies]
 "evaluators/cvdp" = ["examples/ace-rtl/environment/network_driver.py"]
+"optimizers/simple_feedback" = ["src/agent_optimizer/models.py"]
 [budget]
-max_trials = 4
-max_wall_time_seconds = 2400
+max_trials = 8
+max_wall_time_seconds = 5160
 trial_timeout_seconds = 600
 [objective]
 mode = "lexicographic"
@@ -28,12 +31,10 @@ name = "seconds"
 source = "task_wall_time_seconds"
 direction = "minimize"
 [[stages]]
-id = "brief-guidance"
-optimizer = "file_variants"
+id = "feedback"
+optimizer = "simple_feedback"
 inputs = ["baseline"]
 [stages.config]
-include_seeds = true
-[[stages.config.variants]]
-name = "short-role-guidance"
-[stages.config.variants.files]
-"skills/ace-rtl/references/role-guidance.md" = "Generator: implement only public requirements. Reflector: identify one concrete mismatch from available evidence. Coordinator: choose the smallest justified next change; stop when public checks are exhausted. Keep role summaries concise and never infer a private evaluator pass."
+file = "skills/ace-rtl/references/role-guidance.md"
+iterations = 3
+request_timeout_seconds = 60

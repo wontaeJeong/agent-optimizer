@@ -25,7 +25,7 @@ class DoctorTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.addCleanup(patch.stopall)
-        patch.dict(os.environ, {}, clear=True).start()
+        patch.dict(os.environ, {"AGENT_OPT_CA_BUNDLE": ""}, clear=True).start()
 
     def checks(self, report):
         checks = {item["id"]: item for item in report["checks"]}
@@ -70,6 +70,8 @@ class DoctorTests(unittest.TestCase):
         bundle = certificate(self.root)
         self.prepared()
         for valid in (True, False):
+            self.lock["ca_bundle_sha256"] = hashlib.sha256(bundle.read_bytes()).hexdigest() if valid else None
+            self.write_lock()
             with self.subTest(valid=valid), patch.dict(os.environ, {
                     "AGENT_OPT_CA_BUNDLE": str(bundle if valid else self.root / "missing-SECRET.pem"),
                     "HTTPS_PROXY": "http://SECRET@proxy", "HTTP_PROXY": "ignored", "http_proxy": "",
@@ -231,7 +233,7 @@ class DoctorTests(unittest.TestCase):
         report = self.doctor.collect_report(self.root)
         self.assertEqual(report["areas"], {"core": True, "evaluation": True, "live": False})
         self.assertTrue(report["ready"])
-        with patch.dict(os.environ, {"OPENROUTER_API_KEY": "secret", "AGENT_OPT_MODEL": "openrouter/a/b:free"}):
+        with patch.dict(os.environ, {"MODEL_API_KEY": "secret", "MODEL_ENDPOINT": "https://example.invalid/chat/completion"}):
             self.assertTrue(self.doctor.collect_report(self.root)["areas"]["live"])
             (self.root / ".venv/bin/python").unlink()
             self.assertFalse(self.doctor.collect_report(self.root)["areas"]["live"])
@@ -366,7 +368,7 @@ class DoctorTests(unittest.TestCase):
             self.doctor.render_report(report)
         self.assertIn("core", output.getvalue())
         self.assertIn("live", output.getvalue())
-        self.assertIn("OPENROUTER_API_KEY", output.getvalue())
+        self.assertIn("MODEL_API_KEY", output.getvalue())
         dev = module("dev_doctor_success_test", ROOT / "scripts/dev.py")
         # Keep the real collector/renderer, using the prepared adapter fixture.
         with patch.object(dev, "ROOT", self.root), patch.object(dev, "load", return_value=self.doctor), \

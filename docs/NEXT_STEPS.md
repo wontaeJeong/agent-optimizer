@@ -8,18 +8,19 @@
 수정 후 native 정답/오답 raw 결과·이미지/driver lock·도구 버전은
 [검증 기록](verification.md#2026-09-20-native-ubuntu-repeat--passed)에 구분해 보존한다.
 
-1. **대표 ACE 실행 프로필 결정 및 upstream 차이 확인**
+1. **대표 ACE 실행 프로필 — 이번 데모는 OpenCode 스킬 방식으로 결정**
    - 스킬 프로필 또는 원본 runner 중 데모에서 평가할 대상을 정하고, 변경 파일이 실제 읽히거나
      실행되는 경로를 확인한다. native 선택 시 별도 어댑터, 의존성, 역할별 모델/반복 예산,
      제한된 평가 피드백 경계를 먼저 설계한다.
    - 완료 기준: 고정 SHA 기준 실행 명령·호출 흐름·원본과의 차이·baseline 정의·주장 가능한 개선 범위를
      ACE 예제 문서에 기록. 역할 Python 코드 최적화 주장에는 실제 호출 근거가 있어야 한다.
-2. **무료 모델 live 한 문제 실행 — 현재 API 키 부재로 `blocked_auth`**
+2. **설정한 모델로 실제 최적화 반복 실행**
    - evaluator-only 공식 LFSR 정답/오답 smoke는 Mac Docker ARM64와 native Ubuntu x86_64에서 통과했다. 다음은
-     `OPENROUTER_API_KEY`와 사용 가능한 명시적 `openrouter/vendor/model:free`를 환경에 설정하고
-     `python3 scripts/dev.py live`로 full HF의 QAM16 한 문제를 실행하는 것이다.
+      `MODEL_API_KEY`, `MODEL_ENDPOINT` 또는 `MODEL_BASE_URL`, `MODEL_ID`를 환경에 설정하고
+      `python3 scripts/dev.py doctor --model` 후 `live --iterations 3`을 실행하는 것이다.
+      priority encoder train과 QAM16 validation을 분리하고 단순 LLM 피드백 후보를 비교한다.
    - 완료 기준: 실제 OpenCode 산출물 → 비어 있지 않은 공식 raw 결과, 모델/예산/partial 사용량 기록.
-     인증·무료 모델 가용성 실패는 차단으로 남기고 유료 모델·합성 결과로 대체하지 않는다.
+      인증·모델 가용성 실패는 차단으로 남기고 다른 모델·합성 결과로 대체하지 않는다.
 3. **대표 연구 Optimizer 하나 연결**
    - 담당자가 [출처 후보](SOURCES.md#연구-optimizer-출처-후보-조사와-채택-확정을-구분)를 확인하고
      정확한 구현·버전을 선택한다. 기존 계약과 파일 플러그인 연결을 우선 사용한다.

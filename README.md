@@ -32,7 +32,7 @@ setup은 uv가 없으면 0.10.7을 로컬에 설치하고 Python 3.12·개발 �
 | `make lint` / `make test` / `make demo` | `.venv`에서 일상 개발 검사·데모 |
 | `make setup ARGS="--offline"` | 준비한 자산·캐시 검증 및 재사용 |
 | `make smoke` | 모델 호출 없는 실제 RTL/CVDP 정답·오답 검사 |
-| `make live` | 명시적 무료 모델·인증을 설정한 실제 모델 실행 |
+| `make live` | 설정한 OpenAI 호환 모델로 ACE 지침 최적화 반복 |
 
 make가 없으면 모든 명령을 `sh scripts/bootstrap.sh <명령> [옵션]`으로 실행합니다.
 가상환경 활성화·PATH·offline 복구는 [개발환경 가이드](docs/development.md), 일상 작업과
@@ -91,7 +91,7 @@ external/ datasets/ runs/ 다운로드·데이터·결과, Git 제외
 ## 구현 범위
 
 - 실행 가능: 외부 Git 고정 커밋/로컬 소스 스냅샷, 복수 Agent × Harness 실험, baseline,
-  파일 변경 후보 비교, 단계 조합·분기 조건, 동적 지표/제약, validation 선택 후 test 평가.
+  파일 변경 후보 비교, 단순 LLM 피드백 반복, 단계 조합·분기 조건, validation 선택 후 test 평가.
 - OpenCode 및 Docker 실행 어댑터와 예제 전용 Icarus/CVDP 연결 코드를 포함합니다.
 - **GEPA / Meta-Harness / Ecdysis는 팀원 구현용 슬롯**입니다. 실제 알고리즘은 포함하지 않았습니다.
   미구현 알고리즘을 실행하면 명시적으로 실패합니다.
@@ -102,14 +102,28 @@ external/ datasets/ runs/ 다운로드·데이터·결과, Git 제외
 
 ## 실제 데모
 
-[ACE-RTL 예제](examples/ace-rtl/README.md)의 순서로 공식 CVDP 오픈소스 이미지를 준비하고,
-OpenCode 실행 이미지를 별도로 만듭니다.
+[ACE-RTL 예제](examples/ace-rtl/README.md)는 기본 3회 **train 평가 → ACE 지침 수정 → 재평가** 후
+별도 validation으로 후보를 선택합니다. 기본 모델은 `glm5.3-flash`이며 설정으로 교체합니다.
+Python 3.11+, uv, Git, Docker Engine/Compose가 필요합니다. Ubuntu 시스템 CA 사용 시 Buildx도 필요합니다.
+호스트에 OpenCode·시뮬레이터를 별도로 설치하지 않습니다.
 
 ```bash
-make setup   # Python, 고정 소스/데이터, 별도 Docker 이미지
-make smoke   # 키 없이 실제 RTL/CVDP 정답·오답 검증
-make live    # OPENROUTER_API_KEY + AGENT_OPT_MODEL=openrouter/vendor/model:free 필요
+# 실제 주소·토큰은 셸/credential store에서 설정; .env.example은 자동 로딩하지 않음
+export MODEL_ENDPOINT=https://model.example/v1/chat/completion
+export MODEL_ID=glm5.3-flash
+# MODEL_API_KEY도 export. 표준 API는 MODEL_ENDPOINT 대신 MODEL_BASE_URL 사용.
+make setup                         # Python 환경·소스·데이터·두 이미지 일괄 준비
+make doctor                        # 준비 상태와 실패 조치; 모델 호출 없음
+make doctor ARGS="--model"          # 실제 호스트 API + 컨테이너 OpenCode 도구 호출
+make smoke                         # 모델 키 없이 실제 RTL/CVDP 정답·오답 검증
+make live ARGS="--iterations 3"     # 기본 8 trial: 후보 4개 × train/validation
 ```
+
+Ubuntu에서는 기존 proxy 환경과 `/etc/ssl/certs/ca-certificates.crt`를 사용합니다.
+명시적 `AGENT_OPT_CA_BUNDLE`이 우선합니다. [proxy/CA 안내](docs/network.md)를 확인하세요.
+`doctor --json`은 자동화용 결과와 실패 종료 코드 2를 제공합니다. 코어 `agent-opt doctor`는
+단순 바이너리 목록이며, **ACE 데모 준비 검사는 위 `scripts/dev.py doctor`**를 사용합니다.
+uv/Python이 없으면 `sh scripts/bootstrap.sh setup`이 프로젝트 전용 환경을 준비합니다.
 
 `--platform`을 생략하면 빌드 전에 Docker daemon의 native `linux/amd64` 또는 `linux/arm64`를
 선택해 기록합니다. 명시적 `--platform`은 그대로 사용하며 미지원 architecture는 오류입니다.
@@ -135,8 +149,9 @@ PR CI는 Python 3.11/3.12와 Ubuntu native Yosys/Icarus로 코어·실제 RTL·�
 5. 동일 데이터·모델·예산으로 비교하고 diff와 지표 공유.
 
 [확장 가이드](docs/adding-components.md) · [구조](docs/architecture.md) · [팀 개발](CONTRIBUTING.md)
-알고리즘 담당자는 [Optimizer 템플릿](experiments/optimizer-template/README.md)과
-`tests/test_plugin_contracts.py`의 train/validation/test 계약부터 확인하세요.
+알고리즘 담당자는 [동작하는 단순 Optimizer](experiments/simple-feedback/README.md),
+[Optimizer 템플릿](experiments/optimizer-template/README.md)과 `tests/test_plugin_contracts.py`부터 확인하세요.
+새 CLI 연결은 [Harness 템플릿](experiments/harness-template/README.md)을 사용합니다.
 
 ## 결과와 제한
 
