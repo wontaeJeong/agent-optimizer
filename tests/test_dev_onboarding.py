@@ -106,6 +106,14 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
         self.assertFalse((self.root / ".venv").exists())
         self.assertEqual(self.invoke("live", "--iterations", "0").returncode, 2)
 
+    def test_core_commands_do_not_select_demo_ca_implicitly(self):
+        self.tool("python3", 'case "$1" in -I) exit 0;; esac\nprintf "ca:%s\\n" "${AGENT_OPT_CA_BUNDLE-unset}" >> "$TRACE"\n')
+        self.environment.pop("AGENT_OPT_CA_BUNDLE", None)
+        for command in ("test", "lint", "demo"):
+            result = self.invoke(command)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.trace_text().splitlines(), ["ca:unset"] * 3)
+
     def test_missing_buildx_blocks_ca_setup_before_installation(self):
         self.prerequisites()
         self.tool("docker", 'case "$1" in buildx) exit 1;; *) exit 0;; esac\n')

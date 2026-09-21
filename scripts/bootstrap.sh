@@ -74,10 +74,13 @@ export PYTHONDONTWRITEBYTECODE=1
 unset PYTHONHOME
 
 # Use Ubuntu's existing full system trust, including installed proxy CAs. Explicit empty opts out.
-if [ "${AGENT_OPT_CA_BUNDLE+x}" != x ] && [ -r /etc/ssl/certs/ca-certificates.crt ]; then
-    AGENT_OPT_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
-    export AGENT_OPT_CA_BUNDLE
-fi
+case "$command" in
+    setup|doctor|smoke|live)
+        if [ "${AGENT_OPT_CA_BUNDLE+x}" != x ] && [ -r /etc/ssl/certs/ca-certificates.crt ]; then
+            AGENT_OPT_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+            export AGENT_OPT_CA_BUNDLE
+        fi ;;
+esac
 
 # POSIX tools available on Mac/Ubuntu; no Python or GNU timeout prerequisite.
 # Stop parents before walking their children so a waiting wrapper cannot resume

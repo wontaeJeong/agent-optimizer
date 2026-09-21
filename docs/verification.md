@@ -42,6 +42,12 @@ proxy 인증·추가 CA를 사용하는 전체 이미지 재빌드, Claude Code/
 미구현 오류를 반환한다. 이전 네트워크 통합과 Ubuntu 검증은 아래 날짜별 근거와 구분한다.
 실환경 확인 명령은 `make doctor ARGS="--model"` 후 `make live ARGS="--iterations 3"`이다.
 
+첫 PR Ubuntu run [35624798890](https://github.com/wontaeJeong/agent-optimizer/actions/runs/35624798890)은
+자동 시스템 CA가 `make test`까지 전달되어 기존 무설정 fixture의 mount 개수와 offline lock 검사에서
+실패했다. bootstrap의 자동 선택을 setup/doctor/smoke/live로 한정하고 core test/lint/demo의
+명시적 네트워크 설정만 유지하도록 수정했다. 실제 Linux ARM64 평가 이미지에서 신규 core 명령
+CA 비전파 검사와 기존 실패 2개, 총 3개 회귀가 통과했다. 모델/평가 실행의 CA 적용은 유지한다.
+
 ## 2026-09-22 Developer onboarding final verification
 
 기존 `4972c8f`의 최종 리뷰 수정(F1–F3)을 보존·검토하고, Mac shell의 watchdog 정리 메시지를
