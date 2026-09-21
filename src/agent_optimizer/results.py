@@ -36,5 +36,15 @@ def write_report(root, summary):
                 continue
             metrics = json.dumps(row["metrics"], ensure_ascii=False)
             lines.append(f"| {group['agent_id']} | {group['harness_id']} | {row['candidate_id']} | {row['split']} | {metrics} |")
-    lines += ["", "Missing metrics are null, not zero. Compare only identical datasets, models and budgets."]
+    lines += ["", "## Optimization", "", "| Agent | Harness | Stage | Status | Checkpoint |",
+              "|---|---|---|---|---|"]
+    for group in summary["groups"]:
+        for stage in group.get("stages", []):
+            lines.append(f"| {group['agent_id']} | {group['harness_id']} | {stage['id']} | "
+                         f"{stage['status']} | {json.dumps(stage.get('checkpoint', {}))} |")
+        lines += ["", f"Optimizer usage ({group['agent_id']}/{group['harness_id']}):",
+                  "```json", json.dumps(group.get("optimizer_usage", []), indent=2), "```",
+                  "Candidate changes: see this group's candidates/*/changes.diff."]
+    lines += ["", "Missing metrics are null, not zero. Empty usage lists mean unreported usage, not free execution.",
+              "Harness-reported usage can be partial. Compare only identical datasets, models and budgets."]
     (root / "report.md").write_text("\n".join(lines)+"\n", encoding="utf-8")

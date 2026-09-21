@@ -59,9 +59,12 @@ class Context:
     def history(self):
         return [r for r in self._group.records if r["split"] == "train"]
 
-    def record_usage(self, input_tokens: int, output_tokens: int, cost_usd: float | None):
-        if any(type(v) is not int or v < 0 for v in (input_tokens, output_tokens)):
-            raise ConfigurationError("Optimizer token counts must be nonnegative integers")
+    def remaining_seconds(self):
+        return self._group.budget.remaining()
+
+    def record_usage(self, input_tokens: int | None, output_tokens: int | None, cost_usd: float | None):
+        if any(v is not None and (type(v) is not int or v < 0) for v in (input_tokens, output_tokens)):
+            raise ConfigurationError("Optimizer token counts must be nonnegative integers or None")
         if cost_usd is not None and (not math.isfinite(cost_usd) or cost_usd < 0):
             raise ConfigurationError("Invalid optimizer cost")
         usage = {"agent_id": self._group.agent.id, "harness_id": self._group.profile["id"],
