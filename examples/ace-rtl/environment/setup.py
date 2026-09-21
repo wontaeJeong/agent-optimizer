@@ -4,6 +4,7 @@ import hashlib
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import ssl
 import urllib.request
@@ -11,6 +12,7 @@ from pathlib import Path
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.results import write_json
 from agent_optimizer.network import host_environment, configured_build, ca_bundle, ca_fingerprint
+from agent_optimizer.models import ModelSettings
 ROOT = Path(__file__).resolve().parents[3]
 REPOS = {
     "ACE-RTL": ("https://github.com/NVlabs/ACE-RTL.git", "fead921f18bb57345b5a41ef93ba625be208e99c"),
@@ -46,11 +48,10 @@ def validate_platform(platform):
 
 
 def validate_live():
-    if not os.environ.get("OPENROUTER_API_KEY"):
-        raise UnavailableError("blocked_auth: OPENROUTER_API_KEY is absent")
-    model = os.environ.get("AGENT_OPT_MODEL", "")
-    if not re.fullmatch(r"openrouter/[A-Za-z0-9_.-]+/[A-Za-z0-9_.:-]+:free", model):
-        raise ConfigurationError("blocked_model: set an explicit openrouter/vendor/model:free model")
+    settings = ModelSettings.from_env()
+    model = "compatible/" + settings.model
+    os.environ.update(MODEL_ID=settings.model, AGENT_OPT_MODEL=model,
+                      OPENCODE_CONFIG="/opt/agent-optimizer/compatible.json")
     return model
 
 
@@ -97,6 +98,7 @@ def prepare_data(external, *, offline=False):
     return cache / DATA_FILE, {"revision": DATA_REVISION, "files": locks}
 
 def run(args, cwd=ROOT, log=None):
+    print(f"[setup] {args[0]}: {log.name if log else 'prepare sources'}", file=sys.stderr, flush=True)
     environment = host_environment({**os.environ, "UV_PROJECT_ENVIRONMENT": str(ROOT / ".venv")})
     with configured_build(args, cwd, environment) as command:
         _run(command, cwd, log, environment)
@@ -202,7 +204,11 @@ def doctor(external, platform, eval_image, agent_image):
                        "--network", "none", eval_image, "python3", "-c",
                        "import subprocess; [subprocess.run(cmd, check=True) for cmd in [['yosys','-V'], ['iverilog','-V'], ['vvp','-V'], ['verilator','--version']]]"],
         "opencode": ["docker", "run", "--rm", "--pull", "never", "--platform", platform,
-                     "--network", "none", agent_image, "opencode", "--version"],
+                      "--network", "none", agent_image, "opencode", "--version"],
+        "provider_assets": ["docker", "run", "--rm", "--pull", "never", "--platform", platform,
+                            "--network", "none", agent_image, "python3", "-c",
+                            "from pathlib import Path; import json; p=Path('/opt/agent-optimizer'); "
+                            "json.loads((p/'compatible.json').read_text()); assert (p/'endpoint-plugin.mjs').is_file()"],
     }
     checks = {}
     for name, argv in commands.items():
