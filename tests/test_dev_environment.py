@@ -332,6 +332,10 @@ class DriverLockTests(unittest.TestCase):
                 self.assertEqual(lock.get("driver_requirements"), self.expected)
                 recorded = json.loads((self.external / "environment-lock.json").read_text())
                 self.assertEqual(recorded["driver_requirements"], self.expected)
+                self.assertFalse(any("sync" in cmd and "pip" not in cmd for cmd in commands),
+                                 "example setup must not replace bootstrap's project Python (CI supports 3.11)")
+                if offline:
+                    self.assertFalse(any(cmd[:2] == ["docker", "build"] for cmd in commands))
 
 
 class PreparedImageTests(unittest.TestCase):
@@ -378,8 +382,9 @@ class PreparedImageTests(unittest.TestCase):
                 self.assertEqual(code, 0)
                 self.assertEqual(observed[0][:2], ("agent-optimizer-cvdp:8e894cf-amd64", "linux/amd64"))
 
-    def test_changed_or_missing_image_blocks_before_smoke_live_or_doctor_success(self):
-        for command in ("smoke", "live", "doctor"):
+    def test_changed_or_missing_image_blocks_before_smoke_or_live_success(self):
+        # Aggregate doctor covers both image identities in test_dev_doctor instead.
+        for command in ("smoke", "live"):
             for changes in ({"actual_id": "sha256:" + "c" * 64}, {"missing": True}, {"architecture": "arm64"}):
                 with self.subTest(command=command, changes=changes):
                     code, observed, stdout = self.run_dev(command, **changes)

@@ -50,7 +50,10 @@ unset AGENT_OPT_CA_BUNDLE
 ## 적용 경로
 
 - **부트스트랩:** repo clone 이전에는 셸의 프록시와 Git의 `GIT_SSL_CAINFO`를 직접 설정합니다.
-  uv 설치 전 다운로드 도구에도 해당 CA를 설정하세요. clone 후에는
+  clone 후 `make setup` 또는 `sh scripts/bootstrap.sh setup`은 Python 설치 전부터
+  proxy의 소문자/빈 값 우선순위와 CA 경로를 curl·wget·uv에 전달합니다. wget은 installer와
+  archive 다운로드에 임시 CA 설정을 사용하고 기존 사용자 설정을 보존합니다.
+  Python 진입 후 PEM/개인키 검증도 수행합니다. 다른 명령은
   `python3 scripts/network.py -- <명령과 인자>`로 uv·pip·Git 등을 실행할 수 있습니다.
 - **프로젝트 CLI:** `agent-opt`/`python -m agent_optimizer`는 in-process 플러그인에 전달할 환경을
   먼저 설정합니다. 코어 Git 소스 확보와 local/Docker 실행도 같은 계약을 적용합니다.
