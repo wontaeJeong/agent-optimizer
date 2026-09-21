@@ -52,12 +52,14 @@ jobs:
           yosys -V
           iverilog -V
           vvp -V
+      - name: Developer command help
+        run: make help
       - name: Lint
-        run: .venv/bin/ruff check .
+        run: make lint
       - name: Unit and contract tests
-        run: .venv/bin/python -m unittest discover -s tests -v
+        run: make test
       - name: Minimal demo
-        run: .venv/bin/python -m agent_optimizer run examples/minimal/experiment.toml
+        run: make demo
       - name: Build sdist and wheel
         run: .venv/bin/python -m build
       - name: Verify installed wheel outside source tree
@@ -91,11 +93,13 @@ jobs:
           "$RUNNER_TEMP/agent-opt-uv/bin/python" -m pip install uv==0.10.7
           echo "$RUNNER_TEMP/agent-opt-uv/bin" >> "$GITHUB_PATH"
       - name: Prepare native Docker environment
-        run: python3 scripts/dev.py setup
+        run: make setup
+      - name: Diagnose prepared environment
+        run: make doctor
       - name: Verify offline reuse
-        run: python3 scripts/dev.py setup --offline
+        run: make setup ARGS="--offline"
       - name: Real tools, host-Docker and official positive/negative evaluation
-        run: python3 scripts/dev.py smoke
+        run: make smoke
       - name: Check actual image defaults and explicit provider configuration (no inference)
         run: |
           AGENT_OPT_TEST_DOCKER_IMAGE=$(python3 -c 'import json; print(json.load(open("external/environment-lock.json"))["images"]["agent"]["id"])')

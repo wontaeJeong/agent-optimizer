@@ -5,6 +5,39 @@
 실제 Agent는 별도 repo, 작은 개발용 Agent는 `examples/`에 포함합니다.
 대상에 따라 실행·평가 어댑터 개발이 필요하며, 모든 Agent를 설정만으로 자동 지원하지는 않습니다.
 
+## 개발환경 빠른 시작
+
+Mac/Ubuntu에 **Git, 실행 중인 Docker Engine과 Compose**를 먼저 준비하세요.
+[OS별 설치·문제 해결](docs/development.md)을 따른 뒤 프로젝트 루트에서 실행합니다.
+
+```bash
+make setup                       # 전체 환경 준비 + doctor + 첫 최소 데모
+# make/Python이 없어도 동일하게 시작:
+sh scripts/bootstrap.sh setup
+make doctor
+make demo                        # 이후 API·Docker 없이 다시 실행
+```
+
+setup은 uv가 없으면 0.10.7을 로컬에 설치하고 Python 3.12·개발 의존성·고정 외부 자산·Docker
+이미지를 준비합니다. 첫 이미지 컴파일은 수십 분 걸릴 수 있습니다. 단계별 로그 위치를 출력하며
+`external/setup-logs/`에 빌드·설치 로그를 보존합니다. 완료 시 출력된
+`runs/<run-id>/report.md`, `summary.json`을 확인하세요. 최소 데모는 두 합성 Agent·9 trial의
+연결 검증이며 실제 모델 성능 수치가 아닙니다. API 키는 **live 실행에만** 필요합니다.
+
+| 명령 | 용도 |
+|---|---|
+| `make` / `make help` | 설치·Docker 조회 없는 도움말 |
+| `make setup` | 전체 준비·진단·합성 데모 |
+| `make doctor` / `make doctor ARGS="--json"` | 설치 없는 진단 / 단일 JSON |
+| `make lint` / `make test` / `make demo` | `.venv`에서 일상 개발 검사·데모 |
+| `make setup ARGS="--offline"` | 준비한 자산·캐시 검증 및 재사용 |
+| `make smoke` | 모델 호출 없는 실제 RTL/CVDP 정답·오답 검사 |
+| `make live` | 명시적 무료 모델·인증을 설정한 실제 모델 실행 |
+
+make가 없으면 모든 명령을 `sh scripts/bootstrap.sh <명령> [옵션]`으로 실행합니다.
+가상환경 활성화·PATH·offline 복구는 [개발환경 가이드](docs/development.md), 일상 작업과
+담당 영역은 [CONTRIBUTING.md](CONTRIBUTING.md)를 참고하세요.
+
 ## 후속 개발자 읽기 순서
 
 1. [배경·확정 요구사항·설계 결정](docs/CONTEXT.md)
@@ -15,7 +48,7 @@
 도메인 코드는 `examples/`에 두고, 슬롯·미검증 통합을 완료로 표현하지 않습니다.
 외부 기술 판단은 고정 출처와 실제 설정을 대조하며 문서 정리를 이유로 upstream 버전을 자동 갱신하지 않습니다.
 
-## 3분 시작: API·Docker 없는 최소 데모
+## 코어만 실행: API·Docker 없는 최소 데모
 
 Python 3.11+ / Linux 기준, 프로젝트 루트에서 실행합니다.
 
@@ -23,8 +56,8 @@ Python 3.11+ / Linux 기준, 프로젝트 루트에서 실행합니다.
 설정하지 않으면 기존 직접 연결 방식을 사용합니다.
 
 ```bash
-uv sync --frozen
-uv run agent-opt run examples/minimal/experiment.toml
+uv sync --frozen --python 3.12 --extra dev
+make demo
 ```
 
 uv 없이도 코어와 최소 데모는 실행 가능합니다.
@@ -73,14 +106,15 @@ external/ datasets/ runs/ 다운로드·데이터·결과, Git 제외
 OpenCode 실행 이미지를 별도로 만듭니다.
 
 ```bash
-python3 scripts/dev.py setup   # uv Python 3.12, 고정 소스/데이터, 별도 Docker 이미지
-python3 scripts/dev.py smoke   # 키 없이 실제 RTL/CVDP 정답·오답 검증
-python3 scripts/dev.py live    # OPENROUTER_API_KEY + 명시적 openrouter/vendor/model:free 필요
+make setup   # Python, 고정 소스/데이터, 별도 Docker 이미지
+make smoke   # 키 없이 실제 RTL/CVDP 정답·오답 검증
+make live    # OPENROUTER_API_KEY + AGENT_OPT_MODEL=openrouter/vendor/model:free 필요
 ```
 
 `--platform`을 생략하면 빌드 전에 Docker daemon의 native `linux/amd64` 또는 `linux/arm64`를
 선택해 기록합니다. 명시적 `--platform`은 그대로 사용하며 미지원 architecture는 오류입니다.
-빌드 실패 후 다른 architecture로 자동 재시도하지 않습니다. `setup --offline`은 검증된 cache만 재사용합니다.
+빌드 실패 후 다른 architecture로 자동 재시도하지 않습니다. 예: `make setup ARGS="--platform linux/arm64"`.
+`make setup ARGS="--offline"`은 검증된 cache만 재사용합니다.
 Python 3.12 CVDP driver는 예제의 [전이 의존성 lock](examples/ace-rtl/environment/requirements-cvdp-py312.txt)으로
 동기화하며 lock hash와 실제 설치 목록을 기록합니다. 이전 환경은 한 번 online setup으로 갱신하세요.
 상용 EDA 도구·라이선스 설정은 제공하지 않습니다. 플랫폼별 검증/차단 결과는 [검증 기록](docs/verification.md)을 따릅니다.

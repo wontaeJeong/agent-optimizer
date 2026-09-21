@@ -1,5 +1,91 @@
 # 검증 기록
 
+## 2026-09-22 Developer onboarding final verification
+
+기존 `4972c8f`의 최종 리뷰 수정(F1–F3)을 보존·검토하고, Mac shell의 watchdog 정리 메시지를
+추가 수정한 작업 트리에서 검증했다. macOS ARM64, 프로젝트/driver Python 3.12.12,
+기존 Colima Docker 환경과 worktree 소유 자산을 재사용했다. 산출물 UTC 날짜는 2026-09-21이다.
+
+| 실제 명령 / 검사 | 결과 |
+|---|---|
+| `make lint`; `make test` | 최종 **229개: 215 통과·14 skip**, 실패 0 (22.512초). |
+| `make demo` | exit 0, completed, 9 synthetic trial, `runs/20260921T150654Z-64e8be23/`. |
+| `make doctor`; `make doctor ARGS="--json"` | exit 0, core/evaluation=true, live=false. 33개 검사 중 31 ok, live.key/live.model 미설정 2개 error. JSON은 단일 문서. |
+| `AGENT_OPT_CA_BUNDLE=/nonexistent/agent-opt-review-ca.pem make doctor ARGS="--json"` | 예상 exit 2. `ready/areas/checks` 보존, `network.configuration=error`, evaluation=true. 나머지 로컬 검사와 CA별 복구 안내 유지. |
+| suite의 CA·timeout·direct doctor 회귀 | 누락/잘못된 PEM/개인키 CA, 자식 전용 환경, setup/runtime fail-closed, fresh-copy direct/Make doctor의 bytecode 미생성 확인. stalled Git/Docker/Python/uname 종료와 자식 정리·별도 sentinel 보존 확인. |
+| `make setup ARGS="--offline"` | 수정 후 exit 0 / ready, stderr의 잘못된 `Killed: 9` 안내 제거. frozen sync·자산 검증·최종 doctor·9-trial demo 통과, `runs/20260921T150847Z-bbbaf3a9/`. |
+| `sh -n scripts/bootstrap.sh`; `shellcheck scripts/bootstrap.sh`; `actionlint .github/workflows/ci.yml`; `git diff --check` | 모두 exit 0, ShellCheck 제외 옵션 없음. |
+
+**추가 수정 근거:** 최초 offline setup은 성공했지만 Mac `/bin/sh`가 종료한 watchdog의 job 상태를
+`wait` 이전에 stderr로 출력했다. 기존 offline shell 테스트에 지연된 정상 interpreter와 깨끗한
+stderr 검사를 추가해 실패를 재현한 뒤 EXIT cleanup에만 stderr 억제를 적용했다. timeout 복구 메시지는
+계속 출력된다. focused 실행에서 200ms fixture deadline이 정상 startup에도 걸린 1건은 단독 실행에서
+통과했으며, slow-sync 범위 테스트만 deadline 1초 / sync 1.2초로 분리했다. production 15초 제한은 유지한다.
+
+skip 14개는 host RTL 도구 9개, 선택적 OpenCode Docker config 1개, BuildKit/Compose 네트워크 2개,
+PyYAML wrapper 2개다. 이전 통합 `5db02b2`의 smoke `runs/dev-smoke-494b9ec9a41d/`는 실도구 9/9,
+host-Docker 1/0/0, 공식 CVDP 정답/오답 1/0이었고 driver network suite는 18개 중 16 통과·2 skip이었다.
+이번 변경은 진단/짧은 shell probe에 한정되어 전체 이미지 rebuild·smoke를 반복하지 않았다.
+기존 증거를 이번 HEAD에서 재실행한 결과로 표시하지 않는다. live 모델 호출은 하지 않았다.
+빈 호스트의 실제 uv 신규 설치, 인증 proxy/TLS interception, 추가 CA를 넣은 공식 이미지 전체 빌드는
+이번 최종 검증 범위 밖이다. 확인한 원격 CI 결과는 아래에 별도로 기록한다.
+
+### 최종 Ubuntu 코어 CI
+
+`cbca34f`의 [PR #7 run 35617263750](https://github.com/wontaeJeong/agent-optimizer/actions/runs/35617263750)을
+완료까지 관찰하고 job 단계와 실제 로그를 확인했다. Ubuntu Python **3.11/3.12 모두 success**:
+각 **229개 중 224 통과·5 skip**, native `RealRTLTests` **9/9** 포함이다.
+Make help/lint/test/demo, 9-trial 합성 데모, sdist/wheel 빌드 및 소스 밖 wheel 설치/CLI 검사도 통과했다.
+skip 5개는 optional OpenCode Docker config 1개, Docker network 2개, PyYAML wrapper 2개다.
+공식 CVDP Docker job은 수동 전용으로 이 PR run에서는 **skipped**이며 이번 최종 wave에서
+별도 dispatch하지 않았다. 과거 공식 Docker 통합 기록과 이 native 코어 실행을 구분한다.
+
+## 2026-09-21 Developer onboarding (Task 3)
+
+기준 코드 `e669340`, 기존 `chore/dev-environment` worktree에서 실행. macOS arm64,
+프로젝트/driver CPython **3.12.12**, uv **0.10.7**, Colima Docker **29.2.1 linux/arm64**,
+Compose **5.1.3**. 산출물의 UTC 시각은 2026-09-20 18:14이다.
+처음에는 프로젝트 `.venv`와 setup 로그만 존재했고 외부 source/data/driver/환경 lock은 없었다.
+현재 worktree에 새로 확보했으며 다른 worktree의 writable `external/` 자산은 사용하지 않았다.
+Docker daemon의 기존 layer cache는 사용 가능했다. 완전히 빈 호스트/uv 미설치 환경의 실설치
+검증은 아니며 해당 bootstrap 분기는 격리된 계약 테스트로 검사했다.
+
+| 실제 명령 | 결과 |
+|---|---|
+| `make help`; `python3 scripts/dev.py --help`, `setup --help`, `doctor --help` | exit 0, 문서 예제를 실제 help/source와 대조. |
+| 설치 전 `make doctor` | 예상 exit 2. core ready, evaluation/live not ready. lock·두 소스·세 데이터·driver 누락을 함께 진단하고 의존 검사는 blocked 및 복구 안내. |
+| 첫 `make setup` | 도구의 200초 제한으로 evaluation image build 중 SIGTERM. 성공으로 집계하지 않음. |
+| `make setup` 재실행 (30분 허용) | exit 0 / ready. source/data·driver·두 이미지 준비, 최종 doctor와 9-trial 데모 성공. 결과 `runs/20260920T181404Z-0255a370/`. |
+| `make doctor`; `make doctor ARGS="--json"` | 모두 exit 0. core/evaluation=true, live=false. 총 32개 검사 중 core/evaluation 30개 ok, live.key/live.model 두 항목 error. JSON stdout은 단일 문서. |
+| `make setup ARGS="--offline"` | exit 0 / ready. 캐시 이미지 검증·고정 환경 재사용, 데모 `runs/20260920T181415Z-4dfc4f3f/` (9 trial). |
+| `make smoke` | exit 0 / passed, `runs/dev-smoke-04f6045f16c7/`. 실제 도구 **9/9, skip 0** (1.378초), host-Docker 정답/오답/조기 종료 **1/0/0**, 공식 LFSR 정답/기능 오답 **1/0**. |
+| `make lint` | `All checks passed!` |
+| `make test` | **200개: 190 통과·10 skip**, 실패 0 (11.335초). 호스트 simulator 미설치 9개는 위 Docker smoke로 별도 확인; optional OpenCode config 1개는 이번 작업에서 별도 실행하지 않음. |
+| `make demo` | exit 0, completed, 두 합성 Agent·9 trial, `runs/20260920T181457Z-74280161/`. 실제 모델 성능 수치 아님. |
+| `.venv/bin/python -m build` | exit 0, `dist/agent_optimizer-0.3.0.tar.gz` 및 wheel 생성. README 변경 후 재빌드도 통과. |
+| `uv venv --python 3.12 runs/task3-wheel`; `uv pip install --python runs/task3-wheel/bin/python dist/agent_optimizer-0.3.0-py3-none-any.whl` | 독립 wheel 설치 성공. 저장소 밖 임시 작업 디렉터리에서 해당 venv의 `env -u PYTHONPATH <python> -I -m agent_optimizer --help`, `env -u PYTHONPATH <agent-opt> --help` 모두 exit 0. import 경로가 이 venv의 site-packages임을 확인. |
+| `actionlint .github/workflows/ci.yml`; `git diff --check` | exit 0. 변경된 원격 workflow의 실행 성공을 뜻하지 않음. |
+| 외부 두 checkout `git status --short` | 모두 clean. 고정 SHA/driver lock 변경 없음. |
+
+### 실제 산출물 대조
+
+- `external/environment-lock.json`, `external/setup-logs/` 및 smoke `summary.json` 보존(Git 제외).
+  평가 image ID: `sha256:ee167c7cd486111a2a807a703ae6bbb30debf2d26f5bb9d0d760ec07c96a58ec`,
+  Agent image ID: `sha256:2dc784c4c05959954bc91dc8639a3f3652f058d25173c52a0ca5be92706a3601`.
+  고정 소스/의존성 pin이 같아도 image ID는 이전 빌드와 다르다.
+- driver 설치 32개 및 compiled lock hash
+  `8de4e036b1fd7c670fc9cca44d7d3f5cac2f31cf320ce96b2593a4db6883d039` 유지.
+  실행 도구 Yosys 0.40, Icarus/vvp 13.0, OpenCode 1.18.31 확인.
+- `real-tool-tests/stderr.log`의 9개 ok 및 양쪽
+  `cvdp-{positive,negative}/cvdp_evaluation/work/raw_result.json`을 직접 확인했다.
+  각각 비어 있지 않은 test 1개, `result=0` / `result=1`, 양쪽 `error_msg=null`.
+  private `cvdp_copilot_lfsr/reports/1.txt`의 정답 cocotb **3/3 PASS**, 오답 **3/3 FAIL** 확인.
+  기존 cocotb deprecation 및 pytest cache-permission warning은 남아 있다.
+
+**범위:** 이번 Task 3은 docs/CI 변경이며 새 production correctness bug는 발견하지 않았다.
+모델 호출/live, 변경된 CI의 native Ubuntu 실행은 수행하지 않았다. 이전 Ubuntu 결과는 아래
+`10baa46` 기록이며 이번 명령 변경을 검증한 결과로 재사용하지 않는다.
+
 ## v0.3.0 전달 당시 기록
 
 출처: 기존 배포 문서 및 사용자가 제공한 `agent-optimizer-v0.3.0.zip` 인수인계.
