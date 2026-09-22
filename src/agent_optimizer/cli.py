@@ -9,9 +9,8 @@ import subprocess
 import sys
 from pathlib import Path
 
-from agent_optimizer.config import load_agent, load_experiment, validate_objective, read_toml
+from agent_optimizer.config import load_agent, load_experiment
 from agent_optimizer.contracts import ConfigurationError, UnavailableError, jsonable
-from agent_optimizer.objectives import select
 from agent_optimizer.runner import preflight, run_experiment
 from agent_optimizer.registry import Registry
 from agent_optimizer.network import network_environment
@@ -37,9 +36,14 @@ def doctor():
 
 
 def main(argv=None):
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "rerank":
+        print("error: rerank is deferred; configure the objective for a new run. "
+              "Stored reports and frozen selections remain available; see deferred/README.md", file=sys.stderr)
+        return 2
     parser = argparse.ArgumentParser(description="Multi-agent optimization experiment workbench")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("plugins", help="List working and planned integrations")
+    sub.add_parser("plugins", help="List implemented integrations")
     sub.add_parser("doctor", help="Inspect installed binaries; does not install anything")
     agents = sub.add_parser("agents", help="List independently registered agent targets")
     agents.add_argument("--root", type=Path, default=Path("examples"))
@@ -51,9 +55,6 @@ def main(argv=None):
     report = sub.add_parser("report")
     report.add_argument("run_dir", type=Path)
     report.add_argument("--csv", type=Path)
-    rerank = sub.add_parser("rerank", help="Re-rank stored validation results; never uses test scores")
-    rerank.add_argument("run_dir", type=Path)
-    rerank.add_argument("objective", type=Path)
     args = parser.parse_args(argv)
     registry = Registry()
     try:
@@ -95,30 +96,6 @@ def main(argv=None):
                     for r in records:
                         writer.writerow({**{k: r[k] for k in fixed}, **r["metrics"]})
             show(data)
-        elif args.command == "rerank":
-            objective = read_toml(args.objective)["objective"]
-            validate_objective(objective)
-            summary = json.loads((args.run_dir / "summary.json").read_text())
-            original = json.loads((args.run_dir / "manifest.json").read_text())["experiment"]["objective"]
-            original_metrics = {m["name"]: m for m in original["metrics"]}
-            for metric in objective["metrics"]:
-                old = original_metrics.get(metric["name"])
-                if old is None or (metric.get("source", metric["name"]), metric.get("aggregate", "mean")) != (
-                        old.get("source", old["name"]), old.get("aggregate", "mean")):
-                    raise ConfigurationError("rerank cannot change metric source/aggregation; re-aggregate or rerun")
-            output = []
-            for group in summary["groups"]:
-                baseline = group["baseline"]
-                rows = {baseline["candidate_id"]: baseline} if baseline is not None else {}
-                for stage in group["stages"]:
-                    for row in stage.get("evaluated", []):
-                        rows[row["candidate_id"]] = row
-                required = {m["name"] for m in objective["metrics"]}
-                if any(not required <= r["metrics"].keys() for r in rows.values()):
-                    raise ConfigurationError("New metrics require re-aggregation or a new run; rerank changes selection only")
-                output.append({"agent_id": group["agent_id"], "harness_id": group["harness_id"],
-                               "selected": select(list(rows.values()), objective)})
-            show(output)
     except (ConfigurationError, UnavailableError, KeyError, TypeError, ValueError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

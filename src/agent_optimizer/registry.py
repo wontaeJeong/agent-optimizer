@@ -2,7 +2,6 @@
 import hashlib
 import importlib.util
 import sys
-from importlib.metadata import entry_points
 from agent_optimizer.contracts import ConfigurationError, UnavailableError, BUILTIN_HARNESSES
 from agent_optimizer.workspace import safe_path
 from agent_optimizer.harnesses.command import CommandHarness, FixtureHarness
@@ -82,16 +81,12 @@ class Registry:
     def resolve(self, kind, name):
         if name in self.factories[kind]:
             return self.factories[kind][name]
-        matches = [e for e in entry_points(group=f"agent_optimizer.{kind}") if e.name == name]
-        if len(matches) > 1:
-            raise UnavailableError(f"Duplicate installed plugin: {kind}/{name}")
-        if matches:
-            return matches[0].load()
         status = "not implemented" if name in self.reserved[kind] else "unregistered plugin"
-        raise UnavailableError(f"{kind}/{name}: {status}; see docs/status.md")
+        raise UnavailableError(f"{kind}/{name}: {status}; register a file plugin in [plugins.{kind}]. "
+                               "Installed entry-point discovery and research slots are deferred; see deferred/README.md")
 
     def describe(self):
-        result = {kind: {"implemented": sorted(items), "planned": sorted(self.reserved[kind])}
+        result = {kind: {"implemented": sorted(items)}
                   for kind, items in self.factories.items()}
         result["capabilities"] = BUILTIN_HARNESSES
         return result

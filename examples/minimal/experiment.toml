@@ -8,7 +8,7 @@ evaluator = "text_fixture"
 repetitions = 1
 seed = 42
 final_test = true
-final_stages = ["repair", "prompt-review"]
+final_stages = ["repair"]
 output_dir = "runs"
 
 [budget]
@@ -35,20 +35,6 @@ include_seeds = true
 name = "enable-fixture-repair"
 [stages.config.variants.files]
 "configs/strategy.json" = '{"repair": true}'
-
-[[stages]]
-id = "prompt-review"
-optimizer = "file_variants"
-inputs = ["repair"]
-[stages.when]
-metric = "solve_rate"
-min = 0.5
-[stages.config]
-include_seeds = true
-[[stages.config.variants]]
-name = "brief-prompt"
-[stages.config.variants.files]
-"prompts/system.md" = "Inspect the RTL, repair the bug, verify once, and report evidence."
 
 [plugins.evaluators]
 text_fixture = "examples/minimal/evaluator.py:TextFixtureEvaluator"

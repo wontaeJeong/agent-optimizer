@@ -103,38 +103,40 @@ def load_tasks(path: Path) -> tuple[list[Task], dict]:
 
 
 def validate_objective(objective: dict) -> None:
-    only_keys(objective, {"mode", "metrics", "constraints", "keep"}, "objective")
-    if objective.get("mode", "lexicographic") not in {"lexicographic", "weighted", "pareto"}:
-        raise ConfigurationError("Unsupported objective mode")
-    if objective.get("mode") == "pareto" and "keep" in objective:
-        raise ConfigurationError("Pareto returns the whole frontier; objective.keep is not supported")
+    only_keys(objective, {"mode", "metrics", "keep"}, "objective")
+    if objective.get("mode", "lexicographic") != "lexicographic":
+        raise ConfigurationError("Advanced objective modes are deferred; use lexicographic")
     if not objective.get("metrics"):
         raise ConfigurationError("At least one objective metric is required")
     names = set()
     for metric in objective["metrics"]:
-        only_keys(metric, {"name", "source", "direction", "aggregate", "weight", "scale"}, "metric")
+        only_keys(metric, {"name", "source", "direction", "aggregate"}, "metric")
         name = identifier(metric["name"])
         if name in names:
             raise ConfigurationError(f"Duplicate metric name: {name}")
         names.add(name)
         if metric.get("direction") not in {"maximize", "minimize"}:
             raise ConfigurationError("Metric direction must be maximize/minimize")
-        if metric.get("aggregate", "mean") not in {"mean", "sum", "max", "p95"}:
-            raise ConfigurationError("Unknown metric aggregation")
-        positive(metric.get("scale", 1), "metric.scale")
-        positive(metric.get("weight", 1), "metric.weight")
-    for constraint in objective.get("constraints", []):
-        only_keys(constraint, {"metric", "min", "max"}, "constraint")
-        if constraint.get("metric") not in names or not ({"min", "max"} & set(constraint)):
-            raise ConfigurationError("Constraint must reference a configured metric with min/max")
-        for bound in {"min", "max"} & set(constraint):
-            value = constraint[bound]
-            if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-                raise ConfigurationError("Constraint bounds must be finite numbers")
-        if "min" in constraint and "max" in constraint and constraint["min"] > constraint["max"]:
-            raise ConfigurationError("Constraint min exceeds max")
-    if type(objective.get("keep", 1)) is not int or objective.get("keep", 1) <= 0:
-        raise ConfigurationError("objective.keep must be a positive integer")
+        if metric.get("aggregate", "mean") not in {"mean", "sum"}:
+            raise ConfigurationError("Advanced metric aggregates are deferred; use mean or sum")
+    if type(objective.get("keep", 1)) is not int or objective.get("keep", 1) != 1:
+        raise ConfigurationError("Multiple-winner selection is deferred; objective.keep must be 1")
+
+
+def validate_stages(data: dict) -> None:
+    known = {"baseline"}
+    for stage in data.get("stages", []):
+        only_keys(stage, {"id", "optimizer", "inputs", "config", "when"}, "stage")
+        sid = identifier(stage["id"])
+        if sid in known:
+            raise ConfigurationError(f"Duplicate/reserved stage id: {sid}")
+        if stage.get("inputs", ["baseline"]) != ["baseline"]:
+            raise ConfigurationError("Stage chaining is deferred; inputs must be [\"baseline\"]")
+        if "when" in stage:
+            raise ConfigurationError("Validation gates are deferred; remove stage.when")
+        known.add(sid)
+    if not set(data.get("final_stages", ["baseline"])) <= known:
+        raise ConfigurationError("Unknown final stage")
 
 
 def load_experiment(path: Path) -> dict:
@@ -193,27 +195,5 @@ def load_experiment(path: Path) -> dict:
         positive(budget.get(key, default), key)
     if type(budget.get("max_trials", 100)) is not int:
         raise ConfigurationError("max_trials must be an integer")
-    known = {"baseline"}
-    for stage in data.get("stages", []):
-        only_keys(stage, {"id", "optimizer", "inputs", "config", "when"}, "stage")
-        sid = identifier(stage["id"])
-        if sid in known:
-            raise ConfigurationError(f"Duplicate/reserved stage id: {sid}")
-        inputs = stage.get("inputs", ["baseline"])
-        if not inputs or not set(inputs) <= known:
-            raise ConfigurationError("Stages must be topologically ordered; no forward references")
-        gate = stage.get("when")
-        if gate:
-            only_keys(gate, {"metric", "min", "max"}, "stage.when")
-            if gate.get("metric") not in {m["name"] for m in data["objective"]["metrics"]}:
-                raise ConfigurationError("Stage gate references an unknown metric")
-            if not ({"min", "max"} & set(gate)):
-                raise ConfigurationError("Stage gate requires min/max")
-            for bound in {"min", "max"} & set(gate):
-                value = gate[bound]
-                if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
-                    raise ConfigurationError("Stage gate bounds must be finite numbers")
-        known.add(sid)
-    if not set(data.get("final_stages", ["baseline"])) <= known:
-        raise ConfigurationError("Unknown final stage")
+    validate_stages(data)
     return data
