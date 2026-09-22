@@ -9,8 +9,8 @@ Agent/프로필/실험 TOML과 기존 public fixture를 함께 연결해 두었�
 ```bash
 cp -R experiments/harness-template experiments/my-team
 # 아래 세 참조를 편집한 뒤:
-PYTHONPATH=src python3 -m agent_optimizer plan experiments/my-team/experiment.toml
-PYTHONPATH=src python3 -m unittest discover -s tests -p test_plugin_contracts.py -v
+PYTHONPATH=src .venv/bin/python -m agent_optimizer plan experiments/my-team/experiment.toml
+PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_plugin_contracts.py -v
 ```
 
 ## 복사 후 바꿀 것
@@ -37,7 +37,7 @@ PYTHONPATH=src python3 -m unittest discover -s tests -p test_plugin_contracts.py
   처리하고 shell interpolation에 의존하지 않습니다. CLI별 인증/모델은 환경 또는 credential store로 전달합니다.
 - 관측된 지표만 `ExecutionResult.metrics`에 반환합니다. 전체가 아니면 partial 이름, 미수집은 None입니다.
   CLI/환경 실패를 성공이나 합성 결과로 대체하지 않습니다.
-- 구현 후 `PYTHONPATH=src python3 -m agent_optimizer run experiments/my-team/experiment.toml`로
+- 구현 후 `PYTHONPATH=src .venv/bin/python -m agent_optimizer run experiments/my-team/experiment.toml`로
   작은 실행을 검증하세요. 실제 CLI로 바꾸면 해당 Agent 소스·명령·runtime·평가 연결도 함께 교체합니다.
 
 Claude Code/Codex 등은 별도 어댑터 구현이 필요합니다. 공통 계약은

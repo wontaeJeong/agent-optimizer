@@ -3,8 +3,8 @@
 준비된 코어 환경에서 프로젝트 루트 기준으로 실행하세요:
 
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests -p test_plugin_contracts.py -v
-PYTHONPATH=src python3 -m agent_optimizer run examples/minimal/experiment.toml
+PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_plugin_contracts.py -v
+PYTHONPATH=src .venv/bin/python -m agent_optimizer run examples/minimal/experiment.toml
 ```
 
 첫 명령은 **실제 runner를 쓰는 API-free 계약 회귀**입니다. train 피드백·원본 보존·usage·선택 후 test,
@@ -17,7 +17,7 @@ PYTHONPATH=src python3 -m agent_optimizer run examples/minimal/experiment.toml
 ```bash
 cp -R experiments/optimizer-template experiments/my-team
 # 아래 등록 경로를 편집한 뒤:
-PYTHONPATH=src python3 -m agent_optimizer plan experiments/my-team/experiment.toml
+PYTHONPATH=src .venv/bin/python -m agent_optimizer plan experiments/my-team/experiment.toml
 ```
 
 - `experiment.toml`: `[plugins.optimizers].team_optimizer`를
@@ -50,7 +50,7 @@ class Optimizer:
 ```
 
 ```bash
-PYTHONPATH=src python3 -m agent_optimizer run experiments/my-team/experiment.toml
+PYTHONPATH=src .venv/bin/python -m agent_optimizer run experiments/my-team/experiment.toml
 ```
 
 `context.history()`는 baseline과 **자기 stage의 train**만 반환합니다. validation/test 선택은 runner가

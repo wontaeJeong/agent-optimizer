@@ -17,8 +17,8 @@
 위 입력을 준비한 뒤:
 
 ```bash
-PYTHONPATH=src python3 -m agent_optimizer plan experiments/my-team/experiment.toml
-PYTHONPATH=src python3 -m agent_optimizer run experiments/my-team/experiment.toml
+PYTHONPATH=src .venv/bin/python -m agent_optimizer plan experiments/my-team/experiment.toml
+PYTHONPATH=src .venv/bin/python -m agent_optimizer run experiments/my-team/experiment.toml
 ```
 
 그대로인 템플릿은 의도적으로 존재하지 않는 소스/benchmark와 미구현 evaluator를 사용하므로 실패합니다.
