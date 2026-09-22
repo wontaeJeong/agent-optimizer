@@ -37,7 +37,7 @@ def run_core(command):
         cwd=ROOT, env=environment, capture_output=True, timeout=15, shell=False,
     )
     if probe.returncode:
-        raise UnavailableError("Project .venv is unavailable/incompatible; run sh scripts/bootstrap.sh setup")
+        raise UnavailableError("Project .venv is unavailable/incompatible; run sh scripts/bootstrap.sh setup --core")
     commands = {
         "test": ["unittest", "discover", "-s", "tests", "-v"],
         "lint": ["ruff", "check", "."],
@@ -47,15 +47,15 @@ def run_core(command):
                           env=environment, shell=False).returncode
     if code:
         print(f"{command} failed (exit {code}); inspect the command output above. "
-              "If dependencies are missing, run sh scripts/bootstrap.sh setup.", flush=True)
+              "If dependencies are missing, run sh scripts/bootstrap.sh setup --core.", flush=True)
     return code
 
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
     parser = argparse.ArgumentParser(description=__doc__, epilog=(
-        "Prerequisites: Git, Docker Engine/Compose. No Python/make? "
-        "Use sh scripts/bootstrap.sh setup. make <command> ARGS='...' uses normal shell arguments."
+        "Core prerequisites: Git; full ACE setup also needs Docker Engine/Compose. No Python/make? "
+        "Use sh scripts/bootstrap.sh setup --core. make <command> ARGS='...' uses normal shell arguments."
     ))
     commands = parser.add_subparsers(dest="command")
     descriptions = {
@@ -71,6 +71,8 @@ def main(argv=None):
     }
     for name, description in descriptions.items():
         command = commands.add_parser(name, help=description, description=description, allow_abbrev=False)
+        if name in {"setup", "doctor"}:
+            command.add_argument("--core", action="store_true", help="Core tooling only; no Docker/ACE/model checks (excludes --platform/--model)")
         if name in {"setup", "doctor", "smoke", "live"}:
             command.add_argument("--platform",
                                  help="Default: Docker daemon native platform")
@@ -89,11 +91,18 @@ def main(argv=None):
         return load("dev_menu", "scripts/menu.py").main([])
     if args.command == "live" and args.iterations is not None and not 1 <= args.iterations <= 20:
         parser.error("--iterations must be from 1 to 20")
+    core_only = getattr(args, "core", False)
+    if core_only and (args.platform is not None or getattr(args, "model", False)):
+        parser.error("--core cannot be combined with --platform or --model; omit --core for full ACE commands")
+    setup_command = "sh scripts/bootstrap.sh setup"
+    if core_only or args.command in {"test", "lint", "demo"}:
+        setup_command += " --core"
+    repair = f"Inspect external/setup-logs/ and rerun {setup_command}"
     stage = args.command
     try:
         if args.command == "doctor":
             doctor = load("dev_doctor", Path(__file__).resolve().with_name("dev_doctor.py"))
-            report = doctor.collect_report(ROOT, args.platform)
+            report = doctor.collect_report(ROOT, args.platform, core_only=True) if core_only else doctor.collect_report(ROOT, args.platform)
             if args.model:
                 checks = load("ace_model_checks", "examples/ace-rtl/environment/model_checks.py")
                 checks.check_models(ROOT, report)
@@ -111,27 +120,29 @@ def main(argv=None):
             return subprocess.run(["sh", str(ROOT / "scripts/bootstrap.sh"), *argv],
                                   cwd=ROOT, shell=False).returncode
         os.chdir(ROOT)
-        setup = load("ace_environment", "examples/ace-rtl/environment/setup.py")
-        if args.command == "live":
-            setup.validate_live()  # Before image probes, data reads, or any model execution.
-        args.platform = setup.validate_platform(args.platform)
+        if not core_only:
+            setup = load("ace_environment", "examples/ace-rtl/environment/setup.py")
+            if args.command == "live":
+                setup.validate_live()  # Before image probes, data reads, or any model execution.
+            args.platform = setup.validate_platform(args.platform)
         if args.command == "setup":
-            stage = "example environment"
-            print(f"[setup] {stage}: starting; logs: {ROOT / 'external/setup-logs'}", flush=True)
-            dataset, lock = setup.prepare_environment(offline=args.offline, platform=args.platform)
-            print(f"[setup] {stage}: complete", flush=True)
-            stage = "dataset preparation"
-            print(f"[setup] {stage}: starting; output: {ROOT / 'datasets/ace-demo'}", flush=True)
-            prepare = load("ace_prepare", "examples/ace-rtl/prepare.py")
-            manifest = prepare.prepare_dataset(dataset, ROOT / "datasets/ace-demo/all-tasks.json", lock)
-            demo = load("ace_demo", "examples/ace-rtl/environment/demo.py")
-            manifest = demo.select_tasks(manifest)
-            write_json(ROOT / "datasets/ace-demo/tasks.json", manifest)
-            print(f"[setup] {stage}: complete", flush=True)
+            if not core_only:
+                stage = "example environment"
+                print(f"[setup] {stage}: starting; logs: {ROOT / 'external/setup-logs'}", flush=True)
+                dataset, lock = setup.prepare_environment(offline=args.offline, platform=args.platform)
+                print(f"[setup] {stage}: complete", flush=True)
+                stage = "dataset preparation"
+                print(f"[setup] {stage}: starting; output: {ROOT / 'datasets/ace-demo'}", flush=True)
+                prepare = load("ace_prepare", "examples/ace-rtl/prepare.py")
+                manifest = prepare.prepare_dataset(dataset, ROOT / "datasets/ace-demo/all-tasks.json", lock)
+                demo = load("ace_demo", "examples/ace-rtl/environment/demo.py")
+                manifest = demo.select_tasks(manifest)
+                write_json(ROOT / "datasets/ace-demo/tasks.json", manifest)
+                print(f"[setup] {stage}: complete", flush=True)
             stage = "final doctor"
             print(f"[setup] {stage}: starting (read-only)", flush=True)
             doctor = load("dev_doctor", Path(__file__).resolve().with_name("dev_doctor.py"))
-            report = doctor.collect_report(ROOT, args.platform)
+            report = doctor.collect_report(ROOT, args.platform, core_only=True) if core_only else doctor.collect_report(ROOT, args.platform)
             doctor.render_report(report)
             if not report["ready"]:
                 raise UnavailableError("Final doctor failed; follow the diagnostic repair instructions")
@@ -142,8 +153,12 @@ def main(argv=None):
             if code:
                 raise UnavailableError(f"Minimal demo failed (exit {code}); inspect runs/")
             print(f"[setup] {stage}: complete", flush=True)
-            print(json.dumps({"status": "ready", "environment_lock": "external/environment-lock.json",
-                              "results": "runs/", "next": "make doctor; make test; make smoke"}))
+            if core_only:
+                print(json.dumps({"status": "ready", "scope": "core", "results": "runs/",
+                                  "next": 'make doctor ARGS="--core"; make menu; make demo'}))
+            else:
+                print(json.dumps({"status": "ready", "environment_lock": "external/environment-lock.json",
+                                  "results": "runs/", "next": "make doctor; make test; make smoke"}))
             return 0
         lock_path = ROOT / "external/environment-lock.json"
         if not lock_path.is_file():
@@ -170,11 +185,11 @@ def main(argv=None):
         return example.live(lock, iterations=args.iterations) if args.iterations is not None else example.live(lock)
     except (ConfigurationError, UnavailableError, OSError, subprocess.SubprocessError) as exc:
         print(json.dumps({"status": "blocked", "stage": stage, "reason": str(exc),
-                          "repair": "Inspect external/setup-logs/ and rerun sh scripts/bootstrap.sh setup"}))
+                          "repair": repair}))
         return 2
     except KeyboardInterrupt:
         print(json.dumps({"status": "interrupted", "stage": stage,
-                          "repair": "Inspect external/setup-logs/ and rerun sh scripts/bootstrap.sh setup"}))
+                          "repair": repair}))
         return 130
 
 

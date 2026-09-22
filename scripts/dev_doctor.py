@@ -108,7 +108,7 @@ def example_adapter():
                        / "examples/ace-rtl/environment/diagnostics.py")
 
 
-def collect_report(root: Path, platform: str | None = None) -> dict:
+def collect_report(root: Path, platform: str | None = None, *, core_only: bool = False) -> dict:
     # Own validation here so malformed optional trust never bypasses aggregation.
     # Child-only settings prevent normalized proxies/CA paths leaking into later calls.
     environment = demo_environment()
@@ -128,8 +128,13 @@ def collect_report(root: Path, platform: str | None = None) -> dict:
                 "without private keys, then rerun doctor.")
     local_bin = str(Path(root) / ".cache/uv/bin")
     environment["PATH"] = local_bin + os.pathsep + environment.get("PATH", os.defpath)
-    checks = (network.checks + core_checks(Path(root), environment)
-              + example_adapter().collect_checks(Path(root), platform, environment=environment))
+    checks = network.checks + core_checks(Path(root), environment)
+    if core_only:
+        for check in checks:
+            check["remedy"] = check["remedy"].replace("setup", "setup --core")
+        ready = all(c["status"] == "ok" for c in checks)
+        return {"scope": "core", "ready": ready, "areas": {"core": ready}, "checks": checks}
+    checks += example_adapter().collect_checks(Path(root), platform, environment=environment)
     areas = {area: all(c["status"] == "ok" for c in checks if c["area"] == area)
              for area in ("core", "evaluation", "live")}
     ready = areas["core"] and areas["evaluation"]
@@ -141,14 +146,17 @@ def render_report(report: dict, *, json_output: bool = False) -> None:
     if json_output:
         print(json.dumps(report))
         return
-    print("Development environment: " + ("ready" if report["ready"] else "not ready"))
+    title = "Core development environment: " if report.get("scope") == "core" else "Development environment: "
+    print(title + ("ready" if report["ready"] else "not ready"))
     for area, ready in report["areas"].items():
         print(f"  {area}: {'ready' if ready else 'not ready'}")
     for check in report["checks"]:
         print(f"[{check['status']}] {check['id']}: {check['message']}")
         if check["remedy"]:
             print(f"  Fix: {check['remedy']}")
-    if "model_status" in report:
+    if report.get("scope") == "core":
+        print("ACE evaluation and model readiness not checked; use full setup/doctor (menu option 7 prepares ACE).")
+    elif "model_status" in report:
         print("Explicit model probes: " + report["model_status"])
     else:
         print("Live checks validate configuration only; no model endpoint or smoke was exercised. Use doctor --model for actual calls.")

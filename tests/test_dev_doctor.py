@@ -228,6 +228,63 @@ class DoctorTests(unittest.TestCase):
         self.assertFalse(report["ready"])
         self.assertEqual(list(self.root.iterdir()), [])
 
+    def test_core_report_never_loads_example_or_probes_docker_and_is_read_only(self):
+        with patch.object(self.doctor, "example_adapter", side_effect=AssertionError("example loader")), \
+                patch.object(self.doctor.shutil, "which", return_value=None), \
+                patch.object(self.doctor.subprocess, "run", side_effect=AssertionError("unexpected probe")):
+            report = self.doctor.collect_report(self.root, core_only=True)
+        self.assertEqual(report["scope"], "core")
+        self.assertEqual(report["areas"], {"core": False})
+        self.assertFalse(report["ready"])
+        self.assertFalse(any(c["id"].startswith(("docker.", "image.", "live.")) for c in report["checks"]))
+        checks = self.checks(report)
+        self.assertIn("network.configuration", checks)
+        for name in ("core.uv", "core.python", "core.venv", "core.package", "core.cli", "core.ruff", "core.build"):
+            self.assertIn("setup --core", checks[name]["remedy"])
+        self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_core_ready_depends_only_on_core_and_network_with_scoped_human_output(self):
+        for name in ("python", "agent-opt"):
+            path = self.root / ".venv/bin" / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.touch()
+        before = dict(os.environ)
+        with patch.object(self.doctor, "example_adapter", side_effect=AssertionError("example loader")), \
+                patch.object(self.doctor.shutil, "which", side_effect=lambda name, **k: "/bin/" + name), \
+                patch.object(self.doctor.subprocess, "run", side_effect=self.execute):
+            report = self.doctor.collect_report(self.root, core_only=True)
+            self.assertEqual(report["areas"], {"core": True})
+            self.assertTrue(report["ready"])
+            with patch.dict(os.environ, {"AGENT_OPT_CA_BUNDLE": "missing-SECRET.pem"}):
+                invalid = self.doctor.collect_report(self.root, core_only=True)
+            self.assertFalse(invalid["ready"])
+            self.assertEqual(self.checks(invalid)["core.python"]["status"], "ok")
+            self.assertNotIn("SECRET", json.dumps(invalid))
+        self.assertEqual(dict(os.environ), before)
+        output = io.StringIO()
+        with redirect_stdout(output):
+            self.doctor.render_report(report)
+        self.assertIn("Core development environment: ready", output.getvalue())
+        self.assertIn("not checked", output.getvalue())
+        self.assertNotIn("Live checks validate", output.getvalue())
+
+    def test_public_core_doctor_json_without_example_files(self):
+        environment = self.public_checkout()
+        shutil.rmtree(self.root / "examples")
+        for command in ([sys.executable, "scripts/dev.py", "doctor", "--core", "--json"],
+                        [shutil.which("make", path=os.defpath), "doctor", "ARGS=--core --json"]):
+            with self.subTest(command=command):
+                result = subprocess.run(command, cwd=self.root, env=environment,
+                                        text=True, capture_output=True, timeout=30)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                report = json.loads(result.stdout)
+                self.assertEqual(set(report), {"scope", "ready", "areas", "checks"})
+                self.assertEqual(report["scope"], "core")
+                self.assertEqual(set(report["areas"]), {"core"})
+                self.assertNotIn("SECRET", result.stdout + result.stderr)
+        self.assertEqual(list(self.root.rglob("*.pyc")), [])
+        self.assertFalse((self.root / "external").exists())
+
     def test_ready_does_not_require_live_but_live_requires_ready(self):
         self.prepared()
         report = self.doctor.collect_report(self.root)
