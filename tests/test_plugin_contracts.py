@@ -4,6 +4,7 @@ import contextlib
 import hashlib
 import io
 import json
+import shutil
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -282,6 +283,62 @@ class Search:
                                  "harness_id": "fixture", "stage_id": "team-search", "optimizer": "team",
                                  "input_tokens": 12, "output_tokens": 4, "cost_usd": None}])
         self.assertEqual(group["optimizer_usage"], [{k: v for k, v in usage[0].items() if k != "event"}])
+
+    def test_copied_harness_template_executes_the_team_adapter(self):
+        # Broken post-copy registration must not silently run the original adapter.
+        original = self.root / "experiments/harness-template"
+        shutil.copytree(ROOT / "experiments/harness-template", original)
+        team = self.root / "experiments/team-copy"
+        shutil.copytree(original, team)
+        experiment = team / "experiment.toml"
+        self.assertTrue(experiment.is_file(), "Harness template needs complete experiment wiring")
+        experiment.write_text(experiment.read_text().replace(
+            "experiments/harness-template/", "experiments/team-copy/") +
+            '\n[[objective.metrics]]\nname = "team-copy"\nsource = "team-copy"\ndirection = "maximize"\n')
+        adapter = team / "adapter.py"
+        adapter.write_text('''
+from agent_optimizer.harnesses.command import FixtureHarness
+class Harness(FixtureHarness):
+    def run(self, request):
+        result = super().run(request)
+        result.metrics["team-copy"] = 1
+        return result
+''')
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            self.assertEqual(main(["plan", str(experiment)]), 0)
+        self.assertTrue(json.loads(stdout.getvalue())["integrations_ready"])
+        spec = load_experiment(experiment)
+        source = spec["_agents"][0].source.path
+        before = digest(source)
+        run, summary = run_experiment(spec, Registry(), self.output)
+        self.assertEqual(summary["status"], "completed")
+        self.assertIn("team-copy", json.dumps(summary))
+        self.assertEqual(summary["groups"][0]["baseline"]["metrics"]["solve_rate"], 0)
+        self.assertEqual(summary["groups"][0]["baseline"]["metrics"]["team-copy"], 1)
+        trials = [json.loads(path.read_text()) for path in run.glob("**/trials/**/result.json")]
+        self.assertTrue(trials)
+        self.assertTrue(all(row["metrics"]["team-copy"] == 1 for row in trials))
+        fingerprints = json.loads((run / "manifest.json").read_text())["plugin_sha256"]
+        self.assertEqual(fingerprints["experiments/team-copy/adapter.py:Harness"],
+                         hashlib.sha256(adapter.read_bytes()).hexdigest())
+        self.assertNotIn("experiments/harness-template/adapter.py:Harness", fingerprints)
+        self.assertEqual(digest(source), before)
+
+    def test_harness_template_plan_and_explicit_unavailable_run(self):
+        path = ROOT / "experiments/harness-template/experiment.toml"
+        self.assertTrue(path.is_file(), "Harness template needs complete experiment wiring")
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(stdout):
+            self.assertEqual(main(["plan", str(path)]), 0)
+        self.assertTrue(json.loads(stdout.getvalue())["valid"])
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(main(["run", str(path), "--output", str(self.output)]), 2)
+        self.assertIn("Team Harness is not implemented", stderr.getvalue())
+        summary = json.loads(next(self.output.glob("*/summary.json")).read_text())
+        self.assertEqual(summary["status"], "error")
+        self.assertEqual(summary["error_type"], "UnavailableError")
+        self.assertEqual(summary["groups"][0]["selected"], [])
 
     def test_template_plan_and_explicit_unavailable_run(self):
         path = ROOT / "experiments/optimizer-template/experiment.toml"

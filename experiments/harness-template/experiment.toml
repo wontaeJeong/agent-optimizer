@@ -1,15 +1,15 @@
 schema_version = 1
-name = "team-optimizer-template"
+name = "team-harness-template"
 project_root = "../.."
-agents = ["examples/minimal/solo.toml"]
-harnesses = ["examples/minimal/harness.toml"]
+agents = ["experiments/harness-template/agent.toml"]
+harnesses = ["experiments/harness-template/harness.toml"]
 benchmark = "examples/minimal/tasks.json"
 evaluator = "text_fixture"
 seed = 42
 final_test = true
 
-[plugins.optimizers]
-team_optimizer = "experiments/optimizer-template/optimizer.py:Optimizer"
+[plugins.harnesses]
+team_harness = "experiments/harness-template/adapter.py:Harness"
 [plugins.evaluators]
 text_fixture = "examples/minimal/evaluator.py:TextFixtureEvaluator"
 
@@ -24,9 +24,3 @@ mode = "lexicographic"
 name = "solve_rate"
 source = "passed"
 direction = "maximize"
-
-[[stages]]
-id = "team-search"
-optimizer = "team_optimizer"
-inputs = ["baseline"]
-[stages.config]

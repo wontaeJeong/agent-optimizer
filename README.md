@@ -25,7 +25,7 @@ Python 3.12·frozen 개발 의존성을 `.venv`에 준비합니다. **최초 준
 최소 데모와 로컬 HTTP fixture 실행은 외부 모델·Docker를 사용하지 않습니다.**
 코어 준비는 ACE/CVDP 소스·데이터·이미지를 준비하지 않으며 모델/평가 환경의 준비 완료를 뜻하지 않습니다.
 설치 로그는 `external/setup-logs/`에 보존합니다. 완료 시 출력된
-`runs/<run-id>/report.md`, `summary.json`을 확인하세요. 최소 데모는 두 합성 Agent·9 trial의
+`runs/<run-id>/report.md`, `summary.json`을 확인하세요. 최소 데모는 두 합성 Agent·한 repair stage·7 trial(solo 4/team 3)의
 연결 검증이며 실제 모델 성능 수치가 아닙니다. API 키는 **live 및 명시적 모델 연결 검사**에 필요합니다.
 
 메뉴는 Python 3.11+와 TTY가 필요하며 모델 토큰은 숨김 입력, 설정은 세션에만 유지됩니다.
@@ -48,12 +48,12 @@ make가 없으면 모든 명령을 `sh scripts/bootstrap.sh <명령> [옵션]`�
 가상환경 활성화·PATH·offline 복구는 [개발환경 가이드](docs/development.md), 일상 작업과
 담당 영역은 [CONTRIBUTING.md](CONTRIBUTING.md)를 참고하세요.
 
-## 후속 개발자 읽기 순서
+## 담당별 시작
 
-1. [배경·확정 요구사항·설계 결정](docs/CONTEXT.md)
-2. [구조와 실행 흐름](docs/architecture.md) → [공통 계약·확장 방법](docs/adding-components.md)
-3. [외부 출처·고정 버전](docs/SOURCES.md) → [현재 구현 상태](docs/status.md) → [검증 기록](docs/verification.md)
-4. [다음 작업과 완료 기준](docs/NEXT_STEPS.md), [개발 규칙](AGENTS.md), [팀 담당 영역](CONTRIBUTING.md)
+위 빠른 시작 → [Optimizer / Harness / 외부 Agent 템플릿](experiments/README.md) →
+[관련 공통 계약](docs/adding-components.md) 순서로 시작하세요. 팀 코드는 `experiments/<team>/`에 둡니다.
+외부 연동 변경 시 [SOURCES](docs/SOURCES.md)를 대조하며 [날짜별 검증](docs/verification.md)은 과거 증거입니다.
+현재 상태·후속 순서는 [status](docs/status.md) / [NEXT_STEPS](docs/NEXT_STEPS.md), 개발 규칙은 [AGENTS](AGENTS.md)입니다.
 
 도메인 코드는 `examples/`에 두고, 슬롯·미검증 통합을 완료로 표현하지 않습니다.
 외부 기술 판단은 고정 출처와 실제 설정을 대조하며 문서 정리를 이유로 upstream 버전을 자동 갱신하지 않습니다.
@@ -86,13 +86,13 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 
 ```text
 src/agent_optimizer/       공통 계약·실험 실행·소스 스냅샷·결과
-  optimizers/             알고리즘 담당자 작업 영역
+  optimizers/             내장 baseline / file_variants
   harnesses/              command / OpenCode
 examples/
   minimal/                즉시 실행하는 합성 데모, 두 Agent
   rtl-debugger/           작은 RTL Agent + OpenCode + Yosys/Icarus 평가
   ace-rtl/                외부 ACE-RTL + OpenCode 스킬 + 공식 CVDP 평가
-experiments/              다른 팀 Agent 연결 템플릿
+experiments/              팀별 Optimizer / Harness / 외부 Agent 파일 플러그인
 scripts/                  setup / doctor / smoke / live 및 최소 데모 명령
 docs/                     설계·확장·구현 상태
 tests/                    의미 있는 경계·실험 검증
@@ -102,10 +102,12 @@ external/ datasets/ runs/ 다운로드·데이터·결과, Git 제외
 ## 구현 범위
 
 - 실행 가능: 외부 Git 고정 커밋/로컬 소스 스냅샷, 복수 Agent × Harness 실험, baseline,
-  파일 변경 후보 비교, 단순 LLM 피드백 반복, 단계 조합·분기 조건, validation 선택 후 test 평가.
+  여러 독립 파일 Optimizer 비교, 단순 LLM 피드백 반복, validation 선택 후 test 평가.
+- 모든 stage는 baseline에서 시작하며 train 이력은 baseline과 자기 stage만 포함합니다.
+  기본 최종 비교는 모든 stage winner, 선택은 lexicographic keep=1·mean/sum입니다.
 - OpenCode 및 Docker 실행 어댑터와 예제 전용 Icarus/CVDP 연결 코드를 포함합니다.
-- **GEPA / Meta-Harness / Ecdysis는 팀원 구현용 슬롯**입니다. 실제 알고리즘은 포함하지 않았습니다.
-  미구현 알고리즘을 실행하면 명시적으로 실패합니다.
+- 연구 알고리즘은 팀 파일 플러그인으로 구현합니다. 미구현 템플릿은 명시적으로 실패합니다.
+  고급 조합/선택과 연구 슬롯의 보류·복원 위치는 [FUTURE](docs/FUTURE.md)에 있습니다.
 - Claude Code / Codex / OpenAgent는 확장 규약만 제공합니다. 별도 구현 완료로 표시하지 않습니다.
 - Mac Docker ARM64와 native Ubuntu x86_64에서 공식 CVDP 정답·오답과 host-Docker toy 평가를 실행했습니다.
   실제 도구 테스트 9개와 전체 smoke가 통과했습니다. 입력 제한은 필수이며 합성만으로 임의 RTL을
@@ -162,8 +164,8 @@ PR CI는 Python 3.11/3.12와 Ubuntu native Yosys/Icarus로 코어·실제 RTL·�
 5. 동일 데이터·모델·예산으로 비교하고 diff와 지표 공유.
 
 [확장 가이드](docs/adding-components.md) · [구조](docs/architecture.md) · [팀 개발](CONTRIBUTING.md)
-알고리즘 담당자는 [동작하는 단순 Optimizer](experiments/simple-feedback/README.md),
-[Optimizer 템플릿](experiments/optimizer-template/README.md)과 `tests/test_plugin_contracts.py`부터 확인하세요.
+알고리즘 담당자는 [API-free 회귀·최소 구현](experiments/optimizer-template/README.md)부터 확인하세요.
+[단순 LLM Optimizer](experiments/simple-feedback/README.md)는 모델 준비 후 선택적으로 연결합니다.
 새 CLI 연결은 [Harness 템플릿](experiments/harness-template/README.md)을 사용합니다.
 
 ## 결과와 제한

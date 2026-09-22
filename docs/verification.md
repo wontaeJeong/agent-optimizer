@@ -1,5 +1,33 @@
 # 검증 기록
 
+## 2026-09-22 MVP team templates
+
+Task 3 기준 `01dfa62`, `chore/mvp-focus` worktree, macOS ARM64 / 기존 `.venv` Python 3.12.
+코어 fixture와 팀 확장 배선을 검증했다. 아래 이전 날짜/작업의 9-trial·Docker·CI 기록은
+**당시 증거**이며 현재 minimal은 두 Agent·한 repair stage·7 trial(solo 4/team 3)이다.
+
+| 명령 / 검사 | 실제 결과 |
+|---|---|
+| `TMPDIR="$PWD/runs" PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests .venv/bin/python -m unittest test_plugin_contracts -v` | 기존 baseline 16/16, 신규 Harness 배선 2개 RED(없는 experiment), 배선 추가 후 **18/18 통과**. |
+| `env -u AGENT_OPT_TEST_DOCKER_IMAGE -u AGENT_OPT_NETWORK_DOCKER TMPDIR="$PWD/runs" PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v` | 전체 suite **한 번**, 297개: **283 통과·14 skip**, 실패 0 (42.178초). |
+| `TMPDIR="$PWD/runs" PYTHONDONTWRITEBYTECODE=1 make lint` | All checks passed. |
+| `TMPDIR="$PWD/runs" PYTHONDONTWRITEBYTECODE=1 make demo` | completed, 7 synthetic trials, `runs/20260922T011541Z-11452d29/`. |
+| `PYTHONDONTWRITEBYTECODE=1 make doctor ARGS="--core --json"` | exit 0, scope=core, ready=true, 10개 검사 ok. |
+| `scripts/dev.py setup --help`, `doctor --help`, `agent_optimizer --help`, `make help` (기존 Python 사용) | core 옵션·충돌/전체 경로·현재 CLI 명령을 문서와 대조. 실제 setup/model 호출 아님. |
+| 로컬 링크/명령 inspection (`.superpowers/sdd/2026-09-22-mvp-focus/task-3-checks.py`) | 변경/new 문서 17개 링크/anchor 90개 통과. 두 템플릿 plan 통과, 복사 Optimizer에 README Python 예제를 넣어 실제 run/선택=1·복사 plugin hash 확인. customer placeholder는 예상 plan exit 2. minimal 4/3 trial 및 과거 검증 본문 그대로 보존 확인. |
+| `git diff --check` | 통과. |
+
+copied Harness 회귀는 템플릿을 `experiments/team-copy/`로 복사하고 세 TOML 참조를 수정한 뒤
+**복사본 adapter만** synthetic FixtureHarness 기반 구현으로 교체한다. 실제 subprocess/evaluator를
+실행하여 completed, summary/trial의 `team-copy=1`, 복사본 plugin SHA-256 및 Agent 원본 보존을 확인했다.
+원본 Harness/Optimizer stub은 exit 2 / UnavailableError와 error summary를 확인한다.
+기존 복수 파일 Optimizer·두 Agent 비교 회귀도 유지·통과했다. 테스트 임시 산출물은 정리되며
+지속 결과는 위 minimal의 report/summary/events에 남는다.
+
+skip은 호스트 RTL 도구 9, 선택적 Docker 3, PyYAML driver 2개다. 로컬 HTTP fixture는 계약 검증이며
+외부 네트워크/실제 모델/전체 Docker/새 Ubuntu CI·패키징 실행은 이번 범위 밖이다.
+SOURCES는 현재 소비/보류 경로만 갱신했고 pin과 외부 사실 검증 범위는 바꾸지 않았다.
+
 ## 2026-09-22 Iterative demo and environment cleanup
 
 환경: macOS ARM64, 프로젝트/driver Python 3.12.12, uv 0.10.7, Docker 29.2.1
