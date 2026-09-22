@@ -6,6 +6,7 @@ import io
 import json
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from agent_optimizer.cli import main
 from agent_optimizer.config import load_experiment
@@ -140,6 +141,102 @@ class PluginContractTests(unittest.TestCase):
         self.assertEqual(summary["status"], "completed")
         self.assertEqual(summary["groups"][0]["stages"][0]["checkpoint"], {"team_plugin": True})
 
+    def test_installed_entrypoint_only_names_are_not_loaded(self):
+        class Entry:
+            name = "installed_team"
+
+            def load(self):
+                return object
+
+        with patch("importlib.metadata.entry_points", return_value=[Entry()]), \
+                patch("agent_optimizer.registry.entry_points", return_value=[Entry()], create=True):
+            with self.assertRaises(UnavailableError):
+                Registry().resolve("optimizers", "installed_team")
+
+    def test_inventory_lists_only_implemented_integrations(self):
+        inventory = Registry().describe()
+        self.assertEqual(inventory["optimizers"]["implemented"], ["baseline", "file_variants"])
+        self.assertFalse(inventory["optimizers"].get("planned"))
+
+    def test_independent_file_optimizers_multi_agent_history_and_selection(self):
+        # Team A repairs; separately implemented team B deliberately regresses.
+        # A last-stage-only pool would incorrectly choose B for both Agents.
+        (self.root / "team_a.py").write_text('''
+from agent_optimizer.contracts import OptimizationResult
+class Optimizer:
+    def optimize(self, context, seeds, config):
+        parent, = seeds
+        initial = context.history()
+        context.evaluate(parent)
+        candidate = context.propose(parent, {"configs/strategy.json": '{"repair": true}'}, "team_a")
+        context.evaluate(candidate)
+        context.record_usage(10, 2, None)
+        return OptimizationResult([candidate], {"seed": parent.id, "producer": parent.producer,
+            "initial": initial, "history": context.history(), "candidate": candidate.id})
+''')
+        (self.root / "team_b.py").write_text('''
+from agent_optimizer.contracts import OptimizationResult
+class Search:
+    def optimize(self, context, seeds, config):
+        baseline = seeds[0]
+        before = context.history()
+        score = context.evaluate(baseline)
+        after_baseline = context.history()
+        child = context.propose(baseline, {"configs/strategy.json": '{"repair": false}',
+            "prompts/system.md": "Independent team B"}, "team_b")
+        context.record_usage(None, 3, None)
+        context.evaluate(child)
+        return OptimizationResult([child], {"seed": baseline.id, "producer": baseline.producer,
+            "initial": before, "baseline_history": after_baseline, "history": context.history(),
+            "baseline_score": score, "candidate": child.id})
+''')
+        self.spec["_agents"] = load_experiment(self.root / "examples/minimal/experiment.toml")["_agents"]
+        self.spec["plugins"]["optimizers"] = {"team_a": "team_a.py:Optimizer", "team_b": "team_b.py:Search"}
+        self.spec.update(stages=[{"id": "a", "optimizer": "team_a"}, {"id": "b", "optimizer": "team_b"}],
+                         final_test=True)
+        self.spec.pop("final_stages")
+        originals = [digest(agent.source.path) for agent in self.spec["_agents"]]
+        from agent_optimizer.runner import GroupRunner
+        original_trial = GroupRunner.trial
+
+        def checked_trial(group, candidate, task, repeat):
+            if task.split == "test":
+                a, b = [stage["checkpoint"] for stage in group.summary["stages"]]
+                self.assertNotIn(a["candidate"], {row["candidate_id"] for row in b["history"]})
+                frozen = json.loads((group.root / "frozen_selection.json").read_text())
+                self.assertEqual(frozen, group.summary["selected"])
+                self.assertEqual(frozen[0]["candidate_id"], group.summary["stages"][0]["checkpoint"]["candidate"])
+            return original_trial(group, candidate, task, repeat)
+
+        with patch.object(GroupRunner, "trial", checked_trial):
+            run, summary = run_experiment(self.spec, Registry(), self.output)
+        self.assertEqual(summary["status"], "completed")
+        self.assertEqual(len(summary["groups"]), 2)
+        self.assertEqual(summary["trials_used"], 16)  # each: validation 3 + train 3 + test 2
+        for group in summary["groups"]:
+            self.assertEqual({stage["optimizer"] for stage in group["stages"]}, {"team_a", "team_b"})
+            a, b = [stage["checkpoint"] for stage in group["stages"]]
+            self.assertEqual((a["producer"], b["producer"]), ("baseline", "baseline"))
+            self.assertEqual(a["seed"], b["seed"])
+            self.assertEqual(a["initial"], [])
+            self.assertEqual({row["candidate_id"] for row in b["initial"]}, {b["seed"]})
+            self.assertEqual(b["initial"], b["baseline_history"])  # cached baseline, no duplicate trial
+            for stage in (a, b):
+                self.assertEqual({row["candidate_id"] for row in stage["history"]}, {stage["seed"], stage["candidate"]})
+                self.assertTrue(all(row["split"] == "train" and row["agent_id"] == group["agent_id"]
+                                    for row in stage["history"]))
+            self.assertEqual(group["selected"][0]["candidate_id"], a["candidate"])
+            self.assertEqual({usage["optimizer"] for usage in group["optimizer_usage"]}, {"team_a", "team_b"})
+            self.assertEqual({usage["stage_id"] for usage in group["optimizer_usage"]}, {"a", "b"})
+            for name in ("a", "b"):
+                self.assertTrue((run / group["agent_id"] / group["harness_id"] / "stages" / f"{name}.json").is_file())
+        self.assertEqual([digest(agent.source.path) for agent in self.spec["_agents"]], originals)
+        # Explicit final subset still selects B, even though A has better validation.
+        self.spec.update(final_stages=["b"], final_test=False)
+        _, subset = run_experiment(self.spec, Registry(), self.output)
+        for group in subset["groups"]:
+            self.assertEqual(group["selected"][0]["candidate_id"], group["stages"][1]["checkpoint"]["candidate"])
+
     def test_team_optimizer_uses_train_feedback_and_durable_usage_only(self):
         class TeamOptimizer:
             def optimize(self, context, seeds, config):
@@ -182,7 +279,7 @@ class PluginContractTests(unittest.TestCase):
         events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
         usage = [event for event in events if event["event"] == "optimizer_usage"]
         self.assertEqual(usage, [{"event": "optimizer_usage", "agent_id": "rtl-solo",
-                                 "harness_id": "fixture", "stage_id": "team-search",
+                                 "harness_id": "fixture", "stage_id": "team-search", "optimizer": "team",
                                  "input_tokens": 12, "output_tokens": 4, "cost_usd": None}])
         self.assertEqual(group["optimizer_usage"], [{k: v for k, v in usage[0].items() if k != "event"}])
 

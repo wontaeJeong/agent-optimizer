@@ -11,6 +11,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from agent_optimizer import __version__
+from agent_optimizer.config import validate_objective, validate_stages
 from agent_optimizer.contracts import (
     BudgetExceeded, Candidate, ConfigurationError, Evaluation, RunRequest, UnavailableError, jsonable,
 )
@@ -45,19 +46,25 @@ class Budget:
 
 class Context:
     """Trusted in-process plugin interface, not an OS security boundary."""
-    def __init__(self, group):
+    def __init__(self, group, baseline, stage):
         self._group = group
+        self._candidate_ids = {baseline.id}
+        self._stage_id = stage["id"]
+        self._optimizer = stage["optimizer"]
 
     def propose(self, parent: Candidate, files: dict[str, str], producer: str) -> Candidate:
         self._group.budget.remaining()
         self._group.verify_candidate(parent)
-        return self._group.candidates.create(parent, files, producer)
+        candidate = self._group.candidates.create(parent, files, producer)
+        self._candidate_ids.add(candidate.id)
+        return candidate
 
     def evaluate(self, candidate: Candidate):
         return self._group.evaluate(candidate, "train")
 
     def history(self):
-        return [r for r in self._group.records if r["split"] == "train"]
+        return [r for r in self._group.records
+                if r["split"] == "train" and r["candidate_id"] in self._candidate_ids]
 
     def remaining_seconds(self):
         return self._group.budget.remaining()
@@ -68,7 +75,7 @@ class Context:
         if cost_usd is not None and (not math.isfinite(cost_usd) or cost_usd < 0):
             raise ConfigurationError("Invalid optimizer cost")
         usage = {"agent_id": self._group.agent.id, "harness_id": self._group.profile["id"],
-                 "stage_id": self._group.stage_id, "input_tokens": input_tokens,
+                 "stage_id": self._stage_id, "optimizer": self._optimizer, "input_tokens": input_tokens,
                  "output_tokens": output_tokens, "cost_usd": cost_usd}
         self._group.events.append({"event": "optimizer_usage", **usage})
         self._group.optimizer_usage.append(usage)
@@ -84,7 +91,6 @@ class GroupRunner:
             experiment.get("evaluation_runtime", {"kind": "local"}))
         self.candidates = CandidateStore(root / "candidates", agent)
         self.records, self.optimizer_usage, self.cache = [], [], {}
-        self.stage_id = None
         self.summary = {"agent_id": agent.id, "harness_id": profile["id"], "baseline": None,
                         "stages": [], "selected": [], "final_test": [],
                         "optimizer_usage": self.optimizer_usage, "trial_count": 0, "status": "running"}
@@ -203,25 +209,16 @@ class GroupRunner:
         baseline = self.candidates.create()
         self.summary["baseline"] = self.evaluate(baseline, "validation")
         outputs, by_id, stages = {"baseline": [baseline]}, {baseline.id: baseline}, self.summary["stages"]
-        context = Context(self)
         for stage in self.spec.get("stages", []):
-            self.stage_id = stage["id"]
             t0 = time.monotonic()
             stage_result = {"id": stage["id"], "optimizer": stage["optimizer"], "status": "running",
                             "selected": [], "evaluated": [], "checkpoint": {}}
             stages.append(stage_result)
-            seed_map = {c.id: c for name in stage.get("inputs", ["baseline"]) for c in outputs[name]}
-            seeds = list(seed_map.values())
-            gate = stage.get("when")
-            if gate:
-                seeds = [c for c in seeds if self.gate_passes(self.evaluate(c, "validation"), gate)]
-            if not seeds:
-                outputs[stage["id"]] = []
-                stage_result.update(status="skipped", reason="no eligible input")
-                continue
             self.budget.remaining()
+            self.verify_candidate(baseline)
+            context = Context(self, baseline, stage)
             optimizer = self.registry.resolve("optimizers", stage["optimizer"])()
-            result = optimizer.optimize(context, seeds, stage.get("config", {}))
+            result = optimizer.optimize(context, [baseline], stage.get("config", {}))
             stage_result["checkpoint"] = result.checkpoint
             self.budget.remaining()
             rows = stage_result["evaluated"]
@@ -233,9 +230,7 @@ class GroupRunner:
             outputs[stage["id"]] = [by_id[r["candidate_id"]] for r in chosen]
             stage_result.update(status="completed", selected=chosen, stage_wall_time_seconds=time.monotonic()-t0)
             write_json(self.root / "stages" / (stage["id"] + ".json"), stage_result)
-        self.stage_id = None
-        final_names = self.spec.get("final_stages", [self.spec["stages"][-1]["id"]]
-                                   if self.spec.get("stages") else ["baseline"])
+        final_names = self.spec.get("final_stages", [stage["id"] for stage in stages] or ["baseline"])
         pool = {c.id: c for name in final_names for c in outputs[name]}
         winners = select([self.evaluate(c, "validation") for c in pool.values()], self.spec["objective"])
         # Freeze selection before test; test scores never choose a winner or trigger a stage.
@@ -251,14 +246,10 @@ class GroupRunner:
         self.summary["status"] = "completed" if winners else "no_eligible_candidate"
         return self.summary
 
-    @staticmethod
-    def gate_passes(row, gate):
-        value = row["metrics"].get(gate["metric"])
-        return (value is not None and ("min" not in gate or value >= gate["min"])
-                and ("max" not in gate or value <= gate["max"]))
-
 
 def preflight(spec, registry):
+    validate_objective(spec["objective"])
+    validate_stages(spec)
     plugin_files(spec["_root"], spec.get("plugins", {}), spec.get("plugin_dependencies", {}))
     registry.load_plugins(spec["_root"], spec.get("plugins", {}))
     for profile in spec["_profiles"]:

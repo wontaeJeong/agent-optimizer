@@ -21,39 +21,56 @@ _TEST_WORKSPACE, ROOT = test_project()
 
 class ObjectiveTests(unittest.TestCase):
     def setUp(self):
-        self.objective = {"mode": "pareto", "metrics": [
+        self.objective = {"mode": "lexicographic", "metrics": [
             {"name": "quality", "direction": "maximize"},
             {"name": "seconds", "direction": "minimize"},
         ]}
 
-    def test_pareto_tradeoffs_missing_and_dominated(self):
+    def test_lexicographic_tradeoffs_missing_and_nonfinite(self):
         rows = [{"candidate_id": str(i), "metrics": {"quality": q, "seconds": s}}
                 for i, (q, s) in enumerate([(1, 10), (0.8, 5), (0.5, 15), (1, None)])]
-        self.assertEqual({r["candidate_id"] for r in select(rows, self.objective)}, {"0", "1"})
+        rows.extend({"metrics": {"quality": value, "seconds": 1}} for value in (float("nan"), float("inf")))
+        self.assertEqual(select(rows, self.objective), [rows[0]])
 
-    def test_constraints_and_lexicographic(self):
+    def test_constraints_are_refused(self):
         obj = {**self.objective, "mode": "lexicographic", "constraints": [{"metric": "seconds", "max": 6}]}
         rows = [{"metrics": {"quality": 1, "seconds": 10}}, {"metrics": {"quality": 0.8, "seconds": 5}}]
-        self.assertEqual(select(rows, obj), [rows[1]])
+        with self.assertRaises(ConfigurationError):
+            select(rows, obj)
 
-    def test_weighted_scales(self):
+    def test_weighted_scales_are_refused(self):
         obj = {"mode": "weighted", "metrics": [
             {"name": "q", "direction": "maximize", "scale": 1},
             {"name": "s", "direction": "minimize", "scale": 100},
         ]}
         rows = [{"metrics": {"q": 1, "s": 10}}, {"metrics": {"q": 0.8, "s": 5}}]
-        self.assertEqual(select(rows, obj), [rows[0]])
+        with self.assertRaises(ConfigurationError):
+            select(rows, obj)
+
+    def test_advanced_objectives_are_refused_in_config_and_selector(self):
+        for options in ({"mode": "weighted"}, {"mode": "pareto"}, {"keep": 2}, {"constraints": []}):
+            objective = {**self.objective, **options}
+            for call in (validate_objective, lambda obj: select([], obj)):
+                with self.subTest(options=options, call=call), self.assertRaises(ConfigurationError):
+                    call(objective)
+        for options in ({"weight": 1}, {"scale": 1}, {"aggregate": "max"}, {"aggregate": "p95"}):
+            objective = {"metrics": [{"name": "quality", "direction": "maximize", **options}]}
+            with self.subTest(options=options), self.assertRaises(ConfigurationError):
+                validate_objective(objective)
 
     def test_missing_metric_not_zero(self):
         result = aggregate([{"metrics": {"tokens": 10}}, {"metrics": {"tokens": None}}],
                            [{"name": "tokens", "aggregate": "mean"}])
         self.assertIsNone(result["tokens"])
 
-    def test_percentile_and_sum(self):
+    def test_mean_and_sum_with_generic_sources(self):
         rows = [{"metrics": {"v": i}} for i in range(1, 21)]
-        result = aggregate(rows, [{"name": "p95", "source": "v", "aggregate": "p95"},
+        result = aggregate(rows, [{"name": "average", "source": "v", "aggregate": "mean"},
                                   {"name": "total", "source": "v", "aggregate": "sum"}])
-        self.assertEqual(result, {"p95": 19, "total": 210})
+        self.assertEqual(result, {"average": 10.5, "total": 210})
+        for op in ("max", "p95"):
+            with self.subTest(op=op), self.assertRaises(ConfigurationError):
+                aggregate(rows, [{"name": "v", "aggregate": op}])
 
     def test_invalid_objective_rejected(self):
         with self.assertRaises(ConfigurationError):
@@ -103,6 +120,9 @@ class ExperimentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             run, summary = run_experiment(spec, Registry(), Path(directory))
             self.assertEqual(summary["status"], "completed")
+            self.assertEqual(summary["trials_used"], 7)  # validation 2+2, test 2+1; repair only
+            self.assertEqual({g["agent_id"]: g["trial_count"] for g in summary["groups"]},
+                             {"rtl-solo": 4, "rtl-team": 3})
             self.assertTrue(summary["synthetic"])
             self.assertEqual({g["agent_id"] for g in summary["groups"]}, {"rtl-solo", "rtl-team"})
             solo = next(g for g in summary["groups"] if g["agent_id"] == "rtl-solo")
@@ -118,13 +138,14 @@ class ExperimentTests(unittest.TestCase):
                 self.assertTrue(group["final_test"])
             self.assertEqual([digest(a.source.path) for a in spec["_agents"]], before)
 
-    def test_branch_gate_skip_does_not_remove_other_branch(self):
-        spec = load_experiment(ROOT / "examples/minimal/branching.toml")
-        with tempfile.TemporaryDirectory() as directory:
-            _, summary = run_experiment(spec, Registry(), Path(directory))
-            solo = next(g for g in summary["groups"] if g["agent_id"] == "rtl-solo")
-            self.assertEqual(solo["stages"][1]["status"], "skipped")
-            self.assertEqual(solo["selected"][0]["metrics"]["solve_rate"], 1)
+    def test_chaining_and_gates_refused_before_execution(self):
+        spec = load_experiment(ROOT / "examples/minimal/experiment.toml")
+        for extra in ({"inputs": ["first"]}, {"when": {"metric": "solve_rate", "min": 0}}, {"when": {}}):
+            spec["stages"] = [{"id": "first", "optimizer": "baseline"},
+                              {"id": "second", "optimizer": "baseline", **extra}]
+            spec.pop("final_stages", None)
+            with self.subTest(extra=extra), self.assertRaises(ConfigurationError):
+                preflight(spec, Registry())
 
     def test_matrix_two_harness_profiles_remains_separate(self):
         spec = load_experiment(ROOT / "examples/minimal/experiment.toml")
@@ -146,7 +167,9 @@ class ExperimentTests(unittest.TestCase):
             self.assertTrue(list(run.rglob("result.json")))
 
     def test_planned_optimizer_never_falls_back(self):
-        spec = load_experiment(ROOT / "examples/minimal/research-planned.toml")
+        spec = load_experiment(ROOT / "examples/minimal/experiment.toml")
+        spec["stages"] = [{"id": "research", "optimizer": "gepa"}]
+        spec["final_stages"] = ["research"]
         with self.assertRaises(UnavailableError):
             preflight(spec, Registry())
 
@@ -195,7 +218,7 @@ class ExperimentTests(unittest.TestCase):
             _, summary = run_experiment(spec, registry, Path(directory))
             self.assertEqual(summary["status"], "completed")
 
-    def test_rerank_rejects_changed_metric_semantics(self):
+    def test_rerank_is_refused_without_changing_frozen_selection(self):
         import contextlib
         import io
         from agent_optimizer.cli import main
@@ -203,11 +226,20 @@ class ExperimentTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             run, _ = run_experiment(spec, Registry(), root)
+            frozen = {path: path.read_bytes() for path in run.rglob("frozen_selection.json")}
             goal = root / "goal.toml"
             goal.write_text('[objective]\n[[objective.metrics]]\nname="solve_rate"\n'
                             'source="agent_tokens"\ndirection="minimize"\n')
-            with contextlib.redirect_stderr(io.StringIO()):
+            stderr = io.StringIO()
+            with contextlib.redirect_stderr(stderr):
                 self.assertEqual(main(["rerank", str(run), str(goal)]), 2)
+            self.assertIn("deferred", stderr.getvalue())
+            self.assertEqual({path: path.read_bytes() for path in frozen}, frozen)
+            stdout = io.StringIO()
+            with contextlib.redirect_stdout(stdout), self.assertRaises(SystemExit) as exit:
+                main(["--help"])
+            self.assertEqual(exit.exception.code, 0)
+            self.assertNotIn("rerank", stdout.getvalue())
 
     def test_cycle_and_unknown_option_rejected(self):
         text = (ROOT / "examples/minimal/experiment.toml").read_text()

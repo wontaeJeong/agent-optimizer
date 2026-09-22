@@ -355,7 +355,7 @@ class LifecycleTests(unittest.TestCase):
                          ("rtl-solo", "c0001", "validation"))
         self.assertEqual(next(run.rglob("result.json")).parent.name, record["trial_id"])
 
-    def test_report_and_rerank_accept_nullable_baseline(self):
+    def test_report_accepts_nullable_baseline_and_rerank_is_deferred(self):
         class InterruptHarness:
             def run(self, request):
                 raise KeyboardInterrupt()
@@ -366,10 +366,10 @@ class LifecycleTests(unittest.TestCase):
         goal = self.output / "objective.toml"
         goal.write_text('[objective]\n[[objective.metrics]]\nname="solve_rate"\n'
                         'source="passed"\ndirection="maximize"\n')
-        stdout = io.StringIO()
-        with contextlib.redirect_stdout(stdout):
-            self.assertEqual(main(["rerank", str(run), str(goal)]), 0)
-        self.assertEqual(json.loads(stdout.getvalue())[0]["selected"], [])
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(main(["rerank", str(run), str(goal)]), 2)
+        self.assertIn("deferred", stderr.getvalue())
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(main(["report", str(run), "--csv", str(self.output / "trials.csv")]), 0)
         self.assertIn("interrupted", (self.output / "trials.csv").read_text())
@@ -387,7 +387,7 @@ class SelectionTests(unittest.TestCase):
         rows = [{"candidate_id": "invalid", "valid": False, "metrics": {"quality": 10}},
                 {"candidate_id": "partial", "partial": True, "metrics": {"quality": 20}},
                 {"candidate_id": "complete", "valid": True, "metrics": {"quality": 1}}]
-        for mode in ("pareto", "weighted", "lexicographic"):
+        for mode in ("lexicographic",):
             with self.subTest(mode=mode):
                 self.assertEqual(select(rows, {"mode": mode, "metrics": [
                     {"name": "quality", "direction": "maximize"}]}), [rows[2]])
