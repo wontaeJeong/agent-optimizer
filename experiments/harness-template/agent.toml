@@ -1,0 +1,11 @@
+schema_version = 2
+id = "harness-fixture"
+description = "Synthetic public Agent for team Harness contract development"
+supported_harnesses = ["team_harness"]
+prompt_file = "prompts/system.md"
+editable = ["prompts/**", "configs/**", "src/**"]
+
+[source]
+kind = "local"
+path = "../../examples/minimal/agents/solo"
+include = ["prompts/**", "configs/**", "src/**"]

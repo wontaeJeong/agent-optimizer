@@ -37,12 +37,14 @@ Task 5/6에서 실제 setup/평가를 실행한 범위는 [verification.md](veri
 
 ## 연구 Optimizer 출처: 후보 조사와 채택 확정을 구분
 
-현재 `src/agent_optimizer/optimizers/{gepa,meta_harness,ecdysis}.py`는 오류를 내는 슬롯이며,
+과거 `src/agent_optimizer/optimizers/{gepa,meta_harness,ecdysis}.py`의 오류 슬롯은 현재
+`deferred/src/agent_optimizer/optimizers/*.py.txt`에 보존하며 [복원 경로](../deferred/README.md)를 따른다.
+현재 팀 연결 소비 경로는 `experiments/optimizer-template/`의 명시적 파일 플러그인이다.
 기존 로컬 문서에는 논문·공식 repo·버전 연결 근거가 없었다. 2026-09-20 GitHub 이름 검색 후
 다음 README를 직접 확인했다. **외부 후보의 존재와 README의 논문 링크는 확인됨**이지만,
 원래 대화에서 의도한 대상인지, 팀이 채택할 구현·버전인지는 모두 **미확정**이다.
 
-| 로컬 슬롯 | 조사에서 확인한 후보 README와 그 안의 논문 링크 | 남은 확인 |
+| 보류 슬롯 원래 파일명 | 조사에서 확인한 후보 README와 그 안의 논문 링크 | 남은 확인 |
 |---|---|---|
 | `gepa.py` | [gepa-ai/gepa](https://github.com/gepa-ai/gepa/blob/main/README.md) → [GEPA: Reflective Prompt Evolution Can Outperform Reinforcement Learning](https://arxiv.org/abs/2507.19457) | 채택 대상, 논문 버전, 패키지/commit, 연결 API 미확정 |
 | `meta_harness.py` | [stanford-iris-lab/meta-harness](https://github.com/stanford-iris-lab/meta-harness/blob/main/README.md) → [Meta-Harness: End-to-End Optimization of Model Harnesses](https://arxiv.org/abs/2603.28052) | reference 구현과 별도 artifact 중 대상, 논문 버전, commit 미확정 |

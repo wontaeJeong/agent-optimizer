@@ -1,0 +1,6 @@
+id = "team-harness"
+adapter = "team_harness"
+allow_local = true
+
+[runtime]
+kind = "local"
