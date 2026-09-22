@@ -34,7 +34,7 @@ class BootstrapTests(unittest.TestCase):
             (self.bin / name).symlink_to(shutil.which(name))
         self.trace = self.outside / "trace"
         self.environment = {
-            "PATH": str(self.bin), "HOME": str(self.outside), "TRACE": str(self.trace),
+            "PATH": str(self.bin), "HOME": str(self.outside), "TMPDIR": str(self.outside), "TRACE": str(self.trace),
             "TEMPLATE": str(self.outside / "python-template"),
             "UV_TEMPLATE": str(self.outside / "uv-template"),
             "INSTALLER": str(self.outside / "installer"), "KEEP_ME": "preserved value",
@@ -123,6 +123,65 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
         result = self.invoke("setup")
         self.assertEqual(result.returncode, 2)
         self.assertIn("docker-buildx-plugin", result.stderr)
+        self.assertEqual(self.trace_text(), "")
+
+    def test_core_setup_without_docker_or_python_reuses_uv_installer_and_frozen_sync(self):
+        self.tool("git")
+        self.downloader(0)
+        result = self.invoke("setup", "--core")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        trace = self.trace_text()
+        self.assertIn("installer:", trace)
+        self.assertIn("arg:sync\narg:--frozen\n", trace)
+        self.assertIn("arg:--extra\narg:dev\n", trace)
+        self.assertIn("arg:setup\narg:--core\n", trace)
+
+    def test_core_offline_sync_without_docker_never_downloads(self):
+        self.tool("git")
+        self.tool("curl", 'printf download >> "$TRACE"; exit 1\n')
+        self.uv()
+        result = self.invoke("setup", "--core", "--offline")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn(f"uv:{self.root}/.venv:never", self.trace_text())
+        self.assertIn("arg:--offline\narg:sync\narg:--frozen\n", self.trace_text())
+        self.assertNotIn("download", self.trace_text())
+
+    def test_core_still_requires_git_and_offline_uv(self):
+        result = self.invoke("setup", "--core")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Git unavailable", result.stderr)
+        self.assertNotIn("Docker", result.stderr)
+        self.tool("git")
+        result = self.invoke("setup", "--core", "--offline")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("uv missing", result.stderr)
+        self.assertIn("setup --core", result.stderr)
+        self.assertEqual(self.trace_text(), "")
+
+    def test_core_sync_failure_preserves_scope_in_repair_and_never_probes_docker(self):
+        self.tool("git")
+        self.tool("docker", 'printf docker >> "$TRACE"; exit 1\n')
+        self.tool("uv", "exit 7\n")
+        for options in (("--core",), ("--core", "--offline")):
+            with self.subTest(options=options):
+                result = self.invoke("setup", *options)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("project-uv.log", result.stderr)
+                self.assertIn("setup --core", result.stderr)
+                self.assertNotIn("docker", self.trace_text())
+
+    def test_core_conflicts_rejected_before_probes_and_missing_python_remedy_is_core(self):
+        for args in (("setup", "--core", "--platform", "linux/amd64"),
+                     ("doctor", "--platform=linux/arm64", "--core"),
+                     ("doctor", "--model", "--core")):
+            with self.subTest(args=args):
+                result = self.invoke(*args)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("--core cannot", result.stderr)
+        for command in ("demo", "test", "lint", "smoke", "live", "menu"):
+            self.assertEqual(self.invoke(command, "--core").returncode, 2)
+        result = self.invoke("doctor", "--core", "--json")
+        self.assertIn("setup --core", result.stderr)
         self.assertEqual(self.trace_text(), "")
 
     def test_missing_prerequisites_aggregate_actionable_git_and_docker_guidance(self):
@@ -528,7 +587,7 @@ class DeveloperCommandsTests(unittest.TestCase):
                     (root / ".venv/bin/python").symlink_to(sys.executable)
                 with patch.object(self.dev, "ROOT", root):
                     self.assertEqual(self.main(["test"]), 2)
-                self.assertIn("setup", self.output.getvalue())
+                self.assertIn("setup --core", self.output.getvalue())
 
     def test_missing_dev_dependency_reports_setup_remedy_without_installing(self):
         with tempfile.TemporaryDirectory() as d:
@@ -536,7 +595,49 @@ class DeveloperCommandsTests(unittest.TestCase):
             venv.EnvBuilder(with_pip=False, symlinks=True).create(root / ".venv")
             with patch.object(self.dev, "ROOT", root):
                 self.assertNotEqual(self.main(["lint"]), 0)
-            self.assertIn("setup", self.output.getvalue())
+            self.assertIn("setup --core", self.output.getvalue())
+
+    def test_core_options_reject_conflicts_before_loading(self):
+        with patch.object(self.dev, "load", side_effect=AssertionError("external loader")):
+            for args in (("setup", "--core", "--platform", "linux/amd64"),
+                         ("doctor", "--core", "--model"),
+                         ("doctor", "--platform=linux/arm64", "--core")):
+                self.output = io.StringIO()
+                with self.subTest(args=args), self.assertRaises(SystemExit):
+                    self.main(args)
+                self.assertIn("--core cannot", self.output.getvalue())
+            for command in ("test", "lint", "demo", "smoke", "live", "menu"):
+                with self.subTest(command=command), self.assertRaises(SystemExit):
+                    self.main([command, "--core"])
+
+    def test_core_setup_stops_before_example_and_requires_doctor_then_demo(self):
+        for ready, demo_code, expected in ((True, 0, 0), (False, 0, 2), (True, 5, 2)):
+            events = []
+            def report(root, platform=None, *, core_only=False):
+                self.assertTrue(core_only)
+                events.append("doctor")
+                return {"ready": ready, "scope": "core", "areas": {"core": ready}, "checks": []}
+            doctor = SimpleNamespace(collect_report=report, render_report=lambda *a, **k: None)
+            def load(name, path):
+                self.assertEqual(name, "dev_doctor", "core setup loaded example code")
+                return doctor
+            def execute(command):
+                events.append(command)
+                return demo_code
+            self.output = io.StringIO()
+            with self.subTest(ready=ready, demo_code=demo_code), \
+                    patch.dict(os.environ, {"AGENT_OPT_BOOTSTRAPPED": str(ROOT)}), \
+                    patch.object(self.dev, "load", side_effect=load), \
+                    patch.object(self.dev, "run_core", side_effect=execute):
+                self.assertEqual(self.main(["setup", "--core", "--offline"]), expected)
+            self.assertEqual(events, ["doctor", "demo"] if ready else ["doctor"])
+            result = json.loads(self.output.getvalue().splitlines()[-1])
+            self.assertEqual(result["status"], "ready" if expected == 0 else "blocked")
+            if expected == 0:
+                self.assertEqual(result["scope"], "core")
+                self.assertNotIn("environment_lock", result)
+            else:
+                self.assertIn("setup --core", result["repair"])
 
     def test_direct_python_setup_delegates_without_recursion_and_propagates_failure(self):
         with patch.dict(os.environ, {}, clear=True), patch("subprocess.run", return_value=subprocess.CompletedProcess([], 9)) as run:

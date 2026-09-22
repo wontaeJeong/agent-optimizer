@@ -16,12 +16,13 @@ from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.models import ModelSettings
 
 MENU = """
-1. 개발 환경 설치
-2. 환경 진단
+1. 코어 개발 환경 설치
+2. 코어 환경 진단
 3. LLM 없이 데모·최적화 반복 테스트
 4. 모델 설정·연결 검사
 5. ACE 최적화 실행 — 반복 횟수 선택
 6. 실행 결과·보고서 확인
+7. ACE 전체 환경 준비 — Docker·평가/모델 실행 자산
 0. 종료"""
 
 
@@ -39,7 +40,7 @@ def bootstrap(command, env, *args):
 def local_demo(env):
     python = ROOT / ".venv/bin/python"  # Preserve virtualenv executable identity.
     if not python.is_file():
-        print("프로젝트 .venv가 필요합니다: sh scripts/bootstrap.sh setup")
+        print("프로젝트 .venv가 필요합니다: sh scripts/bootstrap.sh setup --core")
         return
     print("합성 최소 데모 후 로컬 HTTP fixture 기반 Optimizer 회귀 테스트 (외부 LLM·Docker 없음).")
     if bootstrap("demo", env):
@@ -49,6 +50,7 @@ def local_demo(env):
 
 
 def configure_model(env):
+    print("Docker·ACE 평가/모델 실행 자산이 필요하면 먼저 7번 ACE 전체 환경 준비를 선택하세요.")
     print("이 작업은 doctor --model로 실제 모델 API·컨테이너 도구를 호출합니다. 설정은 현재 세션에만 유지됩니다.")
     staged = env.copy()
     default = "2" if staged.get("MODEL_BASE_URL") and not staged.get("MODEL_ENDPOINT") else "1"
@@ -74,6 +76,7 @@ def configure_model(env):
 
 
 def live(env):
+    print("ACE 실행에는 7번 전체 환경 준비와 4번 모델 설정이 필요합니다.")
     try:
         ModelSettings.from_env(env)
     except (ConfigurationError, UnavailableError, ValueError):
@@ -145,7 +148,7 @@ def main(argv=None, *, env=None):
                 return 0
             try:
                 if choice in {"1", "2"}:
-                    bootstrap("setup" if choice == "1" else "doctor", session)
+                    bootstrap("setup" if choice == "1" else "doctor", session, "--core")
                 elif choice == "3":
                     local_demo(session)
                 elif choice == "4":
@@ -154,15 +157,17 @@ def main(argv=None, *, env=None):
                     live(session)
                 elif choice == "6":
                     reports()
+                elif choice == "7":
+                    bootstrap("setup", session)
                 else:
-                    print("0..6 중 번호를 선택하세요.")
+                    print("0..7 중 번호를 선택하세요.")
             except (ConfigurationError, UnavailableError) as exc:
                 print(f"실행하지 못했습니다: {exc}")
             except getpass.GetPassWarning:
                 print("숨김 토큰 입력이 불가능하여 취소했습니다. TTY를 확인하세요.")
             except (OSError, ValueError, subprocess.SubprocessError):
                 # Do not echo exception payloads that could contain URLs or credentials.
-                print("명령 또는 보고서 처리 실패. 환경·파일을 확인하세요: sh scripts/bootstrap.sh setup")
+                print("명령 또는 보고서 처리 실패. 코어는 1번, ACE 평가/모델 실행 자산은 7번 준비 후 다시 확인하세요.")
     except EOFError:
         print("\n종료합니다.")
         return 0

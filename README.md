@@ -7,34 +7,40 @@
 
 ## 개발환경 빠른 시작
 
-Python 3.11+가 있으면 터미널에서 **`make menu`** (또는 **`sh scripts/bootstrap.sh menu`**)로
-설치·진단·LLM 없는 테스트·모델 설정·반복 실행·보고서 확인을 번호로 선택할 수 있습니다.
-모델 토큰은 숨김 입력하며 설정은 메뉴 세션에만 유지됩니다. [메뉴 안내](docs/development.md#번호-메뉴)
-
-Mac/Ubuntu에 **Git, 실행 중인 Docker Engine과 Compose**를 먼저 준비하세요.
-[OS별 설치·문제 해결](docs/development.md)을 따른 뒤 프로젝트 루트에서 실행합니다.
+Mac/Ubuntu와 **Git**부터 준비하고 프로젝트 루트에서 실행하세요. 코어 개발에는 Docker·Compose·Buildx나
+모델 키가 필요 없습니다. uv가 없으면 installer 다운로드용 curl 또는 wget이 필요합니다.
+프록시·추가 CA가 필요한 환경은 먼저 [네트워크 설정](docs/network.md)을 적용하세요.
 
 ```bash
-make setup                       # 전체 환경 준비 + doctor + 첫 최소 데모
-# make/Python이 없어도 동일하게 시작:
-sh scripts/bootstrap.sh setup
-make doctor
-make demo                        # 이후 API·Docker 없이 다시 실행
+make setup ARGS="--core"          # frozen 개발 도구 + 코어 진단 + 첫 최소 데모
+make doctor ARGS="--core"         # 코어만 읽기 전용 진단
+make menu                        # 1/2번: 코어 설치/진단, 3번: fixture 테스트
+make demo                        # 비대화형 최소 데모
+# make/Python이 없으면 시작 명령 대신:
+sh scripts/bootstrap.sh setup --core
 ```
 
-setup은 uv가 없으면 0.10.7을 로컬에 설치하고 Python 3.12·개발 의존성·고정 외부 자산·Docker
-이미지를 준비합니다. 첫 이미지 컴파일은 수십 분 걸릴 수 있습니다. 단계별 로그 위치를 출력하며
-`external/setup-logs/`에 빌드·설치 로그를 보존합니다. 완료 시 출력된
+`setup --core`는 기존 uv 설치 경로를 사용해, uv가 없으면 0.10.7을 로컬에 설치하고
+Python 3.12·frozen 개발 의존성을 `.venv`에 준비합니다. **최초 준비에는 의존성 다운로드가 필요할 수 있지만,
+최소 데모와 로컬 HTTP fixture 실행은 외부 모델·Docker를 사용하지 않습니다.**
+코어 준비는 ACE/CVDP 소스·데이터·이미지를 준비하지 않으며 모델/평가 환경의 준비 완료를 뜻하지 않습니다.
+설치 로그는 `external/setup-logs/`에 보존합니다. 완료 시 출력된
 `runs/<run-id>/report.md`, `summary.json`을 확인하세요. 최소 데모는 두 합성 Agent·9 trial의
 연결 검증이며 실제 모델 성능 수치가 아닙니다. API 키는 **live 및 명시적 모델 연결 검사**에 필요합니다.
+
+메뉴는 Python 3.11+와 TTY가 필요하며 모델 토큰은 숨김 입력, 설정은 세션에만 유지됩니다.
+**7번은 선택적 ACE 전체 환경 준비**이며 4/5번의 실제 모델·평가 실행 전에 사용합니다.
+[메뉴·OS별 설치 안내](docs/development.md#번호-메뉴)
 
 | 명령 | 용도 |
 |---|---|
 | `make` / `make help` | 설치·Docker 조회 없는 도움말 |
-| `make setup` | 전체 준비·진단·합성 데모 |
-| `make doctor` / `make doctor ARGS="--json"` | 설치 없는 진단 / 단일 JSON |
+| `make setup ARGS="--core"` | 코어 준비·진단·합성 데모 |
+| `make doctor ARGS="--core"` / `make doctor ARGS="--core --json"` | 코어만 읽기 전용 진단 / `scope=core` 단일 JSON |
+| `make setup ARGS="--core --offline"` | 준비한 uv/Python/패키지 cache만 재사용 |
+| `make setup` / `make doctor` | 선택적 ACE 전체 준비 / 전체 진단 (`--json` 지원) |
 | `make lint` / `make test` / `make demo` | `.venv`에서 일상 개발 검사·데모 |
-| `make setup ARGS="--offline"` | 준비한 자산·캐시 검증 및 재사용 |
+| `make setup ARGS="--offline"` | ACE 전체 자산·캐시 검증 및 재사용 |
 | `make smoke` | 모델 호출 없는 실제 RTL/CVDP 정답·오답 검사 |
 | `make live` | 설정한 OpenAI 호환 모델로 ACE 지침 최적화 반복 |
 
@@ -60,7 +66,8 @@ Python 3.11+ / Linux 기준, 프로젝트 루트에서 실행합니다.
 설정하지 않으면 기존 직접 연결 방식을 사용합니다.
 
 ```bash
-uv sync --frozen --python 3.12 --extra dev
+make setup ARGS="--core"
+make doctor ARGS="--core"
 make demo
 ```
 
@@ -104,12 +111,14 @@ external/ datasets/ runs/ 다운로드·데이터·결과, Git 제외
   실제 도구 테스트 9개와 전체 smoke가 통과했습니다. 입력 제한은 필수이며 합성만으로 임의 RTL을
   정화하지 않습니다. 실제 모델 실행은 인증 부재로 미검증입니다. [검증 기록](docs/verification.md)
 
-## 실제 데모
+## 선택적 ACE 전체 준비와 실제 데모
 
 [ACE-RTL 예제](examples/ace-rtl/README.md)는 기본 3회 **train 평가 → ACE 지침 수정 → 재평가** 후
 별도 validation으로 후보를 선택합니다. 기본 모델은 `glm5.3-flash`이며 설정으로 교체합니다.
 Python 3.11+, uv, Git, Docker Engine/Compose가 필요합니다. Ubuntu 시스템 CA 사용 시 Buildx도 필요합니다.
 호스트에 OpenCode·시뮬레이터를 별도로 설치하지 않습니다.
+기본 `setup`/`doctor`는 기존 전체 경로입니다. 첫 이미지 컴파일은 수십 분 걸릴 수 있습니다.
+`--core`는 setup/doctor에서만 지원하며 `--platform` 또는 `doctor --model`과 함께 사용할 수 없습니다.
 
 ```bash
 # 실제 주소·토큰은 셸/credential store에서 설정; .env.example은 자동 로딩하지 않음

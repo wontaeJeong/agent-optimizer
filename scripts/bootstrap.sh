@@ -5,11 +5,12 @@ set -eu
 help() {
     printf '%s\n' \
         'Development commands: setup doctor test lint demo smoke live help' \
-        'Prerequisites: Mac/Ubuntu, Git, Docker Engine + Compose (running daemon).' \
-        'Start: sh scripts/bootstrap.sh setup; then make doctor and make demo.' \
+        'Prerequisites: Mac/Ubuntu, Git; full ACE setup also needs Docker Engine + Compose.' \
+        'Start: sh scripts/bootstrap.sh setup --core; then make doctor ARGS="--core" and make demo.' \
         'No make? Use sh scripts/bootstrap.sh <command> [options].' \
-        'setup: --offline, --platform linux/amd64|linux/arm64' \
-        'doctor: --json, --platform, --model (actual API calls); smoke/live: --platform; live: --iterations 1..20' \
+        'setup: --core, --offline, --platform linux/amd64|linux/arm64 (full ACE only)' \
+        'doctor: --core, --json, --platform, --model (actual API calls); --core excludes --platform/--model.' \
+        'smoke/live: --platform; live: --iterations 1..20' \
         'test/lint/demo use .venv without installing or requiring Docker.' \
         'make doctor ARGS="--json" (ARGS uses normal shell command arguments).' \
         'Full command help: python3 scripts/dev.py --help or <command> --help.'
@@ -27,6 +28,8 @@ esac
 
 # Validate before prerequisites, installers, or Python, keeping argv untouched.
 offline=false
+core=false
+full_option=false
 want_platform=false
 want_iterations=false
 show_help=false
@@ -47,15 +50,17 @@ for option do
     case "$command:$option" in
         *:--help|*:-h) show_help=true ;;
         setup:--offline) offline=true ;;
+        setup:--core|doctor:--core) core=true ;;
         doctor:--json) ;;
-        doctor:--model) ;;
+        doctor:--model) full_option=true ;;
         live:--iterations) want_iterations=true ;;
         live:--iterations=*)
             count=${option#*=}
             case "$count" in ''|*[!0-9]*) fail '--iterations requires an integer from 1 to 20' ;; esac
             [ "$count" -ge 1 ] && [ "$count" -le 20 ] || fail '--iterations requires 1..20' ;;
-        setup:--platform|doctor:--platform|smoke:--platform|live:--platform) want_platform=true ;;
+        setup:--platform|doctor:--platform|smoke:--platform|live:--platform) want_platform=true; full_option=true ;;
         setup:--platform=*|doctor:--platform=*|smoke:--platform=*|live:--platform=*)
+            full_option=true
             if [ "$command" != doctor ]; then
                 case "${option#*=}" in linux/amd64|linux/arm64) ;; *) fail "Unsupported platform: $option" ;; esac
             fi ;;
@@ -64,6 +69,13 @@ for option do
 done
 [ "$want_platform" = false ] || fail '--platform requires linux/amd64 or linux/arm64'
 [ "$want_iterations" = false ] || fail '--iterations requires 1..20'
+if [ "$core" = true ] && [ "$full_option" = true ]; then
+    fail '--core cannot be combined with --platform or --model. Omit --core for full ACE commands; run sh scripts/bootstrap.sh help.'
+fi
+setup_command='sh scripts/bootstrap.sh setup'
+case "$command:$core" in
+    *:true|test:*|lint:*|demo:*|menu:*) setup_command="$setup_command --core" ;;
+esac
 if [ "$show_help" = true ]; then
     if [ "$command" = menu ]; then
         printf '%s\n' 'menu: interactive numbered frontend (TTY and Python >=3.11 required).' \
@@ -145,7 +157,7 @@ if [ "$command" != setup ]; then
     elif command -v python >/dev/null 2>&1 && compatible_python python; then
         python=python
     else
-        fail 'Python >=3.11 is unavailable. Run sh scripts/bootstrap.sh setup; no installation was attempted.'
+        fail "Python >=3.11 is unavailable. Run $setup_command; no installation was attempted."
     fi
     exec "$python" -B "$ROOT/scripts/dev.py" "$command" "$@"
 fi
@@ -169,7 +181,11 @@ if [ -n "${AGENT_OPT_CA_BUNDLE:-}" ]; then
     export PIP_CERT="$AGENT_OPT_CA_BUNDLE" NODE_EXTRA_CA_CERTS="$AGENT_OPT_CA_BUNDLE" npm_config_cafile="$AGENT_OPT_CA_BUNDLE"
 fi
 
-printf '%s\n' '[setup] prerequisites: checking Git, Docker daemon and Compose'
+if [ "$core" = true ]; then
+    printf '%s\n' '[setup] core prerequisites: checking host OS and Git'
+else
+    printf '%s\n' '[setup] prerequisites: checking Git, Docker daemon and Compose'
+fi
 missing=false
 # Expand uname inside the bounded child, not in this parent shell.
 # shellcheck disable=SC2016
@@ -181,41 +197,43 @@ if ! command -v git >/dev/null 2>&1 || ! short_probe 'setup prerequisites: Git' 
     printf '%s\n' 'Git unavailable. Mac: xcode-select --install; Ubuntu: sudo apt install git.' >&2
     missing=true
 fi
-if ! command -v docker >/dev/null 2>&1; then
-    printf '%s\n' 'Docker CLI unavailable. Mac: install/open Docker Desktop https://docs.docker.com/desktop/setup/install/mac-install/ ; Ubuntu: install Engine + Compose plugin https://docs.docker.com/engine/install/ubuntu/' >&2
-    missing=true
-else
-    if ! short_probe 'setup prerequisites: Docker daemon' docker info; then
-        printf '%s\n' 'Docker daemon unavailable. Mac: open Docker Desktop; Ubuntu: sudo systemctl start docker, then check docker info and socket permissions: https://docs.docker.com/engine/install/linux-postinstall/' >&2
+if [ "$core" = false ]; then
+    if ! command -v docker >/dev/null 2>&1; then
+        printf '%s\n' 'Docker CLI unavailable. Mac: install/open Docker Desktop https://docs.docker.com/desktop/setup/install/mac-install/ ; Ubuntu: install Engine + Compose plugin https://docs.docker.com/engine/install/ubuntu/' >&2
         missing=true
-    fi
-    if ! short_probe 'setup prerequisites: Docker Compose' docker compose version; then
-        printf '%s\n' 'Docker Compose unavailable. Mac: update Docker Desktop; Ubuntu: install docker-compose-plugin from the Docker apt repository: https://docs.docker.com/compose/install/linux/' >&2
-        missing=true
-    fi
-    if [ -n "${AGENT_OPT_CA_BUNDLE:-}" ] && [ "$offline" = false ] &&
-        ! short_probe 'setup prerequisites: Docker Buildx' docker buildx version; then
-        printf '%s\n' 'CA-enabled builds require docker buildx; install docker-buildx-plugin and rerun setup.' >&2
-        missing=true
+    else
+        if ! short_probe 'setup prerequisites: Docker daemon' docker info; then
+            printf '%s\n' 'Docker daemon unavailable. Mac: open Docker Desktop; Ubuntu: sudo systemctl start docker, then check docker info and socket permissions: https://docs.docker.com/engine/install/linux-postinstall/' >&2
+            missing=true
+        fi
+        if ! short_probe 'setup prerequisites: Docker Compose' docker compose version; then
+            printf '%s\n' 'Docker Compose unavailable. Mac: update Docker Desktop; Ubuntu: install docker-compose-plugin from the Docker apt repository: https://docs.docker.com/compose/install/linux/' >&2
+            missing=true
+        fi
+        if [ -n "${AGENT_OPT_CA_BUNDLE:-}" ] && [ "$offline" = false ] &&
+            ! short_probe 'setup prerequisites: Docker Buildx' docker buildx version; then
+            printf '%s\n' 'CA-enabled builds require docker buildx; install docker-buildx-plugin and rerun setup.' >&2
+            missing=true
+        fi
     fi
 fi
-[ "$missing" = false ] || fail 'setup prerequisites failed; repair the items above and rerun sh scripts/bootstrap.sh setup.'
+[ "$missing" = false ] || fail "setup prerequisites failed; repair the items above and rerun $setup_command."
 printf '%s\n' '[setup] prerequisites: complete'
 
 stage='uv preparation'
 logs="$ROOT/external/setup-logs"
-trap 'printf "setup interrupted during %s; inspect %s and rerun sh scripts/bootstrap.sh setup.\n" "$stage" "$logs" >&2; exit 130' HUP INT TERM
+trap 'printf "setup interrupted during %s; inspect %s and rerun %s.\n" "$stage" "$logs" "$setup_command" >&2; exit 130' HUP INT TERM
 if ! command -v uv >/dev/null 2>&1; then
-    [ "$offline" = false ] || fail 'setup offline: uv missing; provision uv with online sh scripts/bootstrap.sh setup first.'
+    [ "$offline" = false ] || fail "setup offline: uv missing; provision uv with online $setup_command first."
     downloader=
     if command -v curl >/dev/null 2>&1; then downloader=curl
     elif command -v wget >/dev/null 2>&1; then downloader=wget
-    else fail 'setup uv download: install curl/wget (Mac: brew install curl; Ubuntu: sudo apt install curl), then rerun setup.'
+    else fail "setup uv download: install curl/wget (Mac: brew install curl; Ubuntu: sudo apt install curl), then rerun $setup_command."
     fi
-    mkdir -p "$logs" || fail "setup $stage: cannot create $logs; repair the path/permissions and rerun setup."
+    mkdir -p "$logs" || fail "setup $stage: cannot create $logs; repair the path/permissions and rerun $setup_command."
     printf '[setup] uv preparation: installing 0.10.7; log: %s/bootstrap-uv.log\n' "$logs"
     installer=$(mktemp "${TMPDIR:-/tmp}/agent-opt-uv.XXXXXXXX") ||
-        fail "setup $stage: cannot allocate installer in ${TMPDIR:-/tmp}; set TMPDIR to a writable directory and rerun setup."
+        fail "setup $stage: cannot allocate installer in ${TMPDIR:-/tmp}; set TMPDIR to a writable directory and rerun $setup_command."
     wget_config=
     trap 'rm -f "$installer"; [ -z "$wget_config" ] || rm -f "$wget_config"' EXIT
     if [ "$downloader" = wget ] && [ -n "${AGENT_OPT_CA_BUNDLE:-}" ]; then
@@ -237,17 +255,17 @@ if ! command -v uv >/dev/null 2>&1; then
     (
         if [ -n "$wget_config" ]; then export WGETRC="$wget_config"; fi
         if [ "$downloader" = curl ]; then
-            curl -fLsS "$url" -o "$installer" || fail "setup uv download failed; rerun setup after checking connectivity to $url"
+            curl -fLsS "$url" -o "$installer" || fail "setup uv download failed; rerun $setup_command after checking connectivity to $url"
         else
-            wget -q "$url" -O "$installer" || fail "setup uv download failed; rerun setup after checking connectivity to $url"
+            wget -q "$url" -O "$installer" || fail "setup uv download failed; rerun $setup_command after checking connectivity to $url"
         fi
         UV_INSTALL_DIR="$ROOT/.cache/uv/bin" UV_NO_MODIFY_PATH=1 sh "$installer" >"$logs/bootstrap-uv.log" 2>&1 ||
-            fail "setup uv installer failed; see $logs/bootstrap-uv.log; repair and rerun setup."
+            fail "setup uv installer failed; see $logs/bootstrap-uv.log; repair and rerun $setup_command."
     ) || exit 2
     rm -f "$installer"
     [ -z "$wget_config" ] || rm -f "$wget_config"
     trap - EXIT
-    command -v uv >/dev/null 2>&1 || fail "setup uv installation missing at $ROOT/.cache/uv/bin; see $logs/bootstrap-uv.log; repair and rerun setup."
+    command -v uv >/dev/null 2>&1 || fail "setup uv installation missing at $ROOT/.cache/uv/bin; see $logs/bootstrap-uv.log; repair and rerun $setup_command."
 fi
 
 stage='project Python and frozen dependencies'
@@ -255,24 +273,24 @@ python_request=3.12
 if [ -e "$ROOT/.venv" ] || [ -L "$ROOT/.venv" ]; then
     # Preserve even an invalid environment; uv must not silently replace it.
     short_probe 'setup existing project Python check' "$ROOT/.venv/bin/python" -I -B -c 'import sys; from pathlib import Path; assert sys.version_info >= (3, 11); assert sys.prefix != sys.base_prefix; assert Path(sys.prefix).resolve() == Path(sys.argv[1]).resolve()' "$ROOT/.venv" ||
-        fail "setup: existing $ROOT/.venv is incompatible and preserved. Move it aside explicitly, then rerun setup."
+        fail "setup: existing $ROOT/.venv is incompatible and preserved. Move it aside explicitly, then rerun $setup_command."
     python_request="$ROOT/.venv/bin/python"
 fi
-mkdir -p "$logs" || fail "setup $stage: cannot create $logs; repair the path/permissions and rerun setup."
+mkdir -p "$logs" || fail "setup $stage: cannot create $logs; repair the path/permissions and rerun $setup_command."
 printf '[setup] %s; log: %s/project-uv.log\n' "$stage" "$logs"
 export UV_PROJECT_ENVIRONMENT="$ROOT/.venv"
 if [ "$offline" = true ]; then export UV_PYTHON_DOWNLOADS=never; fi
 cd "$ROOT"
 if [ "$offline" = true ]; then
     uv --offline sync --frozen --python "$python_request" --extra dev >"$logs/project-uv.log" 2>&1 ||
-        fail "setup offline project sync failed; see $logs/project-uv.log. Provision missing cache/Python online, then rerun setup --offline."
+        fail "setup offline project sync failed; see $logs/project-uv.log. Provision missing cache/Python online with $setup_command, then rerun $setup_command --offline."
 else
     uv sync --frozen --python "$python_request" --extra dev >"$logs/project-uv.log" 2>&1 ||
-        fail "setup project sync failed; see $logs/project-uv.log; repair and rerun setup."
+        fail "setup project sync failed; see $logs/project-uv.log; repair and rerun $setup_command."
 fi
 printf '[setup] %s: complete\n' "$stage"
 stage='Python dispatch'
 compatible_python "$ROOT/.venv/bin/python" ||
-    fail "setup $stage: $ROOT/.venv/bin/python unavailable after sync; inspect $logs/project-uv.log, repair the interpreter/permissions and rerun setup."
+    fail "setup $stage: $ROOT/.venv/bin/python unavailable after sync; inspect $logs/project-uv.log, repair the interpreter/permissions and rerun $setup_command."
 export AGENT_OPT_BOOTSTRAPPED="$ROOT"
 exec "$ROOT/.venv/bin/python" -B "$ROOT/scripts/dev.py" setup "$@"

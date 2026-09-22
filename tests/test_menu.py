@@ -73,14 +73,20 @@ class MenuFlows(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("exit 7", output)
         self.assertEqual([c[0] for c in calls], [
-            ["sh", str(self.root / "scripts/bootstrap.sh"), "setup"],
-            ["sh", str(self.root / "scripts/bootstrap.sh"), "doctor"],
+            ["sh", str(self.root / "scripts/bootstrap.sh"), "setup", "--core"],
+            ["sh", str(self.root / "scripts/bootstrap.sh"), "doctor", "--core"],
         ])
         self.assertEqual(calls[0][1], self.env)
 
+    def test_option_seven_explicitly_prepares_full_ace_environment(self):
+        code, output, calls = self.flow(["7", "0"])
+        self.assertEqual(code, 0)
+        self.assertEqual([c[0] for c in calls], [["sh", str(self.root / "scripts/bootstrap.sh"), "setup"]])
+        self.assertIn("7. ACE", output)
+
     def test_demo_requires_existing_venv(self):
         _, output, calls = self.flow(["3", "0"])
-        self.assertIn("sh scripts/bootstrap.sh setup", output)
+        self.assertIn("sh scripts/bootstrap.sh setup --core", output)
         self.assertEqual(calls, [])
 
     def venv(self):
@@ -402,7 +408,7 @@ os.execv("/bin/sh", ["sh", *args])
         calls = [json.loads(line) for line in self.log.read_text().splitlines()]
         self.assertEqual(len(calls), 3)
         for call in calls:
-            self.assertEqual(call["argv"], [str(self.root / "scripts/bootstrap.sh"), "doctor"])
+            self.assertEqual(call["argv"], [str(self.root / "scripts/bootstrap.sh"), "doctor", "--core"])
             self.assertEqual(call["cwd"], str(self.root))
 
     def test_real_hidden_token_reaches_only_child_environment(self):
