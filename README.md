@@ -71,7 +71,8 @@ make doctor ARGS="--core"
 make demo
 ```
 
-uv 없이도 코어와 최소 데모는 실행 가능합니다.
+별도로 설치한 **시스템 Python 3.11+**가 있으면 uv 없이도 아래처럼 실행할 수 있습니다.
+`setup --core`로 준비한 뒤에는 부모 shell이 자동 활성화되지 않으므로 `python3` 대신 `.venv/bin/python`을 사용하세요.
 
 ```bash
 PYTHONPATH=src python3 -m agent_optimizer run examples/minimal/experiment.toml

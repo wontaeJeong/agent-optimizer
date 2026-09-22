@@ -35,9 +35,9 @@
 
 ## 확인 명령 — 준비된 코어 환경
 ```bash
-PYTHONPATH=src python3 -m unittest discover -s tests -p test_plugin_contracts.py -v
-PYTHONPATH=src python3 -m unittest discover -s tests -v
-PYTHONPATH=src python3 -m agent_optimizer run examples/minimal/experiment.toml
+PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_plugin_contracts.py -v
+PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v
+PYTHONPATH=src .venv/bin/python -m agent_optimizer run examples/minimal/experiment.toml
 make lint
 ```
 

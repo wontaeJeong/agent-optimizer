@@ -29,8 +29,8 @@ ACE/CVDP 소스·데이터·driver·이미지는 준비하지 않습니다. 여�
 make menu
 # make가 없으면:
 sh scripts/bootstrap.sh menu
-# 같은 메뉴의 직접 Python 진입점:
-python3 scripts/dev.py menu
+# 코어 준비 후 같은 메뉴의 직접 Python 진입점:
+.venv/bin/python scripts/dev.py menu
 ```
 
 메뉴 시작에는 **Python 3.11+와 입출력 TTY**만 필요합니다. Python이 없으면
@@ -104,7 +104,7 @@ uv 신규 설치 로그는 `bootstrap-uv.log`입니다. 실패하면 해당 단�
 setup을 재실행합니다. 기존 checkout/venv를 강제로 초기화하지 않습니다.
 
 완료 시 표시한 `runs/<run-id>/report.md`, `summary.json`, `events.jsonl`이 첫 결과입니다.
-최소 데모는 두 합성 Agent·9 trial의 연결 검사입니다. 실제 RTL/모델 성능 개선 근거는 아닙니다.
+최소 데모는 두 합성 Agent·7 trial(solo 4/team 3)의 연결 검사입니다. 실제 RTL/모델 성능 개선 근거는 아닙니다.
 환경 기록은 `external/environment-lock.json`, 생성 데이터는 `datasets/ace-demo/`에 있습니다.
 이들 로그·자산은 Git 제외이며 다른 checkout의 writable venv/외부 소스를 공유하지 마세요.
 
@@ -122,6 +122,7 @@ make setup ARGS="--core --offline"
 
 lint/test/demo는 `.venv`에서 실행하며 Docker나 API가 필요하지 않습니다. 설치가 부족하면 실패하고
 `setup --core`를 안내합니다. 이미 설치한 uv의 `uv sync --frozen --python 3.12 --extra dev`도 사용할 수 있습니다.
+`setup`은 부모 shell을 활성화하지 않으므로 직접 명령은 `.venv/bin/python`을 사용하거나 위처럼 명시적으로 활성화하세요.
 직접 uv를 호출할 때 bootstrap 로컬 설치가 PATH에 없으면
 `export PATH="$PWD/.cache/uv/bin:$PATH"`를 사용합니다. Make/shell 진입점은 이 경로를 자동 연결합니다.
 
