@@ -144,6 +144,7 @@ class GroupRunner:
         trial_id = f"{candidate.id}-{task.id}-{repeat}-{len(self.records):04d}"
         identity = {"agent_id": self.agent.id, "harness_id": self.profile["id"],
                     "candidate_id": candidate.id, "task_id": task.id, "split": task.split,
+                    "stage_id": self.current_stage["id"] if self.current_stage else "baseline",
                     "dataset": self.spec["_benchmark_metadata"].get("name", self.spec["name"]),
                     "repeat": repeat, "trial_id": trial_id}
         self.events.append({"event": "trial_started", "phase": "workspace", **identity})
@@ -335,14 +336,14 @@ def preflight(spec, registry):
         evaluator.validate_benchmark(spec["_tasks"], spec["_benchmark_metadata"])
 
 
-def run_experiment(spec, registry, output: Path | None = None):
+def run_experiment(spec, registry, output: Path | None = None, on_event=None):
     preflight(spec, registry)
     base = output or safe_path(spec["_root"], spec.get("output_dir", "runs"))
     run_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + uuid.uuid4().hex[:8]
     root = base.resolve() / run_id
     root.mkdir(parents=True, exist_ok=False)
     budget = Budget(spec.get("budget", {}))
-    events = EventStore(root / "events.jsonl")
+    events = EventStore(root / "events.jsonl", on_event=on_event)
     summary = {"schema_version": 1, "run_id": run_id, "status": "running",
                "synthetic": spec["_benchmark_metadata"].get("synthetic", False),
                "groups": [], "trials_used": 0,

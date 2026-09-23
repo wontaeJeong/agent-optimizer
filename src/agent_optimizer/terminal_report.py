@@ -1,0 +1,77 @@
+"""Live terminal progress from the same versioned events as the HTML report."""
+from __future__ import annotations
+
+import sys
+import threading
+import time
+
+
+class ProgressDisplay:
+    def __init__(self, stream=None):
+        self.stream = stream or sys.stderr
+        self.tty = self.stream.isatty()
+        self.active = None
+        self.active_started = None
+        self.completed = 0
+        self.slowest = []
+        self.lock = threading.Lock()
+        self.stopped = threading.Event()
+        self.thread = None
+
+    def start(self):
+        if self.tty:
+            self.thread = threading.Thread(target=self._refresh, daemon=True)
+            self.thread.start()
+        return self
+
+    def __enter__(self):
+        return self.start()
+
+    def __exit__(self, *_):
+        self.stopped.set()
+        if self.thread:
+            self.thread.join(timeout=2)
+            self.stream.write("\n")
+            self.stream.flush()
+
+    def _refresh(self):
+        while not self.stopped.wait(1):
+            with self.lock:
+                if self.active and self.active_started is not None:
+                    label = self.active
+                    elapsed = time.monotonic() - self.active_started
+                    self.stream.write(f"\r\x1b[2K  ◉ {label} · {elapsed:.0f}s elapsed · "
+                                      f"{self.completed} completed")
+                    self.stream.flush()
+
+    def __call__(self, event):
+        name = event["event"]
+        interesting = {"trial_started", "agent_started", "evaluation_started", "trial_completed",
+                       "optimizer_iteration_started", "optimizer_iteration_completed",
+                       "optimizer_review_started", "optimizer_merge_started", "optimizer_merge_completed",
+                       "stage_budget_exhausted", "budget_exhausted", "error", "interrupted"}
+        if name not in interesting:
+            return
+        task = event.get("task_id", "-")
+        stage = event.get("stage_id", "-")
+        dataset = event.get("dataset", "-")
+        phase = event.get("phase", name.replace("_", " "))
+        iteration = event.get("iteration")
+        label = f"dataset={dataset} stage={stage} task={task} phase={phase}"
+        if iteration is not None:
+            label += f" iteration={iteration}/{event.get('total', '?')}"
+        with self.lock:
+            if name == "trial_completed":
+                self.completed += 1
+                seconds = event.get("metrics", {}).get("task_wall_time_seconds")
+                if seconds is not None:
+                    self.slowest = sorted([*self.slowest, (seconds, task, dataset)], reverse=True)[:5]
+                self.active, self.active_started = None, None
+            else:
+                self.active, self.active_started = label, time.monotonic()
+            if self.tty:
+                self.stream.write("\r\x1b[2K")
+            self.stream.write(f"[{event['timestamp'][11:19]}] {label}"
+                              + (f" elapsed={seconds:.2f}s" if name == "trial_completed"
+                                 and seconds is not None else "") + "\n")
+            self.stream.flush()
