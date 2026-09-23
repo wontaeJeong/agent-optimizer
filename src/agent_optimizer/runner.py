@@ -328,6 +328,9 @@ def preflight(spec, registry):
     evaluator = registry.resolve("evaluators", spec["evaluator"])(spec.get("evaluation_runtime", {}))
     for stage in spec.get("stages", []):
         registry.resolve("optimizers", stage["optimizer"])
+        if stage["optimizer"] in {"gepa", "meta_harness", "ecdysis"}:
+            from agent_optimizer.models import ModelSettings
+            ModelSettings.from_env()
     if hasattr(evaluator, "validate_benchmark"):
         evaluator.validate_benchmark(spec["_tasks"], spec["_benchmark_metadata"])
 

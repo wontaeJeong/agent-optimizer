@@ -8,9 +8,10 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agent_optimizer.config import load_experiment
-from agent_optimizer.contracts import Candidate
+from agent_optimizer.contracts import Candidate, UnavailableError
 from agent_optimizer.registry import Registry
 from agent_optimizer.runner import run_experiment
+from agent_optimizer.optimizers.ecdysis import group_failures
 from support import test_project
 
 
@@ -49,6 +50,31 @@ class ResearchSearchTests(unittest.TestCase):
         self.assertIn("optimizer_iteration_started", [row["event"] for row in events])
         self.assertNotIn("fixture-test", json.dumps(sent))
         self.assertEqual(len(list(root.rglob("frozen_selection.json"))), 1)
+        self.assertEqual(summary["groups"][0]["optimizer_usage"][0]["input_tokens"], None)
+
+    def test_research_model_failure_is_recorded_not_replaced_by_baseline(self):
+        self.spec["stages"] = [{"id": "gepa", "optimizer": "gepa", "max_trials": 5,
+                                "config": {"file": "configs/strategy.json", "iterations": 1}}]
+        self.spec["final_stages"] = ["gepa"]
+        environment = {"MODEL_BASE_URL": "http://localhost:12345/v1", "MODEL_API_KEY": "fixture-key"}
+        with patch.dict(os.environ, environment), patch("agent_optimizer.optimizers.research.complete",
+                                                         side_effect=UnavailableError("model unavailable")):
+            with self.assertRaisesRegex(UnavailableError, "model unavailable"):
+                run_experiment(self.spec, Registry(), self.root / "runs")
+        summary_file = next((self.root / "runs").rglob("summary.json"))
+        summary = json.loads(summary_file.read_text())
+        self.assertEqual(summary["status"], "error")
+        self.assertEqual(summary["groups"][0]["selected"], [])
+
+    def test_missing_research_model_config_fails_before_any_trial(self):
+        self.spec["stages"] = [{"id": "gepa", "optimizer": "gepa", "max_trials": 5,
+                                "config": {"file": "configs/strategy.json", "iterations": 1}}]
+        self.spec["final_stages"] = ["gepa"]
+        output = self.root / "runs"
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex((UnavailableError, ValueError), "MODEL_ENDPOINT|MODEL_BASE_URL"):
+                run_experiment(self.spec, Registry(), output)
+        self.assertFalse(output.exists())
 
     def test_gepa_candidate_uses_bounded_train_minibatch(self):
         original = next(t for t in self.spec["_tasks"] if t.split == "train")
@@ -133,6 +159,67 @@ class ResearchSearchTests(unittest.TestCase):
                                                   {"file": "prompt.md", "iterations": 2, "merge": True})
             self.assertEqual([item.id for item in result.candidates], ["c3"])
             self.assertEqual(result.checkpoint["merges"][0]["parents"], ["c1", "c2"])
+
+    def test_meta_harness_rejects_invalid_code_then_selects_runnable_scaffold(self):
+        source = self.root / "examples/minimal/agents/solo/src/fixture_agent.py"
+        repaired = source.read_text().replace("if strategy.get('repair'):", "if True:")
+        self.spec["stages"] = [{"id": "meta", "optimizer": "meta_harness", "max_trials": 8,
+                                "config": {"file": "src/fixture_agent.py", "iterations": 2}}]
+        self.spec["final_stages"] = ["meta"]
+        responses = iter(["not python !!!", repaired])
+
+        def reply(messages, **kwargs):
+            return {"choices": [{"message": {"content": json.dumps({"content": next(responses)})}}]}
+
+        environment = {"MODEL_BASE_URL": "http://localhost:12345/v1", "MODEL_API_KEY": "fixture-key"}
+        with patch.dict(os.environ, environment), patch("agent_optimizer.optimizers.research.complete",
+                                                         side_effect=reply):
+            _, summary = run_experiment(self.spec, Registry(), self.root / "runs")
+        self.assertEqual(summary["status"], "completed")
+        stage = summary["groups"][0]["stages"][0]
+        self.assertEqual([entry["status"] for entry in stage["checkpoint"]["iterations"]],
+                         ["invalid_interface", "accepted"])
+        self.assertEqual(summary["groups"][0]["selected"][0]["metrics"]["solve_rate"], 1.0)
+        self.assertIn("if strategy.get('repair'):", source.read_text())
+
+    def test_ecdysis_prioritizes_cross_task_failures_and_strictly_accepts_improvement(self):
+        original = next(t for t in self.spec["_tasks"] if t.split == "train")
+        self.spec["_tasks"].append(replace(original, id="other-train", family="other-family"))
+        source = self.root / "examples/minimal/agents/solo/src/fixture_agent.py"
+        repaired = source.read_text().replace("if strategy.get('repair'):", "if True:")
+        self.spec["stages"] = [{"id": "ecdysis", "optimizer": "ecdysis", "max_trials": 10,
+                                "config": {"file": "src/fixture_agent.py", "rounds": 2,
+                                           "refinement_passes": 2}}]
+        self.spec["final_stages"] = ["ecdysis"]
+        responses = iter([{"spec": "repair shared failures"}, {"spec": "preserve task generality"},
+                          {"content": repaired}, {"spec": "no further change"},
+                          {"spec": "keep existing"}, {"content": repaired}])
+
+        def reply(messages, **kwargs):
+            return {"choices": [{"message": {"content": json.dumps(next(responses))}}]}
+
+        environment = {"MODEL_BASE_URL": "http://localhost:12345/v1", "MODEL_API_KEY": "fixture-key"}
+        with patch.dict(os.environ, environment), patch("agent_optimizer.optimizers.research.complete",
+                                                         side_effect=reply):
+            _, summary = run_experiment(self.spec, Registry(), self.root / "runs")
+        self.assertEqual(summary["status"], "completed")
+        rounds = summary["groups"][0]["stages"][0]["checkpoint"]["rounds"]
+        self.assertEqual(rounds[0]["groups"][0]["distinct_tasks"], 2)
+        self.assertEqual([round_["accepted"] for round_ in rounds], [True, False])
+        self.assertEqual(summary["groups"][0]["selected"][0]["metrics"]["solve_rate"], 1.0)
+
+    def test_ecdysis_groups_repeated_failures_by_distinct_tasks(self):
+        records = [
+            {"task_id": "task-one", "candidate_id": "c1", "status": "failed",
+             "metrics": {"passed": 0.0}, "feedback": "mismatch"},
+            {"task_id": "task-one", "candidate_id": "c1", "status": "failed",
+             "metrics": {"passed": 0.0}, "feedback": "mismatch"},
+            {"task_id": "task-two", "candidate_id": "c1", "status": "failed",
+             "metrics": {"passed": 0.0}, "feedback": "different instance"},
+        ]
+        groups = group_failures(records, threshold=1.0, metric="passed")
+        self.assertEqual(groups[0]["distinct_tasks"], 2)
+        self.assertEqual(groups[0]["failure_count"], 3)
 
 
 if __name__ == "__main__":
