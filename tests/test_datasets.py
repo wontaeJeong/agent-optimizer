@@ -90,7 +90,7 @@ class DatasetTests(unittest.TestCase):
             prepared = provider.prepare(cache)
         document = json.loads(Path(prepared["benchmark"]).read_text())
         self.assertEqual(document["source_revision"], revision)
-        self.assertEqual(prepared["evaluator"], "examples/benchmarks/verilog_evaluator.py:VerilogEvaluator")
+        self.assertEqual(prepared["evaluator"], "verilog_eval")
         self.assertEqual(len(document["tasks"]), 4)
         self.assertEqual(prepared["evaluation_runtime"]["image"], "verified-v12")
         self.assertEqual(prepared["evaluator_config"]["image_id"], "sha256:verified")
@@ -237,6 +237,7 @@ class DatasetTests(unittest.TestCase):
 
         with patch.object(cvdp_provider, "_load", side_effect=reviewed_or_fixture):
             result = cvdp_provider.Provider().prepare(self.root / "cache")
+        self.assertEqual(result["evaluator"], "cvdp")
         self.assertEqual(result["evaluator_config"]["sim_image"], "pinned-sim:v1")
         self.assertEqual(result["evaluator_config"]["sim_image_id"], "sha256:pinned")
         self.assertTrue(result["evaluator_config"]["python"].endswith("cvdp-venv/bin/python"))

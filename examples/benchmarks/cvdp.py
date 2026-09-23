@@ -52,7 +52,7 @@ class Provider:
         document = import_cvdp(data_path)
         output = cache / "cvdp" / "tasks.json"
         write_json(output, document)
-        return {"benchmark": str(output), "evaluator": "examples/ace-rtl/evaluator.py:CVDPEvaluator",
+        return {"benchmark": str(output), "evaluator": "cvdp",
                 "evaluator_config": {"repo": str(ROOT / "external/cvdp_benchmark"),
                                      "python": str(ROOT / "external/cvdp-venv/bin/python"),
                                      "sim_image": lock["images"]["evaluation"]["tag"],
