@@ -51,7 +51,8 @@ def main(argv=None):
         return 2
     parser = argparse.ArgumentParser(description="Multi-agent optimization experiment workbench")
     sub = parser.add_subparsers(dest="command", required=True)
-    sub.add_parser("plugins", help="List implemented integrations")
+    plugins = sub.add_parser("plugins", help="List implemented integrations")
+    plugins.add_argument("--project-root", type=Path, default=Path.cwd())
     sub.add_parser("doctor", help="Inspect installed binaries; does not install anything")
     datasets = sub.add_parser("datasets", help="List and explicitly prepare benchmark datasets")
     dataset_actions = datasets.add_subparsers(dest="dataset_action", required=True)
@@ -59,7 +60,6 @@ def main(argv=None):
         item = dataset_actions.add_parser(action)
         item.add_argument("name", nargs="?" if action == "prepare" else "*", default=None)
         item.add_argument("--project-root", type=Path, default=Path.cwd())
-        item.add_argument("--extensions", type=Path)
         if action == "prepare":
             item.add_argument("--evaluator")
             item.add_argument("--offline", action="store_true")
@@ -81,7 +81,6 @@ def main(argv=None):
     init.add_argument("--optimizer-config")
     init.add_argument("--scaffold-file")
     init.add_argument("--target-file", help="Exact editable text file for a research optimizer")
-    init.add_argument("--extensions", type=Path)
     init.add_argument("--max-tasks", type=int, default=9)
     init.add_argument("--max-trials", type=int)
     init.add_argument("--max-wall-time-seconds", type=float, default=3600)
@@ -90,7 +89,6 @@ def main(argv=None):
     init.add_argument("--yes", action="store_true", help="Confirm preparation without a TTY")
     tui = sub.add_parser("tui", help="Interactive setup and live run progress")
     tui.add_argument("--project-root", type=Path, default=Path.cwd())
-    tui.add_argument("--extensions", type=Path)
     session = sub.add_parser("run-session", help="Run each selected dataset with its own evaluator")
     session.add_argument("session", type=Path)
     session.add_argument("--output", type=Path)
@@ -110,18 +108,19 @@ def main(argv=None):
     try:
         os.environ.update(network_environment())
         if args.command == "plugins":
+            registry.load_project(args.project_root.absolute())
             show(registry.describe())
         elif args.command == "datasets":
             root = args.project_root.absolute()
-            inventory, _, _ = component_inventory(root, args.extensions)
+            inventory, _, _ = component_inventory(root)
             if args.dataset_action == "list":
                 show([{**factory().describe(), "name": name}
                       for name, factory in sorted(inventory.factories["datasets"].items())])
             else:
                 if not args.name:
                     raise ConfigurationError("Choose a dataset name or a local tasks.json")
-                result, _, _ = prepare_selection(root, args.name, extensions=args.extensions,
-                                                  evaluator=args.evaluator, offline=args.offline)
+                result, _, _ = prepare_selection(root, args.name, evaluator=args.evaluator,
+                                                  offline=args.offline)
                 show(result)
         elif args.command == "init":
             if not args.dataset:
@@ -144,7 +143,7 @@ def main(argv=None):
                 raise ConfigurationError("A pinned Git Agent requires a revision")
             name = args.name or (agent.name if isinstance(agent, Path) and agent.is_dir() else "agent")
             name = name.lower().replace(" ", "-")
-            inventory, _, _ = component_inventory(root, args.extensions)
+            inventory, _, _ = component_inventory(root)
             chosen = args.optimizer or ["gepa"]
             custom_configs = json.loads(args.optimizer_config) if args.optimizer_config else {}
             if (not isinstance(custom_configs, dict)
@@ -164,23 +163,11 @@ def main(argv=None):
                            "revision": args.revision}
             else:
                 harness = {"adapter": args.harness, "command": command}
-            manifests = []
-            bundled = root / "examples/benchmarks/extensions.toml"
-            if bundled.is_file():
-                manifests.append("examples/benchmarks/extensions.toml")
-            if args.extensions:
-                selected_manifest = (args.extensions if args.extensions.is_absolute()
-                                     else root / args.extensions)
-                try:
-                    manifests.append(selected_manifest.absolute().relative_to(root).as_posix())
-                except ValueError:
-                    manifests.append(selected_manifest.resolve().relative_to(root.resolve()).as_posix())
             experiments = []
             multiple = len(args.dataset) > 1
             for index, dataset_name in enumerate(args.dataset):
                 data, plugins, dependencies = prepare_selection(
-                    root, dataset_name, extensions=args.extensions,
-                    evaluator=args.evaluator, offline=args.offline)
+                    root, dataset_name, evaluator=args.evaluator, offline=args.offline)
                 document = _bounded_tasks(json.loads(Path(data["benchmark"]).read_text(encoding="utf-8")),
                                           args.max_tasks)
                 train = sum(t["split"] == "train" for t in document["tasks"])
@@ -234,7 +221,7 @@ def main(argv=None):
                                               stages=stages, plugins=plugins, dependencies=dependencies,
                                               name=experiment_name, editable=args.editable,
                                               prompt_file=args.prompt_file, max_tasks=args.max_tasks,
-                                              project_root=root, extension_manifests=manifests,
+                                              project_root=root,
                                               max_trials=args.max_trials,
                                               wall_time=args.max_wall_time_seconds,
                                               trial_timeout=args.trial_timeout_seconds,
@@ -252,7 +239,7 @@ def main(argv=None):
             if not sys.stdin.isatty() or not sys.stderr.isatty():
                 raise ConfigurationError("TUI requires a TTY for both input and output")
             try:
-                init_args = wizard_arguments(args.project_root.absolute(), args.extensions)
+                init_args = wizard_arguments(args.project_root.absolute())
             except EOFError:
                 print("TUI cancelled: input ended", file=sys.stderr)
                 return 2

@@ -12,7 +12,7 @@ from unittest.mock import patch
 
 from agent_optimizer.cli import main
 from agent_optimizer.config import load_experiment
-from agent_optimizer.registry import Registry
+from agent_optimizer.registry import PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, Registry
 from agent_optimizer.runner import run_experiment
 from agent_optimizer.setup_wizard import _bounded_tasks, wizard_arguments, write_experiment
 from support import test_project
@@ -282,37 +282,72 @@ class CLIExperienceTests(unittest.TestCase):
             "    def prepare(self, cache, *, offline=False):\n"
             "        return {'benchmark': str(Path(__file__).resolve().parents[2] / "
             "'examples/minimal/tasks.json'), 'evaluator': "
-            "'examples/minimal/evaluator.py:TextFixtureEvaluator', "
+            "'future_eval', "
             "'provenance': {'version': 'fixture'}}\n")
         (team / "harness.py").write_text(
             "from agent_optimizer.harnesses.command import FixtureHarness as Harness\n")
         (team / "optimizer.py").write_text(
             "from agent_optimizer.optimizers.baseline import BaselineOptimizer as Optimizer\n")
-        manifest = team / "extensions.toml"
-        manifest.write_text(
-            'schema_version = 1\n[plugins.datasets]\n'
-            'future_set = "experiments/future-team/dataset.py:Provider"\n'
-            '[plugins.harnesses]\nfuture_harness = "experiments/future-team/harness.py:Harness"\n'
-            '[plugins.optimizers]\nfuture_opt = "experiments/future-team/optimizer.py:Optimizer"\n'
-            '[plugins.evaluators]\nfuture_eval = "examples/minimal/evaluator.py:TextFixtureEvaluator"\n')
-        inventory = io.StringIO()
-        with contextlib.redirect_stdout(inventory):
-            self.assertEqual(main(["datasets", "list", "--project-root", str(self.root),
-                                   "--extensions", str(manifest)]), 0)
-        self.assertIn("future_set", {item["name"] for item in json.loads(inventory.getvalue())})
-        args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
-                "--name", "future-demo", "--dataset", "future_set", "--harness", "future_harness",
-                "--optimizer", "future_opt", "--extensions", str(manifest),
-                "--editable", "configs/strategy.json", "--argv", "{python}", "{task_dir}", "--yes"]
-        with contextlib.redirect_stdout(io.StringIO()):
-            self.assertEqual(main(args), 0)
-        spec = load_experiment(self.root / "runs/configs/future-demo/experiment.toml")
-        root, summary = run_experiment(spec, Registry(), self.root / "runs")
-        self.assertEqual(summary["status"], "completed")
-        hashes = json.loads((root / "manifest.json").read_text())["plugin_sha256"]
-        self.assertIn("experiments/future-team/dataset.py:Provider", hashes)
-        manifests = json.loads((root / "manifest.json").read_text())["extensions_sha256"]
-        self.assertIn("experiments/future-team/extensions.toml", manifests)
+        (team / "helper.py").write_text("VERSION = 1\n")
+        additions = {"datasets": {"future_set": "experiments/future-team/dataset.py:Provider"},
+                     "harnesses": {"future_harness": "experiments/future-team/harness.py:Harness"},
+                     "optimizers": {"future_opt": "experiments/future-team/optimizer.py:Optimizer"},
+                     "evaluators": {"future_eval": "examples/minimal/evaluator.py:TextFixtureEvaluator"}}
+        with patch.dict(PROJECT_COMPONENTS, {kind: {**PROJECT_COMPONENTS[kind], **entries}
+                                            for kind, entries in additions.items()}), \
+                patch.dict(PROJECT_DEPENDENCIES,
+                           {"datasets/future_set": ["experiments/future-team/helper.py"]}), \
+                patch("pathlib.Path.cwd", return_value=self.root):
+            inventory = io.StringIO()
+            with contextlib.redirect_stdout(inventory):
+                self.assertEqual(main(["datasets", "list", "--project-root", str(self.root)]), 0)
+            self.assertIn("future_set", {item["name"] for item in json.loads(inventory.getvalue())})
+            plugins = io.StringIO()
+            with contextlib.redirect_stdout(plugins):
+                self.assertEqual(main(["plugins", "--project-root", str(self.root)]), 0)
+            self.assertIn("future_opt", json.loads(plugins.getvalue())["optimizers"]["implemented"])
+            choices = sorted([*PROJECT_COMPONENTS["datasets"]])
+            algorithms = sorted([*Registry().factories["optimizers"], "future_opt"])
+            answers = ["future-wizard", str(self.agent), "{python} {task_dir}",
+                       "configs/strategy.json", str(choices.index("future_set") + 1),
+                       str(algorithms.index("future_opt") + 1), "y"]
+            with patch("builtins.input", side_effect=answers), contextlib.redirect_stderr(io.StringIO()):
+                wizard = wizard_arguments(self.root)
+            self.assertIn("future_set", wizard)
+            self.assertIn("future_opt", wizard)
+            self.assertNotIn("--extensions", wizard)
+            args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
+                    "--name", "future-demo", "--dataset", "future_set", "--harness", "future_harness",
+                    "--optimizer", "future_opt", "--editable", "configs/strategy.json",
+                    "--argv", "{python}", "{task_dir}", "--yes"]
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(main(args), 0)
+            experiment = self.root / "runs/configs/future-demo/experiment.toml"
+            spec = load_experiment(experiment)
+            self.assertNotIn("extensions", spec)
+            self.assertNotIn("future_set", spec.get("plugins", {}).get("datasets", {}))
+            self.assertEqual(spec["_benchmark_metadata"]["dataset_provider"], "future_set")
+            for action in ("validate", "plan", "run"):
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(main([action, str(experiment)]), 0)
+            root, summary = run_experiment(spec, Registry(), self.root / "runs")
+            self.assertEqual(summary["status"], "completed")
+            hashes = json.loads((root / "manifest.json").read_text())["plugin_sha256"]
+            for reference in ("experiments/future-team/dataset.py:Provider",
+                              "experiments/future-team/helper.py", "experiments/future-team/harness.py:Harness",
+                              "experiments/future-team/optimizer.py:Optimizer",
+                              "examples/minimal/evaluator.py:TextFixtureEvaluator"):
+                self.assertIn(reference, hashes)
+            self.assertNotIn("extensions_sha256", json.loads((root / "manifest.json").read_text()))
+            session_args = [*args, "--dataset", "future_set", "--name", "future-session"]
+            session_output = io.StringIO()
+            with contextlib.redirect_stdout(session_output):
+                self.assertEqual(main(session_args), 0)
+            session_path = json.loads(session_output.getvalue())["session"]
+            session_output = io.StringIO()
+            with contextlib.redirect_stdout(session_output), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(main(["run-session", session_path]), 0)
+            self.assertEqual(json.loads(session_output.getvalue())["status"], "completed")
 
     def test_generated_benchmark_preserves_evaluator_specific_runtime_options(self):
         config_root = self.root / "runs/configs/image-demo"
@@ -371,20 +406,28 @@ class CLIExperienceTests(unittest.TestCase):
             "        print('preparing dataset...')\n"
             "        return {'benchmark': str(Path(__file__).resolve().parents[2] / "
             "'examples/minimal/tasks.json'), 'evaluator': "
-            "'examples/minimal/evaluator.py:TextFixtureEvaluator', 'provenance': {}}\n")
-        manifest = team / "extensions.toml"
-        manifest.write_text('schema_version = 1\n[plugins.datasets]\n'
-                            'team_data = "experiments/loader/dataset.py:Provider"\n'
-                            '[plugins.evaluators]\n'
-                            'team_eval = "examples/minimal/evaluator.py:TextFixtureEvaluator"\n')
+                 "'team_eval', 'provenance': {}}\n")
         output, progress = io.StringIO(), io.StringIO()
-        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(progress):
+        with patch.dict(PROJECT_COMPONENTS, {**PROJECT_COMPONENTS,
+                        "datasets": {**PROJECT_COMPONENTS["datasets"],
+                                     "team_data": "experiments/loader/dataset.py:Provider"},
+                        "evaluators": {**PROJECT_COMPONENTS["evaluators"],
+                                       "team_eval": "examples/minimal/evaluator.py:TextFixtureEvaluator"}}), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(progress):
             self.assertEqual(main(["datasets", "prepare", "team_data", "--project-root",
-                                   str(self.root), "--extensions", str(manifest)]), 0)
+                                   str(self.root)]), 0)
         self.assertEqual(json.loads(output.getvalue())["evaluator"], "team_eval")
         self.assertIn("preparing dataset", progress.getvalue())
         self.assertIn("dataset=team_data", progress.getvalue())
         self.assertIn("complete", progress.getvalue())
+
+    def test_removed_extensions_option_fails_before_asset_preparation(self):
+        args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
+                "--dataset", "cvdp", "--extensions", "unused.toml", "--yes"]
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as failure:
+            main(args)
+        self.assertEqual(failure.exception.code, 2)
+        self.assertFalse((self.root / "external").exists())
 
     def test_session_preserves_other_dataset_report_when_one_config_fails(self):
         first, second = self.root / "broken-a.json", self.root / "good-b.json"

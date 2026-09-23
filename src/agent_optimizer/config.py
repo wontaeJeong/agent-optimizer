@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import math
 import re
@@ -8,7 +7,6 @@ import tomllib
 from pathlib import Path
 
 from agent_optimizer.contracts import AgentSpec, ConfigurationError, SourceSpec, Task
-from agent_optimizer.catalog import load_extensions
 from agent_optimizer.sources import validate_source
 from agent_optimizer.workspace import safe_path
 
@@ -148,38 +146,13 @@ def load_experiment(path: Path) -> dict:
     only_keys(data, {"schema_version", "name", "project_root", "agents", "harnesses", "benchmark",
                     "evaluator", "evaluation_runtime", "objective", "budget", "stages",
                     "repetitions", "seed", "final_test", "final_stages", "output_dir", "plugins",
-                    "plugin_dependencies", "extensions", "evaluator_config"}, "experiment")
+                    "plugin_dependencies", "evaluator_config"}, "experiment")
     if data.get("schema_version") != 1:
         raise ConfigurationError("Unsupported experiment schema_version")
     identifier(data["name"])
     root = (path.parent / data.get("project_root", "../..")).resolve()
     data["_root"] = root
     data["_source"] = path.resolve()
-    if "extensions" in data:
-        raw_paths = data["extensions"]
-        paths = [raw_paths] if isinstance(raw_paths, str) else raw_paths
-        if (not isinstance(paths, list) or not paths or not all(isinstance(p, str) for p in paths)
-                or len(paths) != len(set(paths))):
-            raise ConfigurationError("extensions must be one path or a list of distinct paths")
-        hashes = {}
-        for reference in paths:
-            extension_path = safe_path(root, reference)
-            extension = load_extensions(extension_path, root)
-            hashes[reference] = hashlib.sha256(extension_path.read_bytes()).hexdigest()
-            for key in ("plugins", "plugin_dependencies"):
-                registered = data.setdefault(key, {})
-                for kind, entries in extension.get(key, {}).items():
-                    if key == "plugins":
-                        target = registered.setdefault(kind, {})
-                        for name, file in entries.items():
-                            if name in target and target[name] != file:
-                                raise ConfigurationError(f"Duplicate extension registration: {kind}/{name}")
-                            target[name] = file
-                    elif kind in registered and registered[kind] != entries:
-                        raise ConfigurationError(f"Duplicate extension dependency: {kind}")
-                    else:
-                        registered[kind] = entries
-        data["_extensions_sha256"] = hashes if isinstance(raw_paths, list) else next(iter(hashes.values()))
     agents = [load_agent(safe_path(root, p)) for p in data["agents"]]
     if not agents or len({a.id for a in agents}) != len(agents):
         raise ConfigurationError("Agent IDs must be present and unique")

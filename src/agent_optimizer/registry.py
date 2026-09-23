@@ -2,6 +2,7 @@
 import hashlib
 import importlib.util
 import sys
+from pathlib import Path
 from agent_optimizer.contracts import ConfigurationError, UnavailableError, BUILTIN_HARNESSES
 from agent_optimizer.workspace import safe_path
 from agent_optimizer.harnesses.command import CommandHarness, FixtureHarness
@@ -11,6 +12,24 @@ from agent_optimizer.optimizers.file_variants import FileVariantsOptimizer
 from agent_optimizer.optimizers.gepa import GEPAOptimizer
 from agent_optimizer.optimizers.meta_harness import MetaHarnessOptimizer
 from agent_optimizer.optimizers.ecdysis import EcdysisOptimizer
+
+
+PROJECT_COMPONENTS: dict[str, dict[str, str]] = {
+    "datasets": {"cvdp": "examples/benchmarks/cvdp.py:Provider",
+                 "verilog-spec": "examples/benchmarks/verilog_eval.py:Provider",
+                 "verilog-completion": "examples/benchmarks/verilog_eval.py:CompletionProvider"},
+    "evaluators": {"cvdp": "examples/ace-rtl/evaluator.py:CVDPEvaluator",
+                   "verilog_eval": "examples/benchmarks/verilog_evaluator.py:VerilogEvaluator"},
+    "harnesses": {}, "optimizers": {},
+}
+
+PROJECT_DEPENDENCIES: dict[str, list[str]] = {
+    "datasets/cvdp": ["examples/ace-rtl/prepare.py", "examples/ace-rtl/environment/setup.py"],
+    "datasets/verilog-spec": ["examples/benchmarks/Dockerfile.iverilog12"],
+    "datasets/verilog-completion": ["examples/benchmarks/Dockerfile.iverilog12"],
+    "evaluators/cvdp": ["examples/ace-rtl/environment/network_driver.py"],
+    "evaluators/verilog_eval": ["examples/benchmarks/verilog_eval.py"],
+}
 
 
 def plugin_files(root, plugins, dependencies):
@@ -61,6 +80,31 @@ class Registry:
                          "harnesses": {"claude_code", "codex", "openagent"},
                          "evaluators": set(), "datasets": set()}
         self.loaded = {}
+
+    def load_project(self, root: Path) -> None:
+        plugin_files(root, PROJECT_COMPONENTS, PROJECT_DEPENDENCIES)
+        self.load_plugins(root, PROJECT_COMPONENTS)
+
+    def selected_files(self, root: Path, spec: dict) -> dict[str, Path]:
+        """Return source and declared helpers for only the selected project components."""
+        selected = {kind: {} for kind in PROJECT_COMPONENTS}
+        names = {
+            "datasets": [spec.get("_benchmark_metadata", {}).get("dataset_provider")],
+            "evaluators": [spec.get("evaluator")],
+            "harnesses": [profile["adapter"] for profile in spec.get("_profiles", [])],
+            "optimizers": [stage["optimizer"] for stage in spec.get("stages", [])],
+        }
+        for kind, requested in names.items():
+            for name in requested:
+                if name in PROJECT_COMPONENTS[kind]:
+                    selected[kind][name] = PROJECT_COMPONENTS[kind][name]
+                elif kind == "datasets" and name:
+                    raise ConfigurationError(f"Unregistered dataset provider: {name}")
+        dependencies = {key: paths for key, paths in PROJECT_DEPENDENCIES.items()
+                        if key.split("/", 1)[1] in selected.get(key.split("/", 1)[0], {})}
+        files = plugin_files(root, selected, dependencies)
+        files.update(plugin_files(root, spec.get("plugins", {}), spec.get("plugin_dependencies", {})))
+        return files
 
     def load_plugins(self, root, config):
         # Validate the whole inventory before importing any trusted team code.
