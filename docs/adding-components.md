@@ -11,10 +11,22 @@ team_optimizer = "experiments/my-team/optimizer.py:Optimizer"
 team_harness = "experiments/my-team/adapter.py:Harness"
 [plugins.evaluators]
 team_evaluator = "experiments/my-team/evaluator.py:Evaluator"
+[plugins.datasets]
+team_dataset = "experiments/my-team/provider.py:Provider"
 ```
 
 필요한 종류만 등록하세요. `plan`도 Python 파일을 로딩하므로 신뢰한 코드만 사용합니다.
 등록 성공은 실제 구현·외부 실행 성공이 아니며 stub은 구현 전 명시적으로 실패합니다.
+
+## Dataset provider / 팀 확장 목록
+
+[`experiments/dataset-template/`](../experiments/dataset-template/README.md)을 팀 폴더로 복사하여
+`extensions.toml`에 팀 Dataset/Harness/Optimizer/Evaluator 파일을 명시적으로 등록합니다.
+`load_extensions(path, project_root)`는 schema_version=1과 등록 파일·helper 경로를
+플러그인 코드 실행 전에 검사합니다. 등록 경로는 기존 실험 설정과 동일하게 project_root 기준입니다.
+Dataset provider의 `describe()`는 이름·과제 형태·평가기를 기술하고,
+`prepare(cache, offline=False)`는 준비된 공개 benchmark 경로·평가기·출처/해시를 반환합니다.
+private 채점 자료는 Agent workspace나 공개 과제 파일에 넣지 않습니다.
 
 ## Optimizer
 

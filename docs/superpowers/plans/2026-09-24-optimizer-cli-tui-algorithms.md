@@ -36,24 +36,24 @@
 
 **Files:** Create `src/agent_optimizer/catalog.py`, `experiments/dataset-template/{extensions.toml,provider.py,README.md}`, `tests/test_catalog.py`; modify `src/agent_optimizer/{contracts,registry,config}.py`, `docs/adding-components.md`.
 
-**Interfaces:** `DatasetProvider.describe() -> dict`, `DatasetProvider.prepare(cache: Path, *, offline: bool) -> dict` returning a `benchmark` path, an `evaluator` file reference, and `provenance`. `load_extensions(path: Path) -> dict` validates `[plugins.optimizers]`, `[plugins.harnesses]`, `[plugins.evaluators]`, `[plugins.datasets]` and `[plugin_dependencies]`; `Registry.load_plugins(root, mapping)` resolves registered providers without hardcoded team names. Existing experiment manifests remain valid.
+**Interfaces:** `DatasetProvider.describe() -> dict`, `DatasetProvider.prepare(cache: Path, *, offline: bool) -> dict` returning a `benchmark` path, an `evaluator` file reference, and `provenance`. `load_extensions(path: Path, project_root: Path) -> dict` validates `[plugins.optimizers]`, `[plugins.harnesses]`, `[plugins.evaluators]`, `[plugins.datasets]` and `[plugin_dependencies]`; all file references are relative to project root, just as for existing experiment plugins. `Registry.load_plugins(root, mapping)` resolves registered providers without hardcoded team names. Existing experiment manifests remain valid.
 
 - [ ] **Step 1: Write failing fixture tests.** In `tests/test_catalog.py`, create a temporary extension manifest and file plugins with `tempfile.TemporaryDirectory`; assert its dataset/harness/optimizer names are listed, their code runs in one small experiment, and invalid/duplicate/missing registrations fail before any plugin side effects. Assert `registry.py` and CLI don't mention the fixture names.
   ```python
   # In a TemporaryDirectory after writing extensions.toml and dataset.py:Provider:
-  inventory = load_extensions(root / "extensions.toml")
+  inventory = load_extensions(root / "experiments/team/extensions.toml", root)
   self.assertEqual(inventory["plugins"]["datasets"]["team_set"], "dataset.py:Provider")
   self.assertIn("team_set", inventory["plugins"]["datasets"])
   ```
 - [ ] **Step 2: Run red.** `PYTHONPATH=src python3 -m unittest discover -s tests -p test_catalog.py -v` must fail for absent `load_extensions`.
 - [ ] **Step 3: Implement contract and loader.** Use `tomllib` and existing `plugin_files(root, plugins, dependencies)` for validated `file.py:Symbol` paths; extend permitted kind to `datasets` and `Registry.factories` with an empty built-in dataset map. Return metadata via `describe()` only after loading a trusted explicit file. Make `load_experiment` retain the extension manifest fingerprint and preflight verify the chosen provider matches the evaluator.
   ```python
-  def load_extensions(path: Path) -> dict:
+  def load_extensions(path: Path, project_root: Path) -> dict:
       with path.open("rb") as stream:
           value = tomllib.load(stream)
       if value.get("schema_version") != 1:
           raise ConfigurationError("Extension schema_version must be 1")
-      plugin_files(path.parent, value.get("plugins", {}), value.get("plugin_dependencies", {}))
+      plugin_files(project_root, value.get("plugins", {}), value.get("plugin_dependencies", {}))
       return value
   ```
 - [ ] **Step 4: Run green and regression.** Run focused test above plus `PYTHONPATH=src python3 -m unittest discover -s tests -p test_plugin_contracts.py -v`; reject altered helper dependencies before execution.
@@ -218,7 +218,7 @@
 
 - [ ] **Step 1: Add acceptance regression.** Copy the three team templates under a temporary folder, load via an extension manifest and execute a tiny local fixture end to end; assert original source unchanged and test evaluated only after selection.
   ```python
-  inventory = load_extensions(team / "extensions.toml")
+  inventory = load_extensions(team / "extensions.toml", root)
   self.assertEqual(set(inventory["plugins"]), {"datasets", "harnesses", "optimizers", "evaluators"})
   self.assertEqual(original.read_bytes(), before)
   ```

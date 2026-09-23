@@ -15,7 +15,7 @@ def plugin_files(root, plugins, dependencies):
     if not isinstance(plugins, dict):
         raise ConfigurationError("plugins must be a mapping")
     for kind, entries in plugins.items():
-        if kind not in {"optimizers", "harnesses", "evaluators"}:
+        if kind not in {"optimizers", "harnesses", "evaluators", "datasets"}:
             raise ConfigurationError(f"Unknown plugin kind: {kind}")
         if not isinstance(entries, dict):
             raise ConfigurationError(f"plugins.{kind} must be a mapping")
@@ -50,12 +50,21 @@ class Registry:
             "optimizers": {"baseline": BaselineOptimizer, "file_variants": FileVariantsOptimizer},
             "harnesses": {"command": CommandHarness, "fixture": FixtureHarness, "opencode": OpenCodeHarness},
             "evaluators": {},
+            "datasets": {},
         }
         self.reserved = {"optimizers": {"gepa", "meta_harness", "ecdysis"},
-                         "harnesses": {"claude_code", "codex", "openagent"}, "evaluators": set()}
+                         "harnesses": {"claude_code", "codex", "openagent"},
+                         "evaluators": set(), "datasets": set()}
         self.loaded = {}
 
     def load_plugins(self, root, config):
+        # Validate the whole inventory before importing any trusted team code.
+        for kind, entries in config.items():
+            if kind not in self.factories:
+                raise ConfigurationError(f"Unknown plugin kind: {kind}")
+            for name in entries:
+                if name in self.factories[kind] and (kind, name) not in self.loaded:
+                    raise ConfigurationError(f"Duplicate plugin registration: {kind}/{name}")
         for kind, entries in config.items():
             if kind not in self.factories:
                 raise ConfigurationError(f"Unknown plugin kind: {kind}")
