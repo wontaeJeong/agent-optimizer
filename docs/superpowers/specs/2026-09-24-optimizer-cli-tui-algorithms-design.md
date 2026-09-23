@@ -1,6 +1,6 @@
 # Agent Optimizer: research optimizers and end-user CLI/TUI
 
-Date: 2026-09-24. Status: design sections discussed; written spec awaiting review. Implementation and external-model verification pending.
+Date: 2026-09-24. Status: user-approved design; implementation and external-model verification pending.
 
 ## Product and success criteria
 
@@ -20,6 +20,12 @@ This is **one integrated delivery**: GEPA, Meta-Harness, Ecdysis, data preparati
 2. List CVDP, Verilog-Eval and the path for a user-supplied benchmark without ranking or recommending datasets. After selection, validate declared Agent capabilities against the selected dataset and evaluator; reject unsupported task/output forms with an explanation and let the user choose another dataset or fix the Agent contract. Non-TTY mode requires an explicit `--dataset` and reports a missing choice before downloading. Credentials come only from environment/credential store; no secret in saved plans or reports.
 3. `agent-opt datasets list|prepare` exposes available and cached choices, prepares the explicitly selected dataset automatically, verifies pins/hashes and reuses intact caches. Offline mode never substitutes or downloads. `agent-opt plan`, `run`, and `report` retain scriptable behavior. `run` accepts a generated or existing experiment. Generated settings and inputs are placed under `runs/configs/<name>/` (Git-ignored, with explicit export for sharing); each run manifest records their hashes and resolved model/dataset/source versions. If multiple compatible benchmarks are selected, run one experiment per benchmark under the same session, with per-dataset progress and linked HTML reports; do not rank scores from different evaluators as if directly comparable.
 4. `agent-opt tui` runs the same wizard and live progress view; TTY interactions do not change the underlying experiment semantics. Non-TTY runs print progress to stderr, preserving machine-readable JSON on stdout and the established exit statuses.
+
+## Team-owned extensibility
+
+Datasets, harnesses and optimizers will keep growing as independent teams test new integrations. Provide one discoverable inventory for the wizard and scriptable CLI, backed by the existing explicit `experiments/<team>/` file-plugin ownership model; adding a team component must not require editing built-in choices, central registry source or the CLI's menu code. A team can register an optimizer or harness with the existing `file.py:Symbol` mapping and add a dataset provider with a similarly explicit, versioned file registration. A small team-owned extension manifest lists available names, kinds, file references and dependencies for discovery by `--extensions <path>`; selected registrations are copied into the generated experiment and fingerprinted in the run manifest. Built-in components remain available without an extension manifest.
+
+The dataset provider contract has three responsibilities: describe its name/task form/evaluator requirement for listing, prepare verified inputs into an isolated cache on explicit selection (or check them offline), and produce public tasks plus private evaluation assets with provenance. It must never infer an evaluator from untrusted data or expose private assets to Agent workspaces. Harnesses and optimizers keep their existing `contracts.py` interfaces. Invalid extension references, missing files, duplicate names, mismatched capabilities and unimplemented adapters fail during plan/preflight with component-specific diagnostics. Document one copyable example per role and an integration test proving a newly added team dataset, harness and optimizer appear in the inventory and run without modifying CLI/registry code. Plugins are trusted team code, not sandboxed untrusted packages.
 
 ## Datasets, evaluation and isolation
 
