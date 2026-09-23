@@ -130,14 +130,14 @@ class PluginContractTests(unittest.TestCase):
         with self.assertRaises(ConfigurationError):
             preflight(self.spec, Registry())
 
-    def test_file_plugin_can_replace_reserved_optimizer_slot(self):
+    def test_file_plugin_can_register_a_new_optimizer_without_registry_edits(self):
         (self.root / "examples/minimal/optimizer.py").write_text(
             "from agent_optimizer.contracts import OptimizationResult\n"
             "class Optimizer:\n"
             "    def optimize(self, context, seeds, config):\n"
             "        return OptimizationResult(seeds, {'team_plugin': True})\n")
-        self.spec["plugins"]["optimizers"] = {"meta_harness": "examples/minimal/optimizer.py:Optimizer"}
-        self.spec.update(stages=[{"id": "team", "optimizer": "meta_harness"}], final_stages=["team"])
+        self.spec["plugins"]["optimizers"] = {"future_team_method": "examples/minimal/optimizer.py:Optimizer"}
+        self.spec.update(stages=[{"id": "team", "optimizer": "future_team_method"}], final_stages=["team"])
         _, summary = run_experiment(self.spec, Registry(), self.output)
         self.assertEqual(summary["status"], "completed")
         self.assertEqual(summary["groups"][0]["stages"][0]["checkpoint"], {"team_plugin": True})
@@ -156,7 +156,8 @@ class PluginContractTests(unittest.TestCase):
 
     def test_inventory_lists_only_implemented_integrations(self):
         inventory = Registry().describe()
-        self.assertEqual(inventory["optimizers"]["implemented"], ["baseline", "file_variants", "gepa"])
+        self.assertEqual(inventory["optimizers"]["implemented"],
+                         ["baseline", "ecdysis", "file_variants", "gepa", "meta_harness"])
         self.assertFalse(inventory["optimizers"].get("planned"))
 
     def test_independent_file_optimizers_multi_agent_history_and_selection(self):
