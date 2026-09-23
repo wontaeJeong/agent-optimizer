@@ -11,7 +11,8 @@ make demo
 
 make/Python이 없으면 `sh scripts/bootstrap.sh setup --core`를 사용합니다.
 설치·활성화·offline 복구는 [개발환경](docs/development.md), 역할 선택은 [팀 템플릿](experiments/README.md).
-일반 팀 확장은 `experiments/<team>/`의 파일 등록을 사용하며 registry/설치 entry point를 수정하지 않습니다.
+일반 팀 Dataset/Harness/Optimizer/Evaluator 확장은 `experiments/<team>/extensions.toml`의 파일 등록을
+사용하며 registry/CLI 메뉴/설치 entry point를 수정하지 않습니다.
 Optimizer는 propose/evaluate, Harness는 RunRequest/ExecutionResult, 외부 Agent는 소스·실행·평가를 맡습니다.
 공통 계약 변경은 팀과 합의하고 관련 예제를 함께 갱신하세요. 도메인 코드는 examples에 둡니다.
 
@@ -19,7 +20,7 @@ Optimizer는 propose/evaluate, Harness는 RunRequest/ExecutionResult, 외부 Age
 
 | 변경 | 필요한 검사 |
 |---|---|
-| 팀 플러그인·코어 | 관련 계약 회귀 → 해당 experiment `plan`/작은 fixture 실행 → `make lint`, `make test`, `make demo`, `git diff --check` |
+| 팀 플러그인·코어 | 관련 계약 회귀 → `datasets list --extensions ...` / 해당 experiment `plan` / 작은 fixture 실행 → `make lint`, `make test`, `make demo`, `git diff --check` |
 | 패키징·의존성·릴리즈 | 위 검사 + `.venv/bin/python -m build`; 별도 venv에 wheel 설치 후 소스 밖에서 `python -I -m agent_optimizer --help`, `agent-opt --help` |
 | ACE·Docker·환경 연결 | 관련 회귀 + `make setup` → `make doctor` → `make setup ARGS="--offline"` → `make smoke`; 실제 모델 연결 변경은 자격증명 준비 후 `make doctor ARGS="--model"`/작은 live |
 
@@ -31,8 +32,9 @@ Optimizer는 propose/evaluate, Harness는 RunRequest/ExecutionResult, 외부 Age
 
 ## 소유권과 재현성
 
-- 후보는 `context.propose`로 만들고 원본·평가 기준을 수정하지 않습니다. train-only 탐색,
-  validation 선택, 선택 고정 후 test를 지킵니다. 미지원 기능은 명시적 오류입니다.
+- 후보는 `context.propose`로 만들고 원본·평가 기준을 수정하지 않습니다. train 피드백만
+  mutation에 사용하고 validation 수치로 내부 frontier/최종 후보를 선택합니다. 선택 고정 후 test를 지킵니다.
+  미지원 기능은 명시적 오류입니다.
 - 미수집 사용량은 None, partial은 전체와 구분합니다. 로그·외부 소스·데이터·키·개인 설정은 커밋하지 않습니다.
 - 외부 연동 변경 때 [SOURCES](docs/SOURCES.md)의 고정 출처/소비 파일을 대조합니다. 문서 정리로 pin을 갱신하지 않습니다.
 - 의존성 변경은 pyproject.toml/uv.lock을 함께 검토합니다. 연구 라이브러리는 필요한 팀만 사용합니다.

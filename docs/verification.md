@@ -1,5 +1,32 @@
 # 검증 기록
 
+## 2026-09-24 CLI TUI and research method integration
+
+개발 환경: Mac ARM64, 프로젝트 `.venv` Python 3.12.12 / 시스템 Python 3.14.5,
+Docker daemon `linux/arm64`; `make setup ARGS="--core"`로 별도 `.venv`를 준비했다.
+외부 배포 모델 자격증명은 사용하지 않았다. 아래 실행은 새 CLI/TUI·자체
+알고리즘·고정 Verilog-Eval 소스의 **서로 다른 검증 수준**이며, 성능 향상 근거가 아니다.
+
+| 실제 명령/검사 | 결과 |
+|---|---|
+| `make setup ARGS="--core"` | frozen Python 도구 준비 → core doctor ready → 두 합성 Agent·7 trial demo completed. `report.html` 및 원본 보존. |
+| `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v` | 전체 364개: 349 통과·15 skip·실패 0 (46.773초). skip은 호스트 Yosys/Icarus 9, 선택적 Docker/driver 5 및 별도 Verilog-Eval 1. Python 3.12에서 Python 3.14와 달리 `Path.glob("configs/**")`가 파일을 반환하지 않는 문제를 재현·수정 후 재검증. |
+| `make lint` | All checks passed. |
+| `docker build -f Dockerfile.iverilog12 -t agent-opt/iverilog-v12:4fd52916 .` (`examples/benchmarks/`) | 첫 실행에서 upstream `autoconf.sh`의 `gperf` 의존성 누락으로 실패, Dockerfile에 추가해 재빌드 성공. 이미지 `sha256:2f3a2506d13f117b42f4dfb1d95ee8c6d883313dd5ae00288a647226d9523d9d`. |
+| `docker run --rm --network none agent-opt/iverilog-v12:4fd52916 iverilog -V` | **Icarus Verilog 12.0 (stable)**. CVDP v13 이미지와 분리 확인. |
+| `PYTHONPATH=src python3 -c 'from pathlib import Path; from examples.benchmarks.verilog_eval import Provider; print(Provider().prepare(Path("external/verilog-eval")))'` | 공식 Verilog-Eval `c498220d0a52248f8e3fdffe279075215bde2da6` checkout, `spec-to-rtl` public manifest와 검증된 v12 Docker runtime 설정 출력. 다운로드/캐시는 Git 제외. |
+| `.venv/bin/agent-opt datasets prepare verilog-spec` / `.venv/bin/agent-opt datasets prepare cvdp` | 설치 CLI에서 Verilog-Eval 고정 Git/v12 Docker 준비, CVDP pinned 소스·HF no-commercial 3파일 SHA-256 검증·driver venv·공식 평가/Agent 이미지 준비. CVDP 이미지 ID `sha256:ee167c7cd486111a2a807a703ae6bbb30debf2d26f5bb9d0d760ec07c96a58ec`. |
+| `.venv/bin/agent-opt init --name cvdp-plan --agent examples/minimal/agents/solo --argv '{python}' '{agent_dir}/src/fixture_agent.py' '{task_dir}' --editable configs/strategy.json --dataset cvdp --optimizer baseline --max-tasks 3 --yes` → `.venv/bin/agent-opt plan runs/configs/cvdp-plan/experiment.toml` | 생성·preflight exit 0, train/validation/test 각 1개 및 공식 평가 이미지 identity 확인. **plan이지 CVDP Agent 최적화 실행은 아님.** |
+| `AGENT_OPT_TEST_VERILOG_EVAL_ROOT="external/verilog-eval/source/c498220d0a52248f8e3fdffe279075215bde2da6" PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_verilog_live.py -v` | 실제 v12 Docker에서 고정 `Prob001_zero`의 공식 `_ref` 기반 정답 **passed**, 의도적 오답 **failed**. private testbench는 Agent 공개 파일 밖에서 사용. 1 test / 2 subtests 통과. |
+| `make smoke` | 기존 공식 CVDP OSS 평가·host-Docker toy·RTL 도구 smoke passed, 최종 산출물 `runs/dev-smoke-1e5e6c8914a2/`. 새 Agent/model 최적화 성능 근거는 아님. |
+| `PYTHONPATH=src python3 -m agent_optimizer run examples/minimal/experiment.toml` | completed, 7 **합성** trial; 이벤트 기반 진행률과 `runs/20260923T171700Z-6f9d14f5/report.html`. 브라우저에서 정적 HTML 레이아웃·표·diff 링크 확인. |
+| `.venv/bin/python -m build`, 별도 venv의 wheel 설치 후 `python -I -m agent_optimizer --help` 및 소스 밖 `agent-opt --help` | sdist/wheel 생성·설치 및 명령 목록 통과. |
+
+새 팀 Dataset/Harness/Optimizer 파일 플러그인 복사 경로, CLI/TUI 비TTY 거부·wizard와 세 연구
+Optimizer의 모델 응답은 로컬 fixture/모의 completion으로 검증했다. CVDP provider는 기존 고정
+importer/평가 환경 준비와 smoke를 실행했지만 **새 실제 Agent/모델 최적화**는 실행하지 않았다.
+배포 모델 실제 호출/성능·Verilog-Eval 전체 과제/Ubuntu x86_64 실도구는 미검증이다.
+
 ## 2026-09-22 MVP team templates
 
 Task 3 기준 `01dfa62`, `chore/mvp-focus` worktree, macOS ARM64 / 기존 `.venv` Python 3.12.

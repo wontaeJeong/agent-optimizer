@@ -103,7 +103,7 @@ setup은 고정 소스·데이터, 공식 평가 이미지와 OpenCode 이미지
 uv 신규 설치 로그는 `bootstrap-uv.log`입니다. 실패하면 해당 단계와 복구 안내를 확인하고 같은
 setup을 재실행합니다. 기존 checkout/venv를 강제로 초기화하지 않습니다.
 
-완료 시 표시한 `runs/<run-id>/report.md`, `summary.json`, `events.jsonl`이 첫 결과입니다.
+완료 시 표시한 `runs/<run-id>/report.html`, `report.md`, `summary.json`, `events.jsonl`이 첫 결과입니다.
 최소 데모는 두 합성 Agent·7 trial(solo 4/team 3)의 연결 검사입니다. 실제 RTL/모델 성능 개선 근거는 아닙니다.
 환경 기록은 `external/environment-lock.json`, 생성 데이터는 `datasets/ace-demo/`에 있습니다.
 이들 로그·자산은 Git 제외이며 다른 checkout의 writable venv/외부 소스를 공유하지 마세요.

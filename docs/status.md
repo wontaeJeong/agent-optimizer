@@ -1,9 +1,10 @@
 # 현재 구현·검증 상태
 
-**2026-09-22 MVP:** 코어 setup/doctor → API-free fixture → 팀 파일 플러그인 하나가 기본 경로다.
+**2026-09-24 확장:** 코어 setup/doctor → 명시적 데이터셋 선택/준비 → CLI/TUI 최적화 → HTML 보고서.
+팀 개발의 API-free fixture → 파일 플러그인 경로도 유지한다.
 시작은 [README](../README.md#개발환경-빠른-시작)와 [역할별 템플릿](../experiments/README.md).
 번호 메뉴는 제공하며 1/2는 core, 7은 선택적 ACE 전체 준비다. 옵션 없는 setup/doctor의 전체 경로도 유지한다.
-rich TUI·병렬 scheduler·resume·native ACE는 [보류](FUTURE.md) 상태다.
+`agent-opt tui`의 대화형 설정·진행 화면은 사용 가능하며 병렬 scheduler·resume·native ACE는 [보류](FUTURE.md)다.
 
 ## 현재 기능
 
@@ -19,10 +20,14 @@ rich TUI·병렬 scheduler·resume·native ACE는 [보류](FUTURE.md) 상태다.
 | 단순 LLM 피드백 | 파일 플러그인, 기본 3회 train 수정/재평가. 로컬 fixture 회귀와 실제 배포 모델 실행은 별개 |
 | command/OpenCode/Docker | argv·timeout·오류/이벤트 계약. 실환경 통합 근거는 아래 날짜별 기록을 따름 |
 | core 준비/진단 | Docker/ACE/모델 없이 준비·진단·fixture. 첫 의존성 준비에는 다운로드가 필요할 수 있음 |
+| 사용자 CLI/TUI | 데이터셋 명시적 선택·자동 준비, 실행 argv/editable 검증, 동적 팀 플러그인 목록, 과제·iteration 실시간 경과 |
+| Dataset | CVDP reviewed no-commercial importer/공식 평가기, 고정 Verilog-Eval v2 + 별도 Icarus v12 private 평가기, 사용자 tasks.json + 지정 evaluator |
+| GEPA/Meta-Harness/Ecdysis | 원본을 복제하지 않은 자체 메서드 구현: train 반성·Pareto/merge, scaffold 탐색, 반복 실패/협업 검토/strict train 개선. 실제 배포 모델 검증과 분리 |
+| 결과 UX | 항상 `report.html`/summary/events/Markdown, dataset session별 독립 보고서 연결. 실패/중단 결과·slow task/usage 표시 |
 
-현재 실행 근거는 [MVP 검증](verification.md#2026-09-22-mvp-team-templates), 후속 작업은
-[NEXT_STEPS](NEXT_STEPS.md). 보류한 chaining/gates/weighted/Pareto/constraints/rerank/설치 entry point/연구 슬롯은
-[FUTURE](FUTURE.md)와 [복원 지도](../deferred/README.md)에 구분했다. 연구 알고리즘은 구현 완료가 아니다.
+코어/연구 구현 근거는 [2026-09-24 검증](verification.md#2026-09-24-cli-tui-and-research-method-integration), 후속 작업은
+[NEXT_STEPS](NEXT_STEPS.md). 보류한 chaining/gates/공통 objective의 weighted/Pareto/constraints/rerank/설치 entry point는
+[FUTURE](FUTURE.md)와 [복원 지도](../deferred/README.md)에 구분했다. 이전 슬롯은 현재 세 자체 구현의 근거가 아니다.
 
 ## ACE-RTL 실행 프로필
 
@@ -50,5 +55,6 @@ native `ace_agent_runner.py`/`ace_cvdp_native_runner.py`의 자체 역할·반�
 - **과거 실환경 근거:** `10baa46`의 native Ubuntu 공식 통합, `ed4fea4`의 Python 3.11/3.12 및
   공식 Docker/SSE-tool fixture, 온보딩 검증을 [날짜별 기록](verification.md)에 유지한다.
   그 당시 9-trial minimal 기록은 당시 결과이며 현재 7-trial 경로로 소급 수정하지 않는다.
-- **미검증:** 실제 배포 모델→ACE→CVDP 최적화/성능 개선, native ACE, 전체 sub-agent 사용량.
-  새로운 팀 CLI나 연구 구현은 각각 별도 증거가 필요하다. plan은 설정/등록 수준의 검사다.
+- **미검증:** 실제 배포 모델→어느 실 Agent든 세 알고리즘을 적용한 성능 향상, native ACE,
+  Verilog-Eval의 전체 과제/Ubuntu x86_64 실행, 전체 sub-agent 사용량. 새 팀 컴포넌트도
+  복사/fixture 검증과 실제 환경 실행을 각각 구분한다. plan은 설정/등록 수준 검사다.

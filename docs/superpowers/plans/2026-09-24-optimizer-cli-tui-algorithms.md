@@ -1,5 +1,7 @@
 # Optimizer CLI/TUI and Research Integrations Implementation Plan
 
+**Execution note:** 구현·로컬 검증 명령과 미검증 범위는 `docs/verification.md#2026-09-24-cli-tui-and-research-method-integration`에 기록한다. 아래는 작업 당시 계획이며 실제 CLI 표면은 README를 따른다.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. This repository's agent instructions select inline execution; do not dispatch agents without explicit user request.
 
 **Goal:** Deliver extensible end-user CLI/TUI with automatic preparation of explicitly selected CVDP, Verilog-Eval or user datasets, three real research optimization loops, progress and an HTML report.
@@ -226,7 +228,7 @@
 - [ ] **Step 3: Update all user instructions with exact commands.** Differentiate slots, fixture behavior, real benchmark tool verification and model evidence; record pinned source/revision and consumed files without changing ACE/CVDP SHA. Give Mac and Ubuntu prepared-tool commands and missing-credential diagnostics. Check docs for stale claims that rich TUI/three algorithms/Verilog-Eval are deferred.
   ```bash
   agent-opt datasets list --extensions experiments/my-team/extensions.toml
-  agent-opt init --agent ./my-agent --dataset verilog-eval --optimizer gepa --editable prompts/system.md --argv python3 agent.py --yes
+  agent-opt init --agent ./my-agent --dataset verilog-spec --optimizer gepa --editable prompts/system.md --command-json '["python3","{agent_dir}/agent.py","{task_dir}"]' --yes
   agent-opt run runs/configs/my-agent/experiment.toml
   agent-opt report runs/<run-id> --html
   ```
