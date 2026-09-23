@@ -35,17 +35,20 @@
 
 **Files:** Modify `src/agent_optimizer/{registry,setup_wizard,cli,config,runner}.py`; delete `src/agent_optimizer/catalog.py`, `examples/benchmarks/extensions.toml`, `experiments/dataset-template/extensions.toml`; update `tests/{test_catalog,test_cli_experience,test_plugin_contracts}.py`.
 
-**Interfaces:** `Registry.load_project(root: Path) -> None` loads central `PROJECT_COMPONENTS: dict[str, dict[str,str]]` and `PROJECT_DEPENDENCIES: dict[str,list[str]]` from `registry.py` using the existing validated `file.py:Symbol` loader. `Registry.describe()` reflects centrally registered datasets/evaluators/harnesses/optimizers. `component_inventory(project_root: Path) -> tuple[Registry, dict, dict]` returns the same registry and code/dependency references needed for run hashing. `prepare_selection(project_root: Path, selection: str, *, evaluator: str|None=None, offline: bool=False) -> tuple[dict,dict,dict]` and generated plans have no extension argument/key. Existing `[plugins.*]` preflight remains supported.
+**Interfaces:** `Registry.load_project(root: Path) -> None` loads central `PROJECT_COMPONENTS: dict[str, dict[str,str]]` and `PROJECT_DEPENDENCIES: dict[str,list[str]]` from `registry.py` using the existing validated `file.py:Symbol` loader. `Registry.describe()` reflects centrally registered datasets/evaluators/harnesses/optimizers. `Registry.selected_files(root: Path, spec: dict) -> dict[str,Path]` resolves implementation/helper files for the dataset provider ID from benchmark metadata, `spec["evaluator"]`, every selected harness adapter and optimizer stage, and explicit `[plugins.*]`; the run manifest fingerprints those file contents. `component_inventory(project_root: Path) -> tuple[Registry, dict, dict]` returns the same registry and code/dependency references. `prepare_selection(project_root: Path, selection: str, *, evaluator: str|None=None, offline: bool=False) -> tuple[dict,dict,dict]` and generated plans have no extension argument/key. Existing `[plugins.*]` preflight remains supported.
 
-- [ ] **Step 1: Write failing behavior tests.** Central registry includes CVDP, `verilog-spec`, `verilog-completion`, their evaluators and an example team `DatasetProvider`/Harness/Optimizer registered only in Python. `agent-opt datasets list`, `init`, `plugins` and `tui` use that inventory without `--extensions`; generated plans have no `extensions` key or `extensions_sha256`. Existing explicit `[plugins.optimizers]` team fixture still executes and is hashed. CLI rejects obsolete `--extensions` before preparing assets. Assert observable inventory/run behavior, not source text.
+- [ ] **Step 1: Write failing behavior tests.** Central registry includes CVDP, `verilog-spec`, `verilog-completion`, their evaluators and an example team `DatasetProvider`/Harness/Optimizer registered only in Python. `agent-opt datasets list`, `init`, `plugins`, `tui`, validate/plan/run and `run-session`, plus direct `runner.preflight`/`run_experiment`, resolve the same IDs without `--extensions`; generated plans have no `extensions` key or `extensions_sha256`. A run manifest hashes selected central provider, evaluator, harness, optimizer and their declared helpers, plus any explicit experiment file plugin; updating only a selected helper changes that hash. Existing explicit `[plugins.optimizers]` team fixture still executes. CLI rejects obsolete `--extensions` before preparing assets. Assert observable inventory/run behavior, not source text.
   ```python
   registry = Registry()
   registry.load_project(project_root)
   self.assertIn("verilog-spec", registry.describe()["datasets"]["implemented"])
-  self.assertNotIn("extensions", load_experiment(generated)["stages"][0])
+  self.assertNotIn("extensions", load_experiment(generated))
+  run_root, _ = run_experiment(load_experiment(generated), Registry(), output)
+  run_manifest = json.loads((run_root / "manifest.json").read_text())
+  self.assertIn("examples/benchmarks/verilog_eval.py:Provider", run_manifest["plugin_sha256"])
   ```
 - [ ] **Step 2: Observe red.** Run `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_catalog.py -v` and `-p test_cli_experience.py -v`; expect missing code registration/legacy argument rejection.
-- [ ] **Step 3: Implement registration and consumption.** Keep mapping in `registry.py`, load files via existing `plugin_files`/`Registry.load_plugins` so missing/duplicate IDs fail. Remove `load_extensions`, manifest merges and CLI `--extensions` flags; use `Registry.load_project(project_root)` in list/prepare/init/plan/run and record selected file/plugin dependency digests in `runner.py`. Preserve `Registry()` bare builtins and per-experiment plugin checks for old fixtures.
+- [ ] **Step 3: Implement registration and consumption.** Keep mapping in `registry.py`, load files via existing `plugin_files`/`Registry.load_plugins` so missing/duplicate IDs fail. Remove `load_extensions`, manifest merges and CLI `--extensions` flags; use `Registry.load_project(project_root)` in all inventory, preflight and execution paths including TUI/session/direct runner. Mark selected provider ID in generated benchmark provenance and implement `Registry.selected_files` for selected central source/helper fingerprints PLUS explicit per-experiment file plugins without duplicate registration. Preserve `Registry()` bare builtins and old explicit per-experiment plugin checks. Centrally registered dataset providers return evaluator IDs, not file references; custom explicit evaluator file reference remains supported.
   ```python
   PROJECT_COMPONENTS = {"datasets": {"cvdp": "examples/benchmarks/cvdp.py:Provider",
                                     "verilog-spec": "examples/benchmarks/verilog_eval.py:Provider",
@@ -57,6 +60,7 @@
   def load_project(self, root: Path) -> None:
       plugin_files(root, PROJECT_COMPONENTS, PROJECT_DEPENDENCIES)
       self.load_plugins(root, PROJECT_COMPONENTS)
+  # `runner.py` uses Registry.selected_files(root, spec) for plugin_sha256.
   ```
 - [ ] **Step 4: Verify green and compatibility.** Run focused suites plus `test_plugin_contracts.py` and minimal fixture experiment. Check `agent-opt datasets list` from the installed CLI and `git diff --check`.
 - [ ] **Step 5: Commit task changes.** `git add` only Task 1 paths, then `git commit -m "Register team integrations centrally in Python"`.
@@ -67,15 +71,17 @@
 
 **Interfaces:** `collect_dataset(root: Path, dataset_id: str, registry: Registry) -> dict` and `collect_plan(path: Path, registry: Registry, *, model: bool=False) -> dict` return `{"scope": "dataset"|"plan", "ready": bool, "checks": [{"id": str,"area":str,"status":"ok"|"error"|"blocked","message":str,"remedy":str}]}`. Provider `doctor(cache: Path) -> list[dict]` performs read-only local pin/manifest/tool/image probes and returns component checks. `agent-opt doctor --dataset ID [--json]`, `agent-opt doctor --plan PATH [--json] [--model]` use these functions; no-argument `agent-opt doctor` retains existing binary list for compatibility. `--model` is the only actual model API probe.
 
-- [ ] **Step 1: Write red tests.** Unprepared dataset and missing model credentials produce nonzero `ready=false` with named remedial checks and exactly one JSON object. Register a temporary team dataset provider whose `doctor()` reads a prepared local fixture; monkeypatch every download/build/write API to raise, then verify `doctor --dataset` and `doctor --plan` do not call them or mutate directory fingerprints. Task 3 owns the concrete CVDP/v12 image/hash mismatch tests. For a fixture plan, validate Agent argv/editable/prompt source, registered harness/optimizer/evaluator, dataset, model configuration and budget; no Agent trial. Explicit `--model` alone may call the existing model probe.
+- [ ] **Step 1: Write red tests.** Unprepared dataset and missing model credentials for a model-using plan produce nonzero `ready=false` with named remedial checks and exactly one JSON object; the API-free minimal plan has no model-credential requirement. Register a temporary team dataset provider whose `doctor()` reads a prepared local fixture; monkeypatch download/build/write/evaluator-`validate_benchmark`/`runner.preflight` APIs to raise, then verify `doctor --dataset` and `doctor --plan` do not call them or mutate directory fingerprints. Task 3 owns concrete CVDP/v12 image/hash mismatch tests. For a fixture plan, statically validate declared Agent argv/output/editable/prompt source, registered harness/optimizer/evaluator, dataset and budget; no Agent trial or evaluator container. Explicit `--model` alone may call the existing model probe.
   ```python
+  before_files = {str(p): p.read_bytes() for p in root.rglob("*") if p.is_file()}
   report = collect_plan(plan_path, Registry())
+  after_files = {str(p): p.read_bytes() for p in root.rglob("*") if p.is_file()}
   self.assertFalse(report["ready"])
   self.assertIn("model.configuration", {row["id"] for row in report["checks"]})
   self.assertEqual(before_files, after_files)
   ```
 - [ ] **Step 2: Observe red.** Run `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_cli_experience.py -v` and `-p test_datasets.py -v`.
-- [ ] **Step 3: Implement shared checks and CLI.** Read `load_experiment` inputs without creating run directories, use validated central registry identities, `ModelSettings.from_env()` only to check configuration presence, and provider `doctor()` to inspect cached local assets without acquisition. Disable interpreter bytecode writes during doctor plugin imports. For plan checks, report invalid schema as a structured failure instead of losing other independent checks; never treat missing evaluator or model as a passing baseline. Reuse `readiness.py` from developer doctor in Task 4; Task 3 fills in each benchmark's detailed checks.
+- [ ] **Step 3: Implement shared checks and CLI.** Read `load_experiment` inputs without creating run directories, use validated central registry identities and provider `doctor()` to inspect cached assets. Perform new STATIC checks rather than calling `runner.preflight`/`Evaluator.validate_benchmark`, which may run Docker/evaluator code. Only when selected optimizer/harness needs a model, use `ModelSettings.from_env()` to check configuration presence (never call `complete` absent `--model`). Disable interpreter bytecode writes during doctor plugin imports. For plan checks, report invalid schema as a structured failure instead of losing other independent checks; never treat missing evaluator or model as a passing baseline. Reuse `readiness.py` from developer doctor in Task 4; Task 3 fills in benchmark detail.
   ```python
   def check(identifier: str, area: str, ok: bool, message: str, remedy: str) -> dict:
       return {"id": identifier, "area": area, "status": "ok" if ok else "error",
@@ -88,9 +94,9 @@
 
 **Files:** Modify `examples/ace-rtl/environment/{setup,diagnostics}.py` (diagnostics only if needed for reuse), `examples/benchmarks/{cvdp,verilog_eval}.py`; update `tests/{test_datasets,test_dev_environment,test_dev_doctor,test_verilog_live}.py`.
 
-**Interfaces:** `prepare_evaluation_environment(*, offline: bool=False, platform: str|None=None) -> tuple[Path,dict]` in `examples/ace-rtl/environment/setup.py` reuses existing pinned CVDP/HF download, Python 3.12 driver and official evaluation image; writes a separate dataset-evaluation lock under the provider cache, never the ACE full lock. Existing `prepare_environment` keeps the full ACE Agent image path and full lock untouched. `examples/benchmarks/cvdp.py:Provider.prepare` calls evaluation-only helper, `Provider.doctor(cache)` compares pinned data/driver/image lock. Verilog providers' `doctor(cache)` checks pinned checkout + imported tasks + prepared image identity and v12 runtime without downloads.
+**Interfaces:** `prepare_evaluation_environment(*, offline: bool=False, platform: str|None=None, cache: Path) -> tuple[Path,dict]` in `examples/ace-rtl/environment/setup.py` fetches only the pinned CVDP checkout, HF data, Python 3.12 driver and official evaluation image; writes a separate dataset-evaluation lock under the provider cache, never the ACE full lock. Existing `prepare_environment` retains ACE source, OpenCode Agent image and full lock. `examples/benchmarks/cvdp.py:Provider.prepare` calls evaluation-only helper and returns registered evaluator ID `cvdp`; `Provider.doctor(cache)` compares pinned data/driver/evaluation image lock. Verilog providers return evaluator ID `verilog_eval` and their `doctor(cache)` checks pinned checkout/imported tasks/prepared immutable v12 image ID and provenance without downloads or container startup.
 
-- [ ] **Step 1: Write red tests.** Patch only external Git/HF/uv/Docker commands, call the CVDP provider and assert no OpenCode Agent-image `docker build`/image-inspect and no ACE full lock replacement; call old `prepare_environment` and assert it still prepares both images. After a verified cache setup, call both providers' doctors offline and verify existing file digests/mtimes unchanged, then mutate one hash/image ID and expect `ready=false` with a concrete repair. Preserve private Verilog refs outside task files.
+- [ ] **Step 1: Write red tests.** Patch only external Git/HF/uv/Docker commands, call the CVDP provider and assert it clones no ACE source, calls no OpenCode Agent-image `docker build`/image-inspect, and never replaces the full ACE lock; call old `prepare_environment` and assert it still prepares both images. After a verified cache setup, call both providers' doctors offline and verify existing file digests/mtimes unchanged, then mutate one hash/image ID and expect `ready=false` with concrete repair. Preserve private Verilog refs outside task files.
   ```python
   result = Provider().prepare(cache, offline=True)
   self.assertIn("evaluation", result["provenance"])
@@ -101,7 +107,7 @@
 - [ ] **Step 3: Implement evaluation-only path.** Extract shared existing CVDP steps without duplicating SHA/locks or changing full ACE behavior; use a separate provider cache/lock and only the official evaluation Docker image. Validate simulator source SHA/tool version/cache identity before marking ready. Verilog doctor checks v12 image ID/checkout and private test/ref completeness by read-only probes; unavailable tools yield `error`, never an unverified success.
   ```python
   # Full ACE keeps its existing Agent image; selected CVDP does not request it.
-  dataset, evaluation_lock = prepare_evaluation_environment(offline=offline)
+  dataset, evaluation_lock = prepare_evaluation_environment(offline=offline, cache=cache)
   return {"benchmark": str(import_public_tasks(dataset)),
           "evaluator": "cvdp", "provenance": {"evaluation": evaluation_lock}}
   ```
@@ -114,12 +120,14 @@
 
 **Interfaces:** `make setup ARGS="--dataset verilog-spec"`, `make setup ARGS="--dataset cvdp --offline"`, and `make doctor ARGS="--dataset verilog-spec --json"` accept exact registered IDs, reject `--core` mixed with `--dataset`, and leave no-argument ACE/core semantics intact. `scripts/dev.py setup --dataset` calls `Registry.load_project` and the selected provider's `prepare`, then shared `readiness.collect_dataset` before reporting success; `scripts/dev_doctor.py` combines existing network/core checks with the same dataset checks under the `dataset` area. Menu adds a general Agent TUI item that executes `.venv/bin/agent-opt tui` without changing ACE item behavior.
 
-- [ ] **Step 1: Write red tests.** Exercise Make/bootstrap/developer Python entrypoints with fake selected provider and bounded subprocesses: setup selects provider after core sync, does not require ACE Compose or build unrelated images; doctor --dataset --json produces one secret-free document and does not write, --core/--dataset conflicts before installer; unknown ID fails with advice. Menu routes the new number to `.venv/bin/agent-opt tui`, keeps existing 1-7/0 semantics and propagates errors.
+- [ ] **Step 1: Write red tests.** Exercise Make/bootstrap/developer Python entrypoints with fake selected provider and bounded subprocesses: setup selects provider after core sync, does not require ACE Compose or build unrelated images; doctor --dataset --json produces one secret-free document and does not write, --core/--dataset conflicts and malformed dataset identifiers fail before installer; unknown but syntactically valid ID fails after core sync, before any dataset preparation. Menu routes the new number to `.venv/bin/agent-opt tui`, keeps existing 1-7/0 semantics and propagates errors.
   ```python
+  before = {str(p) for p in root.rglob("*")}
   proc = subprocess.run(["sh", "scripts/bootstrap.sh", "doctor", "--dataset", "verilog-spec", "--json"],
                         capture_output=True, text=True, timeout=30, cwd=root)
   self.assertEqual(json.loads(proc.stdout)["scope"], "dataset")
-  self.assertNotIn("setup-logs", created_paths)
+  created_paths = {str(p) for p in root.rglob("*")} - before
+  self.assertFalse(any(p.endswith("/setup-logs") for p in created_paths))
   ```
 - [ ] **Step 2: Observe red.** Run `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_dev_onboarding.py -v`, `-p test_dev_doctor.py -v`, `-p test_menu.py -v`.
 - [ ] **Step 3: Implement argparse/Bootstrap dispatch.** POSIX parser handles `--dataset ID` and `--dataset=ID`, validates identifiers and conflicts before installers, and defers Docker/Compose requirements until the selected provider's setup. Python dev commands reuse `readiness` and central Registry; menu TUI entry keeps no work on startup and handles missing venv/TTY and child failure. `--core` and no-argument full ACE remain unchanged.
