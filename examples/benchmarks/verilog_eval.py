@@ -94,7 +94,7 @@ class Provider:
         output = cache / ("verilog-eval-" + self.mode) / "tasks.json"
         write_json(output, document)
         return {"benchmark": str(output),
-                "evaluator": "examples/benchmarks/verilog_evaluator.py:VerilogEvaluator",
+                "evaluator": "verilog_eval",
                 "evaluation_runtime": runtime["runtime"],
                 "evaluator_config": {"image_id": runtime["image_id"]},
                 "provenance": {"url": self.url, "revision": self.revision,
