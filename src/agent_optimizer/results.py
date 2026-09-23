@@ -17,15 +17,19 @@ def write_json(path: Path, value) -> None:
 
 
 class EventStore:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, on_event=None):
         self.path = path
         self.lock = threading.Lock()
+        self.on_event = on_event
 
     def append(self, value) -> None:
         with self.lock, self.path.open("a", encoding="utf-8") as stream:
             record = {"schema_version": 1, "timestamp": datetime.now(timezone.utc).isoformat(),
                       **jsonable(value)}
             stream.write(json.dumps(record, ensure_ascii=False, allow_nan=False) + "\n")
+            stream.flush()
+        if self.on_event is not None:
+            self.on_event(record)
 
 
 

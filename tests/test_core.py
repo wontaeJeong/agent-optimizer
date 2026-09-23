@@ -166,9 +166,9 @@ class ExperimentTests(unittest.TestCase):
             self.assertEqual(summary["trials_used"], 1)
             self.assertTrue(list(run.rglob("result.json")))
 
-    def test_planned_optimizer_never_falls_back(self):
+    def test_unregistered_optimizer_never_falls_back(self):
         spec = load_experiment(ROOT / "examples/minimal/experiment.toml")
-        spec["stages"] = [{"id": "research", "optimizer": "gepa"}]
+        spec["stages"] = [{"id": "research", "optimizer": "unregistered_research"}]
         spec["final_stages"] = ["research"]
         with self.assertRaises(UnavailableError):
             preflight(spec, Registry())
