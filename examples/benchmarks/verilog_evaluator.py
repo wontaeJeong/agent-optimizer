@@ -2,15 +2,22 @@
 from __future__ import annotations
 
 import os
+import json
 import re
 import shutil
 import subprocess
+import time
 from pathlib import Path
 
 from agent_optimizer.contracts import ConfigurationError, Evaluation, UnavailableError
+from agent_optimizer.datasets import acquire_pinned_git
 from agent_optimizer.process import execute, run_process
 from agent_optimizer.workspace import safe_path
-from examples.benchmarks.verilog_eval import REVISION
+
+# Keep this evaluator importable as an explicit file plugin outside the repository's cwd.
+# The prepared benchmark metadata must agree with this reviewed source pin.
+REVISION = "c498220d0a52248f8e3fdffe279075215bde2da6"
+SOURCE_URL = "https://github.com/NVlabs/verilog-eval.git"
 
 
 class VerilogEvaluator:
@@ -22,17 +29,6 @@ class VerilogEvaluator:
             raise ConfigurationError("Verilog-Eval requires imported, real tasks")
         if metadata.get("source_revision") != REVISION:
             raise ConfigurationError("Verilog-Eval source revision differs from the reviewed pin")
-        for task in tasks:
-            data = task.evaluation
-            if data.get("mode") not in {"spec-to-rtl", "code-complete-iccad2023"}:
-                raise ConfigurationError("Unsupported Verilog-Eval task mode")
-            if not data.get("source_dir") or not data.get("problem_id"):
-                raise ConfigurationError("Verilog-Eval requires pinned source and problem ID")
-            tree = Path(data["source_dir"])
-            directory = safe_path(tree, "dataset_" + data["mode"])
-            for suffix in ("_test.sv", "_ref.sv"):
-                if not safe_path(directory, data["problem_id"] + suffix).is_file():
-                    raise UnavailableError("Verilog-Eval private testbench is missing")
         if self.runtime.get("kind", "local") == "docker":
             image = self.runtime["image"]
             command = ["docker", "image", "inspect", image]
@@ -42,11 +38,42 @@ class VerilogEvaluator:
             probe = subprocess.run(command, capture_output=True, text=True, timeout=15, shell=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise UnavailableError("Verilog-Eval requires an Icarus v12 evaluation runtime") from exc
-        if probe.returncode or (self.runtime.get("kind", "local") != "docker" and
-                                not re.search(r"Icarus Verilog version 12\b", probe.stdout + probe.stderr)):
+        if probe.returncode:
             raise UnavailableError("Verilog-Eval requires an installed Icarus v12 evaluation runtime")
+        if self.runtime.get("kind", "local") == "docker":
+            if self.runtime.get("image_id"):
+                try:
+                    observed = json.loads(probe.stdout)[0]["Id"]
+                except (ValueError, TypeError, KeyError, IndexError):
+                    raise UnavailableError("Cannot inspect Verilog-Eval Docker image identity") from None
+                if observed != self.runtime["image_id"]:
+                    raise ConfigurationError("Verilog-Eval Docker image differs from prepared identity")
+            try:
+                probe = subprocess.run(["docker", "run", "--rm", "--network", "none", "--pull", "never",
+                                        image, "iverilog", "-V"], capture_output=True, text=True,
+                                       timeout=30, shell=False)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                raise UnavailableError("Verilog-Eval Icarus v12 runtime could not start") from exc
+        if probe.returncode or not re.search(r"Icarus Verilog version 12\b", probe.stdout + probe.stderr):
+            raise UnavailableError("Verilog-Eval requires an installed Icarus v12 evaluation runtime")
+        seen = set()
+        for task in tasks:
+            data = task.evaluation
+            if data.get("mode") not in {"spec-to-rtl", "code-complete-iccad2023"}:
+                raise ConfigurationError("Unsupported Verilog-Eval task mode")
+            if not data.get("source_dir") or not data.get("problem_id"):
+                raise ConfigurationError("Verilog-Eval requires pinned source and problem ID")
+            tree = Path(data["source_dir"])
+            if tree not in seen:
+                acquire_pinned_git(tree, SOURCE_URL, REVISION, offline=True)
+                seen.add(tree)
+            directory = safe_path(tree, "dataset_" + data["mode"])
+            for suffix in ("_test.sv", "_ref.sv"):
+                if not safe_path(directory, data["problem_id"] + suffix).is_file():
+                    raise UnavailableError("Verilog-Eval private testbench is missing")
 
     def evaluate(self, task, output_dir: Path, timeout_seconds: float) -> Evaluation:
+        deadline = time.monotonic() + timeout_seconds
         candidate = safe_path(output_dir, "solution.sv")
         if not candidate.is_file() or not candidate.read_text(encoding="utf-8").strip():
             return Evaluation("failed", {"passed": 0.0}, "RTL solution missing")
@@ -54,6 +81,7 @@ class VerilogEvaluator:
         if re.search(r"\$(?:display|write|monitor|finish|stop|fatal|system|readmemh|readmemb)\b", content):
             return Evaluation("failed", {"passed": 0.0}, "Candidate contains unsupported simulation control")
         data = task.evaluation
+        acquire_pinned_git(Path(data["source_dir"]), SOURCE_URL, REVISION, offline=True)
         source = safe_path(Path(data["source_dir"]), "dataset_" + data["mode"])
         scoring = output_dir.parent / "verilog_evaluation"
         scoring.mkdir(exist_ok=False)
@@ -62,21 +90,27 @@ class VerilogEvaluator:
             shutil.copyfile(safe_path(source, data["problem_id"] + suffix), scoring / target)
         argv = ["iverilog", "-Wall", "-Winfloop", "-Wno-timescale", "-g2012", "-s", "tb",
                 "-o", "simv", "solution.sv", "test.sv", "ref.sv"]
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return Evaluation("timeout", {"passed": 0.0}, "Verilog-Eval trial deadline exhausted")
         if self.runtime.get("kind", "local") == "docker":
-            compile_result = execute(argv, scoring, scoring / "compile_logs", timeout_seconds, self.runtime)
+            compile_result = execute(argv, scoring, scoring / "compile_logs", remaining, self.runtime)
         else:
             argv[0] = os.environ.get("VERILOG_EVAL_IVERILOG", "iverilog")
-            compile_result = run_process(argv, scoring, scoring / "compile_logs", timeout_seconds,
+            compile_result = run_process(argv, scoring, scoring / "compile_logs", remaining,
                                          env={key: os.environ[key] for key in ("PATH", "HOME", "TMPDIR") if key in os.environ})
         if compile_result.status != "completed":
             status = "failed" if compile_result.status == "process_error" else compile_result.status
             return Evaluation(status, {"passed": 0.0 if status in {"failed", "timeout"} else None},
                               "Verilog-Eval compile did not complete")
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return Evaluation("timeout", {"passed": 0.0}, "Verilog-Eval trial deadline exhausted")
         if self.runtime.get("kind", "local") == "docker":
-            run = execute(["vvp", "simv"], scoring, scoring / "run_logs", timeout_seconds, self.runtime)
+            run = execute(["vvp", "simv"], scoring, scoring / "run_logs", remaining, self.runtime)
         else:
             run = run_process([os.environ.get("VERILOG_EVAL_VVP", "vvp"), "simv"], scoring,
-                              scoring / "run_logs", timeout_seconds,
+                              scoring / "run_logs", remaining,
                               env={key: os.environ[key] for key in ("PATH", "HOME", "TMPDIR") if key in os.environ})
         if run.status != "completed":
             return Evaluation("timeout" if run.status == "timeout" else "infrastructure_error",

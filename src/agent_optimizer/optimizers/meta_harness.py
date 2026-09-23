@@ -10,20 +10,20 @@ from agent_optimizer.optimizers.research import propose_text
 from agent_optimizer.workspace import safe_path
 
 
-def _score(view: dict, metric: str) -> float:
+def _score(view: dict, metric: str, direction: str = "maximize") -> float:
     if not view["valid"]:
         raise UnavailableError("Meta-Harness requires valid validation tasks")
     values = [task["metrics"].get(metric) for task in view["tasks"]]
     if not values or any(type(value) not in (int, float) or not math.isfinite(value)
                          for value in values):
         raise UnavailableError(f"Meta-Harness requires finite per-task {metric} scores")
-    return sum(values) / len(values)
+    return sum(values) / len(values) * (1 if direction == "maximize" else -1)
 
 
 class MetaHarnessOptimizer:
     def optimize(self, context, seeds, config) -> OptimizationResult:
         only_keys(config, {"file", "iterations", "metric", "request_timeout_seconds",
-                           "required_symbol"}, "Meta-Harness optimizer")
+                           "required_symbol", "direction"}, "Meta-Harness optimizer")
         filename = config.get("file")
         if len(seeds) != 1 or not isinstance(filename, str) or not filename.endswith(".py"):
             raise ConfigurationError("Meta-Harness requires one seed and an editable .py harness file")
@@ -36,9 +36,12 @@ class MetaHarnessOptimizer:
         if required is not None and (not isinstance(required, str) or not required.isidentifier()):
             raise ConfigurationError("Meta-Harness required_symbol must be a Python identifier")
         metric = config.get("metric", "passed")
+        direction = config.get("direction", "maximize")
+        if direction not in {"maximize", "minimize"}:
+            raise ConfigurationError("Meta-Harness direction must be maximize or minimize")
         current = seeds[0]
         context.evaluate(current)
-        best = _score(context.evaluate_validation(current), metric)
+        best = _score(context.evaluate_validation(current), metric, direction)
         records = []
         for iteration in range(1, iterations + 1):
             context.emit("optimizer_iteration_started", iteration=iteration, total=iterations,
@@ -65,7 +68,7 @@ class MetaHarnessOptimizer:
                              candidate_id=candidate.id, status="invalid_interface")
                 continue
             context.evaluate(candidate)
-            score = _score(context.evaluate_validation(candidate), metric)
+            score = _score(context.evaluate_validation(candidate), metric, direction)
             accepted = score > best
             if accepted:
                 current, best = candidate, score
@@ -75,4 +78,4 @@ class MetaHarnessOptimizer:
             context.emit("optimizer_iteration_completed", iteration=iteration, total=iterations,
                          candidate_id=candidate.id, accepted=accepted)
         return OptimizationResult([current], {"iterations": records, "frontier": [current.id],
-                                              "validation_score": best})
+                                              "validation_score": best if direction == "maximize" else -best})

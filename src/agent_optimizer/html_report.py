@@ -207,6 +207,7 @@ def write_html_report(root: Path, summary: dict) -> Path:
               f'<p><strong>Benchmark SHA-256:</strong> <code>{text(manifest.get("benchmark_sha256", "—"))}</code></p>',
               '<details><summary>Source locks, models and plugin hashes</summary><pre>' + text(
                   json.dumps({"agents": manifest.get("agents", []),
+                              "dataset_provenance": manifest.get("benchmark", {}).get("dataset_provenance", {}),
                               "models": manifest.get("resolved_models", {}),
                               "plugin_sha256": manifest.get("plugin_sha256", {}),
                               "extensions_sha256": manifest.get("extensions_sha256")},
@@ -218,5 +219,40 @@ def write_html_report(root: Path, summary: dict) -> Path:
     target = root / "report.html"
     temporary = root / "report.html.tmp"
     temporary.write_text("\n".join(parts), encoding="utf-8")
+    temporary.replace(target)
+    return target
+
+
+def write_session_index(root: Path, entries: list[dict]) -> Path:
+    """Link separate dataset experiments without comparing incompatible scores."""
+    cards = []
+    for item in entries:
+        link = '<span class="subtle">No report produced</span>'
+        if item.get("report"):
+            try:
+                target = safe_path(root, item["report"])
+            except ConfigurationError:
+                target = None
+            if target is not None and target.is_file():
+                link = (f'<a href="{text(quote(item["report"], safe="/"))}">'
+                        'Open dataset report ↗</a>')
+        cards.append('<div class="card"><span class="eyebrow">Dataset</span>'
+                     f'<strong>{text(item.get("dataset", ""), 200)}</strong>'
+                     f'<span>Status: {text(item.get("status", "unknown"))}</span><p>{link}</p>'
+                     + (f'<p class="bad">{text(item["error"], 500)}</p>' if item.get("error") else '')
+                     + '</div>')
+    document = ('<!doctype html><html lang="en"><head><meta charset="utf-8">'
+                '<meta name="viewport" content="width=device-width,initial-scale=1">'
+                '<meta http-equiv="Content-Security-Policy" '
+                'content="default-src \'none\'; style-src \'unsafe-inline\'">'
+                f'<title>Agent Optimizer · Dataset session</title><style>{STYLE}</style></head>'
+                '<body><header><div class="eyebrow">Agent Optimizer / Dataset session</div>'
+                '<h1>Independent evaluations</h1><p class="lede">Each dataset uses its own '
+                'scorer. Do not rank scores from different evaluators as directly comparable.</p>'
+                '</header><main><div class="cards">' + ''.join(cards) + '</div></main>'
+                '<footer><a href="summary.json">Session summary.json</a></footer></body></html>')
+    temporary = root / "index.html.tmp"
+    temporary.write_text(document, encoding="utf-8")
+    target = root / "index.html"
     temporary.replace(target)
     return target

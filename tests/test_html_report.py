@@ -10,6 +10,7 @@ from agent_optimizer.config import load_experiment
 from agent_optimizer.contracts import Evaluation, UnavailableError
 from agent_optimizer.registry import Registry
 from agent_optimizer.runner import run_experiment
+from agent_optimizer.html_report import write_html_report
 from support import test_project
 
 
@@ -23,12 +24,19 @@ class HTMLReportTests(unittest.TestCase):
     def test_completed_report_shows_splits_timeline_usage_and_candidate_links(self):
         run, summary = run_experiment(self.spec, Registry(), self.root / "runs")
         self.assertEqual(summary["status"], "completed")
+        manifest_path = run / "manifest.json"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["benchmark"]["dataset_provenance"] = {"image_id": "sha256:checked",
+                                                       "revision": "verified-source"}
+        manifest_path.write_text(json.dumps(manifest))
+        write_html_report(run, summary)
         page = (run / "report.html").read_text(encoding="utf-8")
         for detail in ("Agent Optimizer", "Baseline", "validation", "test", "Slowest tasks",
                        "fixture-validation", "Optimizer usage", "Candidate changes"):
             with self.subTest(detail=detail):
                 self.assertIn(detail, page)
         self.assertIn("changes.diff", page)
+        self.assertIn("sha256:checked", page)
         self.assertNotIn('src="https://', page)
         output = io.StringIO()
         with contextlib.redirect_stdout(output):

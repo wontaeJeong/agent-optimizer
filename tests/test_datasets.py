@@ -5,17 +5,19 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from agent_optimizer.config import validate_runtime
 from agent_optimizer.contracts import ConfigurationError
 from agent_optimizer.datasets import CustomDataset, acquire_pinned_git
-from agent_optimizer.contracts import UnavailableError
-from agent_optimizer.contracts import Task
+from agent_optimizer.contracts import ExecutionResult, Task, UnavailableError
 from examples.benchmarks.verilog_eval import REVISION, Provider, import_verilog_eval, prepare_runtime, split_families
 from examples.benchmarks.verilog_evaluator import VerilogEvaluator
+from examples.benchmarks import cvdp as cvdp_provider
 from examples.benchmarks.cvdp import import_cvdp
 from test_dev_environment import official_row
+from support import module, ROOT
 
 
 class DatasetTests(unittest.TestCase):
@@ -91,6 +93,7 @@ class DatasetTests(unittest.TestCase):
         self.assertEqual(prepared["evaluator"], "examples/benchmarks/verilog_evaluator.py:VerilogEvaluator")
         self.assertEqual(len(document["tasks"]), 4)
         self.assertEqual(prepared["evaluation_runtime"]["image"], "verified-v12")
+        self.assertEqual(prepared["evaluator_config"]["image_id"], "sha256:verified")
         with patch("examples.benchmarks.verilog_eval.prepare_runtime",
                    return_value={"runtime": {"kind": "docker", "image": "verified-v12"},
                                  "image_id": "sha256:verified"}):
@@ -128,6 +131,79 @@ class DatasetTests(unittest.TestCase):
             VerilogEvaluator({"kind": "docker", "image": "local-test"}).validate_benchmark(
                 [task], {"source_revision": "unreviewed"})
 
+    def test_verilog_evaluator_rejects_changed_private_checker_before_scoring(self):
+        tool = self.root / "iverilog"
+        tool.write_text("#!/usr/bin/env python3\nprint('Icarus Verilog version 12.0')\n")
+        tool.chmod(0o755)
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        subprocess.run(["git", "-C", str(self.root), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(self.root), "-c", "user.name=Test",
+                        "-c", "user.email=test@example.invalid", "commit", "-qm", "fixture"], check=True)
+        revision = subprocess.check_output(["git", "-C", str(self.root), "rev-parse", "HEAD"], text=True).strip()
+        (self.root / "dataset_spec-to-rtl/Prob001_task_test.sv").write_text("modified checker")
+        task = Task(id="Prob001_task", split="validation", family="Prob001_task",
+                    prompt="Implement", files={"solution.sv": ""},
+                    evaluation={"source_dir": str(self.root), "problem_id": "Prob001_task",
+                                "mode": "spec-to-rtl"})
+        with patch("examples.benchmarks.verilog_evaluator.REVISION", revision), \
+                patch.dict(os.environ, {"VERILOG_EVAL_IVERILOG": str(tool)}):
+            with self.assertRaisesRegex(ConfigurationError, "differs"):
+                VerilogEvaluator({"kind": "local"}).validate_benchmark(
+                    [task], {"source_revision": revision})
+
+    def test_verilog_evaluator_rechecks_docker_v12_before_a_later_run(self):
+        task = Task(id="Prob001_task", split="validation", family="Prob001_task",
+                    prompt="Implement", files={"solution.sv": ""},
+                    evaluation={"source_dir": str(self.root), "problem_id": "Prob001_task",
+                                "mode": "spec-to-rtl"})
+        image = subprocess.CompletedProcess(["docker", "image", "inspect"], 0,
+                                            '[{"Id":"sha256:local"}]', "")
+        wrong_version = subprocess.CompletedProcess(["docker", "run"], 0,
+                                                    "Icarus Verilog version 13.0", "")
+        with patch("examples.benchmarks.verilog_evaluator.subprocess.run",
+                   side_effect=[image, wrong_version]):
+            with self.assertRaisesRegex(UnavailableError, "v12"):
+                VerilogEvaluator({"kind": "docker", "image": "misleading-v12"}).validate_benchmark(
+                    [task], {"source_revision": REVISION})
+
+    def test_verilog_evaluator_refuses_changed_pinned_image_identity(self):
+        task = Task(id="Prob001_task", split="validation", family="Prob001_task",
+                    prompt="Implement", files={"solution.sv": ""},
+                    evaluation={"source_dir": str(self.root), "problem_id": "Prob001_task",
+                                "mode": "spec-to-rtl"})
+        changed = subprocess.CompletedProcess(["docker", "image", "inspect"], 0,
+                                              '[{"Id":"sha256:changed"}]', "")
+        with patch("examples.benchmarks.verilog_evaluator.subprocess.run", return_value=changed):
+            with self.assertRaisesRegex(ConfigurationError, "image"):
+                VerilogEvaluator({"kind": "docker", "image": "local-v12",
+                                  "image_id": "sha256:prepared"}).validate_benchmark(
+                    [task], {"source_revision": REVISION})
+
+    def test_verilog_compile_and_simulation_share_one_trial_deadline(self):
+        task = Task("Prob001_task", "validation", "Implement", {"solution.sv": ""},
+                    {"source_dir": str(self.root), "problem_id": "Prob001_task", "mode": "spec-to-rtl"})
+        output_dir = self.root / "outputs" / "candidate"
+        output_dir.mkdir(parents=True)
+        (output_dir / "solution.sv").write_text("module TopModule(output zero); assign zero=0; endmodule")
+        now = [100.0]
+        seen = []
+
+        def execute(argv, workspace, logs, timeout, runtime):
+            seen.append((argv[0], timeout))
+            logs.mkdir(parents=True)
+            stdout = logs / "stdout.log"
+            stdout.write_text("Mismatches: 0 in 20 samples\n" if argv[0] == "vvp" else "")
+            if argv[0] == "iverilog":
+                now[0] += 4.0
+            return ExecutionResult("completed", 0, 0, str(stdout), str(logs / "stderr.log"))
+
+        with patch("examples.benchmarks.verilog_evaluator.acquire_pinned_git", return_value=self.root), \
+                patch("examples.benchmarks.verilog_evaluator.execute", side_effect=execute), \
+                patch("time.monotonic", side_effect=lambda: now[0]):
+            result = VerilogEvaluator({"kind": "docker", "image": "fixture"}).evaluate(task, output_dir, 10)
+        self.assertEqual(result.status, "passed")
+        self.assertEqual(seen, [("iverilog", 10), ("vvp", 6)])
+
     def test_cvdp_importer_uses_reviewed_rows_and_family_disjoint_splits(self):
         rows = []
         for index in range(4):
@@ -142,6 +218,46 @@ class DatasetTests(unittest.TestCase):
         self.assertEqual(len(manifest["tasks"]), 4)
         self.assertNotIn("PRIVATE_CHECKER", json.dumps([task["files"] for task in manifest["tasks"]]))
 
+    def test_cvdp_provider_preserves_prepared_evaluation_image_for_later_runs(self):
+        data = self.root / "no_commercial.jsonl"
+        rows = []
+        for number in range(3):
+            row = official_row()
+            row["id"] = f"cvdp_copilot_{number:04d}"
+            rows.append(row)
+        data.write_text("\n".join(json.dumps(row) for row in rows) + "\n")
+        original_load = cvdp_provider._load
+
+        def reviewed_or_fixture(path, name):
+            if path.name == "setup.py":
+                return SimpleNamespace(prepare_environment=lambda **options:
+                                       (data, {"images": {"evaluation": {"tag": "pinned-sim:v1",
+                                                                           "id": "sha256:pinned"}}}))
+            return original_load(path, name)
+
+        with patch.object(cvdp_provider, "_load", side_effect=reviewed_or_fixture):
+            result = cvdp_provider.Provider().prepare(self.root / "cache")
+        self.assertEqual(result["evaluator_config"]["sim_image"], "pinned-sim:v1")
+        self.assertEqual(result["evaluator_config"]["sim_image_id"], "sha256:pinned")
+        self.assertTrue(result["evaluator_config"]["python"].endswith("cvdp-venv/bin/python"))
+
+    def test_cvdp_evaluator_rejects_changed_prepared_image(self):
+        repo = self.root / "cvdp"
+        repo.mkdir()
+        (repo / "run_benchmark.py").write_text("# fixture\n")
+        driver = self.root / "python"
+        driver.write_text("# fixture\n")
+        evaluator = module("cvdp_image_check", ROOT / "examples/ace-rtl/evaluator.py").CVDPEvaluator(
+            {"repo": str(repo), "python": str(driver), "sim_image": "prepared:v1",
+             "sim_image_id": "sha256:prepared"})
+        task = Task("one", "validation", "implement", {"rtl/dut.sv": ""},
+                    {"row": official_row(), "targets": ["rtl/dut.sv"]})
+        changed = subprocess.CompletedProcess(["docker", "image", "inspect"], 0,
+                                              '[{"Id":"sha256:changed"}]', "")
+        with patch("cvdp_image_check.subprocess.run", return_value=changed):
+            with self.assertRaisesRegex(ConfigurationError, "image"):
+                evaluator.validate_benchmark([task], {"synthetic": False})
+
     def test_custom_dataset_requires_scorer_and_records_a_stable_family_split(self):
         source = self.root / "custom.json"
         source.write_text(json.dumps({"schema_version": 1, "tasks": [
@@ -155,6 +271,17 @@ class DatasetTests(unittest.TestCase):
         self.assertEqual({task["split"] for task in result["tasks"]},
                          {"train", "validation", "test"})
         self.assertEqual(prepared["evaluator"], "team_eval")
+
+    def test_invalid_custom_split_cannot_publish_a_benchmark(self):
+        source = self.root / "leaky.json"
+        source.write_text(json.dumps({"schema_version": 1, "tasks": [
+            {"id": f"t{index}", "family": "same", "split": split, "prompt": "Answer",
+             "files": {"input.txt": str(index)}, "evaluation": {"expected": str(index)}}
+            for index, split in enumerate(("train", "validation"))]}))
+        output = self.root / "cache/custom/leaky.json"
+        with self.assertRaisesRegex(ConfigurationError, "leaks"):
+            CustomDataset(source, evaluator="team_eval").prepare(self.root / "cache")
+        self.assertFalse(output.exists())
 
 
 if __name__ == "__main__":

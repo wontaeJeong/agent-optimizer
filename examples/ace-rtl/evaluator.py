@@ -33,15 +33,31 @@ def cleanup_network(network, logs):
 
 class CVDPEvaluator:
     def __init__(self, config=None):
-        self.repo = Path(os.environ.get("CVDP_REPO", "external/cvdp_benchmark")).resolve()
+        config = config or {}
+        self.repo = Path(config.get("repo", os.environ.get("CVDP_REPO", "external/cvdp_benchmark"))).resolve()
         # Resolving a venv's Python symlink bypasses pyvenv.cfg and its dependencies.
-        self.python = Path(os.environ.get("CVDP_PYTHON", "external/cvdp-venv/bin/python")).absolute()
+        self.python = Path(config.get("python", os.environ.get("CVDP_PYTHON", "external/cvdp-venv/bin/python"))).absolute()
+        self.sim_image = config.get("sim_image", os.environ.get("OSS_SIM_IMAGE"))
+        self.sim_image_id = config.get("sim_image_id")
 
     def validate_benchmark(self, tasks, metadata):
         if metadata.get("synthetic"):
             raise ConfigurationError("CVDP requires real benchmark rows")
         if not (self.repo / "run_benchmark.py").is_file() or not self.python.is_file():
             raise UnavailableError("Run examples/ace-rtl/setup.sh first")
+        if self.sim_image_id:
+            if not self.sim_image:
+                raise ConfigurationError("Pinned CVDP evaluation image tag is missing")
+            try:
+                inspection = subprocess.run(["docker", "image", "inspect", self.sim_image],
+                                            capture_output=True, text=True, timeout=15, shell=False)
+                if inspection.returncode:
+                    raise UnavailableError("Prepared CVDP evaluation image is unavailable")
+                observed = json.loads(inspection.stdout)[0]["Id"]
+            except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, IndexError) as exc:
+                raise UnavailableError("Cannot verify CVDP evaluation image") from exc
+            if observed != self.sim_image_id:
+                raise ConfigurationError("CVDP evaluation image differs from prepared identity")
         for task in tasks:
             if "row" not in task.evaluation or "targets" not in task.evaluation:
                 raise ConfigurationError("Use examples/ace-rtl/prepare.py")
@@ -69,6 +85,8 @@ class CVDPEvaluator:
             "OSS_SIM_IMAGE", "DOCKER_DEFAULT_PLATFORM",
         }}
         environment["OPENAI_USER_KEY"] = ""
+        if self.sim_image:
+            environment["OSS_SIM_IMAGE"] = self.sim_image
         network_settings = network_environment()
         environment.update(network_settings)
         driver = [str(self.python)]

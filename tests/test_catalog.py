@@ -7,7 +7,7 @@ from pathlib import Path
 
 from agent_optimizer.catalog import load_extensions
 from agent_optimizer.config import load_experiment
-from agent_optimizer.contracts import ConfigurationError
+from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.registry import Registry
 from agent_optimizer.runner import run_experiment
 from support import test_project
@@ -70,6 +70,23 @@ class ExtensionCatalogTests(unittest.TestCase):
         manifest.write_text('schema_version = 0\n[plugins.datasets]\n', encoding="utf-8")
         with self.assertRaisesRegex(ConfigurationError, "schema_version"):
             load_extensions(manifest, self.root)
+
+    def test_missing_team_symbol_has_an_actionable_configuration_error(self):
+        manifest = self.team / "extensions.toml"
+        manifest.write_text('schema_version = 1\n[plugins.datasets]\n'
+                            'sample = "experiments/sample/dataset.py:MissingProvider"\n')
+        inventory = load_extensions(manifest, self.root)
+        with self.assertRaisesRegex(ConfigurationError, "sample.*MissingProvider"):
+            Registry().load_plugins(self.root, inventory["plugins"])
+
+    def test_missing_team_dependency_names_the_component(self):
+        (self.team / "dataset.py").write_text("import nonexistent_team_dataset_dependency\n")
+        manifest = self.team / "extensions.toml"
+        manifest.write_text('schema_version = 1\n[plugins.datasets]\n'
+                            'sample = "experiments/sample/dataset.py:Provider"\n')
+        inventory = load_extensions(manifest, self.root)
+        with self.assertRaisesRegex(UnavailableError, "datasets/sample"):
+            Registry().load_plugins(self.root, inventory["plugins"])
 
     def test_builtin_name_collision_rejected_before_team_code_runs(self):
         marker = self.root / "was-imported"

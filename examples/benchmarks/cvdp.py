@@ -53,5 +53,10 @@ class Provider:
         output = cache / "cvdp" / "tasks.json"
         write_json(output, document)
         return {"benchmark": str(output), "evaluator": "examples/ace-rtl/evaluator.py:CVDPEvaluator",
+                "evaluator_config": {"repo": str(ROOT / "external/cvdp_benchmark"),
+                                     "python": str(ROOT / "external/cvdp-venv/bin/python"),
+                                     "sim_image": lock["images"]["evaluation"]["tag"],
+                                     "sim_image_id": lock["images"]["evaluation"]["id"]},
                 "provenance": {"source_revision": SOURCE_REVISION,
-                               "dataset": lock.get("dataset"), "sha256": document["data_sha256"]}}
+                               "dataset": lock.get("dataset"), "sha256": document["data_sha256"],
+                               "image_id": lock["images"]["evaluation"]["id"]}}

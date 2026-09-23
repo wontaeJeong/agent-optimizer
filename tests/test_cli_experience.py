@@ -2,6 +2,10 @@
 import contextlib
 import io
 import json
+import os
+import subprocess
+import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -10,6 +14,7 @@ from agent_optimizer.cli import main
 from agent_optimizer.config import load_experiment
 from agent_optimizer.registry import Registry
 from agent_optimizer.runner import run_experiment
+from agent_optimizer.setup_wizard import _bounded_tasks, wizard_arguments, write_experiment
 from support import test_project
 
 
@@ -27,6 +32,19 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual(result, 0)
         names = {row["name"] for row in json.loads(output.getvalue())}
         self.assertEqual(names, {"cvdp", "verilog-spec", "verilog-completion"})
+
+    def test_dataset_inventory_works_from_outside_project_import_path(self):
+        package_root = Path(__file__).resolve().parents[1]
+        command = [sys.executable, "-c", "import sys; from agent_optimizer.cli import main; "
+                   "sys.exit(main(['datasets', 'list', '--project-root', sys.argv[1]]))",
+                   str(package_root)]
+        with tempfile.TemporaryDirectory() as elsewhere:
+            process = subprocess.run(command, cwd=elsewhere, capture_output=True, text=True,
+                                     env={**os.environ, "PYTHONPATH": str(package_root / "src")},
+                                     timeout=30, shell=False)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertEqual({row["name"] for row in json.loads(process.stdout)},
+                         {"cvdp", "verilog-spec", "verilog-completion"})
 
     def test_noninteractive_init_requires_explicit_dataset_without_creating_files(self):
         error = io.StringIO()
@@ -80,7 +98,7 @@ class CLIExperienceTests(unittest.TestCase):
         answers = ["wizard-demo", str(self.agent),
                    "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                    "configs/strategy.json", str(self.data),
-                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "1", "y"]
+                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1", "y"]
         with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", side_effect=answers), \
                 contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(output):
             self.assertEqual(main(["tui", "--project-root", str(self.root)]), 0)
@@ -100,6 +118,20 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertFalse((self.root / "runs").exists())
         self.assertEqual((self.agent / "configs/strategy.json").read_bytes(), before)
 
+    def test_wizard_accepts_glob_with_one_real_runtime_harness_file(self):
+        # The minimal fixture has one Python runtime scaffold under src/**.
+        answers = ["harness-demo", str(self.agent),
+                   "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
+                   "src/**", str(self.data),
+                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "5", "", "y"]
+        with patch("builtins.input", side_effect=answers), contextlib.redirect_stderr(io.StringIO()):
+            args = wizard_arguments(self.root)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        stage = load_experiment(self.root / "runs/configs/harness-demo/experiment.toml")["stages"][0]
+        self.assertEqual(stage["optimizer"], "meta_harness")
+        self.assertEqual(stage["config"]["file"], "src/fixture_agent.py")
+
     def test_init_preserves_pinned_git_agent_url_in_manifest(self):
         url = "https://example.invalid/team/agent.git"
         args = ["init", "--project-root", str(self.root), "--agent", url,
@@ -113,6 +145,131 @@ class CLIExperienceTests(unittest.TestCase):
         spec = load_experiment(self.root / "runs/configs/remote-demo/experiment.toml")
         self.assertEqual(spec["_agents"][0].source.url, url)
         self.assertEqual(spec["_agents"][0].source.revision, "a" * 40)
+
+    def test_init_resolves_single_editable_glob_to_a_concrete_gepa_target(self):
+        args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
+                "--name", "glob-demo", "--dataset", str(self.data),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--editable", "configs/**", "--optimizer", "gepa",
+                "--argv", "{python}", "{agent_dir}/src/fixture_agent.py", "{task_dir}", "--yes"]
+        error = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(error):
+            self.assertEqual(main(args), 0, error.getvalue())
+        spec = load_experiment(self.root / "runs/configs/glob-demo/experiment.toml")
+        self.assertEqual(spec["stages"][0]["config"]["file"], "configs/strategy.json")
+
+    def test_init_accepts_agent_argv_with_dash_prefixed_options_as_json(self):
+        arguments = ["{python}", "{agent_dir}/src/fixture_agent.py", "--target", "{task_dir}"]
+        args = ["init", "--project-root", str(self.root), "--name", "flag-demo",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "baseline", "--editable", "configs/strategy.json",
+                "--command-json", json.dumps(arguments), "--yes"]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        profile = load_experiment(self.root / "runs/configs/flag-demo/experiment.toml")["_profiles"][0]
+        self.assertEqual(profile["command"], arguments)
+
+    def test_stage_budget_is_sized_for_selected_tasks_not_entire_downloaded_dataset(self):
+        source = self.root / "large.json"
+        document = json.loads(self.data.read_text())
+        document["tasks"] = [dict(task, id=f"{task['id']}-{index}",
+                                  family=f"{task['family']}-{index}")
+                             for task in document["tasks"] for index in range(10)]
+        source.write_text(json.dumps(document))
+        args = ["init", "--project-root", str(self.root), "--name", "sampled",
+                "--agent", str(self.agent), "--dataset", str(source),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "gepa", "--max-tasks", "3", "--editable",
+                "configs/strategy.json", "--argv", "{python}",
+                "{agent_dir}/src/fixture_agent.py", "{task_dir}", "--yes"]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        spec = load_experiment(self.root / "runs/configs/sampled/experiment.toml")
+        self.assertEqual(len(spec["_tasks"]), 3)
+        self.assertLess(spec["stages"][0]["max_trials"], 20)
+
+    def test_small_sample_balances_train_validation_and_test(self):
+        document = json.loads(self.data.read_text())
+        document["tasks"] = [dict(task, id=f"{task['id']}-{index}",
+                                  family=f"{task['family']}-{index}")
+                             for task in document["tasks"] for index in range(10)]
+        sampled = _bounded_tasks(document, 9)
+        self.assertEqual({split: sum(task["split"] == split for task in sampled["tasks"])
+                          for split in ("train", "validation", "test")},
+                         {"train": 3, "validation": 3, "test": 3})
+
+    def test_user_can_bound_trial_and_walltime_before_running(self):
+        args = ["init", "--project-root", str(self.root), "--name", "bounded",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "baseline", "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--max-trials", "12", "--max-wall-time-seconds", "90",
+                "--trial-timeout-seconds", "20", "--yes"]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        spec = load_experiment(self.root / "runs/configs/bounded/experiment.toml")
+        self.assertEqual(spec["budget"], {"max_trials": 12,
+                                          "max_wall_time_seconds": 90,
+                                          "trial_timeout_seconds": 20})
+
+    def test_custom_evaluator_metric_is_used_by_objective_and_gepa(self):
+        args = ["init", "--project-root", str(self.root), "--name", "custom-metric",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--metric", "latency", "--direction", "minimize",
+                "--optimizer", "gepa", "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--yes"]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        spec = load_experiment(self.root / "runs/configs/custom-metric/experiment.toml")
+        self.assertEqual(spec["objective"]["metrics"][0],
+                         {"name": "latency", "source": "latency", "direction": "minimize",
+                          "aggregate": "mean"})
+        self.assertEqual(spec["stages"][0]["config"]["metric"], "latency")
+        self.assertEqual(spec["stages"][0]["config"]["direction"], "minimize")
+
+    def test_insufficient_trial_limit_does_not_publish_partial_experiment(self):
+        args = ["init", "--project-root", str(self.root), "--name", "too-small",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "baseline", "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--max-trials", "1", "--yes"]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 2)
+        self.assertFalse((self.root / "runs/configs/too-small").exists())
+
+    def test_invalid_team_optimizer_config_fails_before_preparing_data(self):
+        args = ["init", "--project-root", str(self.root), "--name", "bad-options",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "baseline", "--optimizer-config", "[]",
+                "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--yes"]
+        error = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(error):
+            self.assertEqual(main(args), 2)
+        self.assertIn("optimizer-config", error.getvalue())
+        self.assertFalse((self.root / "external").exists())
+
+    def test_gepa_trial_allowance_tracks_requested_iterations_and_merge(self):
+        args = ["init", "--project-root", str(self.root), "--name", "long-search",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "gepa",
+                "--optimizer-config", '{"gepa":{"iterations":6,"batch_size":1,"merge":true}}',
+                "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--yes"]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        spec = load_experiment(self.root / "runs/configs/long-search/experiment.toml")
+        self.assertEqual(spec["stages"][0]["config"]["iterations"], 6)
+        self.assertGreaterEqual(spec["stages"][0]["max_trials"], 15)
 
     def test_team_dataset_harness_and_optimizer_extend_wizard_without_core_edits(self):
         team = self.root / "experiments" / "future-team"
@@ -154,6 +311,105 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual(summary["status"], "completed")
         hashes = json.loads((root / "manifest.json").read_text())["plugin_sha256"]
         self.assertIn("experiments/future-team/dataset.py:Provider", hashes)
+        manifests = json.loads((root / "manifest.json").read_text())["extensions_sha256"]
+        self.assertIn("experiments/future-team/extensions.toml", manifests)
+
+    def test_generated_benchmark_preserves_evaluator_specific_runtime_options(self):
+        config_root = self.root / "runs/configs/image-demo"
+        data = {"benchmark": str(self.data), "evaluator": "text_fixture",
+                "evaluator_config": {"sim_image": "locked-image:v1"},
+                "provenance": {"image_id": "sha256:known", "source_revision": "fixed"}}
+        file = write_experiment(config_root, agent=self.agent,
+                                harness={"command": ["{python}", "{agent_dir}/src/fixture_agent.py",
+                                                     "{task_dir}"]},
+                                dataset=data, stages=[],
+                                plugins={"evaluators": {"text_fixture":
+                                        "examples/minimal/evaluator.py:TextFixtureEvaluator"}},
+                                dependencies={}, name="image-demo", editable=["configs/strategy.json"])
+        spec = load_experiment(file)
+        self.assertEqual(spec["evaluator_config"]["sim_image"], "locked-image:v1")
+        self.assertEqual(spec["_benchmark_metadata"]["dataset_provenance"]["image_id"], "sha256:known")
+
+    def test_multiple_selected_datasets_get_separate_runs_and_linked_reports(self):
+        datasets = []
+        for label in ("first", "second"):
+            file = self.root / f"{label}.json"
+            document = json.loads(self.data.read_text())
+            document["id"] = f"custom-{label}"
+            file.write_text(json.dumps(document))
+            datasets.append(file)
+        args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
+                "--name", "comparison", "--dataset", str(datasets[0]),
+                "--dataset", str(datasets[1]), "--evaluator",
+                "examples/minimal/evaluator.py:TextFixtureEvaluator", "--editable",
+                "configs/strategy.json", "--optimizer", "baseline", "--argv", "{python}",
+                "{agent_dir}/src/fixture_agent.py", "{task_dir}", "--yes"]
+        init_output = io.StringIO()
+        with contextlib.redirect_stdout(init_output):
+            self.assertEqual(main(args), 0)
+        session = Path(json.loads(init_output.getvalue())["session"])
+        self.assertEqual(len(json.loads(session.read_text())["experiments"]), 2)
+        run_output, progress = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(run_output), contextlib.redirect_stderr(progress):
+            self.assertEqual(main(["run-session", str(session)]), 0)
+        report = json.loads(run_output.getvalue())
+        self.assertEqual(report["status"], "completed")
+        self.assertEqual(len(report["reports"]), 2)
+        index = Path(report["index_html"]).read_text()
+        self.assertIn("first", index)
+        self.assertIn("second", index)
+        self.assertIn("different evaluators", index)
+        self.assertTrue(all(Path(path).is_file() for path in report["reports"]))
+
+    def test_dataset_preparation_progress_never_corrupts_json_stdout(self):
+        team = self.root / "experiments" / "loader"
+        team.mkdir(parents=True)
+        (team / "dataset.py").write_text(
+            "from pathlib import Path\nclass Provider:\n"
+            "    def describe(self):\n        return {'name': 'team_data'}\n"
+            "    def prepare(self, cache, *, offline=False):\n"
+            "        print('preparing dataset...')\n"
+            "        return {'benchmark': str(Path(__file__).resolve().parents[2] / "
+            "'examples/minimal/tasks.json'), 'evaluator': "
+            "'examples/minimal/evaluator.py:TextFixtureEvaluator', 'provenance': {}}\n")
+        manifest = team / "extensions.toml"
+        manifest.write_text('schema_version = 1\n[plugins.datasets]\n'
+                            'team_data = "experiments/loader/dataset.py:Provider"\n'
+                            '[plugins.evaluators]\n'
+                            'team_eval = "examples/minimal/evaluator.py:TextFixtureEvaluator"\n')
+        output, progress = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(progress):
+            self.assertEqual(main(["datasets", "prepare", "team_data", "--project-root",
+                                   str(self.root), "--extensions", str(manifest)]), 0)
+        self.assertEqual(json.loads(output.getvalue())["evaluator"], "team_eval")
+        self.assertIn("preparing dataset", progress.getvalue())
+        self.assertIn("dataset=team_data", progress.getvalue())
+        self.assertIn("complete", progress.getvalue())
+
+    def test_session_preserves_other_dataset_report_when_one_config_fails(self):
+        first, second = self.root / "broken-a.json", self.root / "good-b.json"
+        first.write_text(self.data.read_text())
+        second.write_text(self.data.read_text())
+        args = ["init", "--project-root", str(self.root), "--name", "partial-demo",
+                "--agent", str(self.agent), "--dataset", str(first), "--dataset", str(second),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "baseline", "--editable", "configs/strategy.json",
+                "--argv", "{python}", "{agent_dir}/src/fixture_agent.py", "{task_dir}", "--yes"]
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        session = Path(json.loads(output.getvalue())["session"])
+        entries = json.loads(session.read_text())["experiments"]
+        broken = Path(entries[0]["experiment"])
+        broken.write_text(broken.read_text().replace('schema_version = 1', 'schema_version = 999', 1))
+        result, progress = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(result), contextlib.redirect_stderr(progress):
+            self.assertEqual(main(["run-session", str(session)]), 3)
+        summary = json.loads(result.getvalue())
+        self.assertEqual(summary["status"], "partial")
+        self.assertEqual(len(summary["reports"]), 1)
+        self.assertTrue(Path(summary["reports"][0]).is_file())
+        self.assertIn("broken-a", Path(summary["index_html"]).read_text())
 
 
 if __name__ == "__main__":

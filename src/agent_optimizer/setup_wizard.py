@@ -5,14 +5,19 @@ import json
 import os
 import shlex
 import sys
+import contextlib
+import fnmatch
+import itertools
 from pathlib import Path
 
 from agent_optimizer.catalog import load_extensions
-from agent_optimizer.config import identifier, load_experiment, load_tasks
+from agent_optimizer.config import identifier, load_experiment, load_tasks, positive
 from agent_optimizer.contracts import ConfigurationError
 from agent_optimizer.datasets import CustomDataset
 from agent_optimizer.registry import Registry
 from agent_optimizer.results import write_json
+from agent_optimizer.terminal_report import PreparationStatus
+from agent_optimizer.workspace import safe_path
 
 
 def component_inventory(project_root: Path, extensions: Path | None = None):
@@ -44,8 +49,9 @@ def prepare_selection(project_root: Path, selection: str, *, extensions: Path | 
                       evaluator: str | None = None, offline: bool = False):
     registry, plugins, dependencies = component_inventory(project_root, extensions)
     if selection in registry.factories["datasets"]:
-        result = registry.resolve("datasets", selection)().prepare(
-            project_root / "external" / "datasets" / selection, offline=offline)
+        with PreparationStatus(selection), contextlib.redirect_stdout(sys.stderr):
+            result = registry.resolve("datasets", selection)().prepare(
+                project_root / "external" / "datasets" / selection, offline=offline)
         found = next((name for name, reference in plugins.get("evaluators", {}).items()
                       if reference == result["evaluator"]), None)
         if found is None:
@@ -60,8 +66,9 @@ def prepare_selection(project_root: Path, selection: str, *, extensions: Path | 
         else:
             registry.resolve("evaluators", evaluator)
             result_name = evaluator
-        result = CustomDataset(Path(selection), evaluator=result_name).prepare(
-            project_root / "external" / "datasets" / "custom", offline=offline)
+        with PreparationStatus(Path(selection).name):
+            result = CustomDataset(Path(selection), evaluator=result_name).prepare(
+                project_root / "external" / "datasets" / "custom", offline=offline)
     else:
         raise ConfigurationError(f"Unknown dataset {selection!r}; use datasets list or a local tasks.json")
     return result, plugins, dependencies
@@ -79,6 +86,33 @@ def _section(name, mapping):
     return [f"[{name}]", *(f"{json.dumps(key)} = {_literal(value)}" for key, value in mapping.items()), ""]
 
 
+def choose_editable_file(agent: Path | str, editable: list[str], *, suffix: str = "",
+                         explicit: str | None = None) -> str:
+    if explicit:
+        safe_path(Path("/schema-only"), explicit)
+        if suffix and not explicit.endswith(suffix):
+            raise ConfigurationError(f"Editable target must end with {suffix}")
+        if not any(fnmatch.fnmatchcase(explicit, pattern) for pattern in editable):
+            raise ConfigurationError("Target file must be inside the declared editable paths")
+        return explicit
+    if not isinstance(agent, Path) or not agent.is_dir():
+        raise ConfigurationError("Pinned Git Agent requires --target-file or --scaffold-file")
+    matches = set()
+    for pattern in editable:
+        safe_path(agent, pattern)
+        candidates = (itertools.chain(agent.glob(pattern), agent.glob(pattern + "/*"))
+                      if pattern.endswith("/**") else agent.glob(pattern))
+        for path in candidates:
+            if path.is_file() and not path.is_symlink() and (not suffix or path.suffix == suffix):
+                relative = path.relative_to(agent).as_posix()
+                safe_path(agent, relative)
+                matches.add(relative)
+    if len(matches) != 1:
+        raise ConfigurationError("Editable target is ambiguous or missing; pass --target-file "
+                                 "(or --scaffold-file for a runtime harness)")
+    return matches.pop()
+
+
 def _bounded_tasks(document: dict, max_tasks: int) -> dict:
     tasks = document["tasks"]
     if len(tasks) <= max_tasks:
@@ -88,16 +122,24 @@ def _bounded_tasks(document: dict, max_tasks: int) -> dict:
         raise ConfigurationError(f"max_tasks requires at least {len(names)} split representatives")
     grouped = {name: sorted((t for t in tasks if t["split"] == name), key=lambda t: t["id"])
                for name in names}
-    chosen = [grouped[name].pop(0) for name in names]
-    pool = sorted((task for items in grouped.values() for task in items), key=lambda t: t["id"])
-    chosen.extend(pool[:max_tasks - len(chosen)])
+    chosen = []
+    while len(chosen) < max_tasks and any(grouped.values()):
+        for name in names:
+            if len(chosen) >= max_tasks:
+                break
+            if grouped[name]:
+                chosen.append(grouped[name].pop(0))
     return {**document, "tasks": chosen, "sampled_from": len(tasks)}
 
 
 def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dataset: dict,
                      stages: list[dict], plugins: dict, dependencies: dict, name: str,
                      editable: list[str], prompt_file: str = "prompts/system.md",
-                     max_tasks: int = 9) -> Path:
+                     max_tasks: int = 9, project_root: Path | None = None,
+                     extension_manifests: list[str] | None = None,
+                     max_trials: int | None = None, wall_time: float = 3600,
+                     trial_timeout: float = 120, objective_source: str = "passed",
+                     objective_direction: str = "maximize") -> Path:
     """Create only run-owned configuration; never modify the original Agent."""
     identifier(name)
     if config_root.exists():
@@ -108,16 +150,29 @@ def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dat
         raise ConfigurationError("Agent execution argv is required")
     if type(max_tasks) is not int or max_tasks < 1:
         raise ConfigurationError("max_tasks must be positive")
-    project_root = config_root.parents[2]
+    identifier(objective_source)
+    if objective_direction not in {"maximize", "minimize"}:
+        raise ConfigurationError("Objective direction must be maximize or minimize")
+    project_root = project_root or config_root.parents[2]
     benchmark = Path(dataset["benchmark"])
     if not benchmark.is_absolute():
         benchmark = project_root / benchmark
     document = _bounded_tasks(json.loads(benchmark.read_text(encoding="utf-8")), max_tasks)
+    if "provenance" in dataset:
+        document["dataset_provenance"] = dataset["provenance"]
     if not any(task["split"] == "validation" for task in document["tasks"]):
         raise ConfigurationError("Selected dataset needs validation tasks")
     source_kind = "git" if "revision" in harness else "local"
     if source_kind == "local" and (not isinstance(agent, Path) or not (agent / prompt_file).is_file()):
         raise ConfigurationError(f"Agent prompt file missing: {prompt_file}")
+    root_prefix = config_root.relative_to(project_root).as_posix()
+    groups = len([t for t in document["tasks"] if t["split"] == "validation"])
+    tests = len([t for t in document["tasks"] if t["split"] == "test"])
+    reserved = groups + sum(s["max_trials"] for s in stages) + 2 * tests
+    if max_trials is not None and (type(max_trials) is not int or max_trials < reserved):
+        raise ConfigurationError(f"max_trials must reserve at least {reserved} baseline/stage/test trials")
+    positive(wall_time, "max_wall_time_seconds")
+    positive(trial_timeout, "trial_timeout_seconds")
     config_root.mkdir(parents=True)
     write_json(config_root / "tasks.json", document)
     agent_lines = ["schema_version = 2", f"id = {_literal(name)}",
@@ -135,10 +190,6 @@ def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dat
                      f"command = {_literal(harness['command'])}", "allow_local = true", "",
                      "[runtime]", 'kind = "local"']
     (config_root / "harness.toml").write_text("\n".join(harness_lines) + "\n", encoding="utf-8")
-    root_prefix = config_root.relative_to(project_root).as_posix()
-    groups = len([t for t in document["tasks"] if t["split"] == "validation"])
-    tests = len([t for t in document["tasks"] if t["split"] == "test"])
-    reserved = groups + sum(s["max_trials"] for s in stages) + 2 * tests
     lines = ["schema_version = 1", f"name = {_literal(name)}",
              f"project_root = {_literal(os.path.relpath(project_root, config_root))}",
              f"agents = {_literal([root_prefix + '/agent.toml'])}",
@@ -148,11 +199,16 @@ def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dat
              f"final_test = {_literal(bool(tests))}",
              f"final_stages = {_literal([s['id'] for s in stages] or ['baseline'])}",
              'output_dir = "runs"', ""]
-    lines += _section("budget", {"max_trials": max(80, reserved),
-                                 "max_wall_time_seconds": 3600, "trial_timeout_seconds": 120})
+    if extension_manifests:
+        lines.insert(-1, f"extensions = {_literal(extension_manifests)}")
+    lines += _section("budget", {"max_trials": max_trials if max_trials is not None else max(80, reserved),
+                                 "max_wall_time_seconds": wall_time,
+                                 "trial_timeout_seconds": trial_timeout})
     lines += ["[objective]", 'mode = "lexicographic"', "keep = 1", "",
-              "[[objective.metrics]]", 'name = "solve_rate"', 'source = "passed"',
-              'direction = "maximize"', 'aggregate = "mean"', ""]
+              "[[objective.metrics]]",
+              f"name = {_literal('solve_rate' if objective_source == 'passed' else objective_source)}",
+              f"source = {_literal(objective_source)}",
+              f"direction = {_literal(objective_direction)}", 'aggregate = "mean"', ""]
     for stage in stages:
         lines += ["[[stages]]", f"id = {_literal(stage['id'])}",
                   f"optimizer = {_literal(stage['optimizer'])}",
@@ -165,6 +221,8 @@ def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dat
         lines += _section("plugin_dependencies", dependencies)
     if "evaluation_runtime" in dataset:
         lines += _section("evaluation_runtime", dataset["evaluation_runtime"])
+    if "evaluator_config" in dataset:
+        lines += _section("evaluator_config", dataset["evaluator_config"])
     target = config_root / "experiment.toml"
     target.write_text("\n".join(lines) + "\n", encoding="utf-8")
     load_experiment(target)
@@ -192,10 +250,19 @@ def wizard_arguments(project_root: Path, extensions: Path | None = None) -> list
     for index, key in enumerate(choices, 1):
         info = registry.factories["datasets"][key]().describe()
         print(f"    {index}. {key} · {info.get('task_form', 'custom')}", file=sys.stderr)
-    dataset_choice = ask("Dataset number or local tasks.json path")
-    dataset = (choices[int(dataset_choice) - 1] if dataset_choice.isdigit()
-               and 1 <= int(dataset_choice) <= len(choices) else dataset_choice)
-    evaluator = ask("Evaluator file.py:Symbol or registered name") if dataset not in choices else ""
+    dataset_choice = ask("Dataset numbers or local tasks.json paths (comma separated)")
+    selected_datasets = []
+    for item in dataset_choice.split(","):
+        item = item.strip()
+        selected_datasets.append(choices[int(item) - 1] if item.isdigit()
+                                 and 1 <= int(item) <= len(choices) else item)
+    evaluator = (ask("Evaluator file.py:Symbol or registered name")
+                 if any(dataset not in choices for dataset in selected_datasets) else "")
+    metric = (ask("Evaluator score metric (Enter for passed)") or "passed") if evaluator else "passed"
+    direction = (ask("Score direction maximize/minimize (Enter for maximize)") or "maximize"
+                 if evaluator else "maximize")
+    if direction not in {"maximize", "minimize"}:
+        raise ConfigurationError("Score direction must be maximize or minimize")
     optimizers = sorted(registry.factories["optimizers"])
     print("\n  Select optimizer algorithms:", file=sys.stderr)
     for index, key in enumerate(optimizers, 1):
@@ -207,22 +274,29 @@ def wizard_arguments(project_root: Path, extensions: Path | None = None) -> list
         raise ConfigurationError("Choose one or more listed optimizer numbers") from None
     if not selected or not all(item in optimizers for item in selected):
         raise ConfigurationError("Choose one or more listed optimizers")
-    if any(item in {"meta_harness", "ecdysis"} for item in selected) and not any(
-            value.endswith(".py") for value in editable):
-        raise ConfigurationError("A harness optimizer requires an editable .py scaffold")
-    print(f"\n  Agent: {agent}\n  Dataset: {dataset}\n  Optimizers: {', '.join(selected)}",
+    scaffold = (ask("Active runtime harness .py file (Enter to auto-detect one match)")
+                if any(item in {"meta_harness", "ecdysis"} for item in selected) else "")
+    target_file = (ask("Editable text target (Enter to auto-detect one match)")
+                   if "gepa" in selected else "")
+    print(f"\n  Agent: {agent}\n  Datasets: {', '.join(selected_datasets)}\n  Optimizers: {', '.join(selected)}",
           file=sys.stderr)
     if ask("Prepare dataset and run? [y/N]").lower() not in {"y", "yes"}:
         raise ConfigurationError("Experiment cancelled without preparing data")
     arguments = ["init", "--project-root", str(project_root), "--name", name,
-                 "--agent", agent, "--dataset", dataset, "--argv", *command,
+                 "--agent", agent, *[part for dataset in selected_datasets
+                                     for part in ("--dataset", dataset)],
+                 "--command-json", json.dumps(command),
                  "--editable", editable[0], "--yes"]
     for item in editable[1:]:
         arguments += ["--editable", item]
     for optimizer in selected:
         arguments += ["--optimizer", optimizer]
     if evaluator:
-        arguments += ["--evaluator", evaluator]
+        arguments += ["--evaluator", evaluator, "--metric", metric, "--direction", direction]
+    if scaffold:
+        arguments += ["--scaffold-file", scaffold]
+    if target_file:
+        arguments += ["--target-file", target_file]
     if revision:
         arguments += ["--revision", revision]
     if extensions is not None:

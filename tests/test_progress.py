@@ -3,7 +3,7 @@ import json
 import unittest
 
 from agent_optimizer.config import load_experiment
-from agent_optimizer.contracts import ConfigurationError
+from agent_optimizer.contracts import ConfigurationError, Evaluation
 from agent_optimizer.registry import Registry
 from agent_optimizer.runner import run_experiment
 from support import test_project
@@ -108,6 +108,25 @@ class ProgressTests(unittest.TestCase):
         self.assertTrue(checkpoint["denied"])
         self.assertEqual(checkpoint["ids"], ["fixture-train"])
         self.assertEqual(checkpoint["row"]["split"], "train")
+
+    def test_evaluator_receives_provider_options_without_changing_runtime_contract(self):
+        options = []
+
+        class Evaluator:
+            def __init__(self, config):
+                options.append(config)
+
+            def evaluate(self, task, output_dir, timeout_seconds):
+                return Evaluation("passed", {"passed": 1.0})
+
+        self.spec["plugins"]["evaluators"] = {}
+        self.spec["evaluator_config"] = {"sim_image": "pinned-evaluation-image"}
+        registry = Registry()
+        registry.factories["evaluators"]["text_fixture"] = Evaluator
+        _, summary = run_experiment(self.spec, registry, self.root / "runs")
+        self.assertEqual(summary["status"], "completed")
+        self.assertTrue(options)
+        self.assertTrue(all(option["sim_image"] == "pinned-evaluation-image" for option in options))
 
 
 if __name__ == "__main__":
