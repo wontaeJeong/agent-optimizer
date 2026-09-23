@@ -137,6 +137,13 @@ class Evaluator(Protocol):
     def evaluate(self, task: Task, output_dir: Path, timeout_seconds: float) -> Evaluation: ...
 
 
+class DatasetProvider(Protocol):
+    """Trusted team integration: prepare public tasks and private evaluator assets."""
+
+    def describe(self) -> dict[str, Any]: ...
+    def prepare(self, cache: Path, *, offline: bool = False) -> dict[str, Any]: ...
+
+
 @dataclass(frozen=True)
 class HarnessCapabilities:
     trace: str  # json_events or stdout_only

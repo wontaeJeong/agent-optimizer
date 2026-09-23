@@ -282,6 +282,8 @@ def run_experiment(spec, registry, output: Path | None = None):
                                     for h in spec["_profiles"] if "model_env" in h},
                 "benchmark": spec["_benchmark_metadata"],
                 "agents": source_locks}
+    if "_extensions_sha256" in spec:
+        manifest["extensions_sha256"] = spec["_extensions_sha256"]
     phase = "manifest"
     group = None
     try:
