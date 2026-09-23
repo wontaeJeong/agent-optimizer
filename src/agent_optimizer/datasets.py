@@ -92,8 +92,15 @@ class CustomDataset:
             tasks = [{**task, "split": splits[task["family"]]} for task in tasks]
         document = {**data, "tasks": tasks, "source_sha256": hashlib.sha256(raw).hexdigest()}
         output = cache / "custom" / (self.source.stem + ".json")
-        write_json(output, document)
+        output.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=output.parent, suffix=".json", delete=False) as stream:
+            temporary = Path(stream.name)
         from agent_optimizer.config import load_tasks
-        load_tasks(output)
+        try:
+            write_json(temporary, document)
+            load_tasks(temporary)
+            temporary.replace(output)
+        finally:
+            temporary.unlink(missing_ok=True)
         return {"benchmark": str(output), "evaluator": self.evaluator,
                 "provenance": {"source": str(self.source), "sha256": document["source_sha256"]}}

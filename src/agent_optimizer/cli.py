@@ -6,6 +6,7 @@ import csv
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -17,8 +18,10 @@ from agent_optimizer.runner import preflight, run_experiment
 from agent_optimizer.registry import Registry
 from agent_optimizer.network import network_environment
 from agent_optimizer.setup_wizard import (component_inventory, prepare_selection,
-                                          wizard_arguments, write_experiment)
+                                          _bounded_tasks, choose_editable_file, wizard_arguments,
+                                          write_experiment)
 from agent_optimizer.terminal_report import ProgressDisplay
+from agent_optimizer.results import write_json
 
 
 def show(value):
@@ -66,21 +69,31 @@ def main(argv=None):
     init.add_argument("--revision")
     init.add_argument("--name")
     init.add_argument("--argv", nargs="+")
+    init.add_argument("--command-json", help="JSON argv array, including dash-prefixed Agent options")
     init.add_argument("--editable", action="append")
     init.add_argument("--prompt-file", default="prompts/system.md")
-    init.add_argument("--dataset")
+    init.add_argument("--dataset", action="append")
     init.add_argument("--evaluator")
+    init.add_argument("--metric", default="passed", help="Evaluator metric source; default: passed")
+    init.add_argument("--direction", choices=("maximize", "minimize"), default="maximize")
     init.add_argument("--harness", default="command")
     init.add_argument("--optimizer", action="append")
     init.add_argument("--optimizer-config")
     init.add_argument("--scaffold-file")
+    init.add_argument("--target-file", help="Exact editable text file for a research optimizer")
     init.add_argument("--extensions", type=Path)
     init.add_argument("--max-tasks", type=int, default=9)
+    init.add_argument("--max-trials", type=int)
+    init.add_argument("--max-wall-time-seconds", type=float, default=3600)
+    init.add_argument("--trial-timeout-seconds", type=float, default=120)
     init.add_argument("--offline", action="store_true")
     init.add_argument("--yes", action="store_true", help="Confirm preparation without a TTY")
     tui = sub.add_parser("tui", help="Interactive setup and live run progress")
     tui.add_argument("--project-root", type=Path, default=Path.cwd())
     tui.add_argument("--extensions", type=Path)
+    session = sub.add_parser("run-session", help="Run each selected dataset with its own evaluator")
+    session.add_argument("session", type=Path)
+    session.add_argument("--output", type=Path)
     agents = sub.add_parser("agents", help="List independently registered agent targets")
     agents.add_argument("--root", type=Path, default=Path("examples"))
     for name in ["validate", "plan", "run"]:
@@ -100,9 +113,9 @@ def main(argv=None):
             show(registry.describe())
         elif args.command == "datasets":
             root = args.project_root.absolute()
-            inventory, plugins, _ = component_inventory(root, args.extensions)
+            inventory, _, _ = component_inventory(root, args.extensions)
             if args.dataset_action == "list":
-                show([{"name": name, **factory().describe() | {"name": name}}
+                show([{**factory().describe(), "name": name}
                       for name, factory in sorted(inventory.factories["datasets"].items())])
             else:
                 if not args.name:
@@ -113,8 +126,14 @@ def main(argv=None):
         elif args.command == "init":
             if not args.dataset:
                 raise ConfigurationError("Select a dataset explicitly with --dataset")
-            if not args.agent or not args.argv or not args.editable:
-                raise ConfigurationError("--agent, --argv and --editable are required")
+            if not args.agent or not (args.argv or args.command_json) or not args.editable:
+                raise ConfigurationError("--agent, --argv (or --command-json), and --editable are required")
+            if args.argv and args.command_json:
+                raise ConfigurationError("Choose either --argv or --command-json")
+            command = json.loads(args.command_json) if args.command_json else args.argv
+            if not isinstance(command, list) or not command or not all(
+                    isinstance(part, str) and part for part in command):
+                raise ConfigurationError("Agent argv must be a nonempty JSON string array")
             if not args.yes:
                 raise ConfigurationError("Inspect the choices then pass --yes to confirm preparation")
             root = args.project_root.absolute()
@@ -128,44 +147,107 @@ def main(argv=None):
             inventory, _, _ = component_inventory(root, args.extensions)
             chosen = args.optimizer or ["gepa"]
             custom_configs = json.loads(args.optimizer_config) if args.optimizer_config else {}
+            if (not isinstance(custom_configs, dict)
+                    or not all(isinstance(name, str) and isinstance(options, dict)
+                               for name, options in custom_configs.items())):
+                raise ConfigurationError("--optimizer-config must be a JSON mapping of optimizer names to options")
             for optimizer in chosen:
                 inventory.resolve("optimizers", optimizer)
             inventory.resolve("harnesses", args.harness)
-            data, plugins, dependencies = prepare_selection(
-                root, args.dataset, extensions=args.extensions,
-                evaluator=args.evaluator, offline=args.offline)
-            document = json.loads(Path(data["benchmark"]).read_text(encoding="utf-8"))
-            train = sum(t["split"] == "train" for t in document["tasks"])
-            validation = sum(t["split"] == "validation" for t in document["tasks"])
-            stages = []
-            for index, optimizer in enumerate(chosen):
-                if optimizer == "gepa":
-                    target = args.editable[0]
-                    config = {"file": target, "iterations": 3, "batch_size": 4}
-                    limit = train + 3 * (min(train, 4) + validation) + validation
-                elif optimizer in {"meta_harness", "ecdysis"}:
-                    scaffold = args.scaffold_file or next((f for f in args.editable if f.endswith(".py")), None)
-                    if not scaffold:
-                        raise ConfigurationError(f"{optimizer} requires an editable .py scaffold file")
-                    config = {"file": scaffold, **({"rounds": 3} if optimizer == "ecdysis"
-                                                  else {"iterations": 3})}
-                    limit = train * 4 + validation * 4
-                else:
-                    config = custom_configs.get(optimizer, {})
-                    limit = train * 3 + validation * 3
-                stages.append({"id": f"opt-{index}-{optimizer.replace('_', '-')}",
-                               "optimizer": optimizer, "config": config,
-                               "max_trials": max(1, limit)})
+            target = (choose_editable_file(agent, args.editable, explicit=args.target_file)
+                      if "gepa" in chosen else None)
+            scaffold = (choose_editable_file(agent, args.editable, suffix=".py",
+                                             explicit=args.scaffold_file)
+                        if any(o in {"meta_harness", "ecdysis"} for o in chosen) else None)
             if args.revision:
-                harness = {"adapter": args.harness, "command": args.argv,
+                harness = {"adapter": args.harness, "command": command,
                            "revision": args.revision}
             else:
-                harness = {"adapter": args.harness, "command": args.argv}
-            experiment = write_experiment(root / "runs" / "configs" / name, agent=agent,
-                                          harness=harness, dataset=data, stages=stages, plugins=plugins,
-                                          dependencies=dependencies, name=name, editable=args.editable,
-                                          prompt_file=args.prompt_file, max_tasks=args.max_tasks)
-            show({"experiment": experiment, "dataset": args.dataset, "stages": [s["id"] for s in stages]})
+                harness = {"adapter": args.harness, "command": command}
+            manifests = []
+            bundled = root / "examples/benchmarks/extensions.toml"
+            if bundled.is_file():
+                manifests.append("examples/benchmarks/extensions.toml")
+            if args.extensions:
+                selected_manifest = (args.extensions if args.extensions.is_absolute()
+                                     else root / args.extensions)
+                try:
+                    manifests.append(selected_manifest.absolute().relative_to(root).as_posix())
+                except ValueError:
+                    manifests.append(selected_manifest.resolve().relative_to(root.resolve()).as_posix())
+            experiments = []
+            multiple = len(args.dataset) > 1
+            for index, dataset_name in enumerate(args.dataset):
+                data, plugins, dependencies = prepare_selection(
+                    root, dataset_name, extensions=args.extensions,
+                    evaluator=args.evaluator, offline=args.offline)
+                document = _bounded_tasks(json.loads(Path(data["benchmark"]).read_text(encoding="utf-8")),
+                                          args.max_tasks)
+                train = sum(t["split"] == "train" for t in document["tasks"])
+                validation = sum(t["split"] == "validation" for t in document["tasks"])
+                if train == 0 and any(o in {"gepa", "meta_harness", "ecdysis"} for o in chosen):
+                    raise ConfigurationError("Research optimizers require at least one train task")
+                stages = []
+                for stage_index, optimizer in enumerate(chosen):
+                    if optimizer == "gepa":
+                        config = {"file": target, "iterations": 3, "batch_size": 4,
+                                  "metric": args.metric, "direction": args.direction}
+                    elif optimizer in {"meta_harness", "ecdysis"}:
+                        config = {"file": scaffold, **({"rounds": 3} if optimizer == "ecdysis"
+                                                      else {"iterations": 3}),
+                                  "direction": args.direction}
+                        if optimizer == "ecdysis":
+                            config.update(score_metric="solve_rate" if args.metric == "passed" else args.metric,
+                                          failure_metric=args.metric)
+                        else:
+                            config["metric"] = args.metric
+                    else:
+                        config = custom_configs.get(optimizer, {})
+                    config.update(custom_configs.get(optimizer, {}))
+                    if optimizer == "gepa":
+                        iterations, batch_size = config.get("iterations"), config.get("batch_size")
+                        if (type(iterations) is not int or iterations < 1
+                                or type(batch_size) is not int or batch_size < 1):
+                            raise ConfigurationError("GEPA iterations and batch_size must be positive integers")
+                        batch = min(train, batch_size) + validation
+                        limit = train + iterations * batch + (batch if config.get("merge") else 0)
+                    elif optimizer == "meta_harness":
+                        iterations = config.get("iterations")
+                        if type(iterations) is not int or iterations < 1:
+                            raise ConfigurationError("Meta-Harness iterations must be positive")
+                        limit = train + iterations * (train + validation)
+                    elif optimizer == "ecdysis":
+                        rounds = config.get("rounds")
+                        if type(rounds) is not int or rounds < 1:
+                            raise ConfigurationError("Ecdysis rounds must be positive")
+                        limit = (rounds + 1) * train + validation
+                    else:
+                        limit = train * 3 + validation * 3
+                    stages.append({"id": f"opt-{stage_index}-{optimizer.replace('_', '-')}",
+                                   "optimizer": optimizer, "config": config,
+                                   "max_trials": max(1, limit)})
+                label = re.sub(r"[^a-zA-Z0-9_.-]", "-", Path(dataset_name).stem)
+                experiment_name = f"{name}-{index + 1}-{label}" if multiple else name
+                folder = (root / "runs" / "configs" / name / f"{index + 1}-{label}" if multiple
+                          else root / "runs" / "configs" / name)
+                experiment = write_experiment(folder, agent=agent, harness=harness, dataset=data,
+                                              stages=stages, plugins=plugins, dependencies=dependencies,
+                                              name=experiment_name, editable=args.editable,
+                                              prompt_file=args.prompt_file, max_tasks=args.max_tasks,
+                                              project_root=root, extension_manifests=manifests,
+                                              max_trials=args.max_trials,
+                                              wall_time=args.max_wall_time_seconds,
+                                              trial_timeout=args.trial_timeout_seconds,
+                                              objective_source=args.metric,
+                                              objective_direction=args.direction)
+                experiments.append({"dataset": dataset_name, "experiment": str(experiment)})
+            if multiple:
+                target = root / "runs" / "configs" / name / "session.json"
+                write_json(target, {"schema_version": 1, "name": name, "experiments": experiments})
+                show({"session": target, "experiments": experiments})
+            else:
+                show({"experiment": experiments[0]["experiment"], "dataset": args.dataset[0],
+                      "stages": [s["id"] for s in stages]})
         elif args.command == "tui":
             if not sys.stdin.isatty() or not sys.stderr.isatty():
                 raise ConfigurationError("TUI requires a TTY for both input and output")
@@ -183,13 +265,53 @@ def main(argv=None):
                 code = main(init_args)
             if code:
                 return code
-            experiment = Path(json.loads(output.getvalue())["experiment"])
+            prepared = json.loads(output.getvalue())
+            if "session" in prepared:
+                return main(["run-session", prepared["session"]])
+            experiment = Path(prepared["experiment"])
             spec = load_experiment(experiment)
             with ProgressDisplay() as progress:
                 root, summary = run_experiment(spec, Registry(), on_event=progress)
             show({"run_dir": root, "status": summary["status"], "trials_used": summary["trials_used"],
                   "report_html": root / "report.html"})
             return 0 if summary["status"] == "completed" else 3
+        elif args.command == "run-session":
+            data = json.loads(args.session.read_text(encoding="utf-8"))
+            if (data.get("schema_version") != 1 or not isinstance(data.get("experiments"), list)
+                    or len(data["experiments"]) < 2):
+                raise ConfigurationError("run-session requires at least two prepared experiments")
+            base = args.output or args.session.parent.parents[1] / "sessions"
+            import time
+            import uuid
+            session_root = base / (time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+                                   + "-" + uuid.uuid4().hex[:8])
+            session_root.mkdir(parents=True, exist_ok=False)
+            entries = []
+            with ProgressDisplay() as progress:
+                for item in data["experiments"]:
+                    previous = set((session_root / "runs").iterdir()) if (session_root / "runs").exists() else set()
+                    try:
+                        spec = load_experiment(Path(item["experiment"]))
+                        run, result = run_experiment(spec, Registry(), session_root / "runs",
+                                                     on_event=progress)
+                        entries.append({"dataset": item["dataset"], "status": result["status"],
+                                        "report": "runs/" + run.name + "/report.html",
+                                        "trials_used": result["trials_used"]})
+                    except (ConfigurationError, UnavailableError, OSError, ValueError) as exc:
+                        current = set((session_root / "runs").iterdir()) if (session_root / "runs").exists() else set()
+                        new_runs = current - previous
+                        candidate = next(iter(new_runs)) if len(new_runs) == 1 else None
+                        report = ("runs/" + candidate.name + "/report.html" if candidate is not None
+                                  and (candidate / "report.html").is_file() else None)
+                        entries.append({"dataset": item["dataset"], "status": "error",
+                                        "error": str(exc), "report": report})
+            from agent_optimizer.html_report import write_session_index
+            index = write_session_index(session_root, entries)
+            status = "completed" if all(e["status"] == "completed" for e in entries) else "partial"
+            write_json(session_root / "summary.json", {"status": status, "experiments": entries})
+            show({"session_dir": session_root, "status": status, "index_html": index,
+                  "reports": [session_root / e["report"] for e in entries if e["report"]]})
+            return 0 if status == "completed" else 3
         elif args.command == "doctor":
             show(doctor())
         elif args.command == "agents":

@@ -88,8 +88,16 @@ class Registry:
                     raise ConfigurationError(f"Cannot load plugin: {reference}")
                 module = importlib.util.module_from_spec(spec)
                 sys.modules[module_name] = module
-                spec.loader.exec_module(module)
-                self.factories[kind][name] = getattr(module, symbol)
+                try:
+                    spec.loader.exec_module(module)
+                except ImportError as exc:
+                    raise UnavailableError(f"{kind}/{name}: Python dependency unavailable "
+                                           f"({exc.name or type(exc).__name__})") from None
+                try:
+                    implementation = getattr(module, symbol)
+                except AttributeError:
+                    raise ConfigurationError(f"Plugin {kind}/{name} does not export {symbol}") from None
+                self.factories[kind][name] = implementation
                 self.loaded[key] = fingerprint
 
     def resolve(self, kind, name):

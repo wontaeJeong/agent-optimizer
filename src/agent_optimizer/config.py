@@ -148,7 +148,7 @@ def load_experiment(path: Path) -> dict:
     only_keys(data, {"schema_version", "name", "project_root", "agents", "harnesses", "benchmark",
                     "evaluator", "evaluation_runtime", "objective", "budget", "stages",
                     "repetitions", "seed", "final_test", "final_stages", "output_dir", "plugins",
-                    "plugin_dependencies", "extensions"}, "experiment")
+                    "plugin_dependencies", "extensions", "evaluator_config"}, "experiment")
     if data.get("schema_version") != 1:
         raise ConfigurationError("Unsupported experiment schema_version")
     identifier(data["name"])
@@ -156,21 +156,30 @@ def load_experiment(path: Path) -> dict:
     data["_root"] = root
     data["_source"] = path.resolve()
     if "extensions" in data:
-        extension_path = safe_path(root, data["extensions"])
-        extension = load_extensions(extension_path, root)
-        data["_extensions_sha256"] = hashlib.sha256(extension_path.read_bytes()).hexdigest()
-        for key in ("plugins", "plugin_dependencies"):
-            registered = data.setdefault(key, {})
-            for kind, entries in extension.get(key, {}).items():
-                if key == "plugins":
-                    target = registered.setdefault(kind, {})
-                    if set(target).intersection(entries):
-                        raise ConfigurationError(f"Duplicate extension registration: {kind}")
-                    target.update(entries)
-                elif kind in registered:
-                    raise ConfigurationError(f"Duplicate extension dependency: {kind}")
-                else:
-                    registered[kind] = entries
+        raw_paths = data["extensions"]
+        paths = [raw_paths] if isinstance(raw_paths, str) else raw_paths
+        if (not isinstance(paths, list) or not paths or not all(isinstance(p, str) for p in paths)
+                or len(paths) != len(set(paths))):
+            raise ConfigurationError("extensions must be one path or a list of distinct paths")
+        hashes = {}
+        for reference in paths:
+            extension_path = safe_path(root, reference)
+            extension = load_extensions(extension_path, root)
+            hashes[reference] = hashlib.sha256(extension_path.read_bytes()).hexdigest()
+            for key in ("plugins", "plugin_dependencies"):
+                registered = data.setdefault(key, {})
+                for kind, entries in extension.get(key, {}).items():
+                    if key == "plugins":
+                        target = registered.setdefault(kind, {})
+                        for name, file in entries.items():
+                            if name in target and target[name] != file:
+                                raise ConfigurationError(f"Duplicate extension registration: {kind}/{name}")
+                            target[name] = file
+                    elif kind in registered and registered[kind] != entries:
+                        raise ConfigurationError(f"Duplicate extension dependency: {kind}")
+                    else:
+                        registered[kind] = entries
+        data["_extensions_sha256"] = hashes if isinstance(raw_paths, list) else next(iter(hashes.values()))
     agents = [load_agent(safe_path(root, p)) for p in data["agents"]]
     if not agents or len({a.id for a in agents}) != len(agents):
         raise ConfigurationError("Agent IDs must be present and unique")
@@ -201,6 +210,8 @@ def load_experiment(path: Path) -> dict:
                 raise ConfigurationError(f"{agent.id} does not support {profile['adapter']}")
     data["_profiles"] = profiles
     validate_runtime(data.get("evaluation_runtime", {}))
+    if not isinstance(data.get("evaluator_config", {}), dict):
+        raise ConfigurationError("evaluator_config must be a mapping")
     tasks, metadata = load_tasks(safe_path(root, data["benchmark"]))
     data["_tasks"], data["_benchmark_metadata"] = tasks, metadata
     if data.get("final_test", False) and not any(t.split == "test" for t in tasks):

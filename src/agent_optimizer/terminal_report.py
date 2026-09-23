@@ -34,6 +34,7 @@ class ProgressDisplay:
             self.stream.write("\n")
             self.stream.flush()
 
+
     def _refresh(self):
         while not self.stopped.wait(1):
             with self.lock:
@@ -75,3 +76,38 @@ class ProgressDisplay:
                               + (f" elapsed={seconds:.2f}s" if name == "trial_completed"
                                  and seconds is not None else "") + "\n")
             self.stream.flush()
+
+
+class PreparationStatus:
+    """Keep the selected dataset and elapsed time visible during blocking setup."""
+
+    def __init__(self, name: str, stream=None):
+        self.name = name
+        self.stream = stream or sys.stderr
+        self.stopped = threading.Event()
+        self.thread = None
+
+    def __enter__(self):
+        self.started = time.monotonic()
+        self.stream.write(f"[prepare] dataset={self.name} starting\n")
+        self.stream.flush()
+        if self.stream.isatty():
+            self.thread = threading.Thread(target=self._refresh, daemon=True)
+            self.thread.start()
+        return self
+
+    def _refresh(self):
+        while not self.stopped.wait(1):
+            self.stream.write(f"\r\x1b[2K[prepare] dataset={self.name} "
+                              f"elapsed={time.monotonic()-self.started:.0f}s")
+            self.stream.flush()
+
+    def __exit__(self, error_type, *_):
+        self.stopped.set()
+        if self.thread:
+            self.thread.join(timeout=2)
+            self.stream.write("\r\x1b[2K")
+        status = "failed" if error_type else "complete"
+        self.stream.write(f"[prepare] dataset={self.name} {status} "
+                          f"elapsed={time.monotonic()-self.started:.1f}s\n")
+        self.stream.flush()

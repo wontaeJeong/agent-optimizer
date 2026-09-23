@@ -50,6 +50,14 @@ class Budget:
         return timeout
 
 
+def evaluator_settings(spec):
+    runtime = spec.get("evaluation_runtime", {"kind": "local"})
+    extra = spec.get("evaluator_config", {})
+    if not isinstance(extra, dict) or set(runtime).intersection(extra):
+        raise ConfigurationError("evaluator_config must not override evaluation_runtime")
+    return {**runtime, **extra}
+
+
 class Context:
     """Trusted in-process plugin interface, not an OS security boundary."""
     def __init__(self, group, baseline, stage):
@@ -122,7 +130,7 @@ class GroupRunner:
         registry.load_plugins(experiment["_root"], experiment.get("plugins", {}))
         self.harness = registry.resolve("harnesses", profile["adapter"])()
         self.evaluator = registry.resolve("evaluators", experiment["evaluator"])(
-            experiment.get("evaluation_runtime", {"kind": "local"}))
+            evaluator_settings(experiment))
         self.candidates = CandidateStore(root / "candidates", agent)
         self.records, self.optimizer_usage, self.cache = [], [], {}
         self.current_stage = None
@@ -327,7 +335,7 @@ def preflight(spec, registry):
     registry.load_plugins(spec["_root"], spec.get("plugins", {}))
     for profile in spec["_profiles"]:
         registry.resolve("harnesses", profile["adapter"])
-    evaluator = registry.resolve("evaluators", spec["evaluator"])(spec.get("evaluation_runtime", {}))
+    evaluator = registry.resolve("evaluators", spec["evaluator"])(evaluator_settings(spec))
     for stage in spec.get("stages", []):
         registry.resolve("optimizers", stage["optimizer"])
         if stage["optimizer"] in {"gepa", "meta_harness", "ecdysis"}:

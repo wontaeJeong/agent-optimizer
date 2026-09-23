@@ -96,6 +96,7 @@ class Provider:
         return {"benchmark": str(output),
                 "evaluator": "examples/benchmarks/verilog_evaluator.py:VerilogEvaluator",
                 "evaluation_runtime": runtime["runtime"],
+                "evaluator_config": {"image_id": runtime["image_id"]},
                 "provenance": {"url": self.url, "revision": self.revision,
                                "mode": self.mode, "image_id": runtime["image_id"]}}
 

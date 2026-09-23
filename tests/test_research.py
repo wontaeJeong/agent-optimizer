@@ -11,7 +11,8 @@ from agent_optimizer.config import load_experiment
 from agent_optimizer.contracts import Candidate, UnavailableError
 from agent_optimizer.registry import Registry
 from agent_optimizer.runner import run_experiment
-from agent_optimizer.optimizers.ecdysis import group_failures
+from agent_optimizer.optimizers.ecdysis import _train_score, group_failures
+from agent_optimizer.optimizers.meta_harness import _score as meta_score
 from support import test_project
 
 
@@ -220,6 +221,18 @@ class ResearchSearchTests(unittest.TestCase):
         groups = group_failures(records, threshold=1.0, metric="passed")
         self.assertEqual(groups[0]["distinct_tasks"], 2)
         self.assertEqual(groups[0]["failure_count"], 3)
+
+    def test_scaffold_optimizers_respect_minimize_objectives(self):
+        validation = {"valid": True, "tasks": [
+            {"metrics": {"latency": 2.0}}, {"metrics": {"latency": 4.0}}]}
+        self.assertEqual(meta_score(validation, "latency", "minimize"), -3.0)
+        self.assertEqual(_train_score({"valid": True, "metrics": {"latency": 2.0}},
+                                      "latency", "minimize"), -2.0)
+        failures = group_failures([
+            {"task_id": "slow", "status": "passed", "metrics": {"latency": 5.0}},
+            {"task_id": "fast", "status": "passed", "metrics": {"latency": 1.0}}],
+            threshold=2.0, metric="latency", direction="minimize")
+        self.assertEqual(failures[0]["task_ids"], ["slow"])
 
 
 if __name__ == "__main__":

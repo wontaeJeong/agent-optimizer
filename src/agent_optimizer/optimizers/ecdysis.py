@@ -10,13 +10,15 @@ from agent_optimizer.optimizers.research import propose_text, review_spec
 from agent_optimizer.workspace import safe_path
 
 
-def group_failures(records: list[dict], *, threshold: float, metric: str) -> list[dict]:
+def group_failures(records: list[dict], *, threshold: float, metric: str,
+                   direction: str = "maximize") -> list[dict]:
     grouped = {}
     for record in records:
         value = record["metrics"].get(metric)
         if not record.get("valid", True) or type(value) not in (int, float) or not math.isfinite(value):
             raise UnavailableError(f"Ecdysis needs valid per-task {metric} scores")
-        if value >= threshold:
+        if ((direction == "maximize" and value >= threshold)
+                or (direction == "minimize" and value <= threshold)):
             continue
         pattern = f"{record['status']}:{metric}"
         group = grouped.setdefault(pattern, {"pattern": pattern, "task_ids": set(), "examples": [],
@@ -31,17 +33,18 @@ def group_failures(records: list[dict], *, threshold: float, metric: str) -> lis
                   key=lambda group: (-group["distinct_tasks"], -group["failure_count"], group["pattern"]))
 
 
-def _train_score(row: dict, metric: str) -> float:
+def _train_score(row: dict, metric: str, direction: str = "maximize") -> float:
     value = row.get("metrics", {}).get(metric)
     if not row.get("valid") or type(value) not in (int, float) or not math.isfinite(value):
         raise UnavailableError(f"Ecdysis requires a valid finite train {metric} score")
-    return float(value)
+    return float(value) * (1 if direction == "maximize" else -1)
 
 
 class EcdysisOptimizer:
     def optimize(self, context, seeds, config) -> OptimizationResult:
         only_keys(config, {"file", "rounds", "refinement_passes", "failure_threshold",
-                           "failure_metric", "score_metric", "request_timeout_seconds"}, "Ecdysis optimizer")
+                           "failure_metric", "score_metric", "request_timeout_seconds",
+                           "direction"}, "Ecdysis optimizer")
         filename = config.get("file")
         if len(seeds) != 1 or not isinstance(filename, str) or not filename.endswith(".py"):
             raise ConfigurationError("Ecdysis requires one seed and an editable .py harness file")
@@ -58,14 +61,18 @@ class EcdysisOptimizer:
         positive(timeout, "Ecdysis request timeout")
         failure_metric = config.get("failure_metric", "passed")
         score_metric = config.get("score_metric", "solve_rate")
+        direction = config.get("direction", "maximize")
+        if direction not in {"maximize", "minimize"}:
+            raise ConfigurationError("Ecdysis direction must be maximize or minimize")
         current = seeds[0]
-        current_score = _train_score(context.evaluate(current), score_metric)
+        current_score = _train_score(context.evaluate(current), score_metric, direction)
         history = []
         for round_number in range(1, rounds + 1):
             context.emit("optimizer_iteration_started", iteration=round_number, total=rounds,
                          candidate_id=current.id)
             records = [r for r in context.history() if r["candidate_id"] == current.id]
-            groups = group_failures(records, threshold=threshold, metric=failure_metric)
+            groups = group_failures(records, threshold=threshold, metric=failure_metric,
+                                    direction=direction)
             if not groups:
                 history.append({"round": round_number, "status": "no_failures", "groups": [],
                                 "accepted": False, "retained_score": current_score})
@@ -92,7 +99,7 @@ class EcdysisOptimizer:
                                 "status": "invalid_interface", "accepted": False,
                                 "retained_score": current_score})
                 continue
-            candidate_score = _train_score(context.evaluate(candidate), score_metric)
+            candidate_score = _train_score(context.evaluate(candidate), score_metric, direction)
             accepted = candidate_score > current_score
             if accepted:
                 current, current_score = candidate, candidate_score
@@ -104,4 +111,5 @@ class EcdysisOptimizer:
                          candidate_id=candidate.id, accepted=accepted)
         return OptimizationResult([current], {"rounds": history,
                                               "retained_candidate": current.id,
-                                              "retained_train_score": current_score})
+                                              "retained_train_score": (current_score if direction == "maximize"
+                                                                       else -current_score)})
