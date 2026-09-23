@@ -17,6 +17,10 @@ class BudgetExceeded(RuntimeError):
     pass
 
 
+class StageBudgetExceeded(BudgetExceeded):
+    pass
+
+
 @dataclass(frozen=True)
 class SourceSpec:
     kind: str
@@ -118,9 +122,11 @@ class OptimizationContext(Protocol):
     """Train-only evaluation; final test data never enters the public context."""
 
     def evaluate(self, candidate: Candidate) -> dict[str, Any]: ...
+    def evaluate_validation(self, candidate: Candidate) -> dict[str, Any]: ...
     def propose(self, parent: Candidate, files: dict[str, str], producer: str) -> Candidate: ...
     def history(self) -> list[dict[str, Any]]: ...
     def record_usage(self, input_tokens: int | None, output_tokens: int | None, cost_usd: float | None) -> None: ...
+    def emit(self, event: str, **fields: Any) -> None: ...
 
 
 class Optimizer(Protocol):

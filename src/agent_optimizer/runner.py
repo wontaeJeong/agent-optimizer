@@ -13,7 +13,8 @@ from pathlib import Path
 from agent_optimizer import __version__
 from agent_optimizer.config import validate_objective, validate_stages
 from agent_optimizer.contracts import (
-    BudgetExceeded, Candidate, ConfigurationError, Evaluation, RunRequest, UnavailableError, jsonable,
+    BudgetExceeded, Candidate, ConfigurationError, Evaluation, RunRequest, StageBudgetExceeded,
+    UnavailableError, jsonable,
 )
 from agent_optimizer.objectives import aggregate, select
 from agent_optimizer.process import execute
@@ -29,6 +30,7 @@ class Budget:
         self.deadline = time.monotonic() + settings.get("max_wall_time_seconds", 3600)
         self.trial_timeout = settings.get("trial_timeout_seconds", 120)
         self.used = 0
+        self.stage_used = {}
 
     def remaining(self):
         remaining = self.deadline - time.monotonic()
@@ -36,11 +38,15 @@ class Budget:
             raise BudgetExceeded("Experiment wall-time budget exhausted")
         return remaining
 
-    def reserve(self):
+    def reserve(self, stage_key=None, stage_limit=None):
+        if stage_limit is not None and self.stage_used.get(stage_key, 0) >= stage_limit:
+            raise StageBudgetExceeded("Optimizer stage trial allowance exhausted")
         if self.used >= self.limit:
             raise BudgetExceeded("Experiment trial budget exhausted")
         timeout = min(self.remaining(), self.trial_timeout)
         self.used += 1
+        if stage_limit is not None:
+            self.stage_used[stage_key] = self.stage_used.get(stage_key, 0) + 1
         return timeout
 
 
@@ -61,6 +67,22 @@ class Context:
 
     def evaluate(self, candidate: Candidate):
         return self._group.evaluate(candidate, "train")
+
+    def evaluate_validation(self, candidate: Candidate):
+        if candidate.id not in self._candidate_ids:
+            raise ConfigurationError("Cannot evaluate another stage's candidate")
+        row = self._group.evaluate(candidate, "validation")
+        records = [r for r in self._group.records
+                   if r["candidate_id"] == candidate.id and r["split"] == "validation"]
+        return {"split": "validation", "valid": row["valid"], "metrics": row["metrics"],
+                "tasks": [{"task_id": r["task_id"], "metrics": r["metrics"], "valid": r["valid"]}
+                          for r in records]}
+
+    def emit(self, event: str, **fields):
+        self._group.events.append({"event": event, **fields,
+                                   "agent_id": self._group.agent.id,
+                                   "harness_id": self._group.profile["id"],
+                                   "stage_id": self._stage_id, "optimizer": self._optimizer})
 
     def history(self):
         return [r for r in self._group.records
@@ -91,6 +113,7 @@ class GroupRunner:
             experiment.get("evaluation_runtime", {"kind": "local"}))
         self.candidates = CandidateStore(root / "candidates", agent)
         self.records, self.optimizer_usage, self.cache = [], [], {}
+        self.current_stage = None
         self.summary = {"agent_id": agent.id, "harness_id": profile["id"], "baseline": None,
                         "stages": [], "selected": [], "final_test": [],
                         "optimizer_usage": self.optimizer_usage, "trial_count": 0, "status": "running"}
@@ -99,11 +122,19 @@ class GroupRunner:
         self.candidates.verify(candidate)
 
     def trial(self, candidate, task, repeat):
-        timeout = self.budget.reserve()
+        stage_key = ((self.agent.id, self.profile["id"], self.current_stage["id"])
+                     if self.current_stage else None)
+        timeout = self.budget.reserve(stage_key, self.current_stage.get("max_trials")
+                                      if self.current_stage else None)
         started = time.monotonic()
         trial_deadline = min(started + timeout, self.budget.deadline)
         globally_limited = timeout < self.budget.trial_timeout
         trial_id = f"{candidate.id}-{task.id}-{repeat}-{len(self.records):04d}"
+        identity = {"agent_id": self.agent.id, "harness_id": self.profile["id"],
+                    "candidate_id": candidate.id, "task_id": task.id, "split": task.split,
+                    "dataset": self.spec["_benchmark_metadata"].get("name", self.spec["name"]),
+                    "repeat": repeat, "trial_id": trial_id}
+        self.events.append({"event": "trial_started", "phase": "workspace", **identity})
         trial = self.root / "trials" / trial_id
         workspace = trial / "agent_workspace"
         agent_dir, task_dir = workspace / "agent", workspace / "task"
@@ -125,6 +156,7 @@ class GroupRunner:
             prompt = safe_path(agent_dir, self.agent.prompt_file).read_text(encoding="utf-8")
             prompt += "\n\n" + task.prompt + "\nTask files are in ./task. Modify only task outputs."
             self.budget.remaining()
+            self.events.append({"event": "agent_started", "phase": "agent", **identity})
             if self.agent.build:
                 build = execute(list(self.agent.build), workspace, trial / "build_logs",
                                 max(0.001, trial_deadline-time.monotonic()), self.profile.get("runtime", {}))
@@ -136,6 +168,7 @@ class GroupRunner:
                 request = RunRequest(workspace, agent_dir, task_dir, prompt, seed,
                                      trial_deadline-time.monotonic(), self.profile, trial / "harness_logs")
                 execution = self.harness.run(request)
+            self.events.append({"event": "agent_completed", "phase": "agent", **identity})
             self.budget.remaining()
             if execution is not None and execution.status == "timeout" and globally_limited:
                 raise BudgetExceeded("Experiment wall-time budget interrupted execution")
@@ -154,7 +187,9 @@ class GroupRunner:
                 if remaining <= 0:
                     evaluation = Evaluation("timeout", {"passed": 0.0}, "Per-trial timeout exhausted")
                 else:
+                    self.events.append({"event": "evaluation_started", "phase": "evaluation", **identity})
                     evaluation = self.evaluator.evaluate(task, eval_dir, remaining)
+                    self.events.append({"event": "evaluation_completed", "phase": "evaluation", **identity})
             self.budget.remaining()
             if evaluation.status == "timeout" and globally_limited:
                 raise BudgetExceeded("Experiment wall-time budget interrupted evaluation")
@@ -218,19 +253,30 @@ class GroupRunner:
             self.verify_candidate(baseline)
             context = Context(self, baseline, stage)
             optimizer = self.registry.resolve("optimizers", stage["optimizer"])()
-            result = optimizer.optimize(context, [baseline], stage.get("config", {}))
-            stage_result["checkpoint"] = result.checkpoint
-            self.budget.remaining()
-            rows = stage_result["evaluated"]
-            for candidate in result.candidates:
-                self.verify_candidate(candidate)
-                by_id[candidate.id] = candidate
-                rows.append(self.evaluate(candidate, "validation"))
-            chosen = select(rows, self.spec["objective"])
-            outputs[stage["id"]] = [by_id[r["candidate_id"]] for r in chosen]
-            stage_result.update(status="completed", selected=chosen, stage_wall_time_seconds=time.monotonic()-t0)
-            write_json(self.root / "stages" / (stage["id"] + ".json"), stage_result)
-        final_names = self.spec.get("final_stages", [stage["id"] for stage in stages] or ["baseline"])
+            self.current_stage = stage
+            try:
+                result = optimizer.optimize(context, [baseline], stage.get("config", {}))
+                stage_result["checkpoint"] = result.checkpoint
+                self.budget.remaining()
+                rows = stage_result["evaluated"]
+                for candidate in result.candidates:
+                    self.verify_candidate(candidate)
+                    by_id[candidate.id] = candidate
+                    rows.append(self.evaluate(candidate, "validation"))
+                chosen = select(rows, self.spec["objective"])
+                outputs[stage["id"]] = [by_id[r["candidate_id"]] for r in chosen]
+                stage_result.update(status="completed", selected=chosen)
+            except StageBudgetExceeded as exc:
+                stage_result.update(status="budget_exhausted", detail=str(exc))
+                self.events.append({"event": "stage_budget_exhausted", "stage_id": stage["id"],
+                                    "agent_id": self.agent.id, "harness_id": self.profile["id"]})
+            finally:
+                self.current_stage = None
+                stage_result["stage_wall_time_seconds"] = time.monotonic()-t0
+                write_json(self.root / "stages" / (stage["id"] + ".json"), stage_result)
+        final_names = self.spec.get("final_stages", [stage["id"] for stage in stages
+                                                       if stage["id"] in outputs] or ["baseline"])
+        final_names = [name for name in final_names if name in outputs]
         pool = {c.id: c for name in final_names for c in outputs[name]}
         winners = select([self.evaluate(c, "validation") for c in pool.values()], self.spec["objective"])
         # Freeze selection before test; test scores never choose a winner or trigger a stage.
@@ -243,13 +289,25 @@ class GroupRunner:
             for candidate in test_candidates.values():
                 test_rows.append(self.evaluate(candidate, "test"))
         self.budget.remaining()
-        self.summary["status"] = "completed" if winners else "no_eligible_candidate"
+        self.summary["status"] = ("partial" if winners and any(s["status"] != "completed" for s in stages)
+                                  else "completed" if winners else "no_eligible_candidate")
         return self.summary
 
 
 def preflight(spec, registry):
     validate_objective(spec["objective"])
     validate_stages(spec)
+    stages = spec.get("stages", [])
+    if stages and all("max_trials" in stage for stage in stages):
+        validation = sum(t.split == "validation" for t in spec["_tasks"])
+        tests = sum(t.split == "test" for t in spec["_tasks"])
+        per_group = validation + sum(stage["max_trials"] for stage in stages)
+        if spec.get("final_test", False):
+            per_group += 2 * tests  # Baseline and one frozen winner; they may be the same.
+        required = per_group * len(spec["_agents"]) * len(spec["_profiles"])
+        if spec.get("budget", {}).get("max_trials", 100) < required:
+            raise ConfigurationError(f"Trial budget must reserve at least {required} trials for "
+                                     "baseline, stage allowances and final test")
     plugin_files(spec["_root"], spec.get("plugins", {}), spec.get("plugin_dependencies", {}))
     registry.load_plugins(spec["_root"], spec.get("plugins", {}))
     for profile in spec["_profiles"]:
@@ -322,6 +380,7 @@ def run_experiment(spec, registry, output: Path | None = None):
                 summary["groups"][-1] = group.summary
                 group.run()
         summary["status"] = ("completed" if all(g["status"] == "completed" for g in summary["groups"])
+                             else "partial" if any(g["status"] == "partial" for g in summary["groups"])
                              else "no_eligible_candidate")
     except KeyboardInterrupt:
         summary["status"] = "interrupted"
