@@ -8,6 +8,7 @@ from agent_optimizer.harnesses.command import CommandHarness, FixtureHarness
 from agent_optimizer.harnesses.opencode import OpenCodeHarness
 from agent_optimizer.optimizers.baseline import BaselineOptimizer
 from agent_optimizer.optimizers.file_variants import FileVariantsOptimizer
+from agent_optimizer.optimizers.gepa import GEPAOptimizer
 
 
 def plugin_files(root, plugins, dependencies):
@@ -47,12 +48,13 @@ def plugin_files(root, plugins, dependencies):
 class Registry:
     def __init__(self):
         self.factories = {
-            "optimizers": {"baseline": BaselineOptimizer, "file_variants": FileVariantsOptimizer},
+            "optimizers": {"baseline": BaselineOptimizer, "file_variants": FileVariantsOptimizer,
+                           "gepa": GEPAOptimizer},
             "harnesses": {"command": CommandHarness, "fixture": FixtureHarness, "opencode": OpenCodeHarness},
             "evaluators": {},
             "datasets": {},
         }
-        self.reserved = {"optimizers": {"gepa", "meta_harness", "ecdysis"},
+        self.reserved = {"optimizers": {"meta_harness", "ecdysis"},
                          "harnesses": {"claude_code", "codex", "openagent"},
                          "evaluators": set(), "datasets": set()}
         self.loaded = {}

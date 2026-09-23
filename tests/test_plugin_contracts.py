@@ -156,7 +156,7 @@ class PluginContractTests(unittest.TestCase):
 
     def test_inventory_lists_only_implemented_integrations(self):
         inventory = Registry().describe()
-        self.assertEqual(inventory["optimizers"]["implemented"], ["baseline", "file_variants"])
+        self.assertEqual(inventory["optimizers"]["implemented"], ["baseline", "file_variants", "gepa"])
         self.assertFalse(inventory["optimizers"].get("planned"))
 
     def test_independent_file_optimizers_multi_agent_history_and_selection(self):
@@ -279,10 +279,14 @@ class Search:
         self.assertEqual(group["stages"][0]["checkpoint"]["iteration"], 1)
         events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
         usage = [event for event in events if event["event"] == "optimizer_usage"]
-        self.assertEqual(usage, [{"event": "optimizer_usage", "agent_id": "rtl-solo",
+        self.assertEqual(len(usage), 1)
+        self.assertEqual(usage[0]["schema_version"], 1)
+        self.assertTrue(usage[0]["timestamp"])
+        observed = {k: v for k, v in usage[0].items() if k not in {"timestamp", "schema_version"}}
+        self.assertEqual(observed, {"event": "optimizer_usage", "agent_id": "rtl-solo",
                                  "harness_id": "fixture", "stage_id": "team-search", "optimizer": "team",
-                                 "input_tokens": 12, "output_tokens": 4, "cost_usd": None}])
-        self.assertEqual(group["optimizer_usage"], [{k: v for k, v in usage[0].items() if k != "event"}])
+                                 "input_tokens": 12, "output_tokens": 4, "cost_usd": None})
+        self.assertEqual(group["optimizer_usage"], [{k: v for k, v in observed.items() if k != "event"}])
 
     def test_copied_harness_template_executes_the_team_adapter(self):
         # Broken post-copy registration must not silently run the original adapter.

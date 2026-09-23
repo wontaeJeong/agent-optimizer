@@ -68,6 +68,18 @@ class Context:
     def evaluate(self, candidate: Candidate):
         return self._group.evaluate(candidate, "train")
 
+    def train_task_ids(self):
+        return [task.id for task in self._group.spec["_tasks"] if task.split == "train"]
+
+    def evaluate_batch(self, candidate: Candidate, task_ids: list[str]):
+        if candidate.id not in self._candidate_ids:
+            raise ConfigurationError("Cannot evaluate another stage's candidate")
+        known = set(self.train_task_ids())
+        if (not isinstance(task_ids, list) or not task_ids or len(set(task_ids)) != len(task_ids)
+                or not all(type(task_id) is str and task_id in known for task_id in task_ids)):
+            raise ConfigurationError("Optimization minibatch must contain distinct train task IDs")
+        return self._group.evaluate(candidate, "train", task_ids=task_ids)
+
     def evaluate_validation(self, candidate: Candidate):
         if candidate.id not in self._candidate_ids:
             raise ConfigurationError("Cannot evaluate another stage's candidate")
@@ -220,12 +232,13 @@ class GroupRunner:
             self.summary["trial_count"] = len(self.records)
         return record
 
-    def evaluate(self, candidate, split):
+    def evaluate(self, candidate, split, task_ids=None):
         self.verify_candidate(candidate)
-        key = (candidate.id, split)
+        key = (candidate.id, split) if task_ids is None else (candidate.id, split, tuple(sorted(task_ids)))
         if key in self.cache:
             return self.cache[key]
-        tasks = [t for t in self.spec["_tasks"] if t.split == split]
+        tasks = [t for t in self.spec["_tasks"] if t.split == split and
+                 (task_ids is None or t.id in task_ids)]
         if not tasks:
             raise ConfigurationError(f"No tasks in split {split}")
         records = [self.trial(candidate, task, repeat) for task in tasks

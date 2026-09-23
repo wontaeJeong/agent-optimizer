@@ -85,6 +85,30 @@ class ProgressTests(unittest.TestCase):
             run_experiment(self.spec, Registry(), output)
         self.assertFalse(output.exists())
 
+    def test_optimizer_can_sample_only_named_train_tasks(self):
+        path = self.root / "examples/minimal/batch.py"
+        path.write_text(
+            "from agent_optimizer.contracts import ConfigurationError, OptimizationResult\n"
+            "class Batch:\n"
+            "    def optimize(self, context, seeds, config):\n"
+            "        ids = context.train_task_ids()\n"
+            "        try:\n"
+            "            context.evaluate_batch(seeds[0], ['fixture-validation'])\n"
+            "        except ConfigurationError:\n"
+            "            denied = True\n"
+            "        else:\n"
+            "            denied = False\n"
+            "        row = context.evaluate_batch(seeds[0], ids)\n"
+            "        return OptimizationResult(seeds, {'denied': denied, 'ids': ids, 'row': row})\n")
+        self.spec["plugins"]["optimizers"] = {"batch": "examples/minimal/batch.py:Batch"}
+        self.spec["stages"] = [{"id": "batch", "optimizer": "batch"}]
+        self.spec["final_stages"] = ["batch"]
+        _, summary = run_experiment(self.spec, Registry(), self.root / "runs")
+        checkpoint = summary["groups"][0]["stages"][0]["checkpoint"]
+        self.assertTrue(checkpoint["denied"])
+        self.assertEqual(checkpoint["ids"], ["fixture-train"])
+        self.assertEqual(checkpoint["row"]["split"], "train")
+
 
 if __name__ == "__main__":
     unittest.main()
