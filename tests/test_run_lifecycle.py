@@ -134,7 +134,7 @@ class LifecycleTests(unittest.TestCase):
             _, summary = self.run_experiment()
         self.assertEqual(summary["status"], "budget_exhausted")
         self.assertEqual(summary["groups"][0]["selected"], [])
-        record = self.persisted()[2][0]
+        record = next(row for row in self.persisted()[2] if row["event"] == "trial_completed")
         self.assertEqual(record["metrics"]["agent_tokens"], 7)
         self.assertIsNone(record["metrics"]["passed"])
 

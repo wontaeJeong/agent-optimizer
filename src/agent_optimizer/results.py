@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 
 from agent_optimizer.contracts import jsonable
@@ -22,7 +23,9 @@ class EventStore:
 
     def append(self, value) -> None:
         with self.lock, self.path.open("a", encoding="utf-8") as stream:
-            stream.write(json.dumps(jsonable(value), ensure_ascii=False, allow_nan=False) + "\n")
+            record = {"schema_version": 1, "timestamp": datetime.now(timezone.utc).isoformat(),
+                      **jsonable(value)}
+            stream.write(json.dumps(record, ensure_ascii=False, allow_nan=False) + "\n")
 
 
 

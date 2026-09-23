@@ -128,7 +128,7 @@ def validate_objective(objective: dict) -> None:
 def validate_stages(data: dict) -> None:
     known = {"baseline"}
     for stage in data.get("stages", []):
-        only_keys(stage, {"id", "optimizer", "inputs", "config", "when"}, "stage")
+        only_keys(stage, {"id", "optimizer", "inputs", "config", "when", "max_trials"}, "stage")
         sid = identifier(stage["id"])
         if sid in known:
             raise ConfigurationError(f"Duplicate/reserved stage id: {sid}")
@@ -136,6 +136,8 @@ def validate_stages(data: dict) -> None:
             raise ConfigurationError("Stage chaining is deferred; inputs must be [\"baseline\"]")
         if "when" in stage:
             raise ConfigurationError("Validation gates are deferred; remove stage.when")
+        if "max_trials" in stage and (type(stage["max_trials"]) is not int or stage["max_trials"] < 1):
+            raise ConfigurationError("stage.max_trials must be a positive integer")
         known.add(sid)
     if not set(data.get("final_stages", ["baseline"])) <= known:
         raise ConfigurationError("Unknown final stage")
