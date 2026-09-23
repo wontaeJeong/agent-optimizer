@@ -228,7 +228,8 @@ class GroupRunner:
                       "metrics": metrics, "feedback": evaluation.feedback,
                       "execution": jsonable(execution), "artifacts": evaluation.artifacts, **error}
             write_json(trial / "result.json", record)
-            self.events.append({"event": "trial_completed", **record})
+            self.events.append({"event": "trial_completed", "dataset": identity["dataset"],
+                                "stage_id": identity["stage_id"], **record})
             self.records.append(record)
             self.summary["trial_count"] = len(self.records)
         return record
@@ -424,4 +425,6 @@ def run_experiment(spec, registry, output: Path | None = None, on_event=None):
         write_json(root / "summary.json", summary)
         from agent_optimizer.results import write_report
         write_report(root, summary)
+        from agent_optimizer.html_report import write_html_report
+        write_html_report(root, summary)
     return root, summary

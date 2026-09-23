@@ -91,6 +91,7 @@ def main(argv=None):
     report = sub.add_parser("report")
     report.add_argument("run_dir", type=Path)
     report.add_argument("--csv", type=Path)
+    report.add_argument("--html", action="store_true", help="Regenerate a standalone HTML report")
     args = parser.parse_args(argv)
     registry = Registry()
     try:
@@ -213,6 +214,11 @@ def main(argv=None):
                   "note": "Schema/registry validation only. Run doctor and environment checks before real execution."})
         elif args.command == "report":
             data = json.loads((args.run_dir / "summary.json").read_text())
+            if args.html:
+                from agent_optimizer.html_report import write_html_report
+                target = write_html_report(args.run_dir, data)
+                show({"html": target, "status": data["status"]})
+                return 0
             if args.csv:
                 records = [json.loads(s) for s in (args.run_dir / "events.jsonl").read_text().splitlines()]
                 records = [r for r in records if r.get("event") == "trial_completed"]
