@@ -1,6 +1,6 @@
 # Agent Optimizer: research optimizers and end-user CLI/TUI
 
-Date: 2026-09-24. Status: user-approved design; implementation and external-model verification pending.
+Date: 2026-09-24. Status: user-approved design; method-level implementation and local verification recorded in `docs/verification.md`. External-model verification pending.
 
 ## Product and success criteria
 

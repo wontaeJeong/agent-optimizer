@@ -35,25 +35,32 @@ Task 5/6에서 실제 setup/평가를 실행한 범위는 [verification.md](veri
 상용 EDA를 제외한다는 결정은 **사용자 요구사항**이다. upstream에 상용 경로가 존재해도 이 제품의
 지원 범위가 되지 않는다. 외부 소스/데이터의 포함·사용 조건은 [THIRD_PARTY.md](../THIRD_PARTY.md)도 확인한다.
 
-## 연구 Optimizer 출처: 후보 조사와 채택 확정을 구분
+## 연구 Optimizer: 로컬 참고 버전과 자체 구현
 
-과거 `src/agent_optimizer/optimizers/{gepa,meta_harness,ecdysis}.py`의 오류 슬롯은 현재
-`deferred/src/agent_optimizer/optimizers/*.py.txt`에 보존하며 [복원 경로](../deferred/README.md)를 따른다.
-현재 팀 연결 소비 경로는 `experiments/optimizer-template/`의 명시적 파일 플러그인이다.
-기존 로컬 문서에는 논문·공식 repo·버전 연결 근거가 없었다. 2026-09-20 GitHub 이름 검색 후
-다음 README를 직접 확인했다. **외부 후보의 존재와 README의 논문 링크는 확인됨**이지만,
-원래 대화에서 의도한 대상인지, 팀이 채택할 구현·버전인지는 모두 **미확정**이다.
+2026-09-24 사용자가 `.references/`의 다음 세 연구를 명시적으로 선택했다. checkout SHA와 README·주요
+메서드 구현을 읽고, `contracts.py`의 train/validation/test 경계에 맞춘 **자체 구현**을 만들었다.
+upstream 패키지를 설치하거나 원본 소스를 복사·실행한 것은 아니며 논문 전체 재현/성능 주장도 아니다.
+과거 미구현 슬롯(`deferred/src/agent_optimizer/optimizers/*.py.txt`)은 현재 구현과 구분한다.
 
-| 보류 슬롯 원래 파일명 | 조사에서 확인한 후보 README와 그 안의 논문 링크 | 남은 확인 |
-|---|---|---|
-| `gepa.py` | [gepa-ai/gepa](https://github.com/gepa-ai/gepa/blob/main/README.md) → [GEPA: Reflective Prompt Evolution Can Outperform Reinforcement Learning](https://arxiv.org/abs/2507.19457) | 채택 대상, 논문 버전, 패키지/commit, 연결 API 미확정 |
-| `meta_harness.py` | [stanford-iris-lab/meta-harness](https://github.com/stanford-iris-lab/meta-harness/blob/main/README.md) → [Meta-Harness: End-to-End Optimization of Model Harnesses](https://arxiv.org/abs/2603.28052) | reference 구현과 별도 artifact 중 대상, 논문 버전, commit 미확정 |
-| `ecdysis.py` | [cuiyu-ai/Ecdysis](https://github.com/cuiyu-ai/Ecdysis/blob/main/README.md) → [Ecdysis: Efficient and Effective Training of Runtime Harnesses for LLM Agents](https://arxiv.org/abs/2609.11677) | 동명 프로젝트와 구별, 원래 의도와의 일치, 논문 버전, commit 미확정 |
+| 연구 참고 소스(검토한 로컬 commit) | 방법 참고 범위 / 실제 소비 파일 |
+|---|---|
+| [gepa-ai/gepa](https://github.com/gepa-ai/gepa/tree/d771eb21b5dd3228bc3f567293d2ccfc423fc900) `d771eb21b5dd3228bc3f567293d2ccfc423fc900` | README, `src/gepa/optimize_anything.py`, 공개 문서의 train 반성·per-task Pareto/merge; `src/agent_optimizer/optimizers/gepa.py`, `research.py`, `runner.py` |
+| [stanford-iris-lab/meta-harness](https://github.com/stanford-iris-lab/meta-harness/tree/0cbc31e97c9e6d24232d1dc754827c02e1ec415c) `0cbc31e97c9e6d24232d1dc754827c02e1ec415c` | README, ONBOARDING, text classification/Terminal-Bench 예제의 scaffold 후보·검증 흐름; `src/agent_optimizer/optimizers/meta_harness.py`, `runner.py` |
+| [cuiyu-ai/Ecdysis](https://github.com/cuiyu-ai/Ecdysis/tree/ec3105de6fb1017e79c9f113da8459fec6cf9b04) `ec3105de6fb1017e79c9f113da8459fec6cf9b04` | README, `evolution.py`, `training.py`의 distinct-task 반복 실패·FDCR·strict train 수용; `src/agent_optimizer/optimizers/ecdysis.py`, `research.py` |
 
-이 표는 채택 결정이나 공식성에 대한 독립 검증이 아니다. 링크된 논문 본문·성능 수치·실험 재현은
-검증하지 않았으며 README의 수치를 제품 문서에 옮기지 않는다. `main`은 조사 시점의 가변 참조다.
-첫 알고리즘 담당자가 저자/논문과 repo 관계를 대조하고 채택 SHA 또는 release를 고정한 뒤,
-이 표를 갱신하고 공통 계약·train/validation 경계에 맞춰 연결한다.
+메서드 수준 유사성과 전체 저자 구현/논문 재현은 다르다. 현 코어의 한 파일 proposal·예산·선택 계약에
+맞춘 구현 차이는 [설계](superpowers/specs/2026-09-24-optimizer-cli-tui-algorithms-design.md)와
+[검증 기록](verification.md)을 따른다. 실제 모델 사용/성능 수치는 별도 실행 전 미검증이다.
+
+## 새 평가 데이터/시뮬레이터 소스 (2026-09-24)
+
+| 소스 | 소비 파일과 실제 범위 |
+|---|---|
+| [NVlabs/verilog-eval v2](https://github.com/NVlabs/verilog-eval/tree/c498220d0a52248f8e3fdffe279075215bde2da6) `c498220d0a52248f8e3fdffe279075215bde2da6` | `examples/benchmarks/verilog_eval.py`에서 pinned Git clone과 두 Human Eval task 모드, `verilog_evaluator.py`에서 별도 `_test.sv`/`_ref.sv`, `Makefile.in`의 Icarus `-g2012 -s tb` 및 `scripts/sv-iv-analyze`의 mismatch verdict를 대조. 원본 `_ref`는 Agent에게 전달하지 않음. |
+| [Icarus Verilog v12 branch](https://github.com/steveicarus/iverilog/tree/4fd5291632232fbe1ba49b2c26bb6b2bf1c6c9cf) `4fd5291632232fbe1ba49b2c26bb6b2bf1c6c9cf` | upstream Verilog-Eval README가 v12를 요구하고 v13을 미지원으로 표시. `examples/benchmarks/Dockerfile.iverilog12`에 고정하여 Mac Docker linux/arm64에서 `iverilog -V` v12.0, 작은 정답/오답 실행 확인. CVDP의 v13 이미지는 사용하지 않음. |
+| [고정 CVDP 소스/데이터](#고정-버전) | `examples/benchmarks/cvdp.py`가 기존 `examples/ace-rtl/environment/setup.py`, `prepare.py`, `evaluator.py`의 지원 no-commercial importer·다운로드·공식 채점 경로를 재사용. ACE/CVDP/HF SHA를 변경하지 않음. |
+
+Verilog-Eval v2 전체 문제/Ubuntu 실도구와 실제 Agent/모델 최적화는 검증하지 않았다.
 
 ## Task 5 pinned data / provider inspection (2026-09-20)
 

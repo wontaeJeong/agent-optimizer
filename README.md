@@ -1,9 +1,56 @@
-# Agent Optimizer — 팀 개발·데모 스타터
+# Agent Optimizer — Agent 개발자를 위한 CLI/TUI
 
-범용 Agent 최적화 실험용 Python CLI입니다. **ACE-RTL은 데모 대상이며 제품 코어가 아닙니다.**
+범용 Agent 최적화 실험용 Python CLI·대화형 TUI입니다. **ACE-RTL은 데모 대상이며 제품 코어가 아닙니다.**
 다른 팀 Agent의 repo·실행 방식·평가 방법·수정 허용 범위를 연결해 같은 실험 흐름을 사용합니다.
 실제 Agent는 별도 repo, 작은 개발용 Agent는 `examples/`에 포함합니다.
 대상에 따라 실행·평가 어댑터 개발이 필요하며, 모든 Agent를 설정만으로 자동 지원하지는 않습니다.
+
+## Agent 개발자가 사용하는 경로
+
+먼저 `make setup ARGS="--core"`로 CLI를 준비합니다. `.venv/bin/agent-opt tui`는 Agent·실행 argv·
+editable 파일·Optimizer·**직접 선택하는 데이터셋**을 차례로 묻고 실시간 실행 화면을 보여줍니다.
+데이터셋을 자동 추천하지 않으며, 선택한 CVDP/Verilog-Eval은 고정 버전 소스·데이터·OSS 평가 환경을
+자동 준비합니다(첫 실행에는 다운로드·Docker 빌드가 걸릴 수 있습니다). 사용자 데이터셋도 별도의
+채점기를 지정해 사용할 수 있습니다.
+
+비대화형 경로의 첫 예시는 모델·Docker를 쓰지 않는 **합성 fixture**입니다:
+
+```bash
+.venv/bin/agent-opt datasets list
+.venv/bin/agent-opt init --name my-fixture \
+  --agent examples/minimal/agents/solo \
+  --argv '{python}' '{agent_dir}/src/fixture_agent.py' '{task_dir}' \
+  --editable configs/strategy.json \
+  --dataset examples/minimal/tasks.json \
+  --evaluator examples/minimal/evaluator.py:TextFixtureEvaluator \
+  --optimizer baseline --yes
+.venv/bin/agent-opt run runs/configs/my-fixture/experiment.toml
+# run 명령의 run_dir을 사용:
+.venv/bin/agent-opt report "runs/<run-id>" --html
+```
+
+실제 Agent는 `--agent <로컬 소스>` 또는 `--agent <Git URL> --revision <전체 commit>`과
+실제 실행 argv, 사용 중인 `--prompt-file`, 수정 허용 `--editable` 범위를 연결합니다.
+Agent 명령에 `--input` 같은 옵션이 있으면 `--command-json '["python3","agent.py","--input","{task_dir}"]'`
+형태로 argv 배열을 지정합니다(셸 실행이 아님).
+`--optimizer gepa --optimizer meta_harness --optimizer ecdysis`처럼 반복해 독립 stage를 지정할 수 있습니다.
+코드 하네스 방식은 실제 실행되는 `.py` 파일이 필요하고, 여러 파일이 일치하면
+`--scaffold-file`(GEPA는 `--target-file`)을 지정합니다. 모델 제안에는 `MODEL_BASE_URL`
+**또는** `MODEL_ENDPOINT`, `MODEL_ID`, `MODEL_API_KEY`를 환경에 설정합니다.
+자격증명은 생성 설정에 저장하지 않습니다.
+
+`--dataset cvdp`, `verilog-spec`, `verilog-completion`이나
+`--dataset <내 tasks.json> --evaluator <file.py:Symbol>`을 지정합니다.
+사용자 evaluator가 `passed` 외 지표를 보고할 때는 `--metric <지표 이름>`과
+`--direction maximize|minimize`를 지정합니다. 기본 9개 과제를 train/validation/test로 고르게
+샘플링하며 `--max-tasks`, `--max-trials`, `--max-wall-time-seconds`,
+`--trial-timeout-seconds`로 범위를 조절할 수 있습니다.
+여러 `--dataset`이면 각 데이터셋의 독립 실험을 만들어
+`agent-opt run-session "runs/configs/<name>/session.json"`으로 실행합니다.
+데이터셋별 시간·과제·iteration 진행 상황과 완료 후 `runs/<run-id>/report.html`을 볼 수 있고,
+서로 다른 채점기의 점수를 직접 한 순위로 합치지 않습니다. 팀의 새 데이터셋/하네스/Optimizer는
+`experiments/<team>/extensions.toml`을 `--extensions`로 전달하면 registry·CLI 변경 없이 선택됩니다.
+세 연구 알고리즘은 이 저장소의 **자체 메서드 구현**으로, upstream 논문 실험 재현과 구분합니다.
 
 ## 개발환경 빠른 시작
 
@@ -25,7 +72,7 @@ Python 3.12·frozen 개발 의존성을 `.venv`에 준비합니다. **최초 준
 최소 데모와 로컬 HTTP fixture 실행은 외부 모델·Docker를 사용하지 않습니다.**
 코어 준비는 ACE/CVDP 소스·데이터·이미지를 준비하지 않으며 모델/평가 환경의 준비 완료를 뜻하지 않습니다.
 설치 로그는 `external/setup-logs/`에 보존합니다. 완료 시 출력된
-`runs/<run-id>/report.md`, `summary.json`을 확인하세요. 최소 데모는 두 합성 Agent·한 repair stage·7 trial(solo 4/team 3)의
+`runs/<run-id>/report.html`, `report.md`, `summary.json`을 확인하세요. 최소 데모는 두 합성 Agent·한 repair stage·7 trial(solo 4/team 3)의
 연결 검증이며 실제 모델 성능 수치가 아닙니다. API 키는 **live 및 명시적 모델 연결 검사**에 필요합니다.
 
 메뉴는 Python 3.11+와 TTY가 필요하며 모델 토큰은 숨김 입력, 설정은 세션에만 유지됩니다.
@@ -79,7 +126,7 @@ PYTHONPATH=src python3 -m agent_optimizer run examples/minimal/experiment.toml
 PYTHONPATH=src python3 -m unittest discover -s tests -v
 ```
 
-`runs/<run-id>/report.md`, `summary.json`, `events.jsonl`을 확인하세요.
+`runs/<run-id>/report.html`, `report.md`, `summary.json`, `events.jsonl`을 확인하세요.
 최소 데모는 두 개의 독립적인 합성 Agent를 실행합니다. 첫 Agent는 설정 변경 후 검증 점수가
 0 → 1로 바뀝니다. 이는 연결 검증을 위한 **의도적으로 만든 결과**이며 RTL/LLM 성능 개선 증거가 아닙니다.
 
@@ -87,13 +134,15 @@ PYTHONPATH=src python3 -m unittest discover -s tests -v
 
 ```text
 src/agent_optimizer/       공통 계약·실험 실행·소스 스냅샷·결과
-  optimizers/             내장 baseline / file_variants
+  optimizers/             내장 baseline / file_variants / GEPA / Meta-Harness / Ecdysis
   harnesses/              command / OpenCode
 examples/
   minimal/                즉시 실행하는 합성 데모, 두 Agent
   rtl-debugger/           작은 RTL Agent + OpenCode + Yosys/Icarus 평가
   ace-rtl/                외부 ACE-RTL + OpenCode 스킬 + 공식 CVDP 평가
-experiments/              팀별 Optimizer / Harness / 외부 Agent 파일 플러그인
+  benchmarks/             선택형 CVDP·Verilog-Eval Dataset/Evaluator와 고정 평가 환경
+experiments/              팀별 Dataset / Optimizer / Harness / 외부 Agent 파일 플러그인
+  dataset-template/       팀 Dataset provider와 extensions.toml 예제
 scripts/                  setup / doctor / smoke / live 및 최소 데모 명령
 docs/                     설계·확장·구현 상태
 tests/                    의미 있는 경계·실험 검증
@@ -107,8 +156,8 @@ external/ datasets/ runs/ 다운로드·데이터·결과, Git 제외
 - 모든 stage는 baseline에서 시작하며 train 이력은 baseline과 자기 stage만 포함합니다.
   기본 최종 비교는 모든 stage winner, 선택은 lexicographic keep=1·mean/sum입니다.
 - OpenCode 및 Docker 실행 어댑터와 예제 전용 Icarus/CVDP 연결 코드를 포함합니다.
-- 연구 알고리즘은 팀 파일 플러그인으로 구현합니다. 미구현 템플릿은 명시적으로 실패합니다.
-  고급 조합/선택과 연구 슬롯의 보류·복원 위치는 [FUTURE](docs/FUTURE.md)에 있습니다.
+- GEPA/Meta-Harness/Ecdysis의 독립 검색 루프와 팀 파일 플러그인을 제공합니다.
+  미구현 템플릿은 명시적으로 실패하며 고급 조합/선택은 [FUTURE](docs/FUTURE.md)에 있습니다.
 - Claude Code / Codex / OpenAgent는 확장 규약만 제공합니다. 별도 구현 완료로 표시하지 않습니다.
 - Mac Docker ARM64와 native Ubuntu x86_64에서 공식 CVDP 정답·오답과 host-Docker toy 평가를 실행했습니다.
   실제 도구 테스트 9개와 전체 smoke가 통과했습니다. 입력 제한은 필수이며 합성만으로 임의 RTL을
