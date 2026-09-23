@@ -1,0 +1,8 @@
+FROM ubuntu:24.04
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    autoconf bison flex g++ git gperf make ca-certificates && \
+    git clone https://github.com/steveicarus/iverilog.git /tmp/iverilog && \
+    cd /tmp/iverilog && git checkout --detach 4fd5291632232fbe1ba49b2c26bb6b2bf1c6c9cf && \
+    sh autoconf.sh && ./configure && make -j4 && make install && \
+    rm -rf /tmp/iverilog /var/lib/apt/lists/*
+CMD ["iverilog", "-V"]

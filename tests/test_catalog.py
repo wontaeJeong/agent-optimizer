@@ -43,6 +43,16 @@ class ExtensionCatalogTests(unittest.TestCase):
                          {"name": "sample", "task_form": "text", "evaluator": "sample_eval"})
         self.assertIn("sample", registry.describe()["datasets"]["implemented"])
 
+    def test_bundled_benchmarks_are_catalogued_as_regular_file_plugins(self):
+        project = Path(__file__).resolve().parents[1]
+        manifest = load_extensions(project / "examples/benchmarks/extensions.toml", project)
+        registry = Registry()
+        registry.load_plugins(project, manifest["plugins"])
+        self.assertEqual(set(registry.describe()["datasets"]["implemented"]),
+                         {"cvdp", "verilog-spec", "verilog-completion"})
+        self.assertEqual(registry.resolve("datasets", "verilog-completion")().describe()["task_form"],
+                         "code-complete-iccad2023")
+
     def test_missing_plugin_file_fails_before_loading_another_plugin(self):
         marker = self.root / "was-imported"
         (self.team / "dataset.py").write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\n")
