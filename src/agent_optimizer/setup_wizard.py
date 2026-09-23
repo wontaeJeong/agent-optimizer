@@ -10,53 +10,35 @@ import fnmatch
 import itertools
 from pathlib import Path
 
-from agent_optimizer.catalog import load_extensions
 from agent_optimizer.config import identifier, load_experiment, load_tasks, positive
 from agent_optimizer.contracts import ConfigurationError
 from agent_optimizer.datasets import CustomDataset
-from agent_optimizer.registry import Registry
+from agent_optimizer.registry import PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, Registry
 from agent_optimizer.results import write_json
 from agent_optimizer.terminal_report import PreparationStatus
 from agent_optimizer.workspace import safe_path
 
 
-def component_inventory(project_root: Path, extensions: Path | None = None):
-    plugins, dependencies = {}, {}
-    manifests = [project_root / "examples/benchmarks/extensions.toml"]
-    if extensions is not None:
-        manifests.append(extensions if extensions.is_absolute() else project_root / extensions)
-    for manifest in manifests:
-        if not manifest.is_file():
-            if extensions is not None or manifest != manifests[0]:
-                raise ConfigurationError(f"Extension manifest missing: {manifest}")
-            continue
-        registration = load_extensions(manifest, project_root)
-        for kind, values in registration.get("plugins", {}).items():
-            target = plugins.setdefault(kind, {})
-            if set(target).intersection(values):
-                raise ConfigurationError(f"Duplicate extension names for {kind}")
-            target.update(values)
-        for key, values in registration.get("plugin_dependencies", {}).items():
-            if key in dependencies:
-                raise ConfigurationError(f"Duplicate extension dependency: {key}")
-            dependencies[key] = values
+def component_inventory(project_root: Path) -> tuple[Registry, dict, dict]:
     registry = Registry()
-    registry.load_plugins(project_root, plugins)
-    return registry, plugins, dependencies
+    registry.load_project(project_root)
+    return registry, PROJECT_COMPONENTS, PROJECT_DEPENDENCIES
 
 
-def prepare_selection(project_root: Path, selection: str, *, extensions: Path | None = None,
-                      evaluator: str | None = None, offline: bool = False):
-    registry, plugins, dependencies = component_inventory(project_root, extensions)
+def prepare_selection(project_root: Path, selection: str, *, evaluator: str | None = None,
+                      offline: bool = False) -> tuple[dict, dict, dict]:
+    registry, _, _ = component_inventory(project_root)
+    plugins, dependencies = {}, {}
     if selection in registry.factories["datasets"]:
         with PreparationStatus(selection), contextlib.redirect_stdout(sys.stderr):
             result = registry.resolve("datasets", selection)().prepare(
                 project_root / "external" / "datasets" / selection, offline=offline)
-        found = next((name for name, reference in plugins.get("evaluators", {}).items()
-                      if reference == result["evaluator"]), None)
-        if found is None:
-            raise ConfigurationError(f"Dataset {selection} requires a registered evaluator")
-        result = {**result, "evaluator": found, "dataset_provider": selection}
+        evaluator_id = result["evaluator"]
+        # Accept older bundled providers that still report their registered file reference.
+        evaluator_id = next((name for name, reference in PROJECT_COMPONENTS["evaluators"].items()
+                             if reference == evaluator_id), evaluator_id)
+        registry.resolve("evaluators", evaluator_id)
+        result = {**result, "evaluator": evaluator_id, "dataset_provider": selection}
     elif Path(selection).is_file():
         if not evaluator:
             raise ConfigurationError("Custom dataset requires an explicit evaluator")
@@ -136,7 +118,6 @@ def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dat
                      stages: list[dict], plugins: dict, dependencies: dict, name: str,
                      editable: list[str], prompt_file: str = "prompts/system.md",
                      max_tasks: int = 9, project_root: Path | None = None,
-                     extension_manifests: list[str] | None = None,
                      max_trials: int | None = None, wall_time: float = 3600,
                      trial_timeout: float = 120, objective_source: str = "passed",
                      objective_direction: str = "maximize") -> Path:
@@ -160,6 +141,8 @@ def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dat
     document = _bounded_tasks(json.loads(benchmark.read_text(encoding="utf-8")), max_tasks)
     if "provenance" in dataset:
         document["dataset_provenance"] = dataset["provenance"]
+    if "dataset_provider" in dataset:
+        document["dataset_provider"] = dataset["dataset_provider"]
     if not any(task["split"] == "validation" for task in document["tasks"]):
         raise ConfigurationError("Selected dataset needs validation tasks")
     source_kind = "git" if "revision" in harness else "local"
@@ -199,8 +182,6 @@ def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dat
              f"final_test = {_literal(bool(tests))}",
              f"final_stages = {_literal([s['id'] for s in stages] or ['baseline'])}",
              'output_dir = "runs"', ""]
-    if extension_manifests:
-        lines.insert(-1, f"extensions = {_literal(extension_manifests)}")
     lines += _section("budget", {"max_trials": max_trials if max_trials is not None else max(80, reserved),
                                  "max_wall_time_seconds": wall_time,
                                  "trial_timeout_seconds": trial_timeout})
@@ -229,9 +210,9 @@ def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dat
     return target
 
 
-def wizard_arguments(project_root: Path, extensions: Path | None = None) -> list[str]:
+def wizard_arguments(project_root: Path) -> list[str]:
     """Interactive choices, rendered from the live catalog rather than a fixed menu."""
-    registry, _, _ = component_inventory(project_root, extensions)
+    registry, _, _ = component_inventory(project_root)
 
     def ask(label):
         print(f"  {label}: ", end="", file=sys.stderr, flush=True)
@@ -299,6 +280,4 @@ def wizard_arguments(project_root: Path, extensions: Path | None = None) -> list
         arguments += ["--target-file", target_file]
     if revision:
         arguments += ["--revision", revision]
-    if extensions is not None:
-        arguments += ["--extensions", str(extensions)]
     return arguments

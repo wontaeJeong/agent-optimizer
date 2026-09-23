@@ -18,7 +18,6 @@ from agent_optimizer.contracts import (
 )
 from agent_optimizer.objectives import aggregate, select
 from agent_optimizer.process import execute
-from agent_optimizer.registry import plugin_files
 from agent_optimizer.workspace import CandidateStore, collect_outputs, copy_tree, safe_path
 from agent_optimizer.results import EventStore, write_json
 from agent_optimizer.sources import materialize_agent
@@ -331,7 +330,8 @@ def preflight(spec, registry):
         if spec.get("budget", {}).get("max_trials", 100) < required:
             raise ConfigurationError(f"Trial budget must reserve at least {required} trials for "
                                      "baseline, stage allowances and final test")
-    plugin_files(spec["_root"], spec.get("plugins", {}), spec.get("plugin_dependencies", {}))
+    registry.load_project(spec["_root"])
+    registry.selected_files(spec["_root"], spec)
     registry.load_plugins(spec["_root"], spec.get("plugins", {}))
     for profile in spec["_profiles"]:
         registry.resolve("harnesses", profile["adapter"])
@@ -366,15 +366,12 @@ def run_experiment(spec, registry, output: Path | None = None, on_event=None):
                                     for h in spec["_profiles"] if "model_env" in h},
                 "benchmark": spec["_benchmark_metadata"],
                 "agents": source_locks}
-    if "_extensions_sha256" in spec:
-        manifest["extensions_sha256"] = spec["_extensions_sha256"]
     phase = "manifest"
     group = None
     try:
         manifest["plugin_sha256"] = {
             ref: hashlib.sha256(file.read_bytes()).hexdigest()
-            for ref, file in plugin_files(spec["_root"], spec.get("plugins", {}),
-                                          spec.get("plugin_dependencies", {})).items()}
+            for ref, file in registry.selected_files(spec["_root"], spec).items()}
         manifest["benchmark_sha256"] = hashlib.sha256(
             safe_path(spec["_root"], spec["benchmark"]).read_bytes()).hexdigest()
         write_json(root / "manifest.json", manifest)

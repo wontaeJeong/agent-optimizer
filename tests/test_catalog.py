@@ -1,129 +1,123 @@
-"""Team extensions must be discoverable without changing core registry code."""
+"""Python registrations are the shared component inventory and run provenance."""
 import hashlib
 import json
-import tempfile
 import unittest
-from pathlib import Path
+from unittest.mock import patch
 
-from agent_optimizer.catalog import load_extensions
 from agent_optimizer.config import load_experiment
-from agent_optimizer.contracts import ConfigurationError, UnavailableError
-from agent_optimizer.registry import Registry
-from agent_optimizer.runner import run_experiment
-from support import test_project
+from agent_optimizer.contracts import ConfigurationError
+from agent_optimizer.registry import PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, Registry
+from agent_optimizer.runner import preflight, run_experiment
+from agent_optimizer.setup_wizard import component_inventory
+from support import ROOT, test_project
 
 
-class ExtensionCatalogTests(unittest.TestCase):
+class ProjectRegistryTests(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory()
-        self.addCleanup(self.temp.cleanup)
-        self.root = Path(self.temp.name)
-        self.team = self.root / "experiments" / "sample"
-        self.team.mkdir(parents=True)
-        (self.team / "dataset.py").write_text(
-            "class Provider:\n"
-            "    def describe(self):\n"
-            "        return {'name': 'sample', 'task_form': 'text', 'evaluator': 'sample_eval'}\n"
-            "    def prepare(self, cache, *, offline=False):\n"
-            "        return {'benchmark': str(cache / 'tasks.json'), 'evaluator': 'sample_eval', "
-            "'provenance': {'version': 'fixture'}}\n",
-            encoding="utf-8",
-        )
+        temporary, self.root = test_project()
+        self.addCleanup(temporary.cleanup)
 
-    def test_team_dataset_is_discoverable_and_invokable(self):
-        manifest = self.team / "extensions.toml"
-        manifest.write_text(
-            'schema_version = 1\n[plugins.datasets]\nsample = "experiments/sample/dataset.py:Provider"\n',
-            encoding="utf-8",
-        )
-        inventory = load_extensions(manifest, self.root)
+    def test_bundled_inventory_comes_from_python_registrations(self):
         registry = Registry()
-        registry.load_plugins(self.root, inventory["plugins"])
-        self.assertEqual(registry.resolve("datasets", "sample")().describe(),
-                         {"name": "sample", "task_form": "text", "evaluator": "sample_eval"})
-        self.assertIn("sample", registry.describe()["datasets"]["implemented"])
-
-    def test_bundled_benchmarks_are_catalogued_as_regular_file_plugins(self):
-        project = Path(__file__).resolve().parents[1]
-        manifest = load_extensions(project / "examples/benchmarks/extensions.toml", project)
-        registry = Registry()
-        registry.load_plugins(project, manifest["plugins"])
+        registry.load_project(ROOT)
         self.assertEqual(set(registry.describe()["datasets"]["implemented"]),
                          {"cvdp", "verilog-spec", "verilog-completion"})
+        self.assertIn("verilog_eval", registry.describe()["evaluators"]["implemented"])
         self.assertEqual(registry.resolve("datasets", "verilog-completion")().describe()["task_form"],
                          "code-complete-iccad2023")
+        inventory, components, dependencies = component_inventory(ROOT)
+        self.assertEqual(inventory.describe()["datasets"], registry.describe()["datasets"])
+        self.assertEqual(components["datasets"]["cvdp"],
+                         "examples/benchmarks/cvdp.py:Provider")
+        self.assertIn("datasets/cvdp", dependencies)
 
-    def test_missing_plugin_file_fails_before_loading_another_plugin(self):
+    def test_missing_file_and_duplicate_id_fail_before_importing_team_code(self):
         marker = self.root / "was-imported"
-        (self.team / "dataset.py").write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\n")
-        manifest = self.team / "extensions.toml"
-        manifest.write_text(
-            'schema_version = 1\n[plugins.datasets]\n'
-            'sample = "experiments/sample/dataset.py:Provider"\n'
-            'missing = "experiments/sample/not-there.py:Provider"\n', encoding="utf-8")
-        with self.assertRaises(ConfigurationError):
-            load_extensions(manifest, self.root)
+        team = self.root / "experiments/team"
+        team.mkdir(parents=True)
+        (team / "provider.py").write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\n")
+        with patch.dict(PROJECT_COMPONENTS["datasets"],
+                        {"team": "experiments/team/provider.py:Provider",
+                         "missing": "experiments/team/missing.py:Provider"}):
+            with self.assertRaises(ConfigurationError):
+                Registry().load_project(self.root)
+        self.assertFalse(marker.exists())
+        with patch.dict(PROJECT_COMPONENTS["optimizers"],
+                        {"baseline": "experiments/team/provider.py:Provider"}):
+            with self.assertRaisesRegex(ConfigurationError, "Duplicate"):
+                Registry().load_project(self.root)
         self.assertFalse(marker.exists())
 
-    def test_bad_manifest_version_is_rejected(self):
-        manifest = self.team / "extensions.toml"
-        manifest.write_text('schema_version = 0\n[plugins.datasets]\n', encoding="utf-8")
-        with self.assertRaisesRegex(ConfigurationError, "schema_version"):
-            load_extensions(manifest, self.root)
+    def test_explicit_plugin_cannot_shadow_a_project_registration(self):
+        spec = load_experiment(self.root / "examples/minimal/experiment.toml")
+        spec["plugins"]["evaluators"]["cvdp"] = "examples/minimal/evaluator.py:TextFixtureEvaluator"
+        with self.assertRaisesRegex(ConfigurationError, "Duplicate plugin registration: evaluators/cvdp"):
+            preflight(spec, Registry())
 
-    def test_missing_team_symbol_has_an_actionable_configuration_error(self):
-        manifest = self.team / "extensions.toml"
-        manifest.write_text('schema_version = 1\n[plugins.datasets]\n'
-                            'sample = "experiments/sample/dataset.py:MissingProvider"\n')
-        inventory = load_extensions(manifest, self.root)
-        with self.assertRaisesRegex(ConfigurationError, "sample.*MissingProvider"):
-            Registry().load_plugins(self.root, inventory["plugins"])
+    def test_unknown_benchmark_provider_is_not_silently_ignored(self):
+        spec = load_experiment(self.root / "examples/minimal/experiment.toml")
+        spec["_benchmark_metadata"]["dataset_provider"] = "deleted-team"
+        with self.assertRaisesRegex(ConfigurationError, "Unregistered dataset provider"):
+            preflight(spec, Registry())
 
-    def test_missing_team_dependency_names_the_component(self):
-        (self.team / "dataset.py").write_text("import nonexistent_team_dataset_dependency\n")
-        manifest = self.team / "extensions.toml"
-        manifest.write_text('schema_version = 1\n[plugins.datasets]\n'
-                            'sample = "experiments/sample/dataset.py:Provider"\n')
-        inventory = load_extensions(manifest, self.root)
-        with self.assertRaisesRegex(UnavailableError, "datasets/sample"):
-            Registry().load_plugins(self.root, inventory["plugins"])
+    def test_selected_bundled_evaluator_and_provider_include_declared_helpers(self):
+        spec = load_experiment(self.root / "examples/minimal/experiment.toml")
+        spec["_benchmark_metadata"]["dataset_provider"] = "verilog-spec"
+        spec["evaluator"] = "verilog_eval"
+        registry = Registry()
+        registry.load_project(self.root)
+        files = registry.selected_files(self.root, spec)
+        self.assertIn("examples/benchmarks/verilog_eval.py:Provider", files)
+        self.assertIn("examples/benchmarks/verilog_evaluator.py:VerilogEvaluator", files)
+        self.assertIn("examples/benchmarks/Dockerfile.iverilog12", files)
+        self.assertIn("examples/benchmarks/verilog_eval.py", files)
+        self.assertNotIn("examples/benchmarks/cvdp.py:Provider", files)
 
-    def test_builtin_name_collision_rejected_before_team_code_runs(self):
-        marker = self.root / "was-imported"
-        (self.team / "dataset.py").write_text(f"from pathlib import Path\nPath({str(marker)!r}).touch()\n")
-        manifest = self.team / "extensions.toml"
-        manifest.write_text(
-            'schema_version = 1\n[plugins.datasets]\n'
-            'sample = "experiments/sample/dataset.py:Provider"\n'
-            '[plugins.optimizers]\nbaseline = "experiments/sample/dataset.py:Provider"\n',
-            encoding="utf-8",
-        )
-        with self.assertRaisesRegex(ConfigurationError, "Duplicate"):
-            Registry().load_plugins(self.root, load_extensions(manifest, self.root)["plugins"])
-        self.assertFalse(marker.exists())
-
-    def test_experiment_records_team_extension_manifest_and_provider_hash(self):
-        temporary, root = test_project()
-        self.addCleanup(temporary.cleanup)
-        team = root / "experiments" / "sample"
+    def test_selected_central_files_and_helpers_are_fingerprinted_without_registration_in_plan(self):
+        team = self.root / "experiments/team"
         team.mkdir(parents=True)
         provider = team / "provider.py"
-        provider.write_text("class Provider:\n    def describe(self):\n        return {'name': 'sample'}\n")
-        extension = team / "extensions.toml"
-        extension.write_text('schema_version = 1\n[plugins.datasets]\n'
-                             'sample = "experiments/sample/provider.py:Provider"\n')
-        experiment = root / "examples/minimal/experiment.toml"
-        experiment.write_text(experiment.read_text().replace('schema_version = 1\n',
-                                                              'schema_version = 1\nextensions = "experiments/sample/extensions.toml"\n', 1))
-        spec = load_experiment(experiment)
-        spec["_agents"] = spec["_agents"][:1]
-        spec.update(stages=[], final_stages=["baseline"], final_test=False)
-        run, summary = run_experiment(spec, Registry(), root / "runs")
-        self.assertEqual(summary["status"], "completed")
-        manifest = json.loads((run / "manifest.json").read_text())
-        self.assertEqual(manifest["extensions_sha256"], hashlib.sha256(extension.read_bytes()).hexdigest())
-        self.assertEqual(manifest["plugin_sha256"]["experiments/sample/provider.py:Provider"],
-                         hashlib.sha256(provider.read_bytes()).hexdigest())
+        provider.write_text("class Provider:\n    pass\n")
+        helper = team / "helper.py"
+        helper.write_text("VALUE = 1\n")
+        harness = team / "harness.py"
+        harness.write_text("from agent_optimizer.harnesses.command import FixtureHarness as Harness\n")
+        optimizer = team / "optimizer.py"
+        optimizer.write_text("from agent_optimizer.optimizers.baseline import BaselineOptimizer as Optimizer\n")
+        evaluator = team / "evaluator.py"
+        evaluator.write_text("from agent_optimizer.optimizers.baseline import BaselineOptimizer as Evaluator\n")
+        additions = {"datasets": {"team": "experiments/team/provider.py:Provider"},
+                     "harnesses": {"team": "experiments/team/harness.py:Harness"},
+                     "optimizers": {"team": "experiments/team/optimizer.py:Optimizer"},
+                     "evaluators": {"team": "experiments/team/evaluator.py:Evaluator"}}
+        with patch.dict(PROJECT_COMPONENTS, {kind: {**PROJECT_COMPONENTS[kind], **entries}
+                                            for kind, entries in additions.items()}), \
+                patch.dict(PROJECT_DEPENDENCIES, {"datasets/team": ["experiments/team/helper.py"]}):
+            spec = load_experiment(self.root / "examples/minimal/experiment.toml")
+            spec["_agents"] = spec["_agents"][:1]
+            spec.update(stages=[{"id": "team", "optimizer": "team"}], final_stages=["team"],
+                        final_test=False, evaluator="text_fixture")
+            spec["_profiles"][0]["adapter"] = "team"
+            spec["_benchmark_metadata"]["dataset_provider"] = "team"
+            registry = Registry()
+            preflight(spec, registry)
+            selected = registry.selected_files(self.root, spec)
+            for reference in ("experiments/team/provider.py:Provider", "experiments/team/helper.py",
+                              "experiments/team/harness.py:Harness", "experiments/team/optimizer.py:Optimizer",
+                              "examples/minimal/evaluator.py:TextFixtureEvaluator"):
+                self.assertIn(reference, selected)
+            self.assertNotIn("experiments/team/evaluator.py:Evaluator", selected)
+            before, _ = run_experiment(spec, Registry(), self.root / "runs")
+            first = json.loads((before / "manifest.json").read_text())
+            helper.write_text("VALUE = 2\n")
+            after, _ = run_experiment(spec, Registry(), self.root / "runs")
+            second = json.loads((after / "manifest.json").read_text())
+            self.assertEqual(first["plugin_sha256"]["experiments/team/helper.py"],
+                             hashlib.sha256(b"VALUE = 1\n").hexdigest())
+            self.assertEqual(second["plugin_sha256"]["experiments/team/helper.py"],
+                             hashlib.sha256(b"VALUE = 2\n").hexdigest())
+            self.assertNotIn("extensions_sha256", second)
+            self.assertNotIn("extensions", second["experiment"])
 
 
 if __name__ == "__main__":
