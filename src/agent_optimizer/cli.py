@@ -21,6 +21,7 @@ from agent_optimizer.setup_wizard import (component_inventory, prepare_selection
                                           _bounded_tasks, choose_editable_file, wizard_arguments,
                                           write_experiment)
 from agent_optimizer.terminal_report import ProgressDisplay
+from agent_optimizer.terminal_style import style
 from agent_optimizer.results import write_json
 from agent_optimizer.readiness import collect_dataset, collect_plan
 
@@ -59,7 +60,7 @@ def main(argv=None):
 def _main(argv):
     argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "rerank":
-        print("error: rerank is deferred; configure the objective for a new run. "
+        print(style("error:", "error", stream=sys.stderr) + " rerank is deferred; configure the objective for a new run. "
               "Stored reports and frozen selections remain available; see deferred/README.md", file=sys.stderr)
         return 2
     parser = argparse.ArgumentParser(description="Multi-agent optimization experiment workbench")
@@ -261,12 +262,13 @@ def _main(argv):
             try:
                 init_args = wizard_arguments(args.project_root.absolute())
             except EOFError:
-                print("TUI cancelled: input ended", file=sys.stderr)
+                print(style("TUI cancelled:", "warning", stream=sys.stderr) + " input ended", file=sys.stderr)
                 return 2
             except KeyboardInterrupt:
-                print("\nTUI interrupted", file=sys.stderr)
+                print("\n" + style("TUI interrupted", "warning", stream=sys.stderr), file=sys.stderr)
                 return 130
-            print("\n  Preparing the selected dataset…", file=sys.stderr, flush=True)
+            print("\n  " + style("Preparing the selected dataset…", "warning", stream=sys.stderr),
+                  file=sys.stderr, flush=True)
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
                 code = main(init_args)
@@ -330,11 +332,15 @@ def _main(argv):
                 if args.json:
                     show(report)
                 else:
-                    print(f"{report['scope']} readiness: {'ready' if report['ready'] else 'not ready'}")
+                    status = "ready" if report["ready"] else "not ready"
+                    print(f"{report['scope']} readiness: "
+                          + style(status, "success" if report["ready"] else "error"))
                     for row in report["checks"]:
-                        print(f"[{row['status']}] {row['id']}: {row['message']}")
+                        tone = {"ok": "success", "error": "error", "blocked": "warning"}.get(
+                            row["status"], "warning")
+                        print(f"[{style(row['status'], tone)}] {row['id']}: {row['message']}")
                         if row["remedy"]:
-                            print(f"  Remedy: {row['remedy']}")
+                            print(f"  {style('Remedy:', 'warning')} {row['remedy']}")
                 return 0 if report["ready"] else 2
             show(doctor())
         elif args.command == "agents":
@@ -378,6 +384,6 @@ def _main(argv):
                         writer.writerow({**{k: r[k] for k in fixed}, **r["metrics"]})
             show(data)
     except (ConfigurationError, UnavailableError, KeyError, TypeError, ValueError, OSError) as exc:
-        print(f"error: {exc}", file=sys.stderr)
+        print(f"{style('error:', 'error', stream=sys.stderr)} {exc}", file=sys.stderr)
         return 2
     return 0

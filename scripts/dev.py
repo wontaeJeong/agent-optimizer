@@ -18,6 +18,7 @@ from agent_optimizer.results import write_json
 from agent_optimizer.network import network_environment, ca_fingerprint, demo_environment
 from agent_optimizer.registry import Registry
 from agent_optimizer import readiness
+from agent_optimizer.terminal_style import style
 
 
 def load(name, path):
@@ -49,7 +50,7 @@ def run_core(command):
     code = subprocess.run([str(python), "-m", *commands[command]], cwd=ROOT,
                           env=environment, shell=False).returncode
     if code:
-        print(f"{command} failed (exit {code}); inspect the command output above. "
+        print(style(f"{command} failed (exit {code})", "error") + "; inspect the command output above. "
               "If dependencies are missing, run sh scripts/bootstrap.sh setup --core.", flush=True)
     return code
 
@@ -173,31 +174,34 @@ def main(argv=None):
         if args.command == "setup":
             if not core_only:
                 stage = "example environment"
-                print(f"[setup] {stage}: starting; logs: {ROOT / 'external/setup-logs'}", flush=True)
+                print(style(f"[setup] {stage}: starting", "warning")
+                      + f"; logs: {ROOT / 'external/setup-logs'}", flush=True)
                 dataset, lock = setup.prepare_environment(offline=args.offline, platform=args.platform)
-                print(f"[setup] {stage}: complete", flush=True)
+                print(style(f"[setup] {stage}: complete", "success"), flush=True)
                 stage = "dataset preparation"
-                print(f"[setup] {stage}: starting; output: {ROOT / 'datasets/ace-demo'}", flush=True)
+                print(style(f"[setup] {stage}: starting", "warning")
+                      + f"; output: {ROOT / 'datasets/ace-demo'}", flush=True)
                 prepare = load("ace_prepare", "examples/ace-rtl/prepare.py")
                 manifest = prepare.prepare_dataset(dataset, ROOT / "datasets/ace-demo/all-tasks.json", lock)
                 demo = load("ace_demo", "examples/ace-rtl/environment/demo.py")
                 manifest = demo.select_tasks(manifest)
                 write_json(ROOT / "datasets/ace-demo/tasks.json", manifest)
-                print(f"[setup] {stage}: complete", flush=True)
+                print(style(f"[setup] {stage}: complete", "success"), flush=True)
             stage = "final doctor"
-            print(f"[setup] {stage}: starting (read-only)", flush=True)
+            print(style(f"[setup] {stage}: starting", "warning") + " (read-only)", flush=True)
             doctor = load("dev_doctor", Path(__file__).resolve().with_name("dev_doctor.py"))
             report = doctor.collect_report(ROOT, args.platform, core_only=True) if core_only else doctor.collect_report(ROOT, args.platform)
             doctor.render_report(report)
             if not report["ready"]:
                 raise UnavailableError("Final doctor failed; follow the diagnostic repair instructions")
-            print(f"[setup] {stage}: complete", flush=True)
+            print(style(f"[setup] {stage}: complete", "success"), flush=True)
             stage = "minimal demo"
-            print(f"[setup] {stage}: starting; results: {ROOT / 'runs'}", flush=True)
+            print(style(f"[setup] {stage}: starting", "warning")
+                  + f"; results: {ROOT / 'runs'}", flush=True)
             code = run_core("demo")
             if code:
                 raise UnavailableError(f"Minimal demo failed (exit {code}); inspect runs/")
-            print(f"[setup] {stage}: complete", flush=True)
+            print(style(f"[setup] {stage}: complete", "success"), flush=True)
             if core_only:
                 print(json.dumps({"status": "ready", "scope": "core", "results": "runs/",
                                   "next": 'make doctor ARGS="--core"; make menu; make demo'}))

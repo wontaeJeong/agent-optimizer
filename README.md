@@ -69,6 +69,9 @@ make demo                        # 비대화형 최소 데모
 sh scripts/bootstrap.sh setup --core
 ```
 
+CLI·TUI·`make`의 안내/진단은 터미널에서 상태별 색상으로 강조합니다. 출력을 리다이렉트하거나
+`NO_COLOR=1`을 설정하면 색상이 꺼지며, JSON 출력에는 색상 코드를 넣지 않습니다.
+
 `setup --core`는 기존 uv 설치 경로를 사용해, uv가 없으면 0.10.7을 로컬에 설치하고
 Python 3.12·frozen 개발 의존성을 `.venv`에 준비합니다. **최초 준비에는 의존성 다운로드가 필요할 수 있지만,
 최소 데모와 로컬 HTTP fixture 실행은 외부 모델·Docker를 사용하지 않습니다.**

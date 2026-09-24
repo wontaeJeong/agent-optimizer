@@ -3,8 +3,12 @@
 set -eu
 
 help() {
+    if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+        printf '\033[36m%s\033[0m\n' 'Development commands: setup doctor test lint demo smoke live help'
+    else
+        printf '%s\n' 'Development commands: setup doctor test lint demo smoke live help'
+    fi
     printf '%s\n' \
-        'Development commands: setup doctor test lint demo smoke live help' \
         'Prerequisites: Mac/Ubuntu, Git; full ACE setup also needs Docker Engine + Compose.' \
         'Start: sh scripts/bootstrap.sh setup --core; then make doctor ARGS="--core" and make demo.' \
         'No make? Use sh scripts/bootstrap.sh <command> [options].' \
@@ -16,10 +20,21 @@ help() {
         'Full command help: python3 scripts/dev.py --help or <command> --help.'
 }
 
-fail() { printf '%s\n' "$*" >&2; exit 2; }
+fail() {
+    if [ -t 2 ] && [ -z "${NO_COLOR:-}" ] && [ "$json_output" = false ]; then
+        printf '\033[31m%s\033[0m\n' "$*" >&2
+    else
+        printf '%s\n' "$*" >&2
+    fi
+    exit 2
+}
 
 command=${1:-help}
 [ "$#" -eq 0 ] || shift
+json_output=false
+for option do
+    if [ "$option" = --json ]; then json_output=true; fi
+done
 case "$command" in
     help|-h|--help) [ "$#" -eq 0 ] || fail 'help takes no options'; help; exit 0 ;;
     setup|doctor|test|lint|demo|smoke|live|menu) ;;

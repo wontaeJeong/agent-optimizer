@@ -16,6 +16,7 @@ from agent_optimizer.datasets import CustomDataset
 from agent_optimizer.registry import PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, Registry
 from agent_optimizer.results import write_json
 from agent_optimizer.terminal_report import PreparationStatus
+from agent_optimizer.terminal_style import style
 from agent_optimizer.workspace import safe_path
 
 
@@ -214,11 +215,13 @@ def wizard_arguments(project_root: Path) -> list[str]:
     registry, _, _ = component_inventory(project_root)
 
     def ask(label):
-        print(f"  {label}: ", end="", file=sys.stderr, flush=True)
+        print("  " + style(f"{label}:", "warning", stream=sys.stderr) + " ",
+              end="", file=sys.stderr, flush=True)
         return input().strip()
 
     print("\n╭─────────────────────────────────────────────────────────╮", file=sys.stderr)
-    print("│  Agent Optimizer   ·   new optimization experiment     │", file=sys.stderr)
+    print(style("│  Agent Optimizer   ·   new optimization experiment     │", "heading",
+                stream=sys.stderr), file=sys.stderr)
     print("╰─────────────────────────────────────────────────────────╯", file=sys.stderr)
     name = ask("Experiment name")
     agent = ask("Agent source directory or pinned Git URL")
@@ -226,10 +229,12 @@ def wizard_arguments(project_root: Path) -> list[str]:
     command = shlex.split(ask("Agent execution argv (e.g. python agent.py {task_dir})"))
     editable = [item.strip() for item in ask("Editable files (comma separated)").split(",") if item.strip()]
     choices = sorted(registry.factories["datasets"])
-    print("\n  Choose a dataset; there is no automatic recommendation:", file=sys.stderr)
+    print("\n  " + style("Choose a dataset; there is no automatic recommendation:", "heading",
+                           stream=sys.stderr), file=sys.stderr)
     for index, key in enumerate(choices, 1):
         info = registry.factories["datasets"][key]().describe()
-        print(f"    {index}. {key} · {info.get('task_form', 'custom')}", file=sys.stderr)
+        print(f"    {style(f'{index}.', 'heading', stream=sys.stderr)} "
+              f"{key} · {info.get('task_form', 'custom')}", file=sys.stderr)
     dataset_choice = ask("Dataset numbers or local tasks.json paths (comma separated)")
     selected_datasets = []
     for item in dataset_choice.split(","):
@@ -244,9 +249,10 @@ def wizard_arguments(project_root: Path) -> list[str]:
     if direction not in {"maximize", "minimize"}:
         raise ConfigurationError("Score direction must be maximize or minimize")
     optimizers = sorted(registry.factories["optimizers"])
-    print("\n  Select optimizer algorithms:", file=sys.stderr)
+    print("\n  " + style("Select optimizer algorithms:", "heading", stream=sys.stderr),
+          file=sys.stderr)
     for index, key in enumerate(optimizers, 1):
-        print(f"    {index}. {key}", file=sys.stderr)
+        print(f"    {style(f'{index}.', 'heading', stream=sys.stderr)} {key}", file=sys.stderr)
     numbers = ask("Optimizer numbers (comma separated)")
     try:
         selected = [optimizers[int(index.strip()) - 1] for index in numbers.split(",")]
@@ -255,9 +261,9 @@ def wizard_arguments(project_root: Path) -> list[str]:
     if not selected or not all(item in optimizers for item in selected):
         raise ConfigurationError("Choose one or more listed optimizers")
     harnesses = sorted(registry.factories["harnesses"])
-    print("\n  Select an Agent harness:", file=sys.stderr)
+    print("\n  " + style("Select an Agent harness:", "heading", stream=sys.stderr), file=sys.stderr)
     for index, key in enumerate(harnesses, 1):
-        print(f"    {index}. {key}", file=sys.stderr)
+        print(f"    {style(f'{index}.', 'heading', stream=sys.stderr)} {key}", file=sys.stderr)
     number = ask("Harness number")
     if not number.isdigit() or not 1 <= int(number) <= len(harnesses):
         raise ConfigurationError("Choose a listed harness number")
