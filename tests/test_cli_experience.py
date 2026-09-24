@@ -254,9 +254,50 @@ class CLIExperienceTests(unittest.TestCase):
                 self.assertEqual(cli.main(["doctor", "--dataset", "sample_text",
                                            "--project-root", str(self.root), "--json"]), 0)
             self.assertEqual(before, {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
-            self.assertEqual(sys.dont_write_bytecode, previous)
+            # main restores the value at call entry (False), not the test process's earlier value.
+            self.assertIs(sys.dont_write_bytecode, False)
         finally:
             sys.dont_write_bytecode = previous
+
+    def test_direct_doctor_restores_each_entry_bytecode_setting_even_on_exception(self):
+        import agent_optimizer.cli as cli
+        previous = sys.dont_write_bytecode
+        try:
+            for enabled in (False, True):
+                with self.subTest(enabled=enabled):
+                    sys.dont_write_bytecode = enabled
+                    with contextlib.redirect_stdout(io.StringIO()):
+                        self.assertEqual(cli.main(["doctor", "--plan",
+                                                   str(self.root / "examples/minimal/experiment.toml"), "--json"]), 0)
+                    self.assertIs(sys.dont_write_bytecode, enabled)
+
+                    def fail_during_doctor(_argv):
+                        self.assertTrue(sys.dont_write_bytecode)
+                        raise RuntimeError("interrupted doctor")
+
+                    with patch.object(cli, "_main", side_effect=fail_during_doctor):
+                        with self.assertRaisesRegex(RuntimeError, "interrupted doctor"):
+                            cli.main(["doctor"])
+                    self.assertIs(sys.dont_write_bytecode, enabled)
+        finally:
+            sys.dont_write_bytecode = previous
+
+    def test_direct_doctor_preserves_env_enabled_bytecode_guard(self):
+        package_root = Path(__file__).resolve().parents[1]
+        script = "\n".join((
+            "import sys",
+            "from agent_optimizer.cli import main",
+            "assert sys.dont_write_bytecode is True, 'environment flag missing on entry'",
+            "assert main(['doctor', '--plan', sys.argv[1], '--json']) == 0",
+            "assert sys.dont_write_bytecode is True, 'doctor changed the entry flag'",
+        ))
+        result = subprocess.run(
+            [sys.executable, "-c", script, str(self.root / "examples/minimal/experiment.toml")],
+            cwd=self.root, capture_output=True, text=True, timeout=30, shell=False,
+            env={**os.environ, "PYTHONPATH": str(package_root / "src"), "PYTHONDONTWRITEBYTECODE": "1"},
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(json.loads(result.stdout)["ready"])
 
     def test_symlink_editable_path_reports_structured_error(self):
         manifest = self.root / "examples/minimal/solo.toml"
@@ -313,6 +354,32 @@ class CLIExperienceTests(unittest.TestCase):
             self.assertEqual(checks[identifier]["status"], "ok", checks)
             self.assertIn("unverified", checks[identifier]["message"].lower())
         self.assertEqual(before, {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
+
+    def test_pinned_git_exact_source_include_matches_editable_glob_without_fetch(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        manifest = self.root / "examples/minimal/solo.toml"
+        text = manifest.read_text().replace('kind = "local"', 'kind = "git"').replace(
+            'path = "agents/solo"',
+            'url = "https://example.invalid/team/agent.git"\nrevision = "' + 'a' * 40 + '"')
+        text = text.replace('editable = ["prompts/**", "configs/**", "src/**", "overlays/**", "harness_source/**"]',
+                            'editable = ["configs/**"]').replace(
+            'include = ["prompts/**", "configs/**", "src/**", "overlays/**", "harness_source/**"]',
+            'include = ["prompts/system.md", "configs/strategy.json"]')
+        for excluded in (False, True):
+            with self.subTest(excluded=excluded):
+                manifest.write_text(text + ('\nexclude = ["configs/strategy.json"]\n' if excluded else ''))
+                before = {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+                output = io.StringIO()
+                with patch("agent_optimizer.sources.subprocess.run", side_effect=AssertionError("no Git fetch")), \
+                        contextlib.redirect_stdout(output):
+                    code = main(["doctor", "--plan", str(plan), "--json"])
+                report = json.loads(output.getvalue())
+                checks = {row["id"]: row for row in report["checks"]}
+                self.assertEqual(code, 2 if excluded else 0, report)
+                self.assertEqual(checks["agent.prompt"]["status"], "ok")
+                self.assertEqual(checks["agent.editable"]["status"], "error" if excluded else "ok")
+                self.assertIn("unverified", checks["agent.editable"]["message"].lower())
+                self.assertEqual(before, {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
 
     def test_pinned_git_plan_rejects_excluded_prompt_and_unsafe_editable(self):
         plan = self.root / "examples/minimal/experiment.toml"

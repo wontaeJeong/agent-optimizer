@@ -114,9 +114,15 @@ def _source_checks(spec: dict) -> list[dict]:
             except (ConfigurationError, OSError, ValueError):
                 prompts.append(False)
             try:
-                editables.append(bool(agent.editable) and all(
-                    selected(pattern, source) and
+                for pattern in agent.editable:
                     safe_path(Path("/schema-validation"), pattern)
+                editables.append(bool(agent.editable) and all(
+                    selected(pattern, source) or any(
+                        not any(char in included for char in "*?[") and
+                        fnmatch.fnmatchcase(included, pattern) and
+                        selected(included, source) and
+                        bool(safe_path(Path("/schema-validation"), included))
+                        for included in source.include)
                     for pattern in agent.editable))
             except (ConfigurationError, OSError, ValueError):
                 editables.append(False)
