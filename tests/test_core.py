@@ -236,9 +236,8 @@ class ExperimentTests(unittest.TestCase):
             self.assertIn("deferred", stderr.getvalue())
             self.assertEqual({path: path.read_bytes() for path in frozen}, frozen)
             stdout = io.StringIO()
-            with contextlib.redirect_stdout(stdout), self.assertRaises(SystemExit) as exit:
-                main(["--help"])
-            self.assertEqual(exit.exception.code, 0)
+            with contextlib.redirect_stdout(stdout):
+                self.assertEqual(main(["--help"]), 0)
             self.assertNotIn("rerank", stdout.getvalue())
 
     def test_cycle_and_unknown_option_rejected(self):

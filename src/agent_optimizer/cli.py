@@ -10,6 +10,12 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
+from typing import Literal
+
+import typer
+from typer._click import ClickException
+from typer._click.core import Abort, Exit
 
 from agent_optimizer.config import load_agent, load_experiment
 from agent_optimizer.contracts import ConfigurationError, UnavailableError, jsonable
@@ -20,7 +26,7 @@ from agent_optimizer.setup_wizard import (component_inventory, prepare_selection
                                           _bounded_tasks, choose_editable_file, wizard_arguments,
                                           write_experiment)
 from agent_optimizer.terminal_report import ProgressDisplay
-from agent_optimizer.terminal_style import ColorArgumentParser, style
+from agent_optimizer.terminal_style import style
 from agent_optimizer.results import write_json
 from agent_optimizer.readiness import collect_dataset, collect_plan
 
@@ -46,95 +52,145 @@ def doctor():
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    if argv and argv[0] == "doctor":
-        previous = sys.dont_write_bytecode
-        sys.dont_write_bytecode = True
-        try:
-            return _main(argv)
-        finally:
-            sys.dont_write_bytecode = previous
-    return _main(argv)
-
-
-def _main(argv):
-    argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "rerank":
         print(style("error:", "error", stream=sys.stderr) + " rerank is deferred; configure the objective for a new run. "
               "Stored reports and frozen selections remain available; see deferred/README.md", file=sys.stderr)
         return 2
-    parser = ColorArgumentParser(
-        description="여러 Agent의 최적화 실험을 위한 작업 도구",
-        epilog=('저장소에서 시작: make setup ARGS="--core" 후 agent-opt datasets list로 '
-                '데이터셋을 확인하세요. 대화형은 agent-opt tui(TTY 필요), 비대화형은 '
-                'agent-opt init --help를 사용합니다. 모델 없는 합성 예제는 README.md를 참고하세요.'))
-    sub = parser.add_subparsers(dest="command", required=True)
-    plugins = sub.add_parser("plugins", help="구현된 연동 목록 표시")
-    plugins.add_argument("--project-root", type=Path, default=Path.cwd(), help="저장소 루트(기본값: 현재 디렉터리)")
-    diagnostic = sub.add_parser(
-        "doctor", help="도구·선택 데이터셋·실험 계획의 준비 상태 진단",
-        description=("기본 동작은 도구 목록 확인입니다. --dataset ID와 --plan PATH는 설치·Agent 실행·"
-                     "모델 호출 없이 읽기 전용으로 점검합니다. --model에는 --plan 필요; 모델 API를 호출합니다."))
-    selected = diagnostic.add_mutually_exclusive_group()
-    selected.add_argument("--dataset", metavar="ID", help="선택한 등록 데이터셋 하나 진단(읽기 전용)")
-    selected.add_argument("--plan", type=Path, metavar="PATH", help="준비된 experiment.toml 진단(읽기 전용)")
-    diagnostic.add_argument("--project-root", type=Path, default=Path.cwd(), help="--dataset의 저장소 루트(기본값: 현재 디렉터리)")
-    diagnostic.add_argument("--json", action="store_true", help="기계가 읽을 수 있는 단일 진단 결과 출력")
-    diagnostic.add_argument("--model", action="store_true", help="--plan 필요; 모델 API를 명시적으로 호출")
-    datasets = sub.add_parser("datasets", help="데이터셋 목록 표시 및 명시적으로 선택한 데이터셋 준비")
-    dataset_actions = datasets.add_subparsers(dest="dataset_action", required=True)
-    for action in ("list", "prepare"):
-        item = dataset_actions.add_parser(
-            action, help=("등록 데이터셋 목록 표시" if action == "list" else "직접 선택한 데이터셋 준비"))
-        item.add_argument("--project-root", type=Path, default=Path.cwd(), help="저장소 루트(기본값: 현재 디렉터리)")
-        if action == "prepare":
-            item.add_argument("name", nargs="?", help="등록된 데이터셋 ID 또는 로컬 tasks.json")
-            item.add_argument("--evaluator", help="로컬 tasks.json에는 필수: file.py:Symbol")
-            item.add_argument("--offline", action="store_true", help="검증된 캐시 자산만 재사용")
-    init = sub.add_parser("init", help="직접 선택한 데이터셋으로 실험 설정 생성",
-                          description="로컬 또는 고정 커밋의 Git Agent와 선택한 데이터셋으로 실험을 준비합니다.")
-    init.add_argument("--project-root", type=Path, default=Path.cwd(), help="저장소 루트(기본값: 현재 디렉터리)")
-    init.add_argument("--agent", help="로컬 소스 경로 또는 Git URL(Git이면 --revision 지정)")
-    init.add_argument("--revision", help="Git Agent에 필요한 전체 커밋 해시")
-    init.add_argument("--name", help="실험 이름; 설정은 runs/configs/에 생성")
-    init.add_argument("--argv", nargs="+", help="Agent 실행 인수; {python}, {agent_dir}, {task_dir} 사용")
-    init.add_argument("--command-json", help="대시(-)로 시작하는 Agent 옵션을 포함할 수 있는 JSON 인수 배열")
-    init.add_argument("--editable", action="append", help="수정 허용 Agent 경로/패턴(반복 가능)")
-    init.add_argument("--prompt-file", default="prompts/system.md", help="Agent 프롬프트 경로(기본값: prompts/system.md)")
-    init.add_argument("--dataset", action="append", help="데이터셋을 직접 선택: 등록 ID 또는 로컬 tasks.json(반복 가능)")
-    init.add_argument("--evaluator", help="로컬 tasks.json에는 필수: file.py:Symbol")
-    init.add_argument("--metric", default="passed", help="평가기 지표 이름(기본값: passed)")
-    init.add_argument("--direction", choices=("maximize", "minimize"), default="maximize")
-    init.add_argument("--harness", default="command", help="등록된 Harness ID(기본값: command)")
-    init.add_argument("--optimizer", action="append", help="등록된 Optimizer ID(반복 가능; 기본값: gepa)")
-    init.add_argument("--optimizer-config", help="Optimizer ID별 옵션의 JSON 매핑")
-    init.add_argument("--scaffold-file", help="Meta-Harness/Ecdysis의 수정 허용 Python 파일")
-    init.add_argument("--target-file", help="연구 Optimizer가 수정할 정확한 텍스트 파일")
-    init.add_argument("--max-tasks", type=int, default=9, help="데이터셋별 최대 과제 수(기본값: 9)")
-    init.add_argument("--max-trials", type=int, help="최대 trial 예산")
-    init.add_argument("--max-wall-time-seconds", type=float, default=3600, help="실행 시간 제한(초, 기본값: 3600)")
-    init.add_argument("--trial-timeout-seconds", type=float, default=120, help="trial별 시간 제한(초, 기본값: 120)")
-    init.add_argument("--offline", action="store_true", help="검증된 데이터셋 캐시만 재사용")
-    init.add_argument("--yes", action="store_true", help="TTY 없이 준비를 확인하고 진행")
-    tui = sub.add_parser("tui", help="대화형 설정 및 실행 진행 상황 표시",
-                         description="TTY 필요. 실행 전 Agent, 수정 허용 파일, 데이터셋을 직접 선택합니다.")
-    tui.add_argument("--project-root", type=Path, default=Path.cwd(), help="저장소 루트(기본값: 현재 디렉터리)")
-    session = sub.add_parser("run-session", help="선택한 데이터셋마다 독립 평가기로 실행")
-    session.add_argument("session", type=Path, help="여러 --dataset으로 init이 생성한 session.json")
-    session.add_argument("--output", type=Path, help="세션 결과 디렉터리 지정")
-    agents = sub.add_parser("agents", help="독립 등록된 Agent 대상 목록 표시")
-    agents.add_argument("--root", type=Path, default=Path("examples"), help="Agent 선언 디렉터리(기본값: examples)")
-    for name, description in (("validate", "준비된 실험 설정과 연동 계약 검사"),
-                              ("plan", "실행 없이 실험 조합 확인"),
-                              ("run", "준비된 실험 실행 및 보고서 작성")):
-        item = sub.add_parser(name, help=description)
-        item.add_argument("experiment", type=Path, help="experiment.toml 경로")
-        if name == "run":
-            item.add_argument("--output", type=Path, help="실행 결과 디렉터리 지정")
-    report = sub.add_parser("report", help="실행 요약 확인 또는 HTML 재생성")
-    report.add_argument("run_dir", type=Path, help="agent-opt run이 출력한 실행 디렉터리")
-    report.add_argument("--csv", type=Path, help="trial 지표를 지정한 CSV 경로로 내보내기")
-    report.add_argument("--html", action="store_true", help="독립 HTML 보고서 재생성")
-    args = parser.parse_args(argv)
+    previous = sys.dont_write_bytecode
+    if argv and argv[0] == "doctor":
+        sys.dont_write_bytecode = True
+    try:
+        return typer.main.get_command(app).main(args=argv, prog_name="agent-opt",
+                                                standalone_mode=False) or 0
+    except ClickException as exc:
+        print(f"{style('error:', 'error', stream=sys.stderr)} {exc.format_message()}", file=sys.stderr)
+        return exc.exit_code
+    except Exit as exc:
+        return exc.exit_code
+    except Abort:
+        return 130
+    finally:
+        sys.dont_write_bytecode = previous
+
+
+app = typer.Typer(help="여러 Agent의 최적화 실험을 위한 작업 도구", no_args_is_help=True,
+                  add_completion=False,
+                  epilog=('저장소에서 시작: make setup ARGS="--core" 후 agent-opt datasets list로 '
+                          '데이터셋을 확인하세요. 대화형은 agent-opt tui(TTY 필요), 비대화형은 '
+                          'agent-opt init --help를 사용합니다. 모델 없는 합성 예제는 README.md를 참고하세요.'))
+dataset_app = typer.Typer(help="데이터셋 목록 표시 및 명시적으로 선택한 데이터셋 준비", no_args_is_help=True)
+app.add_typer(dataset_app, name="datasets")
+
+
+def _invoke(command: str, **options) -> int:
+    return _dispatch(SimpleNamespace(command=command, **options))
+
+
+@app.command("plugins")
+def plugins_command(project_root: Path | None = None) -> int:
+    """구현된 연동 목록 표시."""
+    return _invoke("plugins", project_root=project_root or Path.cwd())
+
+
+@app.command("doctor")
+def doctor_command(dataset: str | None = None, plan: Path | None = None,
+                   project_root: Path | None = None,
+                   json_output: bool = typer.Option(False, "--json", help="기계가 읽을 수 있는 단일 진단 결과 출력"),
+                   model: bool = typer.Option(False, "--model", help="--plan 필요; 모델 API를 명시적으로 호출")) -> int:
+    """도구·선택 데이터셋·실험 계획의 준비 상태 진단. --dataset/--plan은 읽기 전용."""
+    if dataset and plan:
+        raise typer.BadParameter("--dataset과 --plan은 함께 사용할 수 없습니다")
+    return _invoke("doctor", dataset=dataset, plan=plan, project_root=project_root or Path.cwd(),
+                   json=json_output, model=model)
+
+
+@dataset_app.command("list")
+def datasets_list(project_root: Path | None = None) -> int:
+    """등록 데이터셋 목록 표시."""
+    return _invoke("datasets", dataset_action="list", project_root=project_root or Path.cwd())
+
+
+@dataset_app.command("prepare")
+def datasets_prepare(name: str | None = typer.Argument(None, help="등록된 데이터셋 ID 또는 로컬 tasks.json"),
+                     project_root: Path | None = None,
+                     evaluator: str | None = typer.Option(None, help="로컬 tasks.json에는 필수: file.py:Symbol"),
+                     offline: bool = typer.Option(False, help="검증된 캐시 자산만 재사용")) -> int:
+    """직접 선택한 데이터셋 준비."""
+    return _invoke("datasets", dataset_action="prepare", name=name,
+                   project_root=project_root or Path.cwd(), evaluator=evaluator, offline=offline)
+
+
+@app.command("init")
+def init_command(project_root: Path | None = None,
+                 agent: str | None = typer.Option(None, help="로컬 소스 경로 또는 Git URL(Git이면 --revision 지정)"),
+                 revision: str | None = None, name: str | None = None,
+                 command_json: str | None = typer.Option(None, "--command-json", help="대시(-)로 시작하는 Agent 옵션도 포함하는 JSON 인수 배열"),
+                 editable: list[str] | None = typer.Option(None, "--editable", help="수정 허용 Agent 경로/패턴(반복 가능)"),
+                 prompt_file: str = "prompts/system.md",
+                 dataset: list[str] | None = typer.Option(None, "--dataset", help="데이터셋 직접 선택: 등록 ID 또는 로컬 tasks.json(반복 가능)"),
+                 evaluator: str | None = None, metric: str = "passed",
+                 direction: Literal["maximize", "minimize"] = typer.Option("maximize", "--direction"),
+                 harness: str = "command", optimizer: list[str] | None = typer.Option(None, "--optimizer", help="등록된 Optimizer ID(반복 가능; 기본값: gepa)"),
+                 optimizer_config: str | None = None, scaffold_file: str | None = None,
+                 target_file: str | None = None, max_tasks: int = 9, max_trials: int | None = None,
+                 max_wall_time_seconds: float = 3600, trial_timeout_seconds: float = 120,
+                 offline: bool = False,
+                 yes: bool = typer.Option(False, help="TTY 없이 준비를 확인하고 진행")) -> int:
+    """직접 선택한 데이터셋으로 실험 설정 생성."""
+    return _invoke("init", project_root=project_root or Path.cwd(), agent=agent,
+                   revision=revision, name=name, command_json=command_json,
+                   editable=editable, prompt_file=prompt_file, dataset=dataset,
+                   evaluator=evaluator, metric=metric, direction=direction,
+                   harness=harness, optimizer=optimizer, optimizer_config=optimizer_config,
+                   scaffold_file=scaffold_file, target_file=target_file, max_tasks=max_tasks,
+                   max_trials=max_trials, max_wall_time_seconds=max_wall_time_seconds,
+                   trial_timeout_seconds=trial_timeout_seconds, offline=offline, yes=yes)
+
+
+@app.command("tui")
+def tui_command(project_root: Path | None = None) -> int:
+    """대화형 설정 및 실행 진행 상황 표시(TTY 필요)."""
+    return _invoke("tui", project_root=project_root or Path.cwd())
+
+
+@app.command("run-session")
+def run_session_command(session: Path, output: Path | None = None) -> int:
+    """선택한 데이터셋마다 독립 평가기로 실행."""
+    return _invoke("run-session", session=session, output=output)
+
+
+@app.command("agents")
+def agents_command(root: Path = Path("examples")) -> int:
+    """독립 등록된 Agent 대상 목록 표시."""
+    return _invoke("agents", root=root)
+
+
+@app.command("validate")
+def validate_command(experiment: Path) -> int:
+    """준비된 실험 설정과 연동 계약 검사."""
+    return _invoke("validate", experiment=experiment)
+
+
+@app.command("plan")
+def plan_command(experiment: Path) -> int:
+    """실행 없이 실험 조합 확인."""
+    return _invoke("plan", experiment=experiment)
+
+
+@app.command("run")
+def run_command(experiment: Path, output: Path | None = None) -> int:
+    """준비된 실험 실행 및 보고서 작성."""
+    return _invoke("run", experiment=experiment, output=output)
+
+
+@app.command("report")
+def report_command(run_dir: Path, csv: Path | None = None,
+                   html: bool = typer.Option(False, "--html", help="독립 HTML 보고서 재생성")) -> int:
+    """실행 요약 확인 또는 HTML 재생성."""
+    return _invoke("report", run_dir=run_dir, csv=csv, html=html)
+
+
+def _dispatch(args):
     registry = Registry()
     try:
         if args.command != "doctor" or not (args.dataset or args.plan):
@@ -157,11 +213,9 @@ def _main(argv):
         elif args.command == "init":
             if not args.dataset:
                 raise ConfigurationError("Select a dataset explicitly with --dataset")
-            if not args.agent or not (args.argv or args.command_json) or not args.editable:
-                raise ConfigurationError("--agent, --argv (or --command-json), and --editable are required")
-            if args.argv and args.command_json:
-                raise ConfigurationError("Choose either --argv or --command-json")
-            command = json.loads(args.command_json) if args.command_json else args.argv
+            if not args.agent or not args.command_json or not args.editable:
+                raise ConfigurationError("--agent, --command-json, and --editable are required")
+            command = json.loads(args.command_json)
             if not isinstance(command, list) or not command or not all(
                     isinstance(part, str) and part for part in command):
                 raise ConfigurationError("Agent argv must be a nonempty JSON string array")
