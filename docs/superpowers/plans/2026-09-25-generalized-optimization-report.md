@@ -29,7 +29,7 @@
 
 ---
 
-### 작업 1: 구 실행 증거를 canonical model로 정규화
+### Task 1: 구 실행 증거를 canonical model로 정규화
 
 **파일:** `src/agent_optimizer/report_model.py` 신설, `tests/test_report_model.py` 신설.
 
@@ -64,7 +64,7 @@ def build_report(root: Path, summary: dict) -> dict:
 - [ ] **4. 통과 확인:** 위 모델 테스트와 `test_html_report.py`를 실행하고 `json.dumps(report, allow_nan=False)`도 확인한다.
 - [ ] **5. 커밋:** `git status --short`, `git diff`, `git log --oneline -10` 확인 후 두 파일만 stage, `git diff --cached --check`, `git commit -m "저장된 결과의 공통 리포트 모델 추가"`.
 
-### 작업 2: 비교·실패·건수를 한 번만 계산
+### Task 2: 비교·실패·건수를 한 번만 계산
 
 **파일:** `src/agent_optimizer/report_model.py`, `tests/test_report_model.py` 수정.
 
@@ -95,7 +95,7 @@ def _trend(before, after, direction):
 - [ ] **4. 통과 확인:** 같은 모델 테스트 재실행.
 - [ ] **5. 커밋:** status/diff/log 확인 후 모델·테스트만 stage하고 검사해 `git commit -m "리포트 비교와 평가 실패 정보 정규화"`.
 
-### 작업 3: 선택적 탐색 구조와 실제 이벤트
+### Task 3: 선택적 탐색 구조와 실제 이벤트
 
 **파일:** `src/agent_optimizer/report_model.py`, `src/agent_optimizer/runner.py`, `tests/test_report_model.py`, `tests/test_run_lifecycle.py` 수정.
 
@@ -120,7 +120,7 @@ context.emit("report_unit", unit_id="generation-1", parent_unit_id=None,
 - [ ] **4. 통과 확인:** `PYTHONPATH=src python3 -m unittest discover -s tests -p test_report_model.py -v`, 같은 명령의 `-p test_run_lifecycle.py -v` 및 `-p test_research.py -v`를 차례로 실행한다.
 - [ ] **5. 커밋:** status/diff/log 확인 후 위 네 파일만 stage, 검사, `git commit -m "Optimizer 독립 탐색 구조 기록과 정규화"`.
 
-### 작업 4: 공통 모델에서 Markdown·JSON·HTML 호출
+### Task 4: 공통 모델에서 Markdown·JSON·HTML 호출
 
 **파일:** `src/agent_optimizer/results.py`, `src/agent_optimizer/runner.py`, `src/agent_optimizer/cli.py`, `tests/test_results.py`, `tests/test_html_report.py` 수정.
 
@@ -151,7 +151,7 @@ def write_report_artifacts(root: Path, summary: dict) -> Path:
 - [ ] **4. 통과 확인:** `test_results.py`, `test_html_report.py`, `test_run_lifecycle.py` 각각 실행.
 - [ ] **5. 커밋:** status/diff/log 확인, 이 작업 파일만 stage·검사, `git commit -m "공통 증거 모델에서 리포트 출력 생성"`.
 
-### 작업 5: 분석용 standalone HTML·CSS
+### Task 5: 분석용 standalone HTML·CSS
 
 **파일:** `src/agent_optimizer/html_report.py`, `tests/test_html_report.py` 수정. CSS가 커지면 `src/agent_optimizer/report_style.py`로 스타일 문자열만 분리한다.
 
@@ -193,7 +193,7 @@ def write_html_report(root: Path, summary: dict, report: dict | None = None) -> 
 
 - [ ] **5. 통과·커밋:** HTML/Markdown/model 집중 테스트 후 status/diff/log를 살피고 관련 파일만 stage·검사, `git commit -m "독립형 실험 분석 리포트 개선"`.
 
-### 작업 6: 실제 생성·브라우저·통합 검증
+### Task 6: 실제 생성·브라우저·통합 검증
 
 **파일:** 검증에서 드러난 결함이 있을 때만 `src/agent_optimizer/report_model.py`, `src/agent_optimizer/html_report.py`, 해당 테스트 수정. `docs/architecture.md`에는 파생 `report.json`·범용 structure 이벤트 설명 추가.
 
