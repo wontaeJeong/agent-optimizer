@@ -761,6 +761,126 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn("optimizer-config", error.getvalue())
         self.assertFalse((self.root / "external").exists())
 
+    def test_structured_optimizer_options_complete_user_flow(self):
+        options = {"file_variants": {"include_seeds": True, "variants": [
+            {"name": "enable-repair", "files": {"configs/strategy.json": '{"repair": true}'}}
+        ]}}
+        args = ["init", "--project-root", str(self.root), "--name", "structured-options",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "file_variants", "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--optimizer-config", json.dumps(options), "--yes"]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        plan = self.root / "runs/configs/structured-options/experiment.toml"
+        spec = load_experiment(plan)
+        self.assertEqual(spec["stages"][0]["config"]["variants"], options["file_variants"]["variants"])
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["doctor", "--plan", str(plan), "--json"]), 0)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["run", str(plan)]), 0)
+        run = Path(json.loads(output.getvalue())["run_dir"])
+        summary = json.loads((run / "summary.json").read_text())
+        self.assertEqual(summary["status"], "completed")
+        self.assertTrue(summary["synthetic"])
+        self.assertEqual(summary["groups"][0]["baseline"]["metrics"]["solve_rate"], 0)
+        self.assertEqual(summary["groups"][0]["selected"][0]["metrics"]["solve_rate"], 1)
+        self.assertTrue((run / "report.html").is_file())
+
+    def test_failed_generation_can_retry_without_removing_existing_directory(self):
+        args = ["init", "--project-root", str(self.root), "--name", "invalid-once",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "baseline", "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--yes"]
+        bad = [*args, "--optimizer-config", '{"baseline":{"unsupported":null}}']
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(bad), 2)
+        self.assertFalse((self.root / "runs/configs/invalid-once").exists())
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+
+        existing = self.root / "runs/configs/existing"
+        existing.mkdir()
+        (existing / "sentinel").write_bytes(b"unchanged")
+        args[args.index("invalid-once")] = "existing"
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 2)
+        self.assertEqual((existing / "sentinel").read_bytes(), b"unchanged")
+
+    def test_multi_dataset_generation_failure_can_retry_without_leaving_first_plan(self):
+        config_root = self.root / "runs/configs/multi-retry"
+        config_root.mkdir(parents=True)
+        (config_root / "sentinel").write_bytes(b"keep")
+        second = self.root / "second.json"
+        second.write_text("invalid JSON")
+        args = ["init", "--project-root", str(self.root), "--name", "multi-retry",
+                "--agent", str(self.agent), "--dataset", str(self.data), "--dataset", str(second),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "baseline", "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--yes"]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 2)
+        self.assertEqual((config_root / "sentinel").read_bytes(), b"keep")
+        self.assertFalse((config_root / "1-tasks").exists())
+        self.assertFalse((config_root / "session.json").exists())
+
+        document = json.loads(self.data.read_text())
+        document["id"] = "second-dataset"
+        second.write_text(json.dumps(document))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        prepared = json.loads(output.getvalue())
+        self.assertEqual(len(prepared["experiments"]), 2)
+        self.assertTrue((config_root / "1-tasks/experiment.toml").is_file())
+        self.assertTrue((config_root / "2-second/experiment.toml").is_file())
+
+    def test_generated_optimizer_strings_round_trip_del_character(self):
+        value = "repair\x7fversion"
+        options = {"file_variants": {"variants": [
+            {"name": value, "files": {"configs/strategy.json": '{"repair": true}'}}
+        ]}}
+        args = ["init", "--project-root", str(self.root), "--name", "special-options",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "file_variants", "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--optimizer-config", json.dumps(options), "--yes"]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        spec = load_experiment(self.root / "runs/configs/special-options/experiment.toml")
+        self.assertEqual(spec["stages"][0]["config"]["variants"][0]["name"], value)
+
+    def test_multi_dataset_output_failure_does_not_leave_dangling_session(self):
+        class BrokenOutput:
+            def write(self, value):
+                raise OSError("output unavailable")
+
+        args = ["init", "--project-root", str(self.root), "--name", "broken-output",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--dataset", "sample_text", "--evaluator",
+                "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "baseline", "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--yes"]
+        with contextlib.redirect_stdout(BrokenOutput()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 2)
+        config_root = self.root / "runs/configs/broken-output"
+        self.assertFalse((config_root / "session.json").exists())
+        self.assertFalse((config_root / "1-tasks").exists())
+        self.assertFalse((config_root / "2-sample_text").exists())
+
+        (config_root / "session.json").write_bytes(b"existing session")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 2)
+        self.assertEqual((config_root / "session.json").read_bytes(), b"existing session")
+        self.assertFalse((config_root / "1-tasks").exists())
+
     def test_gepa_trial_allowance_tracks_requested_iterations_and_merge(self):
         args = ["init", "--project-root", str(self.root), "--name", "long-search",
                 "--agent", str(self.agent), "--dataset", str(self.data),

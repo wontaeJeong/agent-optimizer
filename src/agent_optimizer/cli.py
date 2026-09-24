@@ -197,76 +197,82 @@ def _main(argv):
                 harness = {"adapter": args.harness, "command": command}
             experiments = []
             multiple = len(args.dataset) > 1
-            for index, dataset_name in enumerate(args.dataset):
-                data, plugins, dependencies = prepare_selection(
-                    root, dataset_name, evaluator=args.evaluator, offline=args.offline)
-                document = _bounded_tasks(json.loads(Path(data["benchmark"]).read_text(encoding="utf-8")),
-                                          args.max_tasks)
-                train = sum(t["split"] == "train" for t in document["tasks"])
-                validation = sum(t["split"] == "validation" for t in document["tasks"])
-                if train == 0 and any(o in {"gepa", "meta_harness", "ecdysis"} for o in chosen):
-                    raise ConfigurationError("Research optimizers require at least one train task")
-                stages = []
-                for stage_index, optimizer in enumerate(chosen):
-                    if optimizer == "gepa":
-                        config = {"file": target, "iterations": 3, "batch_size": 4,
-                                  "metric": args.metric, "direction": args.direction}
-                    elif optimizer in {"meta_harness", "ecdysis"}:
-                        config = {"file": scaffold, **({"rounds": 3} if optimizer == "ecdysis"
-                                                      else {"iterations": 3}),
-                                  "direction": args.direction}
-                        if optimizer == "ecdysis":
-                            config.update(score_metric="solve_rate" if args.metric == "passed" else args.metric,
-                                          failure_metric=args.metric)
+            with contextlib.ExitStack() as rollback:
+                for index, dataset_name in enumerate(args.dataset):
+                    data, plugins, dependencies = prepare_selection(
+                        root, dataset_name, evaluator=args.evaluator, offline=args.offline)
+                    document = _bounded_tasks(json.loads(Path(data["benchmark"]).read_text(encoding="utf-8")),
+                                              args.max_tasks)
+                    train = sum(t["split"] == "train" for t in document["tasks"])
+                    validation = sum(t["split"] == "validation" for t in document["tasks"])
+                    if train == 0 and any(o in {"gepa", "meta_harness", "ecdysis"} for o in chosen):
+                        raise ConfigurationError("Research optimizers require at least one train task")
+                    stages = []
+                    for stage_index, optimizer in enumerate(chosen):
+                        if optimizer == "gepa":
+                            config = {"file": target, "iterations": 3, "batch_size": 4,
+                                      "metric": args.metric, "direction": args.direction}
+                        elif optimizer in {"meta_harness", "ecdysis"}:
+                            config = {"file": scaffold, **({"rounds": 3} if optimizer == "ecdysis"
+                                                          else {"iterations": 3}),
+                                      "direction": args.direction}
+                            if optimizer == "ecdysis":
+                                config.update(score_metric="solve_rate" if args.metric == "passed" else args.metric,
+                                              failure_metric=args.metric)
+                            else:
+                                config["metric"] = args.metric
                         else:
-                            config["metric"] = args.metric
-                    else:
-                        config = custom_configs.get(optimizer, {})
-                    config.update(custom_configs.get(optimizer, {}))
-                    if optimizer == "gepa":
-                        iterations, batch_size = config.get("iterations"), config.get("batch_size")
-                        if (type(iterations) is not int or iterations < 1
-                                or type(batch_size) is not int or batch_size < 1):
-                            raise ConfigurationError("GEPA iterations and batch_size must be positive integers")
-                        batch = min(train, batch_size) + validation
-                        limit = train + iterations * batch + (batch if config.get("merge") else 0)
-                    elif optimizer == "meta_harness":
-                        iterations = config.get("iterations")
-                        if type(iterations) is not int or iterations < 1:
-                            raise ConfigurationError("Meta-Harness iterations must be positive")
-                        limit = train + iterations * (train + validation)
-                    elif optimizer == "ecdysis":
-                        rounds = config.get("rounds")
-                        if type(rounds) is not int or rounds < 1:
-                            raise ConfigurationError("Ecdysis rounds must be positive")
-                        limit = (rounds + 1) * train + validation
-                    else:
-                        limit = train * 3 + validation * 3
-                    stages.append({"id": f"opt-{stage_index}-{optimizer.replace('_', '-')}",
-                                   "optimizer": optimizer, "config": config,
-                                   "max_trials": max(1, limit)})
-                label = re.sub(r"[^a-zA-Z0-9_.-]", "-", Path(dataset_name).stem)
-                experiment_name = f"{name}-{index + 1}-{label}" if multiple else name
-                folder = (root / "runs" / "configs" / name / f"{index + 1}-{label}" if multiple
-                          else root / "runs" / "configs" / name)
-                experiment = write_experiment(folder, agent=agent, harness=harness, dataset=data,
-                                              stages=stages, plugins=plugins, dependencies=dependencies,
-                                              name=experiment_name, editable=args.editable,
-                                              prompt_file=args.prompt_file, max_tasks=args.max_tasks,
-                                              project_root=root,
-                                              max_trials=args.max_trials,
-                                              wall_time=args.max_wall_time_seconds,
-                                              trial_timeout=args.trial_timeout_seconds,
-                                              objective_source=args.metric,
-                                              objective_direction=args.direction)
-                experiments.append({"dataset": dataset_name, "experiment": str(experiment)})
-            if multiple:
-                target = root / "runs" / "configs" / name / "session.json"
-                write_json(target, {"schema_version": 1, "name": name, "experiments": experiments})
-                show({"session": target, "experiments": experiments})
-            else:
-                show({"experiment": experiments[0]["experiment"], "dataset": args.dataset[0],
-                      "stages": [s["id"] for s in stages]})
+                            config = custom_configs.get(optimizer, {})
+                        config.update(custom_configs.get(optimizer, {}))
+                        if optimizer == "gepa":
+                            iterations, batch_size = config.get("iterations"), config.get("batch_size")
+                            if (type(iterations) is not int or iterations < 1
+                                    or type(batch_size) is not int or batch_size < 1):
+                                raise ConfigurationError("GEPA iterations and batch_size must be positive integers")
+                            batch = min(train, batch_size) + validation
+                            limit = train + iterations * batch + (batch if config.get("merge") else 0)
+                        elif optimizer == "meta_harness":
+                            iterations = config.get("iterations")
+                            if type(iterations) is not int or iterations < 1:
+                                raise ConfigurationError("Meta-Harness iterations must be positive")
+                            limit = train + iterations * (train + validation)
+                        elif optimizer == "ecdysis":
+                            rounds = config.get("rounds")
+                            if type(rounds) is not int or rounds < 1:
+                                raise ConfigurationError("Ecdysis rounds must be positive")
+                            limit = (rounds + 1) * train + validation
+                        else:
+                            limit = train * 3 + validation * 3
+                        stages.append({"id": f"opt-{stage_index}-{optimizer.replace('_', '-')}",
+                                       "optimizer": optimizer, "config": config,
+                                       "max_trials": max(1, limit)})
+                    label = re.sub(r"[^a-zA-Z0-9_.-]", "-", Path(dataset_name).stem)
+                    experiment_name = f"{name}-{index + 1}-{label}" if multiple else name
+                    folder = (root / "runs" / "configs" / name / f"{index + 1}-{label}" if multiple
+                              else root / "runs" / "configs" / name)
+                    experiment = write_experiment(folder, agent=agent, harness=harness, dataset=data,
+                                                  stages=stages, plugins=plugins, dependencies=dependencies,
+                                                  name=experiment_name, editable=args.editable,
+                                                  prompt_file=args.prompt_file, max_tasks=args.max_tasks,
+                                                  project_root=root,
+                                                  max_trials=args.max_trials,
+                                                  wall_time=args.max_wall_time_seconds,
+                                                  trial_timeout=args.trial_timeout_seconds,
+                                                  objective_source=args.metric,
+                                                  objective_direction=args.direction)
+                    rollback.callback(shutil.rmtree, folder)
+                    experiments.append({"dataset": dataset_name, "experiment": str(experiment)})
+                if multiple:
+                    target = root / "runs" / "configs" / name / "session.json"
+                    if target.exists() or target.is_symlink():
+                        raise ConfigurationError(f"Generated session already exists: {target}")
+                    rollback.callback(target.unlink, missing_ok=True)
+                    write_json(target, {"schema_version": 1, "name": name, "experiments": experiments})
+                    show({"session": target, "experiments": experiments})
+                else:
+                    show({"experiment": experiments[0]["experiment"], "dataset": args.dataset[0],
+                          "stages": [s["id"] for s in stages]})
+                rollback.pop_all()
         elif args.command == "tui":
             if not sys.stdin.isatty() or not sys.stderr.isatty():
                 raise ConfigurationError("TUI requires a TTY for both input and output")
