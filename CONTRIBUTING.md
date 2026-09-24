@@ -47,6 +47,25 @@ PR 코어 CI는 Python 3.11/3.12에서 lint·회귀·minimal·sdist/wheel·소�
 Ubuntu native Yosys/Icarus 검사는 공식 CVDP 이미지 버전 재현과 별개입니다. 모델 호출은 없습니다.
 공식 Docker 통합은 기존 `ci.yml`의 수동 `official_cvdp=true` 입력이며, 실행 성공은 실제 로그로 확인합니다.
 
+자체 러너를 사용할 때는 저장소 변수 `CI_RUNNER_LABELS`에 JSON 배열
+`["self-hosted","linux","x64"]`처럼 **실제 등록된 라벨**을 지정합니다. 기본값은
+`["ubuntu-latest"]`입니다. 자체 러너에는 Git, Bash, make, Python 3.11/3.12를 제공하는
+`actions/setup-python@v5` 실행 환경, Node 22를 제공하는 `actions/setup-node@v4` 실행 환경,
+Yosys·Icarus(`yosys`, `iverilog`, `vvp`)를 준비하세요. native 도구 설치 단계는
+GitHub 제공 러너에서만 수행하고 자체 러너에서는 버전 실행이 실패하면 CI를 중단합니다.
+`actions/checkout@v4`, setup-python/setup-node, wheel 의존성·uv 0.10.7의 pip 설치가
+러너에서 이용 가능해야 합니다. 필요한 proxy/CA와 Git 소스·Python package index는
+[네트워크 안내](docs/network.md)의 표준 환경/도구 설정으로 제공합니다. 모델 키는 코어 CI에
+필요하지 않습니다. 선택적 공식 통합 러너는 Docker daemon/Compose, CA 포함 빌드 시
+Buildx, 고정 소스·데이터·이미지의 접근 경로도 별도로 준비해야 합니다.
+
+로컬에서는 `make setup ARGS="--core"` → `make doctor ARGS="--core --json"` →
+`make lint` → `make test` → `make demo` → `node --test tests/endpoint-plugin.test.mjs` →
+`.venv/bin/python -m build`로 코어에 가까운 명령을 확인할 수 있습니다.
+이는 해당 러너의 Actions 실행 증거가 아닙니다. 공식 통합 결과의 artifact upload는 현재
+`github.server_url == 'https://github.com'`에서만 수행하므로 다른 서버에서는 실행 로그와
+`external/setup-logs/`, `runs/dev-smoke-*/`를 별도 보존·확인해야 합니다.
+
 ```bash
 gh workflow run ci.yml --ref YOUR_BRANCH -f official_cvdp=true
 ```
