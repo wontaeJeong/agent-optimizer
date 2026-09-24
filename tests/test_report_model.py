@@ -114,6 +114,45 @@ class ReportModelTests(unittest.TestCase):
         self.assertEqual(len(report["groups"][0]["evaluations"]), 1)
         self.assertEqual(report["groups"][0]["selected"], [])
 
+    def test_invalid_utf8_event_line_does_not_hide_surrounding_evaluations(self):
+        first = {"event": "trial_completed", "trial_id": "first", "agent_id": "agent-a",
+                 "harness_id": "harness", "candidate_id": "c0001", "status": "passed"}
+        last = {"event": "trial_completed", "trial_id": "last", "agent_id": "agent-a",
+                "harness_id": "harness", "candidate_id": "c0001", "status": "failed"}
+        (self.root / "events.jsonl").write_bytes(
+            json.dumps(first).encode() + b"\n" + b'{"event":"broken", "value":"\xff"}\n'
+            + json.dumps(last).encode() + b"\n")
+        summary = {"groups": [{"agent_id": "agent-a", "harness_id": "harness"}]}
+
+        report = build_report(self.root, summary)
+
+        self.assertEqual(report["events"], [first, last])
+        self.assertEqual([row["trial_id"] for row in report["groups"][0]["evaluations"]],
+                         ["first", "last"])
+        self.assertEqual(report["counts"]["completed_evaluations"], 2)
+
+    def test_recorded_candidates_survive_missing_or_corrupt_metadata(self):
+        directory = self.root / "agent-a" / "harness" / "candidates" / "c0002"
+        directory.mkdir(parents=True)
+        (directory / "candidate.json").write_text("{broken", encoding="utf-8")
+        selected = [{"candidate_id": "c0001", "split": "validation", "metrics": {"cost": 1}}]
+        event = {"event": "trial_completed", "trial_id": "trial-2", "agent_id": "agent-a",
+                 "harness_id": "harness", "candidate_id": "c0002", "status": "passed"}
+        (self.root / "events.jsonl").write_text(json.dumps(event) + "\n", encoding="utf-8")
+        summary = {"groups": [{"agent_id": "agent-a", "harness_id": "harness",
+                               "selected": selected}]}
+
+        report = build_report(self.root, summary)
+
+        group = report["groups"][0]
+        self.assertEqual(group["selected"], selected)
+        self.assertEqual([item["id"] for item in group["candidates"]],
+                         ["agent-a/harness/c0001", "agent-a/harness/c0002"])
+        self.assertEqual([item["metadata"] for item in group["candidates"]], [{}, {}])
+        self.assertEqual([item["parents"] for item in group["candidates"]], [[], []])
+        self.assertEqual(group["evaluations"][0]["candidate_ref"], "agent-a/harness/c0002")
+        self.assertEqual(group["counts"]["candidates"], 2)
+
     def test_untrusted_candidate_id_cannot_read_outside_group(self):
         (self.root / "secret.json").write_text('{"producer": "secret"}', encoding="utf-8")
         summary = {"groups": [{"agent_id": "agent-a", "harness_id": "harness",
