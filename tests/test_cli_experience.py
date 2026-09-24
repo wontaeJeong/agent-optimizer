@@ -856,6 +856,31 @@ class CLIExperienceTests(unittest.TestCase):
         spec = load_experiment(self.root / "runs/configs/special-options/experiment.toml")
         self.assertEqual(spec["stages"][0]["config"]["variants"][0]["name"], value)
 
+    def test_multi_dataset_output_failure_does_not_leave_dangling_session(self):
+        class BrokenOutput:
+            def write(self, value):
+                raise OSError("output unavailable")
+
+        args = ["init", "--project-root", str(self.root), "--name", "broken-output",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--dataset", "sample_text", "--evaluator",
+                "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "baseline", "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--yes"]
+        with contextlib.redirect_stdout(BrokenOutput()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 2)
+        config_root = self.root / "runs/configs/broken-output"
+        self.assertFalse((config_root / "session.json").exists())
+        self.assertFalse((config_root / "1-tasks").exists())
+        self.assertFalse((config_root / "2-sample_text").exists())
+
+        (config_root / "session.json").write_bytes(b"existing session")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 2)
+        self.assertEqual((config_root / "session.json").read_bytes(), b"existing session")
+        self.assertFalse((config_root / "1-tasks").exists())
+
     def test_gepa_trial_allowance_tracks_requested_iterations_and_merge(self):
         args = ["init", "--project-root", str(self.root), "--name", "long-search",
                 "--agent", str(self.agent), "--dataset", str(self.data),

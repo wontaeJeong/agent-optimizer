@@ -264,6 +264,9 @@ def _main(argv):
                     experiments.append({"dataset": dataset_name, "experiment": str(experiment)})
                 if multiple:
                     target = root / "runs" / "configs" / name / "session.json"
+                    if target.exists() or target.is_symlink():
+                        raise ConfigurationError(f"Generated session already exists: {target}")
+                    rollback.callback(target.unlink, missing_ok=True)
                     write_json(target, {"schema_version": 1, "name": name, "experiments": experiments})
                     show({"session": target, "experiments": experiments})
                 else:
