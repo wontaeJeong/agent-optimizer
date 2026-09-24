@@ -91,8 +91,10 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
             with self.subTest(args=args, make=make):
                 result = self.invoke(*args, make=make)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                for command in ("setup", "doctor", "test", "lint", "demo", "smoke", "live"):
+                for command in ("setup", "doctor", "test", "lint", "demo", "smoke", "live", "menu"):
                     self.assertIn(command, result.stdout)
+                self.assertIn("make setup ARGS=", result.stdout)
+                self.assertIn("full ACE", result.stdout)
         self.assertFalse((self.root / ".venv").exists())
         self.assertEqual(self.trace_text(), "")
 
@@ -672,7 +674,10 @@ class DeveloperCommandsTests(unittest.TestCase):
             self.assertIn("--dataset ID", help_text)
             self.assertIn("--core/--platform/--model", help_text)
             if command == "doctor":
+                self.assertIn("Inspect one registered dataset", help_text)
                 self.assertIn("--model", help_text)
+            else:
+                self.assertIn("Prepare one registered dataset", help_text)
 
     def test_core_setup_stops_before_example_and_requires_doctor_then_demo(self):
         for ready, demo_code, expected in ((True, 0, 0), (False, 0, 2), (True, 5, 2)):

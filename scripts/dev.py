@@ -65,7 +65,7 @@ def main(argv=None):
         "setup": "Without --core/--dataset: full ACE setup; with --core: core and fixture; "
                  "with --dataset ID: selected dataset preparation",
         "doctor": "Without --core/--dataset: full ACE diagnostics; --core: core-only; "
-                  "--dataset ID: selected dataset diagnostics (read-only; --model opts in to model calls)",
+                  "--dataset ID: selected dataset diagnostics (read-only); --model: full ACE only",
         "test": "Run unittest in the project .venv (no Docker requirement)",
         "lint": "Run Ruff in the project .venv",
         "demo": "Run the minimal synthetic demo without Docker/API",
@@ -78,7 +78,9 @@ def main(argv=None):
         command = commands.add_parser(name, help=description, description=description, allow_abbrev=False)
         if name in {"setup", "doctor"}:
             command.add_argument("--core", action="store_true", help="Core tooling only; no Docker/ACE checks (excludes --dataset/--platform/--model)")
-            command.add_argument("--dataset", metavar="ID", help="Prepare or diagnose one registered dataset (excludes --core/--platform/--model)")
+            command.add_argument("--dataset", metavar="ID", help=(
+                "Prepare one registered dataset (excludes --core/--platform/--model)" if name == "setup"
+                else "Inspect one registered dataset, read-only (excludes --core/--platform/--model)"))
         if name in {"setup", "doctor", "smoke", "live"}:
             command.add_argument("--platform",
                                  help="Default: Docker daemon native platform")
