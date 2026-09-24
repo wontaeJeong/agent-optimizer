@@ -20,6 +20,24 @@ Compose v2.38.2. 모델 자격증명은 사용하지 않았다. 이전 [수동 �
 성능이나 ACE/OpenCode의 배포 모델 추론·최적화 효과를 검증한 것은 아니다. 첫 404는
 외부 Ubuntu 패키지 제공 상태가 회복된 뒤 같은 고정 빌드에서 재현되지 않았다.
 
+## 2026-09-25 ACE-RTL 스킬 프로필 실제 모델 E2E
+
+Mac ARM64 / Docker daemon `linux/arm64`, Python 3.12.12, OpenCode 1.18.31,
+DeepSeek OpenAI 호환 API `deepseek-flash`. 실행 기록의 run ID와 타임스탬프는 UTC 2026-09-24다.
+인증정보는 실행 프로세스 환경에만 전달했고, 이 문서와 저장소 설정에는 남기지 않았다.
+
+| 실제 명령 | 결과 |
+|---|---|
+| `make setup ARGS="--core"`; `make doctor ARGS="--core --json"` | 코어 ready, 합성 최소 데모 completed / 7 trial. |
+| `make setup`; `make doctor ARGS="--json"` (`MODEL_BASE_URL`, `MODEL_ID`, `MODEL_API_KEY` 설정) | 고정 ACE/CVDP 소스·HF 데이터·Python driver·Docker 이미지 및 실도구 진단 ready. 평가 이미지의 upstream `apt` 설치를 포함한 Docker 단계는 **기존 layer cache 사용** (`external/setup-logs/evaluation-build.log`), cold build 성공 근거가 아니다. |
+| `make smoke` | `runs/dev-smoke-c78e5ca64e4e/summary.json`: 실제 도구 9개 실행, toy 정답/오답/조기종료, 공식 CVDP LFSR 정답 1/1·오답 0/1, nonempty raw tests 확인 후 `passed`. |
+| 최초 `make doctor ARGS="--model --json"` | `live.execution` 오류. 호스트 `probe_model()`을 분리 재현해 DeepSeek 기본 thinking 모드가 강제 `tool_choice`에 HTTP 400 (`Thinking mode does not support this tool_choice`)을 반환하는 것을 확인했다. 단순 completion은 HTTP 200, `tool_choice="auto"`에서는 실제 `connectivity_check` tool-call을 반환했다. |
+| 강제 `tool_choice` 제거 및 관련 회귀 후 `make doctor ARGS="--model --json"` | `model_status=passed`: 실제 호스트 API의 tool-call과 Docker OpenCode의 도구 실행 모두 통과. 유효한 tool-call 이름·인수의 검증은 유지. |
+| `make live ARGS="--iterations 1"` | **실제 모델·Agent·공식 평가**, `runs/dev-live/20260924T173749Z-e3d4be03/summary.json`: `synthetic=false`, `completed`, 4 trial 모두 `valid=true`·공식 CVDP 1/1 통과. baseline/후보 train 및 validation을 평가하고 `report.html`, `events.jsonl`, 후보 diff 생성. validation solve_rate는 둘 다 1.0, 비교 지표 seconds가 baseline 120.99 < 후보 126.28이므로 baseline `c0001` 선택. 최종 test는 설정상 실행하지 않았다. 최적화 성능 향상 증거가 아니다. |
+| `make lint`; `make test`; `make demo`; `node --test tests/endpoint-plugin.test.mjs` | Ruff 통과, unittest **449개 중 434 통과·15 skip·실패 0**, 합성 7 trial completed, endpoint plugin 1개 통과. skip은 호스트 RTL 도구 9개, 선택적 Docker 네트워크 2개 등을 포함하며 `make smoke`에서 실제 이미지 도구 9개를 별도로 검증했다. |
+
+이번 검증은 고정 프로필의 **두 과제·1회 수정**에 한정된다. upstream native ACE runner, 전체 CVDP/Verilog-Eval, Ubuntu x86_64의 이번 변경, DeepSeek 이외 모델 및 CI의 `apt` 404 cold build는 확인하지 않았다.
+
 ## 2026-09-25 사용자 설정·전송 경로·CI 재검증
 
 Mac ARM64 / Python 3.12.12 / Docker CLI 29.2.1. 아래 명령은 작업 중 실행했으며
