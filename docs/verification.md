@@ -1,5 +1,25 @@
 # 검증 기록
 
+## 2026-09-24 PR #12 whole-branch review fixes
+
+Mac ARM64 / Python 3.12.12 / Docker `linux/arm64`. 기존 고정 source·image·데이터 캐시를 사용하고,
+새 Verilog build lock과 CVDP imported tasks digest는 선택 dataset 온라인 prepare로 생성했다.
+완전 신규 checkout의 cold build, 배포 모델 inference·성능, 이번 변경의 Ubuntu x86_64 실행은 검증하지 않았다.
+
+| 실제 명령 | 결과 |
+|---|---|
+| `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_cli_experience.py -v`; 동일한 `-p test_datasets.py`, `-p test_dev_environment.py`, `-p test_progress.py` | 각각 51, 21, 43, 10개 통과. pin 선언, build lock, CVDP manifest, 진행 표시, CLI bytecode 회귀 포함. |
+| `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -q` | **421개: 406 통과·15 skip·실패 0 (50.601초)**. 기존 host 도구/선택 도구 skip은 아래 Task 5 기록과 동일한 범위. |
+| `make lint`; `.venv/bin/python -m build`; 신규 wheel을 독립 `runs/review-wheel-venv`에 offline 설치 후 `env -u PYTHONPATH runs/review-wheel-venv/bin/agent-opt --help` | Ruff 통과, sdist/wheel 생성, 새 CLI executable 실행 성공. |
+| `PYTHONPATH=src .venv/bin/python -m agent_optimizer datasets prepare verilog-spec --project-root .`; 동일한 `cvdp` | 둘 다 exit 0. 준비된 pinned Git/HF Docker cache를 사용해 Verilog v12 고정 Dockerfile 이미지 ID lock, CVDP 공개 tasks digest lock 기록. 기존 캐시의 online 재검증이며 cold build 증거가 아니다. |
+| `PYTHONPATH=src .venv/bin/python -m agent_optimizer doctor --dataset verilog-spec --json`; 동일한 `cvdp` | 둘 다 exit 0/ready; 각각 4개, 10개 read-only 검사 ok. `env -u PYTHONPATH runs/review-wheel-venv/bin/agent-opt doctor --dataset verilog-spec --json`도 exit 0. |
+| `AGENT_OPT_TEST_VERILOG_EVAL_ROOT=external/verilog-eval/source/c498220d0a52248f8e3fdffe279075215bde2da6 PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_verilog_live.py -v`; `make smoke` | 실제 Docker Icarus v12 private testbench의 작은 정답/오답 fixture 1/1 통과; 기존 공식 CVDP 평가 smoke `status=passed` (`runs/dev-smoke-e7d40c35c659/`). 전체 benchmark나 모델 최적화 아님. |
+
+`agent-opt doctor` 실행 스크립트는 프로젝트 import 이전에 bytecode를 막고, direct `main([...])`도
+Registry 생성 전에 막는다. 별도 `python -m agent_optimizer doctor`는 CPython이 package initializer를
+실행하기 전에 그 파일의 `.pyc`를 생성할 수 있으므로 fresh source의 bytecode-free 진입 경로로
+주장하지 않는다. 자세한 RED/GREEN 결과와 남은 범위는 `.superpowers/sdd/2026-09-24-central-registry-readiness/final-review-fix-report.md`.
+
 ## 2026-09-24 central registration and selected readiness (Task 5)
 
 환경: Mac ARM64, 이 작업 worktree의 `.venv` Python 3.12.12, Docker daemon `linux/arm64`.
@@ -9,7 +29,7 @@
 | 실제 명령 | 결과 |
 |---|---|
 | `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_plugin_contracts.py -v` | 18/18 통과. |
-| `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v` | 최종 실행 410개, 395 통과·15 skip, 실패 0 (49.757초). skip: 호스트 Yosys/Icarus/vvp 9, 선택적 네트워크 Docker 2, driver/YAML 2, OpenCode Docker 이미지 지정 1, v12 고정 checkout 환경 변수 1. v12은 아래 명시적 명령에서 실행. |
+| `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v` | 당시 실행 410개, 395 통과·15 skip, 실패 0 (49.757초). **최신 전체 결과는 위 421개/406 통과/15 skip.** skip: 호스트 Yosys/Icarus/vvp 9, 선택적 네트워크 Docker 2, driver/YAML 2, OpenCode Docker 이미지 지정 1, v12 고정 checkout 환경 변수 1. v12은 아래 명시적 명령에서 실행. |
 | `PYTHONPATH=src .venv/bin/python -m agent_optimizer run examples/minimal/experiment.toml` | completed, **합성 fixture** 7 trials, `runs/20260924T015541Z-8e8d23cd/report.html`. 실제 Agent·모델 성능 아님. |
 | `make lint`; `.venv/bin/python -m build`; `git diff --check` | Ruff `All checks passed!`, sdist/wheel 생성 성공, diff 공백 검사 통과. wheel 설치/Ubuntu CI는 이번 검증에 포함하지 않음. |
 | `.venv/bin/agent-opt --help`, `.venv/bin/agent-opt doctor --help`, `.venv/bin/agent-opt init --help`; `.venv/bin/python scripts/dev.py setup --help`, `.venv/bin/python scripts/dev.py doctor --help`; `.venv/bin/agent-opt datasets list` | exit 0. 중앙 ID `cvdp`, `verilog-spec`, `verilog-completion`, `sample_text` 표시; setup/doctor의 core/dataset/full 및 `--model` 선택 문구 확인. |

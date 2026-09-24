@@ -13,10 +13,26 @@ class ProgressDisplay:
         self.active = None
         self.active_started = None
         self.completed = 0
+        self.max_trials = None
         self.slowest = []
         self.lock = threading.Lock()
         self.stopped = threading.Event()
         self.thread = None
+
+    def configure_budget(self, max_trials):
+        with self.lock:
+            self.max_trials = max_trials
+            self.completed = 0
+            self.slowest = []
+
+    def _summary(self):
+        budget = (f" · MAX TRIAL BUDGET completed={self.completed} "
+                  f"remaining={max(0, self.max_trials - self.completed)} / {self.max_trials}"
+                  if self.max_trials is not None else f" · completed={self.completed}")
+        if self.slowest:
+            budget += " · slowest=" + ", ".join(
+                f"{task}: {seconds:.2f}s ({dataset})" for seconds, task, dataset in self.slowest[:3])
+        return budget
 
     def start(self):
         if self.tty:
@@ -41,8 +57,8 @@ class ProgressDisplay:
                 if self.active and self.active_started is not None:
                     label = self.active
                     elapsed = time.monotonic() - self.active_started
-                    self.stream.write(f"\r\x1b[2K  ◉ {label} · {elapsed:.0f}s elapsed · "
-                                      f"{self.completed} completed")
+                    self.stream.write(f"\r\x1b[2K  ◉ {label} · {elapsed:.0f}s elapsed"
+                                      + self._summary())
                     self.stream.flush()
 
     def __call__(self, event):
@@ -60,7 +76,8 @@ class ProgressDisplay:
         iteration = event.get("iteration")
         label = f"dataset={dataset} stage={stage} task={task} phase={phase}"
         if iteration is not None:
-            label += f" iteration={iteration}/{event.get('total', '?')}"
+            total = event.get("total")
+            label += f" iteration={iteration}/{total}" if total is not None else f" iteration={iteration}"
         with self.lock:
             if name == "trial_completed":
                 self.completed += 1
@@ -74,7 +91,7 @@ class ProgressDisplay:
                 self.stream.write("\r\x1b[2K")
             self.stream.write(f"[{event['timestamp'][11:19]}] {label}"
                               + (f" elapsed={seconds:.2f}s" if name == "trial_completed"
-                                 and seconds is not None else "") + "\n")
+                                 and seconds is not None else "") + self._summary() + "\n")
             self.stream.flush()
 
 

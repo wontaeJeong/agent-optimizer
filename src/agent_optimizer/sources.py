@@ -40,6 +40,8 @@ def validate_source(source: SourceSpec) -> None:
             parsed = urlsplit(url)
             if parsed.scheme not in {"https", "ssh", "file"}:
                 raise ConfigurationError("Git source supports https, ssh or local filesystem URLs")
+            if parsed.scheme in {"https", "ssh"} and (not parsed.hostname or not parsed.path.strip("/")):
+                raise ConfigurationError("Git source URL requires a host and repository path")
             if parsed.query or parsed.fragment or parsed.password or (parsed.scheme == "https" and parsed.username):
                 raise ConfigurationError("Do not embed credentials/query/fragment in Git URLs; use SSH or a credential helper")
         elif ":" in url and not re.fullmatch(r"(?:[\w.-]+@)?[\w.-]+:[^\s]+", url):

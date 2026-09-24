@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -219,6 +220,44 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertTrue(json.loads(plan.getvalue())["ready"])
         self.assertEqual(before, {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
 
+    def test_user_doctor_disables_bytecode_before_package_and_plugin_imports(self):
+        package_root = Path(__file__).resolve().parents[1]
+        shutil.copytree(package_root / "src/agent_optimizer", self.root / "src/agent_optimizer",
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+        env = {key: value for key, value in os.environ.items()
+               if key not in {"PYTHONDONTWRITEBYTECODE", "PYTHONPYCACHEPREFIX"}}
+        env["PYTHONPATH"] = str(self.root / "src")
+        argv = ["doctor", "--dataset", "sample_text", "--project-root", str(self.root), "--json"]
+        before = {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        for command in ([sys.executable, str(package_root / "scripts/agent-opt"), *argv],):
+            with self.subTest(command=command[:3]):
+                result = subprocess.run(command, cwd=self.root, env=env, capture_output=True,
+                                        text=True, timeout=30, shell=False)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(json.loads(result.stdout)["ready"])
+                self.assertEqual(before, {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
+
+    def test_direct_main_doctor_guards_later_plugin_imports(self):
+        # cli is already imported by this test process, just as in an embedding application.
+        import agent_optimizer.cli as cli
+        previous = sys.dont_write_bytecode
+        sys.dont_write_bytecode = False
+        try:
+            original_registry = cli.Registry
+
+            def guarded_registry():
+                self.assertTrue(sys.dont_write_bytecode, "doctor must guard before registry construction")
+                return original_registry()
+
+            before = {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+            with patch.object(cli, "Registry", side_effect=guarded_registry), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(cli.main(["doctor", "--dataset", "sample_text",
+                                           "--project-root", str(self.root), "--json"]), 0)
+            self.assertEqual(before, {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
+            self.assertEqual(sys.dont_write_bytecode, previous)
+        finally:
+            sys.dont_write_bytecode = previous
+
     def test_symlink_editable_path_reports_structured_error(self):
         manifest = self.root / "examples/minimal/solo.toml"
         manifest.write_text(manifest.read_text().replace('"configs/**",', '"configs/**", "escape/**",'))
@@ -255,6 +294,50 @@ class CLIExperienceTests(unittest.TestCase):
                 self.assertEqual(checks["agent.prompt"]["status"], "error")
                 self.assertFalse(report["ready"])
                 manifest.write_text(original)
+
+    def test_pinned_git_plan_checks_declarations_without_fetching_or_claiming_contents(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        for name in ("solo", "team"):
+            manifest = self.root / f"examples/minimal/{name}.toml"
+            text = manifest.read_text()
+            text = text.replace('kind = "local"', 'kind = "git"').replace(
+                f'path = "agents/{name}"',
+                'url = "https://example.invalid/team/agent.git"\nrevision = "' + 'a' * 40 + '"')
+            manifest.write_text(text)
+        before = {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        with patch("agent_optimizer.sources.subprocess.run", side_effect=AssertionError("no Git fetch")):
+            report = collect_plan(plan, Registry())
+        checks = {row["id"]: row for row in report["checks"]}
+        self.assertTrue(report["ready"], report)
+        for identifier in ("agent.source", "agent.prompt", "agent.editable"):
+            self.assertEqual(checks[identifier]["status"], "ok", checks)
+            self.assertIn("unverified", checks[identifier]["message"].lower())
+        self.assertEqual(before, {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
+
+    def test_pinned_git_plan_rejects_excluded_prompt_and_unsafe_editable(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        manifest = self.root / "examples/minimal/solo.toml"
+        text = manifest.read_text().replace('kind = "local"', 'kind = "git"').replace(
+            'path = "agents/solo"',
+            'url = "https://example.invalid/team/agent.git"\nrevision = "' + 'a' * 40 + '"')
+        manifest.write_text(text + '\nexclude = ["prompts/**"]\n')
+        checks = {row["id"]: row for row in collect_plan(plan, Registry())["checks"]}
+        self.assertEqual(checks["agent.prompt"]["status"], "error")
+        manifest.write_text(text.replace('"configs/**"', '"../escape/**"'))
+        checks = {row["id"]: row for row in collect_plan(plan, Registry())["checks"]}
+        self.assertEqual(checks["agent.editable"]["status"], "error")
+
+    def test_pinned_git_plan_rejects_malformed_locator_and_unpinned_revision(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        manifest = self.root / "examples/minimal/solo.toml"
+        original = manifest.read_text().replace('kind = "local"', 'kind = "git"').replace(
+            'path = "agents/solo"',
+            'url = "https://example.invalid/team/agent.git"\nrevision = "' + 'a' * 40 + '"')
+        for broken in (original.replace('https://example.invalid/team/agent.git', 'https://'),
+                       original.replace('a' * 40, 'main')):
+            manifest.write_text(broken)
+            checks = {row["id"]: row for row in collect_plan(plan, Registry())["checks"]}
+            self.assertEqual(checks["plan.schema"]["status"], "error")
 
     def test_evaluator_docker_runtime_requires_binary_even_with_local_harness(self):
         plan = self.root / "examples/minimal/experiment.toml"
