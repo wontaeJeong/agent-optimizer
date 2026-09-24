@@ -12,7 +12,7 @@ from pathlib import Path
 from agent_optimizer.config import load_experiment, read_toml
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer import models
-from agent_optimizer.registry import Registry
+from agent_optimizer.registry import PROJECT_COMPONENTS, Registry
 from agent_optimizer.workspace import safe_path
 
 
@@ -37,14 +37,32 @@ def _no_bytecode():
 
 
 def _dataset(root: Path, dataset_id: str, registry: Registry) -> list[dict]:
+    registration = None
     try:
         registry.load_project(root)
+    except (ConfigurationError, UnavailableError, OSError, ValueError, TypeError):
+        registration = check("dataset.registration", "dataset", False,
+                             "Central component inventory is incomplete",
+                             "Restore missing registered integration files")
+        # A missing evaluator must not hide the selected provider's more specific
+        # read-only diagnosis. Keep the inventory failure alongside its checks.
+        reference = PROJECT_COMPONENTS["datasets"].get(dataset_id)
+        if reference:
+            try:
+                registry.load_plugins(root, {"datasets": {dataset_id: reference}})
+            except (ConfigurationError, UnavailableError, OSError, ValueError, TypeError):
+                return [registration]
+        else:
+            return [registration]
+    try:
         provider = registry.resolve("datasets", dataset_id)()
     except (ConfigurationError, UnavailableError, OSError, ValueError, TypeError):
-        return [check("dataset.registration", "dataset", False,
-                      "Dataset provider is unavailable", "Use agent-opt datasets list and register the selected provider")]
+        return [registration or check("dataset.registration", "dataset", False,
+                                      "Dataset provider is unavailable",
+                                      "Use agent-opt datasets list and register the selected provider")]
+    prefix = [registration] if registration else []
     if not callable(getattr(provider, "doctor", None)):
-        return [check("dataset.doctor", "dataset", False,
+        return [*prefix, check("dataset.doctor", "dataset", False,
                       "Dataset provider has no read-only readiness check",
                       "Implement doctor(cache) for this dataset provider")]
     try:
@@ -56,10 +74,10 @@ def _dataset(root: Path, dataset_id: str, registry: Registry) -> list[dict]:
                     or (row["status"] != "ok" and not row["remedy"]) for row in rows)
                 or len({row["id"] for row in rows}) != len(rows)):
             raise ConfigurationError("Invalid provider checks")
-        return rows
+        return [*prefix, *rows]
     except (ConfigurationError, UnavailableError, OSError, ValueError, TypeError):
-        return [check("dataset.doctor", "dataset", False,
-                      "Dataset inspection failed", "Inspect the selected provider and its local cache")]
+        return [*prefix, check("dataset.doctor", "dataset", False,
+                               "Dataset inspection failed", "Inspect the selected provider and its local cache")]
 
 
 def collect_dataset(root: Path, dataset_id: str, registry: Registry) -> dict:
