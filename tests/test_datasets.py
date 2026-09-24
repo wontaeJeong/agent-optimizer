@@ -10,6 +10,8 @@ from unittest.mock import patch
 
 from agent_optimizer.config import validate_runtime
 from agent_optimizer.contracts import ConfigurationError
+from agent_optimizer.readiness import collect_dataset, collect_plan
+from agent_optimizer.registry import PROJECT_COMPONENTS, Registry
 from agent_optimizer.datasets import CustomDataset, acquire_pinned_git
 from agent_optimizer.contracts import ExecutionResult, Task, UnavailableError
 from examples.benchmarks.verilog_eval import REVISION, Provider, import_verilog_eval, prepare_runtime, split_families
@@ -17,7 +19,7 @@ from examples.benchmarks.verilog_evaluator import VerilogEvaluator
 from examples.benchmarks import cvdp as cvdp_provider
 from examples.benchmarks.cvdp import import_cvdp
 from test_dev_environment import official_row
-from support import module, ROOT
+from support import module, ROOT, test_project
 
 
 class DatasetTests(unittest.TestCase):
@@ -35,6 +37,62 @@ class DatasetTests(unittest.TestCase):
                 (directory / f"{stem}_ref.sv").write_text("private_reference_sentinel")
                 if mode.endswith("iccad2023"):
                     (directory / f"{stem}_ifc.txt").write_text("module TopModule();\n")
+
+    def test_dataset_doctor_uses_team_provider_read_only_and_reports_missing_cache(self):
+        temporary, project = test_project()
+        self.addCleanup(temporary.cleanup)
+        provider = project / "experiments/sample-team/diagnostic.py"
+        provider.write_text('''from pathlib import Path
+class Provider:
+    def describe(self):
+        return {"name": "team_fixture", "evaluator": "sample_eval"}
+    def prepare(self, cache, *, offline=False):
+        raise AssertionError("preparation is forbidden")
+    def doctor(self, cache: Path):
+        ok = (cache / "prepared.txt").is_file()
+        return [{"id": "dataset.fixture", "area": "dataset", "status": "ok" if ok else "error",
+                 "message": "Fixture ready" if ok else "Fixture absent",
+                 "remedy": "" if ok else "Run agent-opt datasets prepare team_fixture"}]
+''')
+        with patch.dict(PROJECT_COMPONENTS["datasets"], {"team_fixture": "experiments/sample-team/diagnostic.py:Provider"}):
+            before = {str(p): p.read_bytes() for p in project.rglob("*") if p.is_file()}
+            with patch("agent_optimizer.runner.preflight", side_effect=AssertionError("preflight")), \
+                    patch("agent_optimizer.datasets.acquire_pinned_git", side_effect=AssertionError("download")), \
+                    patch("examples.benchmarks.verilog_eval.prepare_runtime", side_effect=AssertionError("build")):
+                missing = collect_dataset(project, "team_fixture", Registry())
+                self.assertFalse(missing["ready"])
+                self.assertEqual({row["id"] for row in missing["checks"] if row["status"] == "error"},
+                                 {"dataset.fixture"})
+                self.assertEqual(before, {str(p): p.read_bytes() for p in project.rglob("*") if p.is_file()})
+                (project / "external/datasets/team_fixture").mkdir(parents=True)
+                (project / "external/datasets/team_fixture/prepared.txt").write_text("ready")
+                before = {str(p): p.read_bytes() for p in project.rglob("*") if p.is_file()}
+                ready = collect_dataset(project, "team_fixture", Registry())
+                self.assertTrue(ready["ready"], ready)
+                self.assertEqual(before, {str(p): p.read_bytes() for p in project.rglob("*") if p.is_file()})
+                self.assertFalse(list(project.rglob("*.pyc")))
+
+                benchmark = project / "examples/minimal/tasks.json"
+                benchmark.write_text(json.dumps({**json.loads(benchmark.read_text()),
+                                                 "dataset_provider": "team_fixture"}))
+                experiment = project / "examples/minimal/experiment.toml"
+                experiment.write_text(experiment.read_text().replace('evaluator = "text_fixture"',
+                                                                 'evaluator = "sample_eval"'))
+                before = {str(p): p.read_bytes() for p in project.rglob("*") if p.is_file()}
+                with patch("agent_optimizer.runner.preflight", side_effect=AssertionError("preflight")), \
+                        patch("agent_optimizer.datasets.acquire_pinned_git", side_effect=AssertionError("download")):
+                    plan = collect_plan(experiment, Registry())
+                self.assertTrue(plan["ready"], plan)
+                self.assertIn("dataset.fixture", {row["id"] for row in plan["checks"]})
+                self.assertEqual(before, {str(p): p.read_bytes() for p in project.rglob("*") if p.is_file()})
+
+    def test_unregistered_dataset_is_structured_failure(self):
+        temporary, project = test_project()
+        self.addCleanup(temporary.cleanup)
+        report = collect_dataset(project, "unknown", Registry())
+        self.assertFalse(report["ready"])
+        self.assertEqual(report["checks"][0]["status"], "error")
+        self.assertIn("datasets list", report["checks"][0]["remedy"])
 
     def test_importer_keeps_related_tasks_in_same_split_without_private_bytes(self):
         specification = import_verilog_eval(self.root, "spec-to-rtl")

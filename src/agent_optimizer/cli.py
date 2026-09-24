@@ -22,6 +22,7 @@ from agent_optimizer.setup_wizard import (component_inventory, prepare_selection
                                           write_experiment)
 from agent_optimizer.terminal_report import ProgressDisplay
 from agent_optimizer.results import write_json
+from agent_optimizer.readiness import collect_dataset, collect_plan
 
 
 def show(value):
@@ -53,7 +54,13 @@ def main(argv=None):
     sub = parser.add_subparsers(dest="command", required=True)
     plugins = sub.add_parser("plugins", help="List implemented integrations")
     plugins.add_argument("--project-root", type=Path, default=Path.cwd())
-    sub.add_parser("doctor", help="Inspect installed binaries; does not install anything")
+    diagnostic = sub.add_parser("doctor", help="Inspect binaries, a selected dataset, or an experiment plan")
+    selected = diagnostic.add_mutually_exclusive_group()
+    selected.add_argument("--dataset", metavar="ID")
+    selected.add_argument("--plan", type=Path, metavar="PATH")
+    diagnostic.add_argument("--project-root", type=Path, default=Path.cwd())
+    diagnostic.add_argument("--json", action="store_true")
+    diagnostic.add_argument("--model", action="store_true", help="Explicitly probe the model API for a plan")
     datasets = sub.add_parser("datasets", help="List and explicitly prepare benchmark datasets")
     dataset_actions = datasets.add_subparsers(dest="dataset_action", required=True)
     for action in ("list", "prepare"):
@@ -106,7 +113,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     registry = Registry()
     try:
-        os.environ.update(network_environment())
+        if args.command != "doctor" or not (args.dataset or args.plan):
+            os.environ.update(network_environment())
         if args.command == "plugins":
             registry.load_project(args.project_root.absolute())
             show(registry.describe())
@@ -300,6 +308,20 @@ def main(argv=None):
                   "reports": [session_root / e["report"] for e in entries if e["report"]]})
             return 0 if status == "completed" else 3
         elif args.command == "doctor":
+            if args.model and not args.plan:
+                raise ConfigurationError("--model requires --plan")
+            if args.dataset or args.plan:
+                report = (collect_dataset(args.project_root, args.dataset, registry) if args.dataset else
+                          collect_plan(args.plan, registry, model=args.model))
+                if args.json:
+                    show(report)
+                else:
+                    print(f"{report['scope']} readiness: {'ready' if report['ready'] else 'not ready'}")
+                    for row in report["checks"]:
+                        print(f"[{row['status']}] {row['id']}: {row['message']}")
+                        if row["remedy"]:
+                            print(f"  Remedy: {row['remedy']}")
+                return 0 if report["ready"] else 2
             show(doctor())
         elif args.command == "agents":
             show([load_agent(p) for p in sorted(args.root.rglob("agent.toml"))])
