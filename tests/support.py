@@ -19,6 +19,8 @@ def test_project():
     temporary = tempfile.TemporaryDirectory(prefix="agent-opt-tests-")
     project = Path(temporary.name) / "project"
     shutil.copytree(ROOT / "examples", project / "examples", ignore=shutil.ignore_patterns("__pycache__"))
+    shutil.copytree(ROOT / "experiments/sample-team", project / "experiments/sample-team",
+                    ignore=shutil.ignore_patterns("__pycache__"))
     return temporary, project
 
 def resolved_agent(path, snapshot):
