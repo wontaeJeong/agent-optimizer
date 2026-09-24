@@ -10,10 +10,31 @@ import sys
 import urllib.error
 import urllib.request
 from dataclasses import asdict, dataclass, field
+from functools import lru_cache
 from urllib.parse import urlsplit
 
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.network import ca_bundle, network_environment
+
+
+@lru_cache(maxsize=1)
+def _environment_settings():
+    # Developer help and core doctor import this module before project setup.
+    try:
+        from pydantic import SecretStr
+        from pydantic_settings import BaseSettings, SettingsConfigDict
+    except ImportError:
+        raise UnavailableError("Model settings require the project environment; run setup --core") from None
+
+    class EnvironmentSettings(BaseSettings):
+        model_config = SettingsConfigDict(env_prefix="AGENT_OPT_MODEL_", env_file=None)
+
+        endpoint: str = ""
+        base_url: str = ""
+        id: str = "glm5.3-flash"
+        api_key: SecretStr = SecretStr("")
+
+    return EnvironmentSettings
 
 
 @dataclass(frozen=True)
@@ -24,22 +45,34 @@ class ModelSettings:
 
     @classmethod
     def from_env(cls, env=None):
-        env = os.environ if env is None else env
-        endpoint, base = env.get("MODEL_ENDPOINT", ""), env.get("MODEL_BASE_URL", "")
+        Settings = _environment_settings()
+        # Supply every field for an explicit mapping, so unrelated process values
+        # cannot leak into a menu session or a read-only diagnostic.
+        values = ({} if env is None else {
+            "endpoint": env.get("AGENT_OPT_MODEL_ENDPOINT", ""),
+            "base_url": env.get("AGENT_OPT_MODEL_BASE_URL", ""),
+            "id": env.get("AGENT_OPT_MODEL_ID", "glm5.3-flash"),
+            "api_key": env.get("AGENT_OPT_MODEL_API_KEY", ""),
+        })
+        try:
+            settings = Settings(**values)
+        except ValueError:
+            raise ConfigurationError("Invalid AGENT_OPT_MODEL_ settings") from None
+        endpoint, base = settings.endpoint, settings.base_url
         if bool(endpoint) == bool(base):
-            raise ConfigurationError("Set exactly one of MODEL_ENDPOINT (full URL) or MODEL_BASE_URL")
+            raise ConfigurationError("Set exactly one of AGENT_OPT_MODEL_ENDPOINT (full URL) or AGENT_OPT_MODEL_BASE_URL")
         url = endpoint or base.rstrip("/") + "/chat/completions"
         parts = urlsplit(url)
         if (parts.scheme not in {"https", "http"} or not parts.hostname or parts.username or parts.password
                 or parts.query or parts.fragment or any(c.isspace() for c in url)
                 or (parts.scheme == "http" and parts.hostname not in {"localhost", "127.0.0.1", "::1"})):
             raise ConfigurationError("Model URL must be HTTPS (HTTP only on loopback), without credentials/query/fragment")
-        model = env.get("MODEL_ID", "glm5.3-flash")
-        key = env.get("MODEL_API_KEY", "")
+        model = settings.id
+        key = settings.api_key.get_secret_value()
         if not model or any(c.isspace() for c in model):
-            raise ConfigurationError("MODEL_ID must be a nonempty model identifier")
+            raise ConfigurationError("AGENT_OPT_MODEL_ID must be a nonempty model identifier")
         if not key or any(c.isspace() for c in key):
-            raise UnavailableError("blocked_auth: set MODEL_API_KEY to a Bearer token")
+            raise UnavailableError("blocked_auth: set AGENT_OPT_MODEL_API_KEY to a Bearer token")
         return cls(url, model, key)
 
 
