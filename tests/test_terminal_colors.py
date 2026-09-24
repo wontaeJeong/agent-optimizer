@@ -175,6 +175,7 @@ class TerminalColorsTests(unittest.TestCase):
         self.assertNotIn("\x1b[", help_text)
         code, text = self.run_make_tty("doctor", "ARGS=--core --json", stderr_tty=False)
         self.assertIn(code, (0, 2), text)
+        self.assertTrue(text.lstrip().startswith("{"), (code, repr(text[:1000])))
         self.assertEqual(json.loads(text)["scope"], "core")
         self.assertNotIn("\x1b[", text)
 
