@@ -167,6 +167,42 @@ class UsageReportTests(unittest.TestCase):
                     self.assertIn("1 completed", artifact)
             self.assertIn("Reserved trials: 3; completed evaluations: 2", markdown)
 
+    def test_markdown_keeps_all_stage_rows_together_before_group_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            def group(agent, stages):
+                validation = {"candidate_id": "c1", "split": "validation", "valid": True,
+                              "trial_count": 1, "metrics": {"score": 1}}
+                return {"agent_id": agent, "harness_id": "fixture", "baseline": validation,
+                        "selected": [validation], "final_test": [
+                            {**validation, "split": "test"}],
+                        "stages": [{"id": name, "status": "completed", "checkpoint": {}}
+                                   for name in stages]}
+
+            summary = {"status": "completed", "synthetic": True, "groups": [
+                group("alpha", ["prepare", "polish"]), group("beta", ["inspect"])]}
+            (root / "events.jsonl").write_text(json.dumps({
+                "event": "trial_completed", "trial_id": "failed-alpha", "agent_id": "alpha",
+                "harness_id": "fixture", "candidate_id": "c1", "split": "validation",
+                "valid": True, "status": "failed", "feedback": "first group failed",
+                "metrics": {"harness_reported_io_tokens": 5}}) + "\n")
+
+            write_report(root, summary)
+            markdown = (root / "report.md").read_text()
+            optimization = markdown.split("## Optimization\n\n", 1)[1].split("## Reproducibility", 1)[0]
+            self.assertTrue(optimization.startswith(
+                "| Agent | Harness | Stage | Status | Checkpoint |\n"
+                "|---|---|---|---|---|\n"
+                "| alpha | fixture | prepare | completed | {} |\n"
+                "| alpha | fixture | polish | completed | {} |\n"
+                "| beta | fixture | inspect | completed | {} |\n\n"), optimization)
+            self.assertIn("Optimizer usage (alpha/fixture):", optimization)
+            self.assertIn("Optimizer usage (beta/fixture):", optimization)
+            self.assertIn("Failure alpha/fixture/failed-alpha: scored_failure — first group failed", optimization)
+            self.assertIn("Candidate changes: see this group's candidates/*/changes.diff.", optimization)
+            self.assertIn("| alpha | fixture | c1 | test |", markdown)
+            self.assertIn("Harness-reported usage can be partial.", markdown)
+
     def test_markdown_escapes_untrusted_table_cells_and_keeps_missing_usage_null(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
