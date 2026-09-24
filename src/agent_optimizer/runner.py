@@ -321,8 +321,9 @@ def preflight(spec, registry):
     validate_stages(spec)
     stages = spec.get("stages", [])
     if stages and all("max_trials" in stage for stage in stages):
-        validation = sum(t.split == "validation" for t in spec["_tasks"])
-        tests = sum(t.split == "test" for t in spec["_tasks"])
+        repetitions = spec.get("repetitions", 1)
+        validation = sum(t.split == "validation" for t in spec["_tasks"]) * repetitions
+        tests = sum(t.split == "test" for t in spec["_tasks"]) * repetitions
         per_group = validation + sum(stage["max_trials"] for stage in stages)
         if spec.get("final_test", False):
             per_group += 2 * tests  # Baseline and one frozen winner; they may be the same.

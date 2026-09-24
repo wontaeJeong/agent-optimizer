@@ -124,8 +124,10 @@ def _source_checks(spec: dict) -> list[dict]:
                     candidates += list(root.glob(pattern + "/*"))
                 for path in candidates:
                     relative = path.relative_to(root).as_posix()
+                    if not selected(relative, source):
+                        continue
                     safe_path(root, relative)
-                    if selected(relative, source) and path.is_file():
+                    if path.is_file():
                         paths.append(path)
             editables.append(bool(paths))
         except (ConfigurationError, OSError, ValueError):
