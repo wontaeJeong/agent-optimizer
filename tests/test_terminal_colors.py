@@ -123,7 +123,12 @@ class TerminalColorsTests(unittest.TestCase):
                 if not chunk:
                     break
                 chunks.append(chunk)
-            return process.wait(timeout=5), b"".join(chunks).decode()
+            code = process.wait(timeout=5)
+            output = b"".join(chunks).decode()
+            if not output and process.stderr is not None:
+                raise AssertionError(f"make exited {code} without stdout: "
+                                     f"{process.stderr.read().decode()}")
+            return code, output
         finally:
             if process is not None and process.poll() is None:
                 process.kill()
