@@ -12,7 +12,8 @@ from pathlib import Path
 from agent_optimizer.config import load_experiment, read_toml
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer import models
-from agent_optimizer.registry import PROJECT_COMPONENTS, Registry
+from agent_optimizer.registry import PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, Registry, plugin_files
+from agent_optimizer.sources import selected
 from agent_optimizer.workspace import safe_path
 
 
@@ -37,24 +38,22 @@ def _no_bytecode():
 
 
 def _dataset(root: Path, dataset_id: str, registry: Registry) -> list[dict]:
+    reference = PROJECT_COMPONENTS["datasets"].get(dataset_id)
+    if reference is None:
+        return [check("dataset.registration", "dataset", False,
+                      "Dataset provider is unavailable", "Use agent-opt datasets list and register the selected provider")]
     registration = None
     try:
-        registry.load_project(root)
+        plugin_files(root, PROJECT_COMPONENTS, PROJECT_DEPENDENCIES)
     except (ConfigurationError, UnavailableError, OSError, ValueError, TypeError):
         registration = check("dataset.registration", "dataset", False,
                              "Central component inventory is incomplete",
                              "Restore missing registered integration files")
-        # A missing evaluator must not hide the selected provider's more specific
-        # read-only diagnosis. Keep the inventory failure alongside its checks.
-        reference = PROJECT_COMPONENTS["datasets"].get(dataset_id)
-        if reference:
-            try:
-                registry.load_plugins(root, {"datasets": {dataset_id: reference}})
-            except (ConfigurationError, UnavailableError, OSError, ValueError, TypeError):
-                return [registration]
-        else:
-            return [registration]
+    # Only the selected trusted provider may execute Python during diagnosis.
+    # A missing evaluator must not hide that provider's file-specific checks.
     try:
+        plugin_files(root, {"datasets": {dataset_id: reference}}, {})
+        registry.load_plugins(root, {"datasets": {dataset_id: reference}})
         provider = registry.resolve("datasets", dataset_id)()
     except (ConfigurationError, UnavailableError, OSError, ValueError, TypeError):
         return [registration or check("dataset.registration", "dataset", False,
@@ -80,6 +79,19 @@ def _dataset(root: Path, dataset_id: str, registry: Registry) -> list[dict]:
                                "Dataset inspection failed", "Inspect the selected provider and its local cache")]
 
 
+def _registered(registry: Registry, plugins: dict, kind: str, name: str) -> bool:
+    """Resolve an ID from declarations only; never import its implementation."""
+    if not isinstance(name, str) or not isinstance(plugins, dict):
+        return False
+    explicit = plugins.get(kind, {})
+    if not isinstance(explicit, dict):
+        return False
+    if name in explicit and (name in registry.factories[kind] or name in PROJECT_COMPONENTS[kind]):
+        return False
+    return (name in registry.factories[kind] or name in PROJECT_COMPONENTS[kind]
+            or name in explicit)
+
+
 def collect_dataset(root: Path, dataset_id: str, registry: Registry) -> dict:
     with _no_bytecode():
         return _report("dataset", _dataset(root.resolve(), dataset_id, registry))
@@ -90,21 +102,34 @@ def _source_checks(spec: dict) -> list[dict]:
     for agent in spec["_agents"]:
         source = agent.source
         local = source is not None and source.kind == "local"
-        root = safe_path(source.path, source.subdir) if local else None
+        try:
+            root = safe_path(source.path, source.subdir) if local else None
+        except (ConfigurationError, OSError, ValueError):
+            root = None
         present = root is not None and root.is_dir()
         sources.append(present)
         if not local or not present:
             continue
-        prompt = safe_path(root, agent.prompt_file)
-        prompts.append(prompt.is_file())
-        paths = []
-        for pattern in agent.editable:
-            safe_path(root, pattern)
-            candidates = list(root.glob(pattern))
-            if pattern.endswith("/**"):
-                candidates += list(root.glob(pattern + "/*"))
-            paths.extend(path for path in candidates if path.is_file() and not path.is_symlink())
-        editables.append(bool(paths))
+        try:
+            prompt = safe_path(root, agent.prompt_file)
+            prompts.append(prompt.is_file() and selected(agent.prompt_file, source))
+        except (ConfigurationError, OSError, ValueError):
+            prompts.append(False)
+        try:
+            paths = []
+            for pattern in agent.editable:
+                safe_path(root, pattern)
+                candidates = list(root.glob(pattern))
+                if pattern.endswith("/**"):
+                    candidates += list(root.glob(pattern + "/*"))
+                for path in candidates:
+                    relative = path.relative_to(root).as_posix()
+                    safe_path(root, relative)
+                    if selected(relative, source) and path.is_file():
+                        paths.append(path)
+            editables.append(bool(paths))
+        except (ConfigurationError, OSError, ValueError):
+            editables.append(False)
     return [check("agent.source", "agent", all(sources), "Local Agent sources are available",
                   "Provide existing local Agent sources or prepare pinned Git sources"),
             check("agent.prompt", "agent", len(prompts) == len(sources) and all(prompts),
@@ -115,8 +140,9 @@ def _source_checks(spec: dict) -> list[dict]:
 
 def _budget_check(spec: dict) -> dict:
     stages = spec.get("stages", [])
-    validation = sum(task.split == "validation" for task in spec["_tasks"])
-    tests = sum(task.split == "test" for task in spec["_tasks"])
+    repetitions = spec.get("repetitions", 1)
+    validation = sum(task.split == "validation" for task in spec["_tasks"]) * repetitions
+    tests = sum(task.split == "test" for task in spec["_tasks"]) * repetitions
     per_group = validation + sum(stage.get("max_trials", 1) for stage in stages)
     if spec.get("final_test", False):
         per_group += 2 * tests
@@ -141,8 +167,9 @@ def _optimizer_options(spec: dict) -> dict:
         if surface:
             try:
                 surface = all(any(fnmatch.fnmatchcase(filename, pattern) for pattern in agent.editable) and
-                              agent.source is not None and agent.source.kind == "local" and
-                              safe_path(safe_path(agent.source.path, agent.source.subdir), filename).is_file()
+                               agent.source is not None and agent.source.kind == "local" and
+                               selected(filename, agent.source) and
+                               safe_path(safe_path(agent.source.path, agent.source.subdir), filename).is_file()
                               for agent in spec["_agents"])
             except ConfigurationError:
                 surface = False
@@ -177,17 +204,26 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
             spec = None
             rows.append(check("plan.schema", "plan", False, "Experiment schema or referenced input is invalid",
                               "Correct the experiment, Agent, harness, and benchmark declarations"))
-        profiles = []
+        plugins = raw.get("plugins", {})
         try:
-            registry.load_project(root)
+            plugin_files(root, PROJECT_COMPONENTS, PROJECT_DEPENDENCIES)
+            plugin_files(root, plugins, raw.get("plugin_dependencies", {}))
             if spec is not None:
                 registry.selected_files(root, spec)
-            registry.load_plugins(root, raw.get("plugins", {}))
+            files_ok = True
+        except (ConfigurationError, UnavailableError, OSError, ValueError, KeyError, TypeError):
+            files_ok = False
+        rows.append(check("components.files", "components", files_ok,
+                          "Registered component files and declared dependencies are available",
+                          "Restore the selected registered component and declared dependency files"))
+        profiles = []
+        try:
             profiles = (spec["_profiles"] if spec is not None else
                         [read_toml(safe_path(root, name)) for name in raw.get("harnesses", [])])
             argv_valid = True
             for profile in profiles:
-                registry.resolve("harnesses", profile["adapter"])
+                if not _registered(registry, plugins, "harnesses", profile["adapter"]):
+                    raise UnavailableError("Unregistered harness")
                 command = profile.get("command")
                 if profile["adapter"] == "command" and (not isinstance(command, list) or not command):
                     argv_valid = False
@@ -199,13 +235,16 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
                               "Harness or declared plugin files are unavailable",
                               "Register the harness and provide its declared plugin files"))
         required = {"docker" for profile in profiles if profile.get("runtime", {}).get("kind") == "docker"}
+        if spec is not None and spec.get("evaluation_runtime", {}).get("kind") == "docker":
+            required.add("docker")
         required.update("opencode" for profile in profiles if profile.get("adapter") == "opencode"
                         and profile.get("runtime", {}).get("kind", "local") == "local")
         rows.append(check("runtime.binary", "runtime", all(shutil.which(name) for name in required),
                           "Declared runtime binaries are available",
                           "Install the declared Docker or OpenCode runtime executable"))
         try:
-            registry.resolve("evaluators", raw["evaluator"])
+            if not _registered(registry, plugins, "evaluators", raw["evaluator"]):
+                raise UnavailableError("Unregistered evaluator")
             rows.append(check("evaluator.registration", "evaluator", True, "Evaluator is registered", ""))
         except (KeyError, TypeError, UnavailableError, ConfigurationError):
             rows.append(check("evaluator.registration", "evaluator", False, "Evaluator is not registered",
@@ -213,7 +252,8 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
         stages = raw.get("stages", [])
         try:
             for stage in stages:
-                registry.resolve("optimizers", stage["optimizer"])
+                if not _registered(registry, plugins, "optimizers", stage["optimizer"]):
+                    raise UnavailableError("Unregistered optimizer")
             rows.append(check("optimizer.registration", "optimizer", True, "Optimizers are registered", ""))
         except (KeyError, UnavailableError, ConfigurationError, TypeError):
             rows.append(check("optimizer.registration", "optimizer", False, "Optimizer is not registered",

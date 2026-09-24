@@ -200,6 +200,71 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual({row["id"]: row["status"] for row in report["checks"]}["evaluator.registration"],
                          "error")
 
+    def test_doctor_never_imports_evaluator_optimizer_or_harness_plugins(self):
+        for relative in ("examples/minimal/evaluator.py", "experiments/sample-team/optimizer.py",
+                         "experiments/sample-team/harness.py"):
+            path = self.root / relative
+            path.write_text(path.read_text() + "\nfrom pathlib import Path\n"
+                            "Path(__file__).with_name('import-side-effect').write_text('unexpected')\n")
+        before = {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        dataset = io.StringIO()
+        plan = io.StringIO()
+        with contextlib.redirect_stdout(dataset):
+            dataset_code = main(["doctor", "--dataset", "sample_text", "--project-root", str(self.root), "--json"])
+        with contextlib.redirect_stdout(plan):
+            plan_code = main(["doctor", "--plan", str(self.root / "examples/minimal/experiment.toml"), "--json"])
+        self.assertEqual(dataset_code, 0, dataset.getvalue())
+        self.assertEqual(plan_code, 0, plan.getvalue())
+        self.assertTrue(json.loads(dataset.getvalue())["ready"])
+        self.assertTrue(json.loads(plan.getvalue())["ready"])
+        self.assertEqual(before, {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
+
+    def test_symlink_editable_path_reports_structured_error(self):
+        manifest = self.root / "examples/minimal/solo.toml"
+        manifest.write_text(manifest.read_text().replace('"configs/**",', '"configs/**", "escape/**",'))
+        (self.agent / "escape").symlink_to(self.root / "examples/minimal/agents/team", target_is_directory=True)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = main(["doctor", "--plan", str(self.root / "examples/minimal/experiment.toml"), "--json"])
+        self.assertEqual(code, 2)
+        checks = {row["id"]: row for row in json.loads(output.getvalue())["checks"]}
+        self.assertEqual(checks["plan.schema"]["status"], "ok")
+        self.assertEqual(checks["agent.editable"]["status"], "error")
+
+    def test_prompt_must_survive_declared_source_snapshot_filters(self):
+        manifest = self.root / "examples/minimal/solo.toml"
+        for key, value in (("include", '["configs/**", "src/**"]'),
+                           ("exclude", '["prompts/**"]')):
+            with self.subTest(key=key):
+                original = manifest.read_text()
+                manifest.write_text(original.replace('include = ["prompts/**", "configs/**", "src/**", '
+                                                     '"overlays/**", "harness_source/**"]',
+                                                     'include = ' + value) if key == "include" else
+                                    original + '\nexclude = ' + value + '\n')
+                report = collect_plan(self.root / "examples/minimal/experiment.toml", Registry())
+                checks = {row["id"]: row for row in report["checks"]}
+                self.assertEqual(checks["agent.prompt"]["status"], "error")
+                self.assertFalse(report["ready"])
+                manifest.write_text(original)
+
+    def test_evaluator_docker_runtime_requires_binary_even_with_local_harness(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        plan.write_text(plan.read_text() + '\n[evaluation_runtime]\nkind = "docker"\nimage = "eval-only"\n')
+        with patch("agent_optimizer.readiness.shutil.which", return_value=None):
+            report = collect_plan(plan, Registry())
+        self.assertEqual({row["id"]: row["status"] for row in report["checks"]}["runtime.binary"], "error")
+        self.assertFalse(report["ready"])
+
+    def test_trial_budget_reserves_repeated_baseline_and_final_test(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        plan.write_text(plan.read_text().replace('max_trials = 40', 'max_trials = 18')
+                        .replace('repetitions = 1', 'repetitions = 3')
+                        .replace('optimizer = "file_variants"', 'optimizer = "file_variants"\nmax_trials = 5'))
+        report = collect_plan(plan, Registry())
+        check = {row["id"]: row for row in report["checks"]}["budget.trials"]
+        self.assertEqual(check["status"], "error")
+        self.assertIn("28", check["remedy"])
+
     def test_dataset_inventory_lists_builtin_names_without_recommending_one(self):
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
