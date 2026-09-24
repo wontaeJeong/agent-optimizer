@@ -133,6 +133,8 @@ class HTMLReportTests(unittest.TestCase):
         self.assertIn('href="rtl-team/fixture/candidates/c0001/changes.diff"', html)
         self.assertIn('href="rtl-solo/fixture/candidates/c0002/bundle/"', html)
         self.assertIn('href="rtl-team/fixture/candidates/c0001/bundle/"', html)
+        self.assertIn('validation aggregate · 1 trials</span>', html)
+        self.assertNotIn('validation aggregate · 1.000 trials</span>', html)
         self.assertIn("+1.000", html)  # solo 0 -> 1; team 1 -> 1
         self.assertIn("+0.000", html)
         self.assertIn('id="held-out-test"', html)
@@ -225,6 +227,19 @@ class HTMLReportTests(unittest.TestCase):
         page = write_html_report(run, {"status": "completed", "groups": []}).read_text(encoding="utf-8")
         self.assertIn(f'<h1>{name}</h1>', page)
         self.assertRegex(page, r'h1\{[^}]*overflow-wrap:anywhere')
+
+    def test_selected_candidate_long_changed_path_uses_wrappable_code(self):
+        run, summary = run_experiment(self.spec, Registry(), self.root / "runs")
+        model = json.loads((run / "report.json").read_text())
+        long_path = "configs/" + "nested" * 350
+        selected_id = model["groups"][0]["selected"][0]["candidate_id"]
+        candidate = next(item for item in model["groups"][0]["candidates"]
+                         if item["candidate_id"] == selected_id)
+        candidate["changed_files"] = [long_path]
+
+        page = write_html_report(run, summary, model).read_text(encoding="utf-8")
+        self.assertIn(f'Changed files: <code>{long_path}</code>', page)
+        self.assertRegex(page, r'code,pre\{[^}]*overflow-wrap:anywhere')
 
     def test_untrusted_candidate_paths_are_not_links_and_large_durations_are_not_summed(self):
         run = self.root / "unsafe"
