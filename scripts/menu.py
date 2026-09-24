@@ -23,6 +23,7 @@ MENU = """
 5. ACE 최적화 실행 — 반복 횟수 선택
 6. 실행 결과·보고서 확인
 7. ACE 전체 환경 준비 — Docker·평가/모델 실행 자산
+8. 일반 Agent 최적화 TUI
 0. 종료"""
 
 
@@ -35,6 +36,14 @@ def execute(argv, env):
 
 def bootstrap(command, env, *args):
     return execute(["sh", str(ROOT / "scripts/bootstrap.sh"), command, *args], env)
+
+
+def agent_tui(env):
+    cli = ROOT / ".venv/bin/agent-opt"
+    if not cli.is_file():
+        print("프로젝트 .venv가 필요합니다: sh scripts/bootstrap.sh setup --core")
+        return
+    execute([str(cli), "tui"], env)
 
 
 def local_demo(env):
@@ -159,8 +168,10 @@ def main(argv=None, *, env=None):
                     reports()
                 elif choice == "7":
                     bootstrap("setup", session)
+                elif choice == "8":
+                    agent_tui(session)
                 else:
-                    print("0..7 중 번호를 선택하세요.")
+                    print("0..8 중 번호를 선택하세요.")
             except (ConfigurationError, UnavailableError) as exc:
                 print(f"실행하지 못했습니다: {exc}")
             except getpass.GetPassWarning:

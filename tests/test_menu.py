@@ -84,6 +84,22 @@ class MenuFlows(unittest.TestCase):
         self.assertEqual([c[0] for c in calls], [["sh", str(self.root / "scripts/bootstrap.sh"), "setup"]])
         self.assertIn("7. ACE", output)
 
+    def test_option_eight_delegates_to_venv_tui_and_reports_child_failure(self):
+        cli = self.root / ".venv/bin/agent-opt"
+        cli.parent.mkdir(parents=True)
+        cli.touch()
+        code, output, calls = self.flow(["8", "0"], codes=[7])
+        self.assertEqual(code, 0)
+        self.assertEqual([call[0] for call in calls], [[str(cli), "tui"]])
+        self.assertIn("exit 7", output)
+        self.assertIn("8.", output)
+
+    def test_option_eight_missing_venv_does_not_attempt_install(self):
+        code, output, calls = self.flow(["8", "0"])
+        self.assertEqual(code, 0)
+        self.assertEqual(calls, [])
+        self.assertIn("setup --core", output)
+
     def test_demo_requires_existing_venv(self):
         _, output, calls = self.flow(["3", "0"])
         self.assertIn("sh scripts/bootstrap.sh setup --core", output)

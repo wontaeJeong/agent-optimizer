@@ -184,6 +184,40 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
         self.assertIn("setup --core", result.stderr)
         self.assertEqual(self.trace_text(), "")
 
+    def test_selected_dataset_syntax_and_conflicts_stop_before_installer(self):
+        for args in (("setup", "--dataset"), ("setup", "--dataset=../cvdp"),
+                     ("setup", "--dataset", "x;touch bad"), ("doctor", "--dataset="),
+                     ("setup", "--core", "--dataset", "cvdp"),
+                     ("doctor", "--dataset=cvdp", "--core")):
+            with self.subTest(args=args):
+                result = self.invoke(*args)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("--dataset" if "--core" not in args else "--core cannot", result.stderr)
+                self.assertEqual(self.trace_text(), "")
+        self.assertFalse((self.root / "external").exists())
+
+    def test_selected_setup_syncs_core_without_docker_and_forwards_exact_name(self):
+        self.tool("git")
+        self.tool("docker", 'printf docker >> "$TRACE"; exit 99\n')
+        self.uv()
+        result = self.invoke("setup", "--dataset=verilog-spec", "--offline")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("arg:sync\narg:--frozen", self.trace_text())
+        self.assertIn("arg:setup\narg:--dataset=verilog-spec\narg:--offline", self.trace_text())
+        self.assertNotIn("docker", self.trace_text())
+
+    def test_make_selected_options_reach_python_unchanged(self):
+        self.write_executable(self.root / ".venv/bin/python", '''
+case "$1" in -I) exit 0;; esac
+printf 'arg:%s\\n' "$@" >> "$TRACE"
+printf '{"scope":"dataset","ready":false}\\n'
+exit 2
+''')
+        result = self.invoke("doctor", "ARGS=--dataset verilog-spec --json", make=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertEqual(json.loads(result.stdout)["scope"], "dataset")
+        self.assertIn("arg:--dataset\narg:verilog-spec\narg:--json", self.trace_text())
+
     def test_missing_prerequisites_aggregate_actionable_git_and_docker_guidance(self):
         result = self.invoke("setup")
         self.assertNotEqual(result.returncode, 0)
@@ -644,6 +678,58 @@ class DeveloperCommandsTests(unittest.TestCase):
             self.assertEqual(self.main(["setup", "--offline", "--platform", "linux/amd64"]), 9)
         self.assertEqual(run.call_args.args[0], ["sh", str(ROOT / "scripts/bootstrap.sh"), "setup",
                                                "--offline", "--platform", "linux/amd64"])
+
+    def test_selected_setup_resolves_after_sync_and_requires_shared_doctor(self):
+        from agent_optimizer.registry import Registry
+        from agent_optimizer import readiness
+        doctor = module("onboarding_selected_doctor", ROOT / "scripts/dev_doctor.py")
+        events = []
+        class Provider:
+            def prepare(self, cache, *, offline=False):
+                events.append(("prepare", cache, offline))
+                return {"benchmark": "fixture", "evaluator": "fixture", "provenance": {}}
+        def load_project(registry, root):
+            events.append(("registry", root))
+            registry.factories["datasets"]["sample_text"] = Provider
+        def collect(root, name, registry):
+            events.append(("doctor", name))
+            return {"scope": "dataset", "ready": self.ready, "checks": []}
+        for self.ready in (True, False):
+            events.clear()
+            self.output = io.StringIO()
+            with patch.dict(os.environ, {"AGENT_OPT_BOOTSTRAPPED": str(ROOT)}), \
+                    patch.object(Registry, "load_project", load_project), \
+                    patch.object(readiness, "collect_dataset", collect), \
+                    patch.object(doctor, "core_checks", return_value=[]), \
+                    patch.object(self.dev, "load", side_effect=lambda name, path: doctor if name == "dev_doctor" else self.fail("ACE path loaded")), \
+                    patch.object(self.dev, "run_core", side_effect=AssertionError("demo run")):
+                self.assertEqual(self.main(["setup", "--dataset", "sample_text", "--offline"]),
+                                 0 if self.ready else 2)
+            self.assertEqual(events, [("registry", ROOT),
+                                      ("prepare", ROOT / "external/datasets/sample_text", True),
+                                      ("doctor", "sample_text")])
+            self.assertEqual('"status": "ready"' in self.output.getvalue(), self.ready)
+
+    def test_unknown_selected_name_fails_after_core_sync_before_provider(self):
+        from agent_optimizer.registry import Registry
+        events = []
+        with patch.dict(os.environ, {"AGENT_OPT_BOOTSTRAPPED": str(ROOT)}), \
+                patch.object(Registry, "load_project", lambda registry, root: events.append("registry")), \
+                patch.object(self.dev, "load", side_effect=AssertionError("ACE path loaded")):
+            self.assertEqual(self.main(["setup", "--dataset", "absent"]), 2)
+        self.assertEqual(events, ["registry"])
+        self.assertIn("absent", self.output.getvalue())
+        self.assertIn("agent-opt datasets list", self.output.getvalue())
+
+    def test_python_selected_dataset_conflicts_and_bad_names_before_dispatch(self):
+        with patch.object(self.dev, "load", side_effect=AssertionError("loader")), \
+                patch("subprocess.run", side_effect=AssertionError("installer")):
+            for args in (("setup", "--core", "--dataset", "cvdp"),
+                         ("doctor", "--dataset", "cvdp", "--core"),
+                         ("setup", "--dataset", "../cvdp"),
+                         ("doctor", "--dataset", "bad;id")):
+                with self.subTest(args=args), self.assertRaises(SystemExit):
+                    self.main(args)
 
     def test_direct_python_doctor_finds_bootstrap_local_uv_without_shell_profile_changes(self):
         doctor = module("onboarding_local_uv", ROOT / "scripts/dev_doctor.py")

@@ -365,6 +365,7 @@ def evaluation_checks(cache: Path) -> list[dict]:
              and isinstance(lock["images"].get("evaluation"), dict)
              and lock.get("repos") == {"cvdp_benchmark": list(REPOS["cvdp_benchmark"])}
              and lock.get("simulator_verified") is True
+             and isinstance(lock.get("platform"), str)
              and lock.get("platform") in {"linux/amd64", "linux/arm64"}
              and lock["dataset"].get("revision") == DATA_REVISION
              and isinstance(lock["dataset"].get("files"), dict)

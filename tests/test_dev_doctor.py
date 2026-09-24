@@ -285,6 +285,54 @@ class DoctorTests(unittest.TestCase):
         self.assertEqual(list(self.root.rglob("*.pyc")), [])
         self.assertFalse((self.root / "external").exists())
 
+    def test_selected_doctor_json_is_single_read_only_document_with_dataset_area(self):
+        environment = self.public_checkout()
+        shutil.copytree(ROOT / "examples/benchmarks", self.root / "examples/benchmarks")
+        shutil.copytree(ROOT / "experiments/sample-team", self.root / "experiments/sample-team")
+        shutil.copyfile(ROOT / "examples/ace-rtl/prepare.py", self.root / "examples/ace-rtl/prepare.py")
+        shutil.copyfile(ROOT / "examples/ace-rtl/evaluator.py", self.root / "examples/ace-rtl/evaluator.py")
+        (self.root / "examples/minimal").mkdir()
+        shutil.copyfile(ROOT / "examples/minimal/evaluator.py", self.root / "examples/minimal/evaluator.py")
+        before = {str(p) for p in self.root.rglob("*")}
+        command = ["sh", "scripts/bootstrap.sh", "doctor", "--dataset", "verilog-spec", "--json"]
+        result = subprocess.run(command, cwd=self.root, env=environment,
+                                capture_output=True, text=True, timeout=30)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["scope"], "dataset")
+        self.assertEqual(set(report["areas"]), {"core", "dataset"})
+        self.assertIn("dataset.verilog.provenance", self.checks(report))
+        self.assertNotIn("SECRET", result.stdout + result.stderr)
+        self.assertEqual({str(p) for p in self.root.rglob("*")}, before)
+        self.assertFalse(any(p.endswith("/setup-logs") for p in before))
+
+    def test_selected_doctor_skips_ace_and_uses_shared_checks(self):
+        from agent_optimizer import readiness
+        with patch.object(self.doctor, "example_adapter", side_effect=AssertionError("ACE loaded")), \
+                patch.object(readiness, "collect_dataset", return_value={"scope": "dataset", "ready": True,
+                    "checks": [{"id": "dataset.fixture", "area": "dataset", "status": "ok",
+                                "message": "Fixture", "remedy": ""}]}):
+            report = self.doctor.collect_report(self.root, dataset="sample_text")
+        self.assertEqual(report["scope"], "dataset")
+        self.assertEqual(self.checks(report)["dataset.fixture"]["status"], "ok")
+        self.assertNotIn("evaluation", report["areas"])
+
+    def test_malformed_cvdp_selected_platform_yields_actionable_check_not_traceback(self):
+        setup = self.adapter.setup
+        cache = self.root / "external/datasets/cvdp"
+        cache.mkdir(parents=True)
+        (cache / "evaluation-lock.json").write_text(json.dumps({
+            "dataset": {"revision": setup.DATA_REVISION, "files": {}},
+            "driver_requirements": {}, "driver_packages": "", "images": {"evaluation": {}},
+            "repos": {"cvdp_benchmark": list(setup.REPOS["cvdp_benchmark"])},
+            "simulator_verified": True, "platform": {"private": "SECRET"},
+        }))
+        rows = setup.evaluation_checks(cache)
+        self.assertEqual(rows[0]["id"], "dataset.cvdp.lock")
+        self.assertEqual(rows[0]["status"], "error")
+        self.assertIn("prepare cvdp", rows[0]["remedy"])
+        self.assertNotIn("SECRET", json.dumps(rows))
+
     def test_ready_does_not_require_live_but_live_requires_ready(self):
         self.prepared()
         report = self.doctor.collect_report(self.root)

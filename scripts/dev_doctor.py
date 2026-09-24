@@ -10,6 +10,8 @@ from types import ModuleType
 
 from agent_optimizer.contracts import ConfigurationError
 from agent_optimizer.network import CA_VARIABLES, demo_environment, network_environment
+from agent_optimizer.registry import Registry
+from agent_optimizer import readiness
 
 SETUP = "Run sh scripts/bootstrap.sh setup (or python3 scripts/dev.py setup)."
 
@@ -108,7 +110,8 @@ def example_adapter():
                        / "examples/ace-rtl/environment/diagnostics.py")
 
 
-def collect_report(root: Path, platform: str | None = None, *, core_only: bool = False) -> dict:
+def collect_report(root: Path, platform: str | None = None, *, core_only: bool = False,
+                   dataset: str | None = None) -> dict:
     # Own validation here so malformed optional trust never bypasses aggregation.
     # Child-only settings prevent normalized proxies/CA paths leaking into later calls.
     environment = demo_environment()
@@ -134,6 +137,12 @@ def collect_report(root: Path, platform: str | None = None, *, core_only: bool =
             check["remedy"] = check["remedy"].replace("setup", "setup --core")
         ready = all(c["status"] == "ok" for c in checks)
         return {"scope": "core", "ready": ready, "areas": {"core": ready}, "checks": checks}
+    if dataset is not None:
+        selected = readiness.collect_dataset(Path(root), dataset, Registry())
+        checks += selected["checks"]
+        core_ready = all(c["status"] == "ok" for c in checks if c["area"] == "core")
+        return {"scope": "dataset", "ready": core_ready and selected["ready"],
+                "areas": {"core": core_ready, "dataset": selected["ready"]}, "checks": checks}
     checks += example_adapter().collect_checks(Path(root), platform, environment=environment)
     areas = {area: all(c["status"] == "ok" for c in checks if c["area"] == area)
              for area in ("core", "evaluation", "live")}
@@ -146,7 +155,8 @@ def render_report(report: dict, *, json_output: bool = False) -> None:
     if json_output:
         print(json.dumps(report))
         return
-    title = "Core development environment: " if report.get("scope") == "core" else "Development environment: "
+    title = ("Core development environment: " if report.get("scope") == "core" else
+             "Selected dataset environment: " if report.get("scope") == "dataset" else "Development environment: ")
     print(title + ("ready" if report["ready"] else "not ready"))
     for area, ready in report["areas"].items():
         print(f"  {area}: {'ready' if ready else 'not ready'}")
@@ -156,6 +166,8 @@ def render_report(report: dict, *, json_output: bool = False) -> None:
             print(f"  Fix: {check['remedy']}")
     if report.get("scope") == "core":
         print("ACE evaluation and model readiness not checked; use full setup/doctor (menu option 7 prepares ACE).")
+    elif report.get("scope") == "dataset":
+        print("Selected dataset checks are read-only; no ACE Agent image or model was checked.")
     elif "model_status" in report:
         print("Explicit model probes: " + report["model_status"])
     else:
