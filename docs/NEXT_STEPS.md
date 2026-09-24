@@ -12,9 +12,9 @@
 3. 동일 모델/예산에서 GEPA·Meta-Harness·Ecdysis를 독립 stage로 실행하고 task/iteration 소요 시간을
    CLI/TUI에서 확인한다. 결과는 `report.html`의 validation 선택·frozen test·원본과 diff/partial usage로
    비교한다. 서로 다른 데이터셋을 지정했다면 session의 독립 보고서로 확인하고 점수를 합치지 않는다.
-4. 현재 Mac Icarus v12 Verilog-Eval 정답/오답 작은 실도구 검사와 모델 API-free fixture는 분리된 근거다.
-   배포 모델과 실제 Agent end-to-end 성능을 주장하기 전에 실제 환경 명령·모델·평가 결과를
-   [검증 기록](verification.md)에 추가한다.
+4. Mac Icarus v12 Verilog-Eval 정답/오답 실도구 검사, API-free fixture, DeepSeek→ACE 스킬 프로필→
+   공식 CVDP 두 과제 E2E는 각각 다른 범위의 근거다. 다른 Agent·모델이나 연구 알고리즘의 성능을
+   주장하기 전에는 실제 명령·모델·평가 결과를 [검증 기록](verification.md)에 추가한다.
 
 ## 팀 개발자: 새로운 컴포넌트 추가
 

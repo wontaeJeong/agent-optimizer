@@ -121,7 +121,9 @@ runs를 Git에 추가하지 마세요.
 
 과제 공개/비공개 분리와 공식 결과 형식 처리는 오프라인 테스트합니다.
 Mac Docker ARM64와 native Ubuntu x86_64에서 evaluator-only 정답/오답을 확인했습니다.
-API 키 부재로 live는 여전히 `blocked_auth`이며 실제 ACE/OpenCode→모델→CVDP 결과는 미검증입니다.
+`deepseek-flash`로 Mac ARM64에서 이 OpenCode 스킬 프로필의 실제 모델→공식 CVDP 두 과제·4 trial을 실행했습니다.
+두 후보의 validation 점수는 동점이고 시간 기준으로 baseline이 선택되었습니다. native ACE 실행이나
+성능 개선·다른 환경에서의 재현 근거는 아닙니다.
 플랫폼별 실제 실행 결과와 차단 사유는 [검증 기록](../../docs/verification.md)을 확인하세요.
 source/evaluator 버전이 바뀌면 한 문제로 입출력과 보고서 형식을 먼저 검증하세요.
 수동 공식 CI는 [기존 ci.yml 입력](../../CONTRIBUTING.md#ci와-pr-병합)으로 같은 public 명령을 실행합니다.

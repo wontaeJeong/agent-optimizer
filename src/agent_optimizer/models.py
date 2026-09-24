@@ -147,8 +147,7 @@ def probe_model(*, settings=None, timeout=30):
                      settings=settings, timeout=timeout,
                      tools=[{"type": "function", "function": {"name": name, "description": "Check connectivity",
                              "parameters": {"type": "object", "properties": {"ok": {"type": "boolean"}},
-                                            "required": ["ok"], "additionalProperties": False}}}],
-                     tool_choice={"type": "function", "function": {"name": name}})
+                                            "required": ["ok"], "additionalProperties": False}}}])
     try:
         call = reply["choices"][0]["message"]["tool_calls"][0]["function"]
         if call["name"] != name or json.loads(call["arguments"]) != {"ok": True}:

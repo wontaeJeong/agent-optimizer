@@ -198,7 +198,8 @@ external/ datasets/ runs/ 다운로드·데이터·결과, Git 제외
 - Claude Code / Codex / OpenAgent는 확장 규약만 제공합니다. 별도 구현 완료로 표시하지 않습니다.
 - Mac Docker ARM64와 native Ubuntu x86_64에서 공식 CVDP 정답·오답과 host-Docker toy 평가를 실행했습니다.
   실제 도구 테스트 9개와 전체 smoke가 통과했습니다. 입력 제한은 필수이며 합성만으로 임의 RTL을
-  정화하지 않습니다. 실제 모델 실행은 인증 부재로 미검증입니다. [검증 기록](docs/verification.md)
+  정화하지 않습니다. `deepseek-flash` 모델과 ACE/OpenCode 스킬 프로필의 두 과제·4 trial 연결은
+  Mac ARM64에서 실행했으며 실제 성능 향상이나 native ACE 검증은 아닙니다. [검증 기록](docs/verification.md)
 
 ## 선택적 ACE 전체 준비와 실제 데모
 

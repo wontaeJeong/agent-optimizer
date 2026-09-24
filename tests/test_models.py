@@ -12,7 +12,7 @@ from agent_optimizer.models import ModelSettings, complete, probe_model
 
 
 @contextmanager
-def model_server(responses, *, trickle=False):
+def model_server(responses, *, trickle=False, require_auto_tools=False):
     requests = []
 
     class Handler(BaseHTTPRequestHandler):
@@ -23,6 +23,9 @@ def model_server(responses, *, trickle=False):
             requests.append({"path": self.path, "authorization": self.headers.get("Authorization"),
                              "body": json.loads(self.rfile.read(int(self.headers["Content-Length"])))})
             status, payload = responses[min(len(requests) - 1, len(responses) - 1)]
+            if require_auto_tools and (requests[-1]["body"].get("tool_choice") not in (None, "auto")
+                                       or not requests[-1]["body"].get("tools")):
+                status, payload = 400, {"error": {"message": "Thinking mode does not support this tool_choice"}}
             body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
             self.send_response(status)
             if status == 307:
@@ -104,14 +107,15 @@ class ModelTests(unittest.TestCase):
                 self.assertNotIn("fixture-secret", str(error.exception))
                 self.assertEqual(len(requests), 1)
 
-    def test_probe_requires_valid_forced_tool_call_not_just_http_success(self):
+    def test_probe_accepts_default_thinking_mode_and_requires_real_tool_call(self):
         reply = completion(None)
         reply["choices"][0]["message"]["tool_calls"] = [{"id": "call_1", "type": "function", "function": {
             "name": "connectivity_check", "arguments": '{"ok":true}'}}]
-        with model_server([(200, reply)]) as (url, requests):
+        with model_server([(200, reply)], require_auto_tools=True) as (url, requests):
             settings = ModelSettings.from_env({"AGENT_OPT_MODEL_ENDPOINT": url + "/chat/completion", "AGENT_OPT_MODEL_API_KEY": "key"})
             self.assertEqual(probe_model(settings=settings)["status"], "passed")
-            self.assertEqual(requests[0]["body"]["tool_choice"]["function"]["name"], "connectivity_check")
+            self.assertEqual(requests[0]["body"]["tools"][0]["function"]["name"], "connectivity_check")
+            self.assertIn(requests[0]["body"].get("tool_choice"), (None, "auto"))
         with model_server([(200, completion())]) as (url, _requests):
             settings = ModelSettings.from_env({"AGENT_OPT_MODEL_ENDPOINT": url + "/chat/completion", "AGENT_OPT_MODEL_API_KEY": "key"})
             with self.assertRaises(UnavailableError):

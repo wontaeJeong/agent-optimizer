@@ -30,6 +30,7 @@ Task 5/6에서 실제 setup/평가를 실행한 범위는 [verification.md](veri
 | [CVDP report.py](https://github.com/NVlabs/cvdp_benchmark/blob/8e894cf74414ab1eaea1e2b4e80a02f123df07b6/src/report.py) | binary 문제는 test result=0을 통과로 집계하지만 score-based 범주는 별도 처리한다. `examples/ace-rtl/evaluator.py`의 binary 판정과 `prepare.py`의 제한 범위 근거. | 소스 확인. 로컬 evaluator는 공식 report 전체를 재현하지 않으며 빈 tests는 거부한다. raw_result 구조, 범주별 점수 의미, 환경 오류 분류를 버전 변경 시 재검토. |
 | [CVDP 데이터셋](https://huggingface.co/datasets/nvidia/cvdp-benchmark-dataset) | 공식 데이터 배포처. `prepare.py`의 importer와 데이터 사용 조건 근거. | 아래 고정 HF revision/신뢰 hash로 full no_commercial 파일을 확보. 302개 중 71개 지원 형태·231개 제외. 이는 71개 시뮬레이션 통과가 아니며 실제 evaluator smoke는 별도 고정 repo LFSR 예제. |
 | [OpenCode CLI](https://opencode.ai/docs/cli/) | `opencode run`, `--format json`, `--model`, `--agent`의 비대화형 실행 계약. `src/agent_optimizer/harnesses/opencode.py`, `examples/rtl-debugger/Dockerfile`에서 사용. | 공식 문서/Context7 및 실제 1.18.31 CLI/config 확인. URL은 가변 문서다. 모델 inference trace·child session 전체 사용량은 미검증. |
+| [DeepSeek Chat Completions](https://api-docs.deepseek.com/api/create-chat-completion), [tool calls](https://api-docs.deepseek.com/guides/tool_calls) | `deepseek-flash`의 OpenAI 호환 `/chat/completions`·도구 호출 근거. `src/agent_optimizer/models.py`의 명시적 도구 결과 검사와 ACE 실제 실행에서 사용. | 2026-09-25 실제 호스트 모델 호출 및 Docker OpenCode 호출 확인. 기본 thinking 모드에서 강제 `tool_choice`가 HTTP 400이므로 자동 선택 후 실제 도구 이름·인수를 검사한다. API 문서는 가변적이며 타 모델·성능은 검증하지 않았다. |
 | [Yosys 0.40 read_verilog](https://yosyshq.readthedocs.io/projects/yosys/en/0.40/cmd/read_verilog.html), [write_verilog](https://yosyshq.readthedocs.io/projects/yosys/en/0.40/cmd/write_verilog.html), [synth 구현](https://github.com/YosysHQ/yosys/blob/yosys-0.40/techlibs/common/synth.cc) | `examples/rtl-debugger/iverilog.py`의 `-sv`, `-noautowire`, `-noattr`, `synth -top ... -flatten -noabc` 및 hierarchy 검사 근거. | 공식 ARM64 이미지에서 실도구 9개 통과. 실제 `$display` → netlist `$write` 보존 확인: 합성 단독 정화 주장은 틀리며 입력 제한과 private mismatch/nonzero-exit 검사가 필수. |
 
 상용 EDA를 제외한다는 결정은 **사용자 요구사항**이다. upstream에 상용 경로가 존재해도 이 제품의
@@ -50,7 +51,8 @@ upstream 패키지를 설치하거나 원본 소스를 복사·실행한 것은 
 
 메서드 수준 유사성과 전체 저자 구현/논문 재현은 다르다. 현 코어의 한 파일 proposal·예산·선택 계약에
 맞춘 구현 차이는 [설계](superpowers/specs/2026-09-24-optimizer-cli-tui-algorithms-design.md)와
-[검증 기록](verification.md)을 따른다. 실제 모델 사용/성능 수치는 별도 실행 전 미검증이다.
+[검증 기록](verification.md)을 따른다. ACE 스킬 프로필의 `simple_feedback` 실제 모델 실행과
+세 연구 Optimizer의 실 Agent 성능 검증은 구분한다.
 
 ## 새 평가 데이터/시뮬레이터 소스 (2026-09-24)
 
