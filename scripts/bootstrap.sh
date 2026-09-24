@@ -4,13 +4,15 @@ set -eu
 
 help() {
     printf '%s\n' \
-        'Development commands: setup doctor test lint demo smoke live help' \
+        'Development commands: setup doctor test lint demo smoke live menu help' \
         'Prerequisites: Mac/Ubuntu, Git; full ACE setup also needs Docker Engine + Compose.' \
-        'Start: sh scripts/bootstrap.sh setup --core; then make doctor ARGS="--core" and make demo.' \
+        'Start: make setup ARGS="--core"; then make doctor ARGS="--core" and make demo.' \
         'No make? Use sh scripts/bootstrap.sh <command> [options].' \
+        'Without --core or --dataset, setup/doctor use the full ACE environment.' \
         'setup: --core, --dataset ID, --offline, --platform linux/amd64|linux/arm64 (full ACE only)' \
         'doctor: --core, --dataset ID, --json, --platform, --model (actual API calls); --core excludes --dataset/--platform/--model.' \
         'smoke/live: --platform; live: --iterations 1..20' \
+        'menu: numbered interactive frontend (TTY); after setup, use .venv/bin/agent-opt --help for the user CLI.' \
         'test/lint/demo use .venv without installing or requiring Docker.' \
         'make doctor ARGS="--json" (ARGS uses normal shell command arguments).' \
         'Full command help: python3 scripts/dev.py --help or <command> --help.'

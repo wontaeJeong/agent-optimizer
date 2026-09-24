@@ -13,9 +13,15 @@ editable 파일·Optimizer·**직접 선택하는 데이터셋**을 차례로 �
 자동 준비합니다(첫 실행에는 다운로드·Docker 빌드가 걸릴 수 있습니다). 사용자 데이터셋도 별도의
 채점기를 지정해 사용할 수 있습니다.
 
-비대화형 경로의 첫 예시는 모델·Docker를 쓰지 않는 **합성 fixture**입니다:
+### 모델·Docker 없이 기본 동작 확인
+
+프로젝트 루트에서 다음 **합성 fixture**를 실행하면 설치부터 보고서까지 확인할 수 있습니다.
+첫 `setup --core`는 자체적으로 코어 doctor와 7-trial 최소 데모도 실행합니다.
 
 ```bash
+make setup ARGS="--core"
+make help                         # 개발환경 명령
+.venv/bin/agent-opt --help        # 실제 사용자 명령
 .venv/bin/agent-opt datasets list
 .venv/bin/agent-opt init --name my-fixture \
   --agent examples/minimal/agents/solo \
@@ -26,9 +32,18 @@ editable 파일·Optimizer·**직접 선택하는 데이터셋**을 차례로 �
   --optimizer baseline --yes
 .venv/bin/agent-opt doctor --plan runs/configs/my-fixture/experiment.toml --json
 .venv/bin/agent-opt run runs/configs/my-fixture/experiment.toml
-# run 명령의 run_dir을 사용:
+# 위 run 출력의 run_dir 값으로 <run-id>를 대체해 HTML을 재생성하려면:
 .venv/bin/agent-opt report "runs/<run-id>" --html
 ```
+
+`datasets list`에는 준비된 합성 `sample_text`도 보입니다. `doctor --plan`의 JSON에
+`"scope": "plan", "ready": true`가 표시되고, `run`은 진행 상황과 함께
+`"status": "completed", "trials_used": 2` 및 `run_dir`을 출력해야 합니다.
+`run_dir/report.html`은 **run이 이미 생성**하므로 마지막 `report --html`은 재생성이 필요할 때만
+실행합니다. 이 결과는 코어 경로의 연결 검사이며 모델 최적화 성능을 뜻하지 않습니다.
+같은 절차를 다시 따라 할 때는 `--name`과 이후의 `runs/configs/<name>/experiment.toml`을
+새 이름으로 바꾸세요. 이미 생성된 설정은 덮어쓰지 않습니다.
+대화형 경로는 TTY에서 `.venv/bin/agent-opt tui`로 열 수 있습니다.
 
 실제 Agent는 `--agent <로컬 소스>` 또는 `--agent <Git URL> --revision <전체 commit>`과
 실제 실행 argv, 사용 중인 `--prompt-file`, 수정 허용 `--editable` 범위를 연결합니다.
@@ -61,6 +76,7 @@ Mac/Ubuntu와 **Git**부터 준비하고 프로젝트 루트에서 실행하세�
 프록시·추가 CA가 필요한 환경은 먼저 [네트워크 설정](docs/network.md)을 적용하세요.
 
 ```bash
+make help                         # 설치 없이 개발 명령 확인
 make setup ARGS="--core"          # frozen 개발 도구 + 코어 진단 + 첫 최소 데모
 make doctor ARGS="--core"         # 코어만 읽기 전용 진단
 make menu                        # 1/2번: 코어 설치/진단, 3번: fixture 테스트
@@ -69,6 +85,10 @@ make demo                        # 비대화형 최소 데모
 sh scripts/bootstrap.sh setup --core
 ```
 
+`setup --core` 출력의 `"status": "ready", "scope": "core"`와
+`make doctor ARGS="--core"`의 `Core development environment: ready`를 확인합니다.
+`make demo` 출력의 `"status": "completed", "trials_used": 7`과 `run_dir`을 확인하고
+해당 `run_dir/report.html`을 열면 기본 실행까지 검증할 수 있습니다.
 `setup --core`는 기존 uv 설치 경로를 사용해, uv가 없으면 0.10.7을 로컬에 설치하고
 Python 3.12·frozen 개발 의존성을 `.venv`에 준비합니다. **최초 준비에는 의존성 다운로드가 필요할 수 있지만,
 최소 데모와 로컬 HTTP fixture 실행은 외부 모델·Docker를 사용하지 않습니다.**
@@ -118,7 +138,7 @@ make가 없으면 모든 명령을 `sh scripts/bootstrap.sh <명령> [옵션]`�
 
 ## 코어만 실행: API·Docker 없는 최소 데모
 
-Python 3.11+ / Linux 기준, 프로젝트 루트에서 실행합니다.
+Python 3.11+ / Mac·Linux 기준, 프로젝트 루트에서 실행합니다.
 
 프록시·추가 CA가 필요한 환경은 먼저 [선택적 네트워크 설정](docs/network.md)을 적용하세요.
 설정하지 않으면 기존 직접 연결 방식을 사용합니다.
