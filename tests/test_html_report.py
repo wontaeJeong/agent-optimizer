@@ -179,6 +179,53 @@ class HTMLReportTests(unittest.TestCase):
         self.assertNotIn("category: timeout", page)
         self.assertIn('scope="row"', page)
 
+    def test_unknown_optimizer_without_evaluations_keeps_group_event_order_and_raw_evidence(self):
+        run = self.root / "event-only"
+        run.mkdir()
+        summary = {"status": "partial", "groups": [
+            {"agent_id": "solo", "harness_id": "fixture", "baseline": None,
+             "selected": [], "final_test": [], "stages": [
+                 {"id": "opaque", "optimizer": "custom-unknown", "checkpoint": {}}]}]}
+        events = [
+            {"event": "optimizer_probe_started", "agent_id": "solo", "harness_id": "fixture",
+             "stage_id": "opaque", "phase": "probe", "timestamp": "2026-09-25T00:00:02Z",
+             "private_note": "<script>secret-trace</script>"},
+            {"event": "optimizer_probe_completed", "agent_id": "other", "harness_id": "fixture",
+             "stage_id": "opaque", "detail": "other-group-only"},
+            {"event": "optimizer_probe_completed", "agent_id": "solo", "harness_id": "fixture",
+             "stage_id": "opaque", "status": "interrupted", "timestamp": "2026-09-25T00:00:03Z",
+             "detail": "raw outcome"},
+        ]
+        (run / "events.jsonl").write_text(
+            "\n".join(json.dumps(event) for event in events) + "\n", encoding="utf-8")
+
+        page = write_html_report(run, summary).read_text(encoding="utf-8")
+        journey = page.split('<section id="journey">', 1)[1].split('</section>', 1)[0]
+        self.assertIn('optimizer_probe_started', journey)
+        self.assertIn('optimizer_probe_completed', journey)
+        self.assertLess(journey.index('optimizer_probe_started'),
+                        journey.index('optimizer_probe_completed'))
+        self.assertIn('2026-09-25T00:00:02Z', journey)
+        self.assertIn('opaque', journey)
+        self.assertIn('interrupted', journey)
+        self.assertIn('<details', journey)
+        self.assertIn('&lt;script&gt;secret-trace&lt;/script&gt;', journey)
+        self.assertNotIn('<script>secret-trace</script>', page)
+        self.assertNotIn('secret-trace', journey.split('<details', 1)[0])
+        self.assertNotIn('other-group-only', page)
+        self.assertIn('Not evaluated', page)
+
+    def test_long_unbroken_experiment_name_is_wrappable_without_truncation(self):
+        run = self.root / "long-name"
+        run.mkdir()
+        name = "X" * 2048
+        (run / "manifest.json").write_text(json.dumps({"experiment": {"name": name}}),
+                                            encoding="utf-8")
+
+        page = write_html_report(run, {"status": "completed", "groups": []}).read_text(encoding="utf-8")
+        self.assertIn(f'<h1>{name}</h1>', page)
+        self.assertRegex(page, r'h1\{[^}]*overflow-wrap:anywhere')
+
     def test_untrusted_candidate_paths_are_not_links_and_large_durations_are_not_summed(self):
         run = self.root / "unsafe"
         run.mkdir()

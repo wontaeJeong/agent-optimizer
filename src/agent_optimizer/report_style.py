@@ -9,7 +9,7 @@ font:15px/1.55 ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe U
 --bad:#ffa7ae;--warn:#e8c785}}
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--text)}
 header,main,footer{max-width:1360px;margin:auto;padding:1.5rem 2rem}header{padding-top:2.4rem}
-h1{font-size:clamp(1.9rem,3vw,2.8rem);line-height:1.2;letter-spacing:-.035em;margin:.35rem 0}
+h1{font-size:clamp(1.9rem,3vw,2.8rem);line-height:1.2;letter-spacing:-.035em;margin:.35rem 0;overflow-wrap:anywhere}
 h2{font-size:1.45rem;letter-spacing:-.025em;margin:0 0 .7rem}h3{font-size:1.07rem;margin:1.2rem 0 .45rem}
 p{margin:.5rem 0}.eyebrow{font-size:.73rem;letter-spacing:.12em;text-transform:uppercase;
 font-weight:750;color:var(--accent)}.lede,.subtle,.tag{color:var(--muted)}.subtle,.tag{font-size:.88rem}

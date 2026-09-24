@@ -166,6 +166,26 @@ def _test_results(report):
                      ('Group', 'Candidate', 'Split', 'Metrics', 'Trials'), rows, numeric=(4,)) + '</section>')
 
 
+def _recorded_events(report, group):
+    events = [event for event in report.get('events', [])
+              if isinstance(event, dict) and isinstance(event.get('event'), str)
+              and event.get('event') != 'trial_completed'
+              and event.get('agent_id') == group['agent_id']
+              and event.get('harness_id') == group['harness_id']]
+    if not events:
+        return '<p class="subtle">No recorded structure; consult the evaluation table below.</p>'
+    parts = ['<p class="subtle">No recorded structure; recorded group events in log order. '
+             'Open raw evidence for additional fields.</p><ol class="lineage">']
+    for event in events:
+        context = ' · '.join(f'{name}: {text(event[name], 120)}' for name in (
+            'timestamp', 'stage_id', 'phase', 'status', 'candidate_id', 'task_id')
+            if event.get(name) is not None)
+        parts.append(f'<li><strong>{text(event["event"], 120)}</strong>'
+                     + (f' <span class="tag">{context}</span>' if context else '')
+                     + _details('Raw event', _json(event)) + '</li>')
+    return ''.join(parts) + '</ol>'
+
+
 def _journey(report):
     sections = ['<section id="journey"><h2>Optimization journey</h2>']
     for group in report['groups']:
@@ -184,7 +204,7 @@ def _journey(report):
                                 f'evaluation refs {text(", ".join(unit.get("evaluation_refs") or []) or "—")}</li>')
             sections.append('</ol>')
         else:
-            sections.append('<p class="subtle">No recorded structure; consult the evaluation table below.</p>')
+            sections.append(_recorded_events(report, group))
         if edges:
             sections.append('<p class="tag">Recorded candidate parent relationships</p><ul class="lineage">')
             for edge in edges:
