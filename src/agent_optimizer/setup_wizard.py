@@ -5,6 +5,7 @@ import json
 import math
 import os
 import shlex
+import shutil
 import sys
 import contextlib
 import fnmatch
@@ -167,57 +168,61 @@ def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dat
     positive(wall_time, "max_wall_time_seconds")
     positive(trial_timeout, "trial_timeout_seconds")
     config_root.mkdir(parents=True)
-    write_json(config_root / "tasks.json", document)
-    agent_lines = ["schema_version = 2", f"id = {_literal(name)}",
-                   f"supported_harnesses = {_literal([harness.get('adapter', 'command')])}",
-                   f"editable = {_literal(editable)}", f"prompt_file = {_literal(prompt_file)}", "",
-                   "[source]", f"kind = {_literal(source_kind)}"]
-    if source_kind == "local":
-        agent_lines.append(f"path = {_literal(str(agent.absolute()))}")
-    else:
-        agent_lines += [f"url = {_literal(str(agent))}",
-                        f"revision = {_literal(harness['revision'])}"]
-    (config_root / "agent.toml").write_text("\n".join(agent_lines) + "\n", encoding="utf-8")
-    harness_lines = [f"id = {_literal(harness.get('id', 'user-command'))}",
-                     f"adapter = {_literal(harness.get('adapter', 'command'))}",
-                     f"command = {_literal(harness['command'])}", "allow_local = true", "",
-                     "[runtime]", 'kind = "local"']
-    (config_root / "harness.toml").write_text("\n".join(harness_lines) + "\n", encoding="utf-8")
-    lines = ["schema_version = 1", f"name = {_literal(name)}",
-             f"project_root = {_literal(os.path.relpath(project_root, config_root))}",
-             f"agents = {_literal([root_prefix + '/agent.toml'])}",
-             f"harnesses = {_literal([root_prefix + '/harness.toml'])}",
-             f"benchmark = {_literal(root_prefix + '/tasks.json')}",
-             f"evaluator = {_literal(dataset['evaluator'])}",
-             f"final_test = {_literal(bool(tests))}",
-             f"final_stages = {_literal([s['id'] for s in stages] or ['baseline'])}",
-             'output_dir = "runs"', ""]
-    lines += _section("budget", {"max_trials": max_trials if max_trials is not None else max(80, reserved),
-                                 "max_wall_time_seconds": wall_time,
-                                 "trial_timeout_seconds": trial_timeout})
-    lines += ["[objective]", 'mode = "lexicographic"', "keep = 1", "",
-              "[[objective.metrics]]",
-              f"name = {_literal('solve_rate' if objective_source == 'passed' else objective_source)}",
-              f"source = {_literal(objective_source)}",
-              f"direction = {_literal(objective_direction)}", 'aggregate = "mean"', ""]
-    for stage in stages:
-        lines += ["[[stages]]", f"id = {_literal(stage['id'])}",
-                  f"optimizer = {_literal(stage['optimizer'])}",
-                  f"max_trials = {stage['max_trials']}", "inputs = [\"baseline\"]", ""]
-        lines += _section("stages.config", stage["config"])
-    for kind, entries in plugins.items():
-        if entries:
-            lines += _section(f"plugins.{kind}", entries)
-    if dependencies:
-        lines += _section("plugin_dependencies", dependencies)
-    if "evaluation_runtime" in dataset:
-        lines += _section("evaluation_runtime", dataset["evaluation_runtime"])
-    if "evaluator_config" in dataset:
-        lines += _section("evaluator_config", dataset["evaluator_config"])
-    target = config_root / "experiment.toml"
-    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    load_experiment(target)
-    return target
+    try:
+        write_json(config_root / "tasks.json", document)
+        agent_lines = ["schema_version = 2", f"id = {_literal(name)}",
+                       f"supported_harnesses = {_literal([harness.get('adapter', 'command')])}",
+                       f"editable = {_literal(editable)}", f"prompt_file = {_literal(prompt_file)}", "",
+                       "[source]", f"kind = {_literal(source_kind)}"]
+        if source_kind == "local":
+            agent_lines.append(f"path = {_literal(str(agent.absolute()))}")
+        else:
+            agent_lines += [f"url = {_literal(str(agent))}",
+                            f"revision = {_literal(harness['revision'])}"]
+        (config_root / "agent.toml").write_text("\n".join(agent_lines) + "\n", encoding="utf-8")
+        harness_lines = [f"id = {_literal(harness.get('id', 'user-command'))}",
+                         f"adapter = {_literal(harness.get('adapter', 'command'))}",
+                         f"command = {_literal(harness['command'])}", "allow_local = true", "",
+                         "[runtime]", 'kind = "local"']
+        (config_root / "harness.toml").write_text("\n".join(harness_lines) + "\n", encoding="utf-8")
+        lines = ["schema_version = 1", f"name = {_literal(name)}",
+                 f"project_root = {_literal(os.path.relpath(project_root, config_root))}",
+                 f"agents = {_literal([root_prefix + '/agent.toml'])}",
+                 f"harnesses = {_literal([root_prefix + '/harness.toml'])}",
+                 f"benchmark = {_literal(root_prefix + '/tasks.json')}",
+                 f"evaluator = {_literal(dataset['evaluator'])}",
+                 f"final_test = {_literal(bool(tests))}",
+                 f"final_stages = {_literal([s['id'] for s in stages] or ['baseline'])}",
+                 'output_dir = "runs"', ""]
+        lines += _section("budget", {"max_trials": max_trials if max_trials is not None else max(80, reserved),
+                                     "max_wall_time_seconds": wall_time,
+                                     "trial_timeout_seconds": trial_timeout})
+        lines += ["[objective]", 'mode = "lexicographic"', "keep = 1", "",
+                  "[[objective.metrics]]",
+                  f"name = {_literal('solve_rate' if objective_source == 'passed' else objective_source)}",
+                  f"source = {_literal(objective_source)}",
+                  f"direction = {_literal(objective_direction)}", 'aggregate = "mean"', ""]
+        for stage in stages:
+            lines += ["[[stages]]", f"id = {_literal(stage['id'])}",
+                      f"optimizer = {_literal(stage['optimizer'])}",
+                      f"max_trials = {stage['max_trials']}", "inputs = [\"baseline\"]", ""]
+            lines += _section("stages.config", stage["config"])
+        for kind, entries in plugins.items():
+            if entries:
+                lines += _section(f"plugins.{kind}", entries)
+        if dependencies:
+            lines += _section("plugin_dependencies", dependencies)
+        if "evaluation_runtime" in dataset:
+            lines += _section("evaluation_runtime", dataset["evaluation_runtime"])
+        if "evaluator_config" in dataset:
+            lines += _section("evaluator_config", dataset["evaluator_config"])
+        target = config_root / "experiment.toml"
+        target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        load_experiment(target)
+        return target
+    except Exception:
+        shutil.rmtree(config_root)
+        raise
 
 
 def wizard_arguments(project_root: Path) -> list[str]:

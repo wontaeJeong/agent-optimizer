@@ -789,6 +789,28 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual(summary["groups"][0]["selected"][0]["metrics"]["solve_rate"], 1)
         self.assertTrue((run / "report.html").is_file())
 
+    def test_failed_generation_can_retry_without_removing_existing_directory(self):
+        args = ["init", "--project-root", str(self.root), "--name", "invalid-once",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "baseline", "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--yes"]
+        bad = [*args, "--optimizer-config", '{"baseline":{"unsupported":null}}']
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(bad), 2)
+        self.assertFalse((self.root / "runs/configs/invalid-once").exists())
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+
+        existing = self.root / "runs/configs/existing"
+        existing.mkdir()
+        (existing / "sentinel").write_bytes(b"unchanged")
+        args[args.index("invalid-once")] = "existing"
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 2)
+        self.assertEqual((existing / "sentinel").read_bytes(), b"unchanged")
+
     def test_gepa_trial_allowance_tracks_requested_iterations_and_merge(self):
         args = ["init", "--project-root", str(self.root), "--name", "long-search",
                 "--agent", str(self.agent), "--dataset", str(self.data),
