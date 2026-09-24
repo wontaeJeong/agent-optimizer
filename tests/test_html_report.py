@@ -76,6 +76,47 @@ class HTMLReportTests(unittest.TestCase):
         self.assertIn("model failed", page)
         self.assertIn("error", page)
 
+    def test_report_html_rebuilds_legacy_derived_artifacts_without_changing_source_or_csv(self):
+        run, summary = run_experiment(self.spec, Registry(), self.root / "runs")
+        source = (run / "summary.json").read_bytes()
+        csv_path = run / "export.csv"
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(main(["report", str(run), "--csv", str(csv_path)]), 0)
+        exported = csv_path.read_bytes()
+        (run / "report.json").unlink(missing_ok=True)
+        (run / "report.md").write_text("old")
+        (run / "report.html").write_text("old")
+
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(main(["report", str(run), "--html"]), 0)
+
+        self.assertEqual(json.loads(output.getvalue()),
+                         {"html": str(run / "report.html"), "status": summary["status"]})
+        self.assertEqual((run / "summary.json").read_bytes(), source)
+        self.assertEqual(csv_path.read_bytes(), exported)
+        model = json.loads((run / "report.json").read_text())
+        self.assertEqual(model["groups"][0]["selected"], summary["groups"][0]["selected"])
+        self.assertNotEqual((run / "report.md").read_text(), "old")
+        self.assertNotEqual((run / "report.html").read_text(), "old")
+
+    def test_two_group_run_writes_matching_selected_and_completed_counts(self):
+        spec = load_experiment(self.root / "examples/minimal/experiment.toml")
+        run, summary = run_experiment(spec, Registry(), self.root / "runs")
+        model = json.loads((run / "report.json").read_text())
+        markdown = (run / "report.md").read_text()
+        html = (run / "report.html").read_text()
+        self.assertEqual(len(model["groups"]), 2)
+        self.assertEqual([g["selected"] for g in model["groups"]],
+                         [g["selected"] for g in summary["groups"]])
+        for group in model["groups"]:
+            self.assertGreater(group["counts"]["completed_evaluations"], 0)
+            for content in (markdown, html):
+                self.assertIn(group["agent_id"], content)
+                self.assertIn(f'{group["counts"]["completed_evaluations"]} completed', content)
+                self.assertIn(group["comparison_trend"], content)
+
 
 if __name__ == "__main__":
     unittest.main()
