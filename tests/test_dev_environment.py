@@ -233,14 +233,14 @@ class EnvironmentChecks(unittest.TestCase):
 
     def test_live_model_configuration_precedes_any_execution(self):
         self.assertTrue(hasattr(setup, "validate_live"), "live preflight missing")
-        with patch.dict(os.environ, {"MODEL_ENDPOINT": "https://example.invalid/v1/chat/completion"}, clear=True):
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/v1/chat/completion"}, clear=True):
             with self.assertRaisesRegex(UnavailableError, "blocked_auth"):
                 setup.validate_live()
-        with patch.dict(os.environ, {"MODEL_API_KEY": "test-only"}, clear=True):
-            with self.assertRaisesRegex(ConfigurationError, "MODEL_ENDPOINT"):
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "test-only"}, clear=True):
+            with self.assertRaisesRegex(ConfigurationError, "AGENT_OPT_MODEL_ENDPOINT"):
                 setup.validate_live()
-        with patch.dict(os.environ, {"MODEL_API_KEY": "test-only", "MODEL_ID": "model-a",
-                                    "MODEL_BASE_URL": "https://example.invalid/v1"}, clear=True):
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "test-only", "AGENT_OPT_MODEL_ID": "model-a",
+                                    "AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1"}, clear=True):
             self.assertEqual(setup.validate_live(), "compatible/model-a")
 
     def test_doctor_cannot_report_ready_from_image_presence_only(self):
@@ -616,7 +616,7 @@ class PreparedImageTests(unittest.TestCase):
                     patch.object(setup, "validate_driver_lock"), patch.object(setup, "doctor", side_effect=doctor), \
                     patch.object(setup.subprocess, "check_output", side_effect=inspect), \
                     patch("sys.argv", ["dev.py", command, "--platform", "linux/amd64"]), \
-                    patch.dict(os.environ, {"MODEL_API_KEY": "test-only", "MODEL_ENDPOINT": "https://example.invalid/v1/chat/completion", "AGENT_OPT_CA_BUNDLE": ""}), \
+                    patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "test-only", "AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/v1/chat/completion", "AGENT_OPT_CA_BUNDLE": ""}), \
                     redirect_stdout(stdout):
                 code = dev.main()
         return code, observed, stdout.getvalue()
@@ -651,7 +651,7 @@ class EvaluatorRuntimeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             environment = Path(d).resolve() / "driver-env"
             venv.EnvBuilder(with_pip=False, symlinks=True).create(environment)
-            with patch.dict(os.environ, {"CVDP_PYTHON": str(environment / "bin/python")}):
+            with patch.dict(os.environ, {"AGENT_OPT_CVDP_PYTHON": str(environment / "bin/python")}):
                 evaluator = cvdp.CVDPEvaluator()
             prefix = subprocess.check_output([str(evaluator.python), "-c", "import sys; print(sys.prefix)"], text=True).strip()
             self.assertEqual(prefix, str(environment), "resolving the Python symlink bypasses isolated dependencies")
@@ -833,7 +833,7 @@ class ShippedRTLProfileTests(unittest.TestCase):
         profile = load_experiment(ROOT / "examples/rtl-debugger/experiment.toml")["_profiles"][0]
         for model, required in (
             ("openrouter/vendor/model:free", {"AGENT_OPT_MODEL", "OPENROUTER_API_KEY"}),
-            ("compatible/example-model", {"AGENT_OPT_MODEL", "OPENCODE_CONFIG", "MODEL_BASE_URL", "MODEL_ID", "MODEL_API_KEY"}),
+            ("compatible/example-model", {"AGENT_OPT_MODEL", "OPENCODE_CONFIG", "AGENT_OPT_MODEL_BASE_URL", "AGENT_OPT_MODEL_ID", "AGENT_OPT_MODEL_API_KEY"}),
         ):
             with self.subTest(model=model), tempfile.TemporaryDirectory() as d:
                 root = Path(d)
@@ -845,13 +845,13 @@ class ShippedRTLProfileTests(unittest.TestCase):
                     commands.append(argv)
                     return ExecutionResult("completed", 0, 0, str(stdout), str(stderr))
                 request = RunRequest(root, root / "agent", root / "task", "public task", 10, 0, profile, root / "logs")
-                with patch.dict(os.environ, {"AGENT_OPT_MODEL": model, "OPENROUTER_API_KEY": "test-only-secret", "MODEL_API_KEY": "test-only-secret"}), \
+                with patch.dict(os.environ, {"AGENT_OPT_MODEL": model, "OPENROUTER_API_KEY": "test-only-secret", "AGENT_OPT_MODEL_API_KEY": "test-only-secret"}), \
                         patch("agent_optimizer.process.run_process", side_effect=docker), \
                         patch("agent_optimizer.process.subprocess.run"):
                     os.environ.pop("OPENCODE_CONFIG", None)
                     if model.startswith("compatible/"):
                         os.environ.update(OPENCODE_CONFIG="/work/agent/provider-compatible.json",
-                                          MODEL_ID="example-model", MODEL_BASE_URL="http://example.invalid/v1")
+                                           AGENT_OPT_MODEL_ID="example-model", AGENT_OPT_MODEL_BASE_URL="http://example.invalid/v1")
                     result = OpenCodeHarness().run(request)
                 self.assertEqual(result.status, "completed")
                 argv = commands[0]

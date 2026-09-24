@@ -75,7 +75,7 @@ class CLIExperienceTests(unittest.TestCase):
 
     def test_plan_doctor_api_free_minimal_needs_no_model_credentials(self):
         output = io.StringIO()
-        with patch.dict(os.environ, {"MODEL_API_KEY": "", "MODEL_ENDPOINT": "", "MODEL_BASE_URL": ""}), \
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "", "AGENT_OPT_MODEL_ENDPOINT": "", "AGENT_OPT_MODEL_BASE_URL": ""}), \
                 patch("agent_optimizer.models.probe_model", side_effect=AssertionError("model call")), \
                 contextlib.redirect_stdout(output):
             code = main(["doctor", "--plan", str(self.root / "examples/minimal/experiment.toml"), "--json"])
@@ -84,6 +84,23 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertTrue(report["ready"], report)
         self.assertNotIn("model.configuration", {row["id"] for row in report["checks"]})
 
+    def test_research_plan_uses_only_prefixed_model_settings(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        plan.write_text(plan.read_text().replace('optimizer = "file_variants"', 'optimizer = "gepa"'))
+        configured = {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/v1/chat/completions",
+                      "AGENT_OPT_MODEL_API_KEY": "fixture-secret"}
+        with patch.dict(os.environ, configured, clear=True):
+            result = collect_plan(plan, Registry())
+        self.assertEqual(next(row["status"] for row in result["checks"]
+                              if row["id"] == "model.configuration"), "ok")
+        self.assertNotIn("fixture-secret", json.dumps(result))
+        with patch.dict(os.environ, {"MODEL_ENDPOINT": configured["AGENT_OPT_MODEL_ENDPOINT"],
+                                     "MODEL_API_KEY": "legacy-secret"}, clear=True):
+            result = collect_plan(plan, Registry())
+        self.assertEqual(next(row["status"] for row in result["checks"]
+                              if row["id"] == "model.configuration"), "error")
+        self.assertNotIn("legacy-secret", json.dumps(result))
+
     def test_plan_doctor_collects_model_evaluator_budget_and_agent_failures(self):
         plan = self.root / "examples/minimal/experiment.toml"
         plan.write_text(plan.read_text().replace('evaluator = "text_fixture"', 'evaluator = "missing-evaluator"')
@@ -91,7 +108,7 @@ class CLIExperienceTests(unittest.TestCase):
                         + '\n[[stages]]\nid = "research"\noptimizer = "gepa"\nmax_trials = 3\n')
         (self.root / "examples/minimal/agents/solo/prompts/system.md").unlink()
         before = {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
-        with patch.dict(os.environ, {"MODEL_API_KEY": "", "MODEL_ENDPOINT": "", "MODEL_BASE_URL": ""}), \
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "", "AGENT_OPT_MODEL_ENDPOINT": "", "AGENT_OPT_MODEL_BASE_URL": ""}), \
                 patch("agent_optimizer.runner.preflight", side_effect=AssertionError("preflight")), \
                 patch("agent_optimizer.models.probe_model", side_effect=AssertionError("model call")):
             report = collect_plan(plan, Registry())
@@ -105,7 +122,7 @@ class CLIExperienceTests(unittest.TestCase):
     def test_explicit_model_probe_only_runs_when_requested(self):
         plan = self.root / "examples/minimal/experiment.toml"
         with patch("agent_optimizer.models.probe_model", return_value={"status": "passed"}) as probe, \
-                patch.dict(os.environ, {"MODEL_API_KEY": "", "MODEL_ENDPOINT": "", "MODEL_BASE_URL": ""}):
+                patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "", "AGENT_OPT_MODEL_ENDPOINT": "", "AGENT_OPT_MODEL_BASE_URL": ""}):
             report = collect_plan(plan, Registry(), model=True)
         self.assertTrue(report["ready"], report)
         self.assertEqual({row["id"] for row in report["checks"] if row["area"] == "model"},
@@ -125,7 +142,7 @@ class CLIExperienceTests(unittest.TestCase):
         broken.write_text(broken.read_text().replace('evaluator = "text_fixture"', 'evaluator = "absent"')
                           .replace('optimizer = "file_variants"', 'optimizer = "gepa"'))
         output = io.StringIO()
-        with patch.dict(os.environ, {"MODEL_API_KEY": "SECRET_VALUE", "MODEL_ENDPOINT": ""}), \
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "SECRET_VALUE", "AGENT_OPT_MODEL_ENDPOINT": ""}), \
                 contextlib.redirect_stdout(output):
             self.assertNotEqual(main(["doctor", "--plan", str(broken), "--json"]), 0)
         report = json.loads(output.getvalue())
@@ -188,7 +205,7 @@ class CLIExperienceTests(unittest.TestCase):
                              '    def validate_benchmark(self, *args): raise AssertionError("trial validation")\n')
         plan.write_text(plan.read_text().replace('optimizer = "file_variants"', 'optimizer = "gepa"')
                         .replace('include_seeds = true', 'file = "missing.txt"\niterations = -1'))
-        with patch.dict(os.environ, {"MODEL_ENDPOINT": "", "MODEL_API_KEY": ""}), \
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_ENDPOINT": "", "AGENT_OPT_MODEL_API_KEY": ""}), \
                 patch("agent_optimizer.runner.preflight", side_effect=AssertionError("preflight")):
             report = collect_plan(plan, Registry())
         checks = {row["id"]: row for row in report["checks"]}
@@ -201,13 +218,13 @@ class CLIExperienceTests(unittest.TestCase):
         harness = self.root / "examples/minimal/harness.toml"
         harness.write_text('id = "opencode"\nadapter = "opencode"\nmodel_env = "TEAM_MODEL"\n'
                            '[runtime]\nkind = "docker"\nimage = "pinned-agent"\n')
-        with patch.dict(os.environ, {"MODEL_API_KEY": "", "MODEL_ENDPOINT": "", "TEAM_MODEL": ""}), \
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "", "AGENT_OPT_MODEL_ENDPOINT": "", "TEAM_MODEL": ""}), \
                 patch("agent_optimizer.readiness.shutil.which", return_value=None):
             checks = {row["id"]: row for row in collect_plan(plan, Registry())["checks"]}
         self.assertEqual(checks["model.configuration"]["status"], "error")
         self.assertIn("TEAM_MODEL", checks["model.configuration"]["remedy"])
         self.assertEqual(checks["runtime.binary"]["status"], "error")
-        with patch.dict(os.environ, {"MODEL_API_KEY": "", "MODEL_ENDPOINT": "", "TEAM_MODEL": "team/model"}), \
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "", "AGENT_OPT_MODEL_ENDPOINT": "", "TEAM_MODEL": "team/model"}), \
                 patch("agent_optimizer.readiness.shutil.which", return_value="/usr/bin/docker"):
             checks = {row["id"]: row for row in collect_plan(plan, Registry())["checks"]}
         self.assertEqual(checks["model.configuration"]["status"], "ok")

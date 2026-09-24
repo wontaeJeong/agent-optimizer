@@ -90,7 +90,7 @@ class NetworkTests(unittest.TestCase):
             root = Path(d)
             cert = certificate(d)
             environ = {"AGENT_OPT_CA_BUNDLE": str(cert), "HTTPS_PROXY": "http://user:secret@proxy:3128",
-                       "NO_PROXY": "api.test,localhost", "MODEL_API_KEY": "do-not-forward"}
+                       "NO_PROXY": "api.test,localhost", "AGENT_OPT_MODEL_API_KEY": "do-not-forward"}
             with patch.dict(os.environ, environ, clear=True), \
                     patch("agent_optimizer.process.run_process", return_value=ExecutionResult("completed", 0, 0, "", "")) as run, \
                     patch("agent_optimizer.process.subprocess.run"):
@@ -99,7 +99,7 @@ class NetworkTests(unittest.TestCase):
             argv = run.call_args.args[0]
             self.assertIn("HTTPS_PROXY", argv)
             self.assertNotIn("secret", " ".join(argv))
-            self.assertNotIn("MODEL_API_KEY", " ".join(argv))
+            self.assertNotIn("AGENT_OPT_MODEL_API_KEY", " ".join(argv))
             self.assertIn("SSL_CERT_FILE=/opt/agent-optimizer/ca-bundle.pem", argv)
             self.assertIn(f"type=bind,source={cert},target=/opt/agent-optimizer/ca-bundle.pem,readonly", argv)
             self.assertEqual(argv[argv.index("--network") + 1], "none")
@@ -271,7 +271,7 @@ class EvaluatorNetworkTests(unittest.TestCase):
                             "volumes": ["./private:/tests:ro"]}}}
                 data = copy.deepcopy(original)
                 driver.configure_compose(data, {"HTTPS_PROXY": "http://user:secret@proxy", "NO_PROXY": "localhost",
-                                                "AGENT_OPT_CA_BUNDLE": str(cert), "MODEL_API_KEY": "never"})
+                                                 "AGENT_OPT_CA_BUNDLE": str(cert), "AGENT_OPT_MODEL_API_KEY": "never"})
                 service = data["services"]["sim"]
                 self.assertEqual(service["environment"]["CHECKER"], "keep")
                 self.assertIsNone(service["environment"]["HTTPS_PROXY"])
@@ -282,7 +282,7 @@ class EvaluatorNetworkTests(unittest.TestCase):
                 self.assertTrue(all(v["read_only"] for v in service["volumes"][1:]))
                 serialized = json.dumps(data)
                 self.assertNotIn("secret", serialized)
-                self.assertNotIn("MODEL_API_KEY", serialized)
+                self.assertNotIn("AGENT_OPT_MODEL_API_KEY", serialized)
 
     def test_evaluator_keeps_network_but_filters_model_credentials(self):
         from test_dev_environment import cvdp as evaluator, official_row, prepare
@@ -293,7 +293,7 @@ class EvaluatorNetworkTests(unittest.TestCase):
             (output / "rtl").mkdir(parents=True)
             (output / "rtl/dut.sv").write_text("module dut; endmodule")
             task = Task(**prepare.convert([official_row()])[0][0])
-            env = {"HTTPS_PROXY": "http://proxy", "NO_PROXY": "local.test", "MODEL_API_KEY": "secret"}
+            env = {"HTTPS_PROXY": "http://proxy", "NO_PROXY": "local.test", "AGENT_OPT_MODEL_API_KEY": "secret"}
             with patch.dict(os.environ, env, clear=True), \
                     patch.object(evaluator, "run_process", return_value=ExecutionResult("process_error", 1, 0, "", "")) as run, \
                     patch.object(evaluator, "cleanup_network"):
@@ -301,7 +301,7 @@ class EvaluatorNetworkTests(unittest.TestCase):
             child_env = run.call_args.kwargs["env"]
             self.assertEqual(child_env.get("https_proxy"), "http://proxy")
             self.assertEqual(child_env.get("NO_PROXY"), "local.test")
-            self.assertNotIn("MODEL_API_KEY", child_env)
+            self.assertNotIn("AGENT_OPT_MODEL_API_KEY", child_env)
             self.assertEqual(Path(run.call_args.args[0][1]).name, "network_driver.py")
 
     @unittest.skipUnless(importlib.util.find_spec("yaml"), "Use existing CVDP driver or uv --with PyYAML for YAML integration")

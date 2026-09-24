@@ -65,22 +65,23 @@ def configure_model(env):
     print("Docker·ACE 평가/모델 실행 자산이 필요하면 먼저 7번 ACE 전체 환경 준비를 선택하세요.")
     print("이 작업은 doctor --model로 실제 모델 API·컨테이너 도구를 호출합니다. 설정은 현재 세션에만 유지됩니다.")
     staged = env.copy()
-    default = "2" if staged.get("MODEL_BASE_URL") and not staged.get("MODEL_ENDPOINT") else "1"
+    default = "2" if staged.get("AGENT_OPT_MODEL_BASE_URL") and not staged.get("AGENT_OPT_MODEL_ENDPOINT") else "1"
     mode = input(f"URL 방식: 1=정확한 endpoint, 2=표준 base URL [{default}]: ").strip() or default
     if mode not in {"1", "2"}:
         raise ConfigurationError("URL 방식은 1 또는 2를 선택하세요.")
-    name, unused = ("MODEL_ENDPOINT", "MODEL_BASE_URL") if mode == "1" else ("MODEL_BASE_URL", "MODEL_ENDPOINT")
+    name, unused = (("AGENT_OPT_MODEL_ENDPOINT", "AGENT_OPT_MODEL_BASE_URL") if mode == "1"
+                    else ("AGENT_OPT_MODEL_BASE_URL", "AGENT_OPT_MODEL_ENDPOINT"))
     # Do not redisplay endpoint values (including malformed inherited credentials).
     url = input(f"{name} (빈 입력: 기존 값 유지): ").strip()
     staged[name] = url or staged.get(name, "")
     staged.pop(unused, None)
-    model = input("MODEL_ID (빈 입력: 기존 값 또는 glm5.3-flash): ").strip()
-    staged["MODEL_ID"] = model or staged.get("MODEL_ID") or "glm5.3-flash"
+    model = input("AGENT_OPT_MODEL_ID (빈 입력: 기존 값 또는 glm5.3-flash): ").strip()
+    staged["AGENT_OPT_MODEL_ID"] = model or staged.get("AGENT_OPT_MODEL_ID") or "glm5.3-flash"
     # getpass warns before falling back to echoed input: turn that warning into an abort.
     with warnings.catch_warnings():
         warnings.simplefilter("error", getpass.GetPassWarning)
         token = getpass.getpass("Bearer token (숨김, 빈 입력: 기존 값 유지): ")
-    staged["MODEL_API_KEY"] = token or staged.get("MODEL_API_KEY", "")
+    staged["AGENT_OPT_MODEL_API_KEY"] = token or staged.get("AGENT_OPT_MODEL_API_KEY", "")
     ModelSettings.from_env(staged)
     env.clear()
     env.update(staged)
