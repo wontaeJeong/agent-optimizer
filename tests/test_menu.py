@@ -89,14 +89,23 @@ class MenuFlows(unittest.TestCase):
         cli.parent.mkdir(parents=True)
         cli.touch()
         code, output, calls = self.flow(["8", "0"], codes=[7])
-        self.assertEqual(code, 0)
+        self.assertEqual(code, 7)
         self.assertEqual([call[0] for call in calls], [[str(cli), "tui"]])
         self.assertIn("exit 7", output)
         self.assertIn("8.", output)
 
+    def test_option_eight_later_success_resets_prior_child_failure(self):
+        cli = self.root / ".venv/bin/agent-opt"
+        cli.parent.mkdir(parents=True)
+        cli.touch()
+        code, output, calls = self.flow(["8", "8", "0"], codes=[7, 0])
+        self.assertEqual(code, 0)
+        self.assertEqual([call[0] for call in calls], [[str(cli), "tui"], [str(cli), "tui"]])
+        self.assertEqual(output.count("exit 7"), 1)
+
     def test_option_eight_missing_venv_does_not_attempt_install(self):
         code, output, calls = self.flow(["8", "0"])
-        self.assertEqual(code, 0)
+        self.assertEqual(code, 2)
         self.assertEqual(calls, [])
         self.assertIn("setup --core", output)
 

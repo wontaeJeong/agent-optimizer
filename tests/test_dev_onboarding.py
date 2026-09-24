@@ -206,6 +206,23 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
         self.assertIn("arg:setup\narg:--dataset=verilog-spec\narg:--offline", self.trace_text())
         self.assertNotIn("docker", self.trace_text())
 
+    def test_selected_sync_failure_remedy_preserves_validated_dataset_scope(self):
+        self.tool("git")
+        self.tool("docker", 'printf docker >> "$TRACE"; exit 99\n')
+        self.tool("uv", "exit 7\n")
+        self.environment["HTTPS_PROXY"] = "http://SECRET@proxy.invalid"
+        for options, name in ((("--dataset", "verilog-spec"), "verilog-spec"),
+                              (("--dataset=cvdp", "--offline"), "cvdp")):
+            with self.subTest(options=options):
+                result = self.invoke("setup", *options)
+                self.assertEqual(result.returncode, 2)
+                self.assertIn("project-uv.log", result.stderr)
+                self.assertIn(f"sh scripts/bootstrap.sh setup --dataset {name}", result.stderr)
+                if "--offline" in options:
+                    self.assertIn(f"setup --dataset {name} --offline", result.stderr)
+                self.assertNotIn("SECRET", result.stdout + result.stderr)
+                self.assertEqual(self.trace_text(), "")
+
     def test_make_selected_options_reach_python_unchanged(self):
         self.write_executable(self.root / ".venv/bin/python", '''
 case "$1" in -I) exit 0;; esac

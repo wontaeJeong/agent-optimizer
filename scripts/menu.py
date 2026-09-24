@@ -27,11 +27,11 @@ MENU = """
 0. 종료"""
 
 
-def execute(argv, env):
+def execute(argv, env, *, return_code=False):
     result = subprocess.run(argv, cwd=ROOT, env=env.copy(), shell=False)
     if result.returncode:
         print(f"명령 실패 (exit {result.returncode}). 위 출력을 확인하세요; 자동 재시도하지 않습니다.")
-    return result.returncode == 0
+    return result.returncode if return_code else result.returncode == 0
 
 
 def bootstrap(command, env, *args):
@@ -42,8 +42,8 @@ def agent_tui(env):
     cli = ROOT / ".venv/bin/agent-opt"
     if not cli.is_file():
         print("프로젝트 .venv가 필요합니다: sh scripts/bootstrap.sh setup --core")
-        return
-    execute([str(cli), "tui"], env)
+        return 2
+    return execute([str(cli), "tui"], env, return_code=True)
 
 
 def local_demo(env):
@@ -149,12 +149,13 @@ def main(argv=None, *, env=None):
         print("menu requires a TTY; 자동화에는 setup/doctor/demo/live 등 명시적 명령을 사용하세요.")
         return 2
     session = dict(os.environ if env is None else env)
+    last_tui_code = 0
     try:
         while True:
             print(MENU)
             choice = input("선택: ").strip()
             if choice == "0":
-                return 0
+                return last_tui_code
             try:
                 if choice in {"1", "2"}:
                     bootstrap("setup" if choice == "1" else "doctor", session, "--core")
@@ -169,7 +170,7 @@ def main(argv=None, *, env=None):
                 elif choice == "7":
                     bootstrap("setup", session)
                 elif choice == "8":
-                    agent_tui(session)
+                    last_tui_code = agent_tui(session)
                 else:
                     print("0..8 중 번호를 선택하세요.")
             except (ConfigurationError, UnavailableError) as exc:
