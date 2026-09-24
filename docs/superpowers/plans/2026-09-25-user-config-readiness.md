@@ -1,40 +1,41 @@
-# User Configuration Readiness Implementation Plan
+# 사용자 설정 준비 구현 계획
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **구현 시 필수 스킬:** 작업별로 superpowers:subagent-driven-development 또는 superpowers:executing-plans를 적용한다. 단계는 체크박스로 추적한다.
 
-**Goal:** Make `agent-opt init` reliably generate runnable experiments for structured optimizer options and permit retry after generation fails.
+**목표:** `agent-opt init`에서 중첩 Optimizer 설정을 실행 가능한 실험으로 만들고 실패 시 재시도를 허용한다.
 
-**Architecture:** Keep the current CLI and TOML writer. Recursively serialize JSON-compatible values as TOML literals, validate through `load_experiment`, and remove only a newly created config directory on an exception. Keep prepared datasets and preexisting configurations untouched.
+**구조:** 기존 CLI·TOML 작성기를 유지한다. JSON 호환 값을 TOML literal로 재귀 직렬화하고
+`load_experiment`로 검증한다. 예외가 나면 이번에 생성한 설정 디렉터리만 정리하며, 기존
+설정과 준비된 데이터셋은 보존한다.
 
-**Tech Stack:** Python 3.11+, stdlib `tomllib`/`unittest`, existing `agent_optimizer` CLI and synthetic fixture.
+**기술:** Python 3.11+, 표준 라이브러리 `tomllib`/`unittest`, 기존 `agent_optimizer` CLI와 합성 fixture.
 
-**Spec:** `docs/superpowers/specs/2026-09-25-readiness-followup-design.md`
+**설계:** `docs/superpowers/specs/2026-09-25-readiness-followup-design.md`
 
-## Global Constraints
+## 공통 제약
 
-- Preserve the existing CLI/TUI, explicit dataset choice, common contracts and pinned source/data identities.
-- Use the existing worktree and project `.venv`; do not write to the default checkout.
-- Synthetic fixture results are wiring evidence, not real Agent performance.
-- Do not store credentials or private endpoint details in generated configuration.
+- 기존 CLI/TUI, 명시적 데이터셋 선택, 공통 계약과 source/data pin을 유지한다.
+- 격리된 작업 워크트리와 프로젝트 `.venv`를 사용하고 기본 checkout은 수정하지 않는다.
+- 합성 fixture 수치를 실제 Agent 성능으로 표현하지 않는다.
+- 생성 설정에 자격증명이나 비공개 endpoint 정보를 저장하지 않는다.
 
 ---
 
-## File map
+## 파일 책임
 
-- `src/agent_optimizer/setup_wizard.py`: TOML literal writer and ownership of generated config directory.
-- `tests/test_cli_experience.py`: user-facing generation/doctor/run/rollback regression tests.
+- `src/agent_optimizer/setup_wizard.py`: TOML literal 및 생성 설정 디렉터리의 소유권.
+- `tests/test_cli_experience.py`: 생성/doctor/run/실패 정리 회귀.
 
-### Task 1: Serialize nested optimizer options
+### 작업 1: 중첩 Optimizer 옵션 직렬화
 
-**Files:**
-- Modify: `src/agent_optimizer/setup_wizard.py:58-68`
-- Test: `tests/test_cli_experience.py` (`CLIExperienceTests`)
+**파일:** `src/agent_optimizer/setup_wizard.py:58-68`, `tests/test_cli_experience.py`
 
-**Interfaces:**
-- Consumes: `main(["init", ..., "--optimizer-config", JSON, "--yes"])` and `_section(name, mapping)`.
-- Produces: `_literal(value) -> str` returning TOML literals for strings, booleans, finite numbers, arrays and string-keyed inline tables; unsupported values raise `ConfigurationError`.
+**입력/출력:** `main(["init", ..., "--optimizer-config", JSON, "--yes"])`와
+`_section(name, mapping)`을 사용한다. `_literal(value) -> str`은 문자열, 불리언, 유한 수,
+배열, 문자열 키의 inline table을 TOML로 반환하고 미지원 값에는 `ConfigurationError`를 낸다.
 
-- [ ] **Step 1: Write a failing end-to-end regression.** In `CLIExperienceTests`, create a command with the usual `self.root`, `self.agent`, `self.data`, command JSON, `--optimizer file_variants`, and:
+- [ ] **1. 실패할 사용자 흐름 회귀 작성.** `CLIExperienceTests`에서 기존 `self.root`,
+  `self.agent`, `self.data`, command JSON을 사용한다. `--optimizer file_variants`와 다음 옵션을 넣는다.
 
   ```python
   options = {"file_variants": {"include_seeds": True, "variants": [
@@ -46,34 +47,59 @@
   plan = self.root / "runs/configs/structured-options/experiment.toml"
   spec = load_experiment(plan)
   self.assertEqual(spec["stages"][0]["config"]["variants"], options["file_variants"]["variants"])
-  with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-      self.assertEqual(main(["doctor", "--plan", str(plan), "--json"]), 0)
-      self.assertEqual(main(["run", str(plan)]), 0)
   ```
 
-  Use `--name structured-options`, `--agent str(self.agent)`, `--dataset str(self.data)`, `--evaluator examples/minimal/evaluator.py:TextFixtureEvaluator`, `--editable configs/strategy.json`, and `--command-json '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]'` as in existing nearby tests. Inspect the resulting summary to assert synthetic=true, completed, and baseline 0 versus selected 1 on validation; assert `report.html` exists.
+  `--name structured-options`, `--agent str(self.agent)`, `--dataset str(self.data)`,
+  `--evaluator examples/minimal/evaluator.py:TextFixtureEvaluator`,
+  `--editable configs/strategy.json`, `--command-json`에 기존 fixture argv를 지정한다.
+  `doctor --plan`, `run`까지 호출하고 `summary.json`의 synthetic=true·completed,
+  validation baseline 0→selected 1과 `report.html` 존재 여부를 확인한다.
 
-- [ ] **Step 2: Run only the new test; expect the TOML parser to reject the colon in the array of objects.** Run `PYTHONPATH=src:tests .venv/bin/python -m unittest test_cli_experience.CLIExperienceTests.test_structured_optimizer_options_complete_user_flow -v`.
-- [ ] **Step 3: Implement recursive `_literal`.** Preserve the existing scalar output; handle `list`/`tuple` with `"[" + ", ".join(_literal(item) ...) + "]"`, `dict` with quoted string keys and `" = "` inside `{ ... }`, and reject `None`, non-finite floats, and non-string dict keys with `ConfigurationError`. Validate using the existing `load_experiment` call, not a separate format parser.
-- [ ] **Step 4: Run the targeted test plus existing scalar settings tests.** Run `PYTHONPATH=src:tests .venv/bin/python -m unittest test_cli_experience.CLIExperienceTests.test_structured_optimizer_options_complete_user_flow test_cli_experience.CLIExperienceTests.test_gepa_trial_allowance_tracks_requested_iterations_and_merge -v`; expect both to pass.
-- [ ] **Step 5: Commit only the writer and test.** Use a concise message consistent with recent history, e.g. `Fix structured optimizer config generation`.
+- [ ] **2. 실패 확인.** `PYTHONPATH=src:tests .venv/bin/python -m unittest test_cli_experience.CLIExperienceTests.test_structured_optimizer_options_complete_user_flow -v`를 실행한다. 배열 속 JSON 객체의 `:` 때문에 TOML 파싱이 실패해야 한다.
+- [ ] **3. 최소 구현.** `_literal`에서 기존 scalar 표현을 유지하고 list/tuple은 `"[" + ", ".join(_literal(item) ...) + "]"`, dict는 따옴표로 감싼 키·`" = "`를 사용하는 `{ ... }`로 만든다. `None`, 유한하지 않은 float, 문자열이 아닌 키는 `ConfigurationError`로 거부한다. 별도 파서 대신 기존 `load_experiment`로 검사한다.
+- [ ] **4. 대상 검사.** 새 테스트와 `test_gepa_trial_allowance_tracks_requested_iterations_and_merge`를 실행해 둘 다 통과하는지 확인한다.
+- [ ] **5. 변경 파일만 커밋.** 예: `중첩 Optimizer 설정 생성을 수정`.
 
-### Task 2: Roll back a failed generated config
+### 작업 2: 실패한 설정 디렉터리 정리
 
-**Files:**
-- Modify: `src/agent_optimizer/setup_wizard.py:116-209`
-- Test: `tests/test_cli_experience.py` (`CLIExperienceTests`)
+**파일:** `src/agent_optimizer/setup_wizard.py:116-209`, `tests/test_cli_experience.py`
 
-**Interfaces:**
-- Consumes: `write_experiment(config_root, ..., stages, ...) -> Path`, its existing early `config_root.exists()` guard, `_literal` from Task 1 and `load_experiment`.
-- Produces: same signature and output on success; on failure after `mkdir`, removes only its newly created directory and re-raises the original error.
+**입력/출력:** `write_experiment(config_root, ..., stages, ...) -> Path`의 서명과 성공 결과는
+유지한다. `mkdir` 이후 실패하면 새로 만든 디렉터리만 지우고 원래 예외를 다시 낸다.
 
-- [ ] **Step 1: Write a failing retry regression.** Call `main(init_args)` with `--name invalid-once`, `--optimizer baseline`, and `--optimizer-config '{"baseline":{"unsupported":null}}'`; assert exit 2 and `not (self.root / "runs/configs/invalid-once").exists()`. Then call the same init command with the invalid config removed and assert exit 0. In a separate assertion create `runs/configs/existing` with a `sentinel` file, call `main` for `--name existing`, and verify exit 2 plus unchanged sentinel bytes.
-- [ ] **Step 2: Run only the new rollback test; expect the folder left by the failed serializer.** Run `PYTHONPATH=src:tests .venv/bin/python -m unittest test_cli_experience.CLIExperienceTests.test_failed_generation_can_retry_without_removing_existing_directory -v`.
-- [ ] **Step 3: Implement rollback at the creation boundary.** Keep all pre-creation checks outside the `try`. After `config_root.mkdir(parents=True)`, place the current writes and `load_experiment(target)` in `try`; in `except Exception` call `shutil.rmtree(config_root)` and re-raise. Import `shutil`. Do not clean `external/datasets`, `runs/` or a preexisting config folder.
-- [ ] **Step 4: Run the new and related generation tests.** Run `PYTHONPATH=src:tests .venv/bin/python -m unittest test_cli_experience.CLIExperienceTests.test_failed_generation_can_retry_without_removing_existing_directory test_cli_experience.CLIExperienceTests.test_insufficient_trial_limit_does_not_publish_partial_experiment test_cli_experience.CLIExperienceTests.test_structured_optimizer_options_complete_user_flow -v`; expect pass.
-- [ ] **Step 5: Commit only the rollback and test.** Example message: `Clean up failed generated experiment configs`.
+- [ ] **1. 실패할 재시도 회귀 작성.** `--name invalid-once`, `--optimizer baseline`,
+  `--optimizer-config '{"baseline":{"unsupported":null}}'`로 `main(init_args)`가 종료 코드 2를
+  반환하고 `runs/configs/invalid-once`가 남지 않아야 한다. 잘못된 설정을 제거해 같은 이름으로
+  재실행하면 코드 0이어야 한다. 별도로 기존 `runs/configs/existing/sentinel`을 만든 뒤
+  같은 이름으로 init 실패 시 sentinel의 바이트가 유지되는지도 검사한다.
+- [ ] **2. 실패 확인.** `PYTHONPATH=src:tests .venv/bin/python -m unittest test_cli_experience.CLIExperienceTests.test_failed_generation_can_retry_without_removing_existing_directory -v`로 실패한 폴더가 남는 현상을 확인한다.
+- [ ] **3. 최소 구현.** `config_root.mkdir(parents=True)` 이전 검사들은 유지한다. 그 다음 쓰기와
+  `load_experiment(target)`를 `try` 안에 넣고 `except Exception`에서
+  `shutil.rmtree(config_root)` 후 재발생시킨다. `shutil`을 import한다. `external/datasets`,
+  `runs/`, 기존 설정은 정리하지 않는다.
+- [ ] **4. 대상 검사.** 새 테스트와 `test_insufficient_trial_limit_does_not_publish_partial_experiment`,
+  `test_structured_optimizer_options_complete_user_flow`를 실행한다.
+- [ ] **5. 변경 파일만 커밋.** 예: `실패한 실험 설정 디렉터리를 정리`.
 
-## Handoff verification
+### 리뷰 후속: 복수 데이터셋과 session 실패
 
-After Task 2, run `make lint`, `make test`, `make doctor ARGS="--core --json"`, and an explicit `agent-opt init`/doctor/run/report for the synthetic file-variants configuration. Read the actual `summary.json`, `report.html`, exit codes and skip counts before reporting success. The transport/CI work is planned separately in `docs/superpowers/plans/2026-09-25-portable-environment-readiness.md`.
+**파일:** `src/agent_optimizer/cli.py`, `src/agent_optimizer/setup_wizard.py`,
+`tests/test_cli_experience.py`
+
+- [ ] **1. 복수 데이터셋 재시도 회귀.** 두 번째 데이터셋 준비가 실패할 때 첫 번째
+  `experiment.toml`을 남기지 않고 기존 sentinel은 보존하는지 검사한다. 두 번째 입력을
+  고친 뒤 같은 이름으로 다시 init 하면 두 실험과 `session.json`이 생성돼야 한다.
+- [ ] **2. 생성 후 출력 실패 회귀.** 정상 데이터셋 둘로 설정을 만들되 출력 stream의
+  `write`가 `OSError`를 내게 하여 새 `session.json`·실험 폴더가 모두 정리되는지 검사한다.
+  이전 `session.json`이 있는 경우에는 바이트가 유지되어야 한다.
+- [ ] **3. 문자열 경계 회귀.** Optimizer 설정의 DEL(`\x7f`) 문자가 TOML로 왕복되는지
+  확인한다. `test_multi_dataset_generation_failure_can_retry_without_leaving_first_plan`,
+  `test_multi_dataset_output_failure_does_not_leave_dangling_session`,
+  `test_generated_optimizer_strings_round_trip_del_character`를 실행한다.
+
+## 인계 검증
+
+작업 2 후 `make lint`, `make test`, `make doctor ARGS="--core --json"`와 합성
+file-variants의 명시적 init/doctor/run/report를 실행한다. 성공 주장 전에 실제
+`summary.json`, `report.html`, 종료 코드와 skip 수를 읽는다. 전송·CI 작업은
+`docs/superpowers/plans/2026-09-25-portable-environment-readiness.md`에 별도로 정리한다.
