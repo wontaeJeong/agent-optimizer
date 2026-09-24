@@ -39,7 +39,10 @@ DeepSeek OpenAI 호환 API `deepseek-flash`. 실행 기록의 run ID와 타임�
 | 최신 소스로 `make live ARGS="--iterations 1"` (`AGENT_OPT_MODEL_*` 설정) | `runs/dev-live/20260924T175255Z-c4dcfafe/summary.json`: `synthetic=false`, `completed`, 4 trial 모두 공식 평가 1/1·`valid=true`; `report.html` 생성. validation 둘 다 solve_rate 1.0, baseline 78.39초·후보 180.32초여서 `c0001` 선택. 같은 두 과제·1회 수정 범위이며 최종 test 없음. |
 | 접두어 설정 통합 후 `make lint`; `make test`; `make smoke`; `node --test tests/endpoint-plugin.test.mjs` | Ruff 통과, unittest **454개 중 439 통과·15 skip·실패 0**, `runs/dev-smoke-07eaaf1eace3/summary.json` passed, Node 1개 통과. doctor 실패 조치에 남아 있던 이전 `MODEL_*` 표기를 회귀로 재현한 뒤 `AGENT_OPT_MODEL_*`으로 수정했다. |
 
-이번 검증은 고정 프로필의 **두 과제·1회 수정**에 한정된다. upstream native ACE runner, 전체 CVDP/Verilog-Eval, Ubuntu x86_64의 이번 변경, DeepSeek 이외 모델 및 CI의 `apt` 404 cold build는 확인하지 않았다.
+이번 모델 검증은 고정 프로필의 **두 과제·1회 수정**에 한정된다. upstream native ACE runner,
+전체 CVDP/Verilog-Eval, Ubuntu x86_64에서 이 모델 E2E와 DeepSeek 이외 모델은 확인하지 않았다.
+이 작업의 Mac 빌드는 캐시를 사용했지만, 위의 별도 Ubuntu 수동 공식 CI에서는 과거 `apt` 404가
+재현되지 않았고 공식 채점기 smoke까지 통과했다. 이 PR의 수동 공식 Docker job은 실행하지 않았다.
 
 ## 2026-09-25 사용자 설정·전송 경로·CI 재검증
 
