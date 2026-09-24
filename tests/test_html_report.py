@@ -128,12 +128,15 @@ class HTMLReportTests(unittest.TestCase):
         self.assertNotIn('src="https://', html)
         self.assertIn('<strong>7</strong><span>Completed evaluations', html)
         self.assertEqual(model["counts"]["completed_evaluations"], 7)
+        self.assertEqual(model["identity"]["run_wall_time_seconds"],
+                         summary["run_wall_time_seconds"])
+        self.assertIn('Observed run wall time', html)
         self.assertEqual(len(re.findall(r'<tr[^>]+id="evaluation-', html)), 7)
         self.assertIn('href="rtl-solo/fixture/candidates/c0002/changes.diff"', html)
         self.assertIn('href="rtl-team/fixture/candidates/c0001/changes.diff"', html)
         self.assertIn('href="rtl-solo/fixture/candidates/c0002/bundle/"', html)
         self.assertIn('href="rtl-team/fixture/candidates/c0001/bundle/"', html)
-        self.assertIn('validation aggregate · 1 trials</span>', html)
+        self.assertIn('validation aggregate · 1 trial</span>', html)
         self.assertNotIn('validation aggregate · 1.000 trials</span>', html)
         self.assertIn("+1.000", html)  # solo 0 -> 1; team 1 -> 1
         self.assertIn("+0.000", html)
@@ -259,6 +262,131 @@ class HTMLReportTests(unittest.TestCase):
         self.assertNotIn("Summed task wall time", page)
         self.assertNotIn("infs", page)
         self.assertIn("2 completed", page)
+
+    def test_invalid_or_nonvalidation_selection_is_recorded_without_winner_claim(self):
+        run = self.root / "invalid-selection"
+        run.mkdir()
+        rows = [
+            {"candidate_id": "bad-test", "agent_id": "solo", "harness_id": "fixture",
+             "split": "test", "valid": True, "metrics": {"score": 1}},
+            {"candidate_id": "bad-validation", "agent_id": "solo", "harness_id": "fixture",
+             "split": "validation", "valid": False, "metrics": {"score": None}},
+            {"candidate_id": "other-group", "agent_id": "other", "harness_id": "fixture",
+             "split": "validation", "valid": True, "metrics": {"score": 2}},
+            {"candidate_id": "partial", "agent_id": "solo", "harness_id": "fixture",
+             "split": "validation", "valid": True, "partial": True, "metrics": {"score": 3}},
+        ]
+        summary = {"status": "partial", "groups": [{"agent_id": "solo", "harness_id": "fixture",
+                                                 "baseline": None, "selected": rows,
+                                                 "final_test": [], "stages": []}]}
+
+        page = write_html_report(run, summary).read_text(encoding="utf-8")
+        self.assertIn("bad-test", page)
+        self.assertIn("bad-validation", page)
+        self.assertIn("other-group", page)
+        self.assertIn("partial", page)
+        self.assertIn("Recorded selection", page)
+        self.assertNotIn("Validation winner", page)
+        self.assertNotIn("BEST ·", page)
+
+    def test_small_minimize_delta_keeps_sign_and_distinguishable_scores(self):
+        run = self.root / "small-score"
+        run.mkdir()
+        (run / "manifest.json").write_text(json.dumps({"experiment": {"objective": {
+            "metrics": [{"name": "latency", "direction": "minimize"}]}}}), encoding="utf-8")
+        def row(candidate, score):
+            return {"candidate_id": candidate, "agent_id": "solo", "harness_id": "fixture",
+                    "split": "validation", "valid": True, "metrics": {"latency": score}}
+        summary = {"groups": [{"agent_id": "solo", "harness_id": "fixture",
+                              "baseline": row("base", 0.0004),
+                              "selected": [row("chosen", 0.0003)], "final_test": [], "stages": []}]}
+
+        page = write_html_report(run, summary).read_text(encoding="utf-8")
+        comparison = page.split('<section class="group"', 1)[1].split('</section>', 1)[0]
+        self.assertIn("0.0004", comparison)
+        self.assertIn("0.0003", comparison)
+        self.assertIn("-0.0001", comparison)
+        self.assertNotIn("-0.000</td>", comparison)
+
+    def test_unselected_candidates_offer_escaped_changes_and_evaluation_anchors(self):
+        run = self.root / "candidate-evidence"
+        run.mkdir()
+        root = run / "solo" / "fixture" / "candidates"
+        for identifier in ("chosen", "rejected", "unevaluated"):
+            directory = root / identifier
+            directory.mkdir(parents=True)
+            (directory / "candidate.json").write_text(json.dumps({
+                "id": identifier, "parents": ["chosen"], "producer": "search",
+                "changed_files": ["danger<file>.txt"]}), encoding="utf-8")
+            (directory / "changes.diff").write_text("+<script>bad</script>", encoding="utf-8")
+        (run / "events.jsonl").write_text(json.dumps({
+            "event": "trial_completed", "agent_id": "solo", "harness_id": "fixture",
+            "trial_id": "rejected-trial", "candidate_id": "rejected", "stage_id": "search",
+            "split": "train", "status": "failed"}) + "\n", encoding="utf-8")
+        summary = {"groups": [{"agent_id": "solo", "harness_id": "fixture",
+                              "baseline": None, "selected": [{"candidate_id": "chosen",
+                              "agent_id": "solo", "harness_id": "fixture", "split": "validation",
+                              "valid": True}], "final_test": [], "stages": []}]}
+
+        page = write_html_report(run, summary).read_text(encoding="utf-8")
+        self.assertIn('<details><summary>Recorded candidate · rejected</summary>', page)
+        self.assertIn('href="solo/fixture/candidates/rejected/changes.diff"', page)
+        self.assertIn('href="#evaluation-0-0"', page)
+        self.assertIn('id="evaluation-0-0"', page)
+        self.assertIn("unevaluated", page)
+        self.assertIn("Not evaluated", page)
+        self.assertIn("danger&lt;file&gt;.txt", page)
+        self.assertIn("+&lt;script&gt;bad&lt;/script&gt;", page)
+        self.assertNotIn("+<script>bad</script>", page)
+
+    def test_structured_journey_keeps_additional_optimizer_events_as_raw_evidence(self):
+        run = self.root / "structured-events"
+        run.mkdir()
+        events = [
+            {"event": "report_unit", "agent_id": "solo", "harness_id": "fixture",
+             "stage_id": "search", "unit_id": "g0", "unit_type": "generation",
+             "candidate_ids": ["A"]},
+            {"event": "optimizer_probe_completed", "agent_id": "solo", "harness_id": "fixture",
+             "stage_id": "search", "detail": "<unsafe>opaque</unsafe>"},
+        ]
+        (run / "events.jsonl").write_text("\n".join(map(json.dumps, events)) + "\n", encoding="utf-8")
+        summary = {"groups": [{"agent_id": "solo", "harness_id": "fixture", "selected": [],
+                              "final_test": [], "stages": []}]}
+
+        page = write_html_report(run, summary).read_text(encoding="utf-8")
+        journey = page.split('<section id="journey">', 1)[1].split('</section>', 1)[0]
+        self.assertIn("g0", journey)
+        self.assertIn("optimizer_probe_completed", journey)
+        self.assertIn("&lt;unsafe&gt;opaque&lt;/unsafe&gt;", journey)
+        self.assertIn("Raw event", journey)
+        self.assertNotIn("<unsafe>", page)
+
+    def test_compact_budget_and_measured_wall_time_leave_full_config_in_details(self):
+        run = self.root / "budget"
+        run.mkdir()
+        budget = {"max_trials": 40, "max_wall_time_seconds": 120,
+                  "trial_timeout_seconds": 10, "extra_limit": "kept"}
+        (run / "manifest.json").write_text(json.dumps({"experiment": {
+            "budget": budget}}), encoding="utf-8")
+        summary = {"status": "completed", "run_wall_time_seconds": 2.125, "groups": []}
+        page = write_html_report(run, summary).read_text(encoding="utf-8")
+        self.assertIn("40 trials · 120s wall · 10s/trial", page)
+        self.assertIn("Observed run wall time", page)
+        self.assertIn("2.125", page)
+        self.assertIn('&quot;extra_limit&quot;', page)
+        self.assertNotIn('{&quot;max_trials&quot;: 40', page)
+        page = write_html_report(run, {"status": "completed", "groups": []}).read_text(encoding="utf-8")
+        self.assertNotIn("Observed run wall time", page)
+
+    def test_large_legacy_budget_integer_does_not_prevent_report_generation(self):
+        run = self.root / "large-budget"
+        run.mkdir()
+        huge = 10 ** 400
+        (run / "manifest.json").write_text(json.dumps({"experiment": {
+            "budget": {"max_trials": huge}}}), encoding="utf-8")
+        page = write_html_report(run, {"groups": []}).read_text(encoding="utf-8")
+        self.assertIn(f'{huge} trials', page)
+        self.assertIn('Experiment configuration', page)
 
 
 if __name__ == "__main__":

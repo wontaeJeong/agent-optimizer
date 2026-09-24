@@ -54,6 +54,8 @@ def write_report(root: Path, summary: dict, report: dict | None = None) -> None:
     lines = ["# Experiment report", "", f"Status: {_cell(identity.get('status'))}",
              f"Synthetic: {identity.get('synthetic')}", "",
              "| Agent | Harness | Candidate | Split | Metrics |", "|---|---|---|---|---|"]
+    if "run_wall_time_seconds" in identity:
+        lines.insert(4, f"Observed run wall time: {identity['run_wall_time_seconds']} s")
     for group in groups:
         for row in [group["baseline"], *group["selected"], *group["final_test"]]:
             if row is not None:
@@ -106,7 +108,7 @@ def write_report(root: Path, summary: dict, report: dict | None = None) -> None:
                          f" — {_cell(failure['message']) if failure['message'] else 'not reported'}")
     if identity.get("failure"):
         lines.append(f"Run failure: {_cell(identity['failure']['category'])} — "
-                     f"{_cell(identity['failure'].get('message'))}")
+                     f"{_cell(identity['failure'].get('message') or 'not reported')}")
     provenance = report["provenance"]
     lines += ["", "## Reproducibility", "",
               f"Dataset: {_cell(provenance.get('benchmark', {}).get('id', 'not recorded'))}",

@@ -23,6 +23,8 @@ def value(item):
     if type(item) in (int, float):
         try:
             if math.isfinite(item):
+                if item != 0 and (abs(item) < 0.01 or abs(item) >= 1e9):
+                    return text(f"{item:.6g}")
                 return text(f"{item:.3f}")
         except OverflowError:
             pass
@@ -103,6 +105,27 @@ def _aggregate_rows(rows, group_label=None):
     return rendered
 
 
+def _budget_label(budget):
+    if not isinstance(budget, dict):
+        return '—'
+    parts = []
+    for key, suffix in (('max_trials', ' trials'), ('max_wall_time_seconds', 's wall'),
+                        ('trial_timeout_seconds', 's/trial')):
+        item = budget.get(key)
+        if type(item) is int:
+            parts.append(f'{item}{suffix}')
+        elif type(item) is float and math.isfinite(item):
+            parts.append(f'{item:g}{suffix}')
+    return ' · '.join(parts) or '—'
+
+
+def _valid_selection(row, group):
+    return (isinstance(row, dict) and row.get('split') == 'validation'
+            and row.get('valid') is True and not row.get('partial', False)
+            and row.get('agent_id') == group['agent_id']
+            and row.get('harness_id') == group['harness_id'])
+
+
 def _metadata(report):
     configuration = report.get('configuration') or {}
     provenance = report.get('provenance') or {}
@@ -115,11 +138,13 @@ def _metadata(report):
     fields = (
         ('Benchmark ID', benchmark.get('id')), ('Benchmark path', configuration.get('benchmark')),
         ('Objective', objective_label), ('Selection', f'{objective.get("mode", "—")} · keep={objective.get("keep", "—")}'),
-        ('Budget', configuration.get('budget') or {}),
+        ('Budget', _budget_label(configuration.get('budget'))),
         ('Optimizers', ', '.join(str(item.get('optimizer', '—')) for item in stages if isinstance(item, dict)) or 'Not recorded'),
         ('Agent × Harness', ', '.join(group['key'] for group in report['groups']) or 'Not recorded'),
         ('Run ID', report['identity'].get('run_id')),
     )
+    if 'run_wall_time_seconds' in report['identity']:
+        fields += (('Observed run wall time', f'{report["identity"]["run_wall_time_seconds"]:.3f} s'),)
     return '<dl class="meta">' + ''.join(
         f'<div><dt>{text(label)}</dt><dd class="{"mono" if label == "Run ID" else ""}">'
         f'{text(json.dumps(item, ensure_ascii=False) if isinstance(item, dict) else item)}</dd></div>'
@@ -128,7 +153,17 @@ def _metadata(report):
 
 def _comparison(group, number):
     selected = group.get('selected') or []
-    chosen = ', '.join(str(item.get('candidate_id')) for item in selected if isinstance(item, dict)) or 'Not selected'
+    winners = [item for item in selected if _valid_selection(item, group)]
+    other = [item for item in selected if isinstance(item, dict) and not _valid_selection(item, group)]
+    selection = []
+    if winners:
+        selection.append('Validation winner: <code>' + text(', '.join(
+            str(item.get('candidate_id')) for item in winners)) + '</code>')
+    if other:
+        selection.append('Recorded selection (not valid validation): <code>' + text(', '.join(
+            str(item.get('candidate_id')) for item in other)) + '</code>')
+    if not selection:
+        selection.append('Selected validation: <code>Not selected</code>')
     baseline = group.get('baseline') or {}
     counts = group['counts']
     heading = (f'<section class="group" id="group-{number}"><div class="group-heading">'
@@ -140,8 +175,7 @@ def _comparison(group, number):
                f'{_count(counts.get("failed_evaluations"))} failed · '
                f'{_count(counts.get("trials_used"))} trials used (budget)</p>'
                f'<p>Baseline: <code>{text(baseline.get("candidate_id"))}</code> → '
-               f'{"Validation winner" if selected else "Selected validation"}: '
-               f'<code>{text(chosen)}</code></p>')
+               f'{" · ".join(selection)}</p>')
     rows = []
     for metric in group['comparison']:
         difference = _signed(metric.get('delta'))
@@ -166,7 +200,7 @@ def _test_results(report):
                      ('Group', 'Candidate', 'Split', 'Metrics', 'Trials'), rows, numeric=(4,)) + '</section>')
 
 
-def _recorded_events(report, group):
+def _recorded_events(report, group, structured=False):
     events = [event for event in report.get('events', [])
               if isinstance(event, dict) and isinstance(event.get('event'), str)
               and event.get('event') != 'trial_completed'
@@ -174,8 +208,10 @@ def _recorded_events(report, group):
               and event.get('harness_id') == group['harness_id']]
     if not events:
         return '<p class="subtle">No recorded structure; consult the evaluation table below.</p>'
-    parts = ['<p class="subtle">No recorded structure; recorded group events in log order. '
-             'Open raw evidence for additional fields.</p><ol class="lineage">']
+    description = ('Recorded group events in log order. Open raw evidence for additional fields.'
+                   if structured else 'No recorded structure; recorded group events in log order. '
+                   'Open raw evidence for additional fields.')
+    parts = [f'<p class="subtle">{description}</p><ol class="lineage">']
     for event in events:
         context = ' · '.join(f'{name}: {text(event[name], 120)}' for name in (
             'timestamp', 'stage_id', 'phase', 'status', 'candidate_id', 'task_id')
@@ -203,6 +239,8 @@ def _journey(report):
                                 f'candidates {text(", ".join(unit.get("candidate_ids") or []) or "—")} · '
                                 f'evaluation refs {text(", ".join(unit.get("evaluation_refs") or []) or "—")}</li>')
             sections.append('</ol>')
+            sections.append(_details('Recorded group events · raw evidence',
+                                     _recorded_events(report, group, structured=True)))
         else:
             sections.append(_recorded_events(report, group))
         if edges:
@@ -269,17 +307,12 @@ def _candidates(root, report):
     sections = ['<section id="candidates"><h2>Candidate changes</h2>']
     for index, group in enumerate(report['groups']):
         selected = group.get('selected') or []
-        sections.append(f'<h3>{text(group["key"])} · selected validation</h3>')
+        sections.append(f'<h3>{text(group["key"])} · recorded selections and candidates</h3>')
         if not selected:
             sections.append('<p class="subtle">No selected candidate</p>')
-        for row in selected:
-            if not isinstance(row, dict):
-                continue
-            identifier = row.get('candidate_id')
-            candidate = next((item for item in group['candidates'] if item['candidate_id'] == identifier), None)
-            sections.append(f'<div class="panel best"><strong>BEST · {text(identifier)}</strong> '
-                            f'<span class="tag">{text(row.get("split"))} aggregate · '
-                            f'{_count(row.get("trial_count"))} trials</span><p>{_metrics(row.get("metrics"))}</p>')
+        selected_ids = set()
+
+        def evidence(identifier, candidate, collapsible=False):
             if candidate:
                 sections.append(f'<p>Parents: {text(", ".join(candidate.get("parents") or []) or "—")} · '
                                 f'Producer: {text(candidate.get("producer"))} · '
@@ -296,11 +329,32 @@ def _candidates(root, report):
             sections.append('<p>Evaluation history: ' + (', '.join(
                 f'<a href="#evaluation-{index}-{position}">{text(entry.get("trial_id"))} '
                 f'({text(entry.get("split"))})</a>'
-                for position, entry in history) or 'Not evaluated') + '</p></div>')
-        sections.append('<p class="tag">Other recorded candidates: ' +
-                        text(', '.join(item['candidate_id'] for item in group['candidates']
-                                       if item['candidate_id'] not in [row.get('candidate_id') for row in selected
-                                                                       if isinstance(row, dict)]) or '—') + '</p>')
+                for position, entry in history) or 'Not evaluated') +
+                            ('</p></details></div>' if collapsible else '</p></div>'))
+
+        for row in selected:
+            if not isinstance(row, dict):
+                continue
+            identifier = row.get('candidate_id')
+            if isinstance(identifier, str):
+                selected_ids.add(identifier)
+            candidate = next((item for item in group['candidates'] if item['candidate_id'] == identifier), None)
+            valid = _valid_selection(row, group)
+            sections.append(f'<div class="panel {"best" if valid else ""}"><strong>'
+                            f'{"BEST" if valid else "Recorded selection · not valid validation"} · '
+                            f'{text(identifier)}</strong> '
+                            f'<span class="tag">{text(row.get("split"))} aggregate · '
+                            f'{_count(row.get("trial_count"))} '
+                            f'{"trial" if row.get("trial_count") == 1 else "trials"}</span>'
+                            f'<p>{_metrics(row.get("metrics"))}</p>')
+            evidence(identifier, candidate)
+        for candidate in group['candidates']:
+            if candidate['candidate_id'] in selected_ids:
+                continue
+            identifier = candidate['candidate_id']
+            sections.append(f'<div class="panel"><details><summary>Recorded candidate · '
+                            f'{text(identifier)}</summary>')
+            evidence(identifier, candidate, collapsible=True)
     return ''.join(sections) + '</section>'
 
 
