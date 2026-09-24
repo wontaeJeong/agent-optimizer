@@ -62,8 +62,10 @@ def main(argv=None):
     ))
     commands = parser.add_subparsers(dest="command")
     descriptions = {
-        "setup": "Prepare frozen dev dependencies and full example; verify doctor and minimal demo",
-        "doctor": "Read-only aggregate diagnostics (no installation or model calls)",
+        "setup": "Without --core/--dataset: full ACE setup; with --core: core and fixture; "
+                 "with --dataset ID: selected dataset preparation",
+        "doctor": "Without --core/--dataset: full ACE diagnostics; --core: core-only; "
+                  "--dataset ID: selected dataset diagnostics (read-only; --model opts in to model calls)",
         "test": "Run unittest in the project .venv (no Docker requirement)",
         "lint": "Run Ruff in the project .venv",
         "demo": "Run the minimal synthetic demo without Docker/API",
@@ -75,8 +77,8 @@ def main(argv=None):
     for name, description in descriptions.items():
         command = commands.add_parser(name, help=description, description=description, allow_abbrev=False)
         if name in {"setup", "doctor"}:
-            command.add_argument("--core", action="store_true", help="Core tooling only; no Docker/ACE/model checks (excludes --platform/--model)")
-            command.add_argument("--dataset", metavar="ID", help="Prepare or diagnose one registered dataset")
+            command.add_argument("--core", action="store_true", help="Core tooling only; no Docker/ACE checks (excludes --dataset/--platform/--model)")
+            command.add_argument("--dataset", metavar="ID", help="Prepare or diagnose one registered dataset (excludes --core/--platform/--model)")
         if name in {"setup", "doctor", "smoke", "live"}:
             command.add_argument("--platform",
                                  help="Default: Docker daemon native platform")
@@ -145,7 +147,10 @@ def main(argv=None):
                                          "or register it in src/agent_optimizer/registry.py")
             provider = registry.resolve("datasets", dataset_id)()
             stage = "dataset preparation"
-            provider.prepare(ROOT / "external/datasets" / dataset_id, offline=args.offline)
+            prepared = provider.prepare(ROOT / "external/datasets" / dataset_id, offline=args.offline)
+            evaluator_id = prepared.get("evaluator")
+            if not isinstance(evaluator_id, str) or ":" in evaluator_id:
+                raise ConfigurationError("Registered dataset provider must return a registered evaluator ID")
             stage = "final doctor"
             doctor = load("dev_doctor", Path(__file__).resolve().with_name("dev_doctor.py"))
             report = doctor.collect_report(ROOT, dataset=dataset_id)

@@ -60,6 +60,11 @@ upstream 패키지를 설치하거나 원본 소스를 복사·실행한 것은 
 | [Icarus Verilog v12 branch](https://github.com/steveicarus/iverilog/tree/4fd5291632232fbe1ba49b2c26bb6b2bf1c6c9cf) `4fd5291632232fbe1ba49b2c26bb6b2bf1c6c9cf` | upstream Verilog-Eval README가 v12를 요구하고 v13을 미지원으로 표시. `examples/benchmarks/Dockerfile.iverilog12`에 고정하여 Mac Docker linux/arm64에서 `iverilog -V` v12.0, 작은 정답/오답 실행 확인. CVDP의 v13 이미지는 사용하지 않음. |
 | [고정 CVDP 소스/데이터](#고정-버전) | `examples/benchmarks/cvdp.py`가 기존 `examples/ace-rtl/environment/setup.py`, `prepare.py`, `evaluator.py`의 지원 no-commercial importer·다운로드·공식 채점 경로를 재사용. ACE/CVDP/HF SHA를 변경하지 않음. |
 
+선택 CVDP는 위 동일한 고정 CVDP/HF 자료를 `examples/ace-rtl/environment/setup.py`의
+평가 전용 helper로 준비해 별도 dataset evaluation lock·평가 이미지만 요구한다.
+옵션 없는 전체 ACE setup은 기존 ACE 소스와 OpenCode Agent 이미지까지 별도로 준비한다.
+이 분리는 외부 버전 변경이 아니며 모델/실 Agent 결과의 신규 검증을 뜻하지 않는다.
+
 Verilog-Eval v2 전체 문제/Ubuntu 실도구와 실제 Agent/모델 최적화는 검증하지 않았다.
 
 ## Task 5 pinned data / provider inspection (2026-09-20)

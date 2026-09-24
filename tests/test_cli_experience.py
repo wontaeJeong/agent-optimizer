@@ -323,6 +323,21 @@ class CLIExperienceTests(unittest.TestCase):
                           "examples/minimal/evaluator.py:TextFixtureEvaluator"):
             self.assertIn(reference, fingerprints)
 
+    def test_registered_provider_cannot_return_an_evaluator_file_reference(self):
+        provider = self.root / "experiments/sample-team/provider.py"
+        code = provider.read_text()
+        provider.write_text(code.replace('"evaluator": "sample_eval"',
+                                         '"evaluator": "examples/minimal/evaluator.py:TextFixtureEvaluator"'))
+        args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
+                "--dataset", "sample_text", "--name", "invalid-provider",
+                "--editable", "configs/strategy.json", "--argv", "{python}",
+                "{agent_dir}/src/fixture_agent.py", "{task_dir}", "--yes"]
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(args), 2)
+        self.assertIn("registered evaluator ID", errors.getvalue())
+        self.assertFalse((self.root / "runs").exists())
+
     def test_noninteractive_init_requires_explicit_dataset_without_creating_files(self):
         error = io.StringIO()
         with patch("sys.stdin.isatty", return_value=False), contextlib.redirect_stderr(error):

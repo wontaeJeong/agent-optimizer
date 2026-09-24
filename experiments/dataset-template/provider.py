@@ -10,3 +10,9 @@ class Provider:
         raise UnavailableError(
             "team_dataset requires a real importer and evaluator before it can be prepared"
         )
+
+    def doctor(self, cache):
+        # Replace with read-only checks of verified local sources, hashes and evaluator runtime.
+        return [{"id": "dataset.team_dataset.assets", "area": "dataset", "status": "error",
+                 "message": "Team dataset preparation is not implemented",
+                 "remedy": "Implement and verify team_dataset preparation and its evaluator"}]

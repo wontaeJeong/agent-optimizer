@@ -661,6 +661,19 @@ class DeveloperCommandsTests(unittest.TestCase):
                 with self.subTest(command=command), self.assertRaises(SystemExit):
                     self.main([command, "--core"])
 
+    def test_setup_and_doctor_help_explain_dataset_scope_and_legal_flags(self):
+        for command in ("setup", "doctor"):
+            self.output = io.StringIO()
+            with self.subTest(command=command), self.assertRaises(SystemExit) as exit_code:
+                self.main([command, "--help"])
+            self.assertEqual(exit_code.exception.code, 0)
+            help_text = self.output.getvalue()
+            self.assertIn("Without --core/--dataset: full ACE", help_text)
+            self.assertIn("--dataset ID", help_text)
+            self.assertIn("--core/--platform/--model", help_text)
+            if command == "doctor":
+                self.assertIn("--model", help_text)
+
     def test_core_setup_stops_before_example_and_requires_doctor_then_demo(self):
         for ready, demo_code, expected in ((True, 0, 0), (False, 0, 2), (True, 5, 2)):
             events = []
@@ -726,6 +739,20 @@ class DeveloperCommandsTests(unittest.TestCase):
                                       ("prepare", ROOT / "external/datasets/sample_text", True),
                                       ("doctor", "sample_text")])
             self.assertEqual('"status": "ready"' in self.output.getvalue(), self.ready)
+
+    def test_selected_setup_rejects_provider_evaluator_file_reference_before_ready(self):
+        from agent_optimizer.registry import Registry
+        class Provider:
+            def prepare(self, cache, *, offline=False):
+                return {"benchmark": "fixture", "evaluator": "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                        "provenance": {}}
+        with patch.dict(os.environ, {"AGENT_OPT_BOOTSTRAPPED": str(ROOT)}), \
+                patch.object(Registry, "load_project", lambda registry, root:
+                             registry.factories["datasets"].update(sample_text=Provider)), \
+                patch.object(self.dev, "load", side_effect=AssertionError("doctor must not run")):
+            self.assertEqual(self.main(["setup", "--dataset", "sample_text"]), 2)
+        self.assertIn("registered evaluator ID", self.output.getvalue())
+        self.assertNotIn('"status": "ready"', self.output.getvalue())
 
     def test_unknown_selected_name_fails_after_core_sync_before_provider(self):
         from agent_optimizer.registry import Registry
