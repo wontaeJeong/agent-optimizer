@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -29,42 +30,38 @@ class CLIExperienceTests(unittest.TestCase):
 
     def test_top_level_help_points_to_setup_and_explains_run_and_report(self):
         output = io.StringIO()
-        with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as exit_code:
-            main(["--help"])
-        self.assertEqual(exit_code.exception.code, 0)
-        self.assertIn("사용법:", output.getvalue())
-        self.assertIn("옵션:", output.getvalue())
-        self.assertIn("도움말 표시 후 종료", output.getvalue())
-        self.assertIn('make setup ARGS="--core"', output.getvalue())
-        self.assertIn("준비된 실험 실행", output.getvalue())
-        self.assertIn("실행 요약 확인 또는 HTML 재생성", output.getvalue())
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(main(["--help"]), 0)
+        text = re.sub(r"\x1b\[[0-9;]*m", "", output.getvalue())
+        self.assertIn("Usage:", text)
+        self.assertIn("Options", text)
+        self.assertNotIn("--install-completion", text)
+        self.assertIn('make setup ARGS="--core"', text)
+        self.assertIn("준비된 실험 실행", text)
+        self.assertIn("실행 요약 확인 또는 HTML 재생성", text)
         self.assertFalse((self.root / "runs").exists())
 
     def test_command_help_explains_dataset_choice_and_read_only_doctor(self):
         for argv, expected in (
-                (["init", "--help"], ("로컬 소스 경로 또는 Git URL", "데이터셋을 직접 선택",
-                                            "--optimizer", "--yes")),
+                (["init", "--help"], ("--agent", "데이터셋", "--optimizer", "--yes")),
                 (["datasets", "prepare", "--help"], ("등록된 데이터셋 ID 또는 로컬 tasks.json",
                                                           "--evaluator", "--offline")),
                 (["doctor", "--help"], ("읽기 전용", "--model", "--plan 필요"))):
             output = io.StringIO()
-            with self.subTest(argv=argv), contextlib.redirect_stdout(output), \
-                    self.assertRaises(SystemExit) as exit_code:
-                main(argv)
-            self.assertEqual(exit_code.exception.code, 0)
-            self.assertIn("사용법:", output.getvalue())
-            self.assertIn("옵션:", output.getvalue())
+            with self.subTest(argv=argv), contextlib.redirect_stdout(output):
+                self.assertEqual(main(argv), 0)
+            text = re.sub(r"\x1b\[[0-9;]*m", "", output.getvalue())
+            self.assertIn("Usage:", text)
+            self.assertIn("Options", text)
             for phrase in expected:
-                self.assertIn(phrase, output.getvalue())
+                self.assertIn(phrase, text)
         self.assertFalse((self.root / "runs").exists())
 
     def test_datasets_list_rejects_ignored_positional_filters(self):
         output, error = io.StringIO(), io.StringIO()
-        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error), \
-                self.assertRaises(SystemExit) as exit_code:
-            main(["datasets", "list", "missing-dataset"])
-        self.assertEqual(exit_code.exception.code, 2)
-        self.assertIn("unrecognized arguments", error.getvalue())
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+            self.assertEqual(main(["datasets", "list", "missing-dataset"]), 2)
+        self.assertIn("unexpected extra argument", error.getvalue())
         self.assertEqual(output.getvalue(), "")
 
     def test_doctor_keeps_legacy_binary_inventory_without_options(self):
