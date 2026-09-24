@@ -240,3 +240,15 @@ class UsageReportTests(unittest.TestCase):
             self.assertIn("bad\\|score", markdown)
             self.assertIn("fixture-set", markdown)
             self.assertIn("checked-sha", markdown)
+
+    def test_markdown_missing_run_failure_reason_is_not_stringified_none(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            write_report(root, {"status": "interrupted", "groups": [],
+                                "run_wall_time_seconds": 3.25})
+            markdown = (root / "report.md").read_text(encoding="utf-8")
+            self.assertIn("Run failure: interrupted — not reported", markdown)
+            self.assertNotIn("Run failure: interrupted — None", markdown)
+            self.assertIn("Observed run wall time: 3.25 s", markdown)
+            write_report(root, {"status": "interrupted", "groups": []})
+            self.assertNotIn("Observed run wall time:", (root / "report.md").read_text(encoding="utf-8"))

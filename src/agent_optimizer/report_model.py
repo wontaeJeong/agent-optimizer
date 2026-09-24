@@ -239,6 +239,14 @@ def _structure(key: str, candidates: list[dict], evaluations: list[dict], events
     seen = {}
     explicit = {}
     conflicting_parents = set()
+
+    def add_references(unit, event):
+        references = event.get("evaluation_refs")
+        if isinstance(references, list):
+            unit.setdefault("_references", []).extend(
+                (reference, event.get("split")) for reference in references
+                if isinstance(reference, str))
+
     for event in events:
         name = event.get("event")
         candidate_id = event.get("candidate_id")
@@ -270,6 +278,7 @@ def _structure(key: str, candidates: list[dict], evaluations: list[dict], events
             identity = (stage_id if isinstance(stage_id, str) else None, unit_id)
             if identity in explicit:
                 existing = explicit[identity]
+                add_references(existing, event)
                 existing["candidate_ids"].extend(value for value in ids
                                                  if value not in existing["candidate_ids"])
                 if existing["parent_unit_id"] != parent_id:
@@ -280,6 +289,7 @@ def _structure(key: str, candidates: list[dict], evaluations: list[dict], events
                     "stage_id": stage_id, "parent_unit_id": parent_id,
                     "parent_unit_ref": None, "unit_type": unit_type,
                     "label": event.get("label"), "candidate_ids": ids}
+            add_references(unit, event)
             explicit[identity] = unit
             units.append(unit)
         elif name in ("optimizer_iteration_started", "optimizer_iteration_completed"):
@@ -296,6 +306,7 @@ def _structure(key: str, candidates: list[dict], evaluations: list[dict], events
                 units.append(seen[identifier])
             if isinstance(candidate_id, str) and candidate_id not in seen[identifier]["candidate_ids"]:
                 seen[identifier]["candidate_ids"].append(candidate_id)
+            add_references(seen[identifier], event)
 
     for (stage_id, unit_id), unit in explicit.items():
         parent_id = unit["parent_unit_id"]
@@ -303,10 +314,26 @@ def _structure(key: str, candidates: list[dict], evaluations: list[dict], events
                 and isinstance(parent_id, str) and parent_id != unit_id
                 and (stage_id, parent_id) in explicit):
             unit["parent_unit_ref"] = explicit[(stage_id, parent_id)]["unit_ref"]
+    by_evaluation = {}
+    for evaluation in evaluations:
+        if isinstance(evaluation["id"], str):
+            by_evaluation.setdefault(evaluation["id"], []).append(evaluation)
     for unit in units:
         unit["candidate_refs"] = [_qualified(key, value) for value in unit["candidate_ids"]]
-        unit["evaluation_refs"] = [evaluation["id"] for evaluation in evaluations
-                                   if evaluation["candidate_id"] in unit["candidate_ids"]]
+        unit["evaluation_refs"] = []
+        for reference, split in unit.pop("_references", []):
+            matches = by_evaluation.get(reference, [])
+            if len(matches) != 1:
+                continue
+            evaluation = matches[0]
+            if (not isinstance(unit["stage_id"], str) or
+                    evaluation["stage_id"] != unit["stage_id"] or
+                    evaluation["split"] not in ("train", "validation") or
+                    (split is not None and evaluation["split"] != split) or
+                    evaluation["candidate_id"] not in unit["candidate_ids"]):
+                continue
+            if reference not in unit["evaluation_refs"]:
+                unit["evaluation_refs"].append(reference)
     edges = [{"candidate_id": candidate["candidate_id"], "candidate_ref": candidate["id"],
               "parents": candidate["parents"], "parent_refs": candidate["parent_refs"]}
              for candidate in candidates if candidate["parents"]]
@@ -356,6 +383,9 @@ def build_report(root: Path, summary: dict) -> dict:
     objective = experiment.get("objective", {})
     groups = [_group(root, group, events, objective) for group in summary.get("groups", [])]
     identity = {name: summary.get(name) for name in ("run_id", "status", "synthetic")}
+    elapsed = summary.get("run_wall_time_seconds")
+    if _finite_number(elapsed) and elapsed >= 0:
+        identity["run_wall_time_seconds"] = elapsed
     identity.update({name: summary[name] for name in ("error_type", "error") if name in summary})
     run_failure = _failure(summary.get("status"), error_type=summary.get("error_type"),
                            error=summary.get("error"))

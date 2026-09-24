@@ -65,15 +65,15 @@ class ReportModelTests(unittest.TestCase):
                       "unit_type": "generation", "label": "Generation 1",
                       "candidate_ids": ["B", "C"]},
                      {"event": "trial_completed", "agent_id": "agent-a", "harness_id": "harness",
-                      "trial_id": "one", "candidate_id": "A", "status": "passed"}])
+                      "trial_id": "one", "candidate_id": "A", "stage_id": "search",
+                      "split": "train", "status": "passed"}])
         group = build_report(self.root, {"groups": [self.group()]})["groups"][0]
 
         self.assertEqual(group["structure"]["kind"], "generation")
         self.assertEqual([u["unit_id"] for u in group["structure"]["units"]], ["g0", "g1"])
         self.assertEqual(group["structure"]["units"][1]["parent_unit_id"], "g0")
         self.assertEqual(group["structure"]["units"][1]["candidate_ids"], ["B", "C"])
-        self.assertEqual(group["structure"]["units"][0]["evaluation_refs"],
-                         ["agent-a/harness/one"])
+        self.assertEqual(group["structure"]["units"][0]["evaluation_refs"], [])
         self.assertEqual(len(group["evaluations"]), 1)
         self.assertEqual(len(group["candidates"]), 3)
 
@@ -98,6 +98,64 @@ class ReportModelTests(unittest.TestCase):
                           "agent-a/harness/search/report_unit/g0"])
         self.assertEqual([u["parent_unit_id"] for u in units], [None, None, "g0", "g0"])
         self.assertEqual([u["candidate_ids"] for u in units], [["A"], ["B"], ["B"], ["A"]])
+
+    def test_unit_evaluation_refs_require_explicit_matching_stage_split_and_candidate(self):
+        common = {"agent_id": "agent-a", "harness_id": "harness", "candidate_id": "A"}
+        self.events([
+            {"event": "report_unit", **common, "stage_id": "search", "unit_id": "g0",
+             "unit_type": "generation", "candidate_ids": ["A"],
+             "evaluation_refs": ["agent-a/harness/train", "agent-a/harness/validation",
+                                 "agent-a/harness/test", "agent-a/harness/other-stage",
+                                 "agent-a/harness/other-candidate", "other/harness/foreign"]},
+            {"event": "report_unit", **common, "stage_id": "search", "unit_id": "g1",
+             "unit_type": "generation", "candidate_ids": ["A"]},
+            *[{"event": "trial_completed", **common, "trial_id": trial, "stage_id": stage,
+               "split": split, "status": "passed"}
+              for trial, stage, split in (("train", "search", "train"),
+                                          ("validation", "search", "validation"),
+                                          ("test", "search", "test"),
+                                          ("other-stage", "refine", "train"))],
+            {"event": "trial_completed", **(common | {"candidate_id": "B"}),
+             "trial_id": "other-candidate", "stage_id": "search", "split": "train",
+             "status": "passed"},
+        ])
+
+        units = build_report(self.root, {"groups": [self.group()]})["groups"][0]["structure"]["units"]
+        self.assertEqual(units[0]["evaluation_refs"],
+                         ["agent-a/harness/train", "agent-a/harness/validation"])
+        self.assertEqual(units[1]["evaluation_refs"], [])
+
+    def test_unit_evaluation_refs_respect_declared_split_and_repeated_unit_events(self):
+        common = {"event": "report_unit", "agent_id": "agent-a", "harness_id": "harness",
+                  "stage_id": "search", "unit_id": "g0", "unit_type": "generation",
+                  "candidate_ids": ["A"]}
+        self.events([
+            {**common, "split": "train", "evaluation_refs": ["agent-a/harness/a"]},
+            {**common, "split": "validation", "evaluation_refs": ["agent-a/harness/b"]},
+            *[{"event": "trial_completed", "agent_id": "agent-a", "harness_id": "harness",
+               "candidate_id": "A", "stage_id": "search", "trial_id": trial,
+               "split": split, "status": "passed"}
+              for trial, split in (("a", "train"), ("b", "validation"))],
+        ])
+        unit = build_report(self.root, {"groups": [self.group()]})["groups"][0]["structure"]["units"][0]
+        self.assertEqual(unit["evaluation_refs"], ["agent-a/harness/a", "agent-a/harness/b"])
+
+    def test_unscoped_unit_cannot_claim_unscoped_trial_as_related(self):
+        self.events([{"event": "report_unit", "agent_id": "agent-a", "harness_id": "harness",
+                      "unit_id": "g0", "unit_type": "generation", "candidate_ids": ["A"],
+                      "evaluation_refs": ["agent-a/harness/unknown"]},
+                     {"event": "trial_completed", "agent_id": "agent-a", "harness_id": "harness",
+                      "trial_id": "unknown", "candidate_id": "A", "split": "train",
+                      "status": "passed"}])
+        unit = build_report(self.root, {"groups": [self.group()]})["groups"][0]["structure"]["units"][0]
+        self.assertEqual(unit["evaluation_refs"], [])
+
+    def test_wall_time_is_reported_only_when_measured_in_summary(self):
+        summary = {"groups": [], "run_wall_time_seconds": 2.125}
+        self.assertEqual(build_report(self.root, summary)["identity"]["run_wall_time_seconds"], 2.125)
+        for summary in ({"groups": []}, {"groups": [], "run_wall_time_seconds": None},
+                        {"groups": [], "run_wall_time_seconds": float('inf')}):
+            self.assertNotIn("run_wall_time_seconds", build_report(self.root, summary)["identity"])
 
     def test_explicit_iteration_name_cannot_resolve_parent_to_automatic_iteration(self):
         common = {"agent_id": "agent-a", "harness_id": "harness", "stage_id": "search"}
