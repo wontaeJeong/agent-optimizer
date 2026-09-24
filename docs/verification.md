@@ -1,5 +1,23 @@
 # 검증 기록
 
+## 2026-09-25 공식 CVDP 평가 재실행
+
+환경: GitHub 제공 Ubuntu `linux/amd64`, Python 3.12.14, Docker 28.0.4,
+Compose v2.38.2. 모델 자격증명은 사용하지 않았다. 이전 [수동 실행의 패키지 404](https://github.com/wontaeJeong/agent-optimizer/actions/runs/36030202137)를
+조사할 때 `libexpat1`·`libexpat1-dev`의 동일 버전 URL이 다시 HTTP 200을 반환했다.
+고정 upstream Dockerfile·source commit·데이터 hash·평가기를 수정하지 않았다.
+
+| 실제 명령/근거 | 결과 |
+|---|---|
+| `gh workflow run ci.yml --ref main -f official_cvdp=true` — [실행 36034478872](https://github.com/wontaeJeong/agent-optimizer/actions/runs/36034478872) | apt 단계는 통과했고 artifact의 빌드 로그에서 Yosys 컴파일 31%까지 확인. 이후 새로운 `main` push로 workflow concurrency가 이 실행을 취소했으므로 평가 성공 증거는 아니다. |
+| `gh workflow run ci.yml --ref fix/cvdp-official-evaluation -f official_cvdp=true` — [실행 36035257600](https://github.com/wontaeJeong/agent-optimizer/actions/runs/36035257600), HEAD `b8bbfaf403b9e88a93d71f34fc3a49230e23b216` | 모델 키 없는 **수동 공식 Docker job 통과**(19분 23초). `make setup`, `make doctor`, `make setup ARGS="--offline"`, `make smoke`, 이미지 설정/endpoint 도구 검사 모두 성공. Python 3.11·3.12 코어 job도 통과. |
+| 실행 artifact `official-cvdp-36035257600`의 `external/environment-lock.json`, `external/setup-logs/doctor.json` | 고정 ACE `fead921f18bb57345b5a41ef93ba625be208e99c`·CVDP `8e894cf74414ab1eaea1e2b4e80a02f123df07b6`, HF `5b807d945f6a99aa645f7e43a64a2115e281b4bf`와 검증된 세 데이터 파일 hash를 기록. `doctor.ready=true`, Yosys 0.40·Icarus/vvp 13.0·OpenCode 1.18.31 실행. |
+| `runs/dev-smoke-22416bc0458f/summary.json`, `real-tool-tests/stderr.log`, `cvdp-positive`·`cvdp-negative`의 공식 `raw_result.json` | smoke `status=passed`, RTL 실도구 테스트 **9/9** 통과. 호스트 Docker toy 정답 1·오답 0·조기종료 0. 공식 LFSR `cvdp_copilot_lfsr_0001`에 비어 있지 않은 raw test 각 1개: 의도한 정답 `result=0`/`passed=1`, 오답 `result=1`/`passed=0`. |
+
+이는 **한 문제의 공식 채점기 정답·오답 및 실행 환경 검증**이다. 전체 CVDP 데이터셋의
+성능이나 ACE/OpenCode의 배포 모델 추론·최적화 효과를 검증한 것은 아니다. 첫 404는
+외부 Ubuntu 패키지 제공 상태가 회복된 뒤 같은 고정 빌드에서 재현되지 않았다.
+
 ## 2026-09-25 사용자 설정·전송 경로·CI 재검증
 
 Mac ARM64 / Python 3.12.12 / Docker CLI 29.2.1. 아래 명령은 작업 중 실행했으며
