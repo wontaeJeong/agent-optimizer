@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shlex
 import sys
@@ -59,9 +60,18 @@ def prepare_selection(project_root: Path, selection: str, *, evaluator: str | No
 def _literal(value):
     if isinstance(value, bool):
         return "true" if value else "false"
-    if isinstance(value, (int, float)):
+    if isinstance(value, int):
         return str(value)
-    return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, float) and math.isfinite(value):
+        return str(value)
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_literal(item) for item in value) + "]"
+    if isinstance(value, dict) and all(isinstance(key, str) for key in value):
+        return "{ " + ", ".join(f"{json.dumps(key, ensure_ascii=False)} = {_literal(item)}"
+                                for key, item in value.items()) + " }"
+    raise ConfigurationError("Experiment options must contain only TOML-compatible values")
 
 
 def _section(name, mapping):

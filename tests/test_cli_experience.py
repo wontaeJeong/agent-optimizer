@@ -761,6 +761,34 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn("optimizer-config", error.getvalue())
         self.assertFalse((self.root / "external").exists())
 
+    def test_structured_optimizer_options_complete_user_flow(self):
+        options = {"file_variants": {"include_seeds": True, "variants": [
+            {"name": "enable-repair", "files": {"configs/strategy.json": '{"repair": true}'}}
+        ]}}
+        args = ["init", "--project-root", str(self.root), "--name", "structured-options",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "file_variants", "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--optimizer-config", json.dumps(options), "--yes"]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        plan = self.root / "runs/configs/structured-options/experiment.toml"
+        spec = load_experiment(plan)
+        self.assertEqual(spec["stages"][0]["config"]["variants"], options["file_variants"]["variants"])
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["doctor", "--plan", str(plan), "--json"]), 0)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["run", str(plan)]), 0)
+        run = Path(json.loads(output.getvalue())["run_dir"])
+        summary = json.loads((run / "summary.json").read_text())
+        self.assertEqual(summary["status"], "completed")
+        self.assertTrue(summary["synthetic"])
+        self.assertEqual(summary["groups"][0]["baseline"]["metrics"]["solve_rate"], 0)
+        self.assertEqual(summary["groups"][0]["selected"][0]["metrics"]["solve_rate"], 1)
+        self.assertTrue((run / "report.html").is_file())
+
     def test_gepa_trial_allowance_tracks_requested_iterations_and_merge(self):
         args = ["init", "--project-root", str(self.root), "--name", "long-search",
                 "--agent", str(self.agent), "--dataset", str(self.data),
