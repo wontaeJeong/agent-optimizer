@@ -124,6 +124,7 @@ def _failure(status, execution=None, error_type=None, error=None, feedback=None)
     execution = execution if isinstance(execution, dict) else {}
     causes = {"infrastructure_error": "infrastructure", "timeout": "timeout",
               "unsupported": "unsupported", "interrupted": "interrupted",
+              "process_error": "execution",
               "error": "run_error", "source_error": "run_error",
               "budget_exhausted": "interrupted"}
     execution_status = execution.get("status")
@@ -138,7 +139,7 @@ def _failure(status, execution=None, error_type=None, error=None, feedback=None)
         return None
     message = (error or (execution.get("detail") if execution_status != "completed" else None)
                or feedback)
-    return {"category": category, "message": message if isinstance(message, str) else None}
+    return {"category": category, "message": message if isinstance(message, str) and message else None}
 
 
 def _metric_value(row, key: str, name: str):
