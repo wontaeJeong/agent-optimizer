@@ -4,20 +4,22 @@ set -eu
 
 help() {
     if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
-        printf '\033[36m%s\033[0m\n' 'Development commands: setup doctor test lint demo smoke live help'
+        printf '\033[36m%s\033[0m\n' '개발 명령: setup doctor test lint demo smoke live menu help'
     else
-        printf '%s\n' 'Development commands: setup doctor test lint demo smoke live help'
+        printf '%s\n' '개발 명령: setup doctor test lint demo smoke live menu help'
     fi
     printf '%s\n' \
-        'Prerequisites: Mac/Ubuntu, Git; full ACE setup also needs Docker Engine + Compose.' \
-        'Start: sh scripts/bootstrap.sh setup --core; then make doctor ARGS="--core" and make demo.' \
-        'No make? Use sh scripts/bootstrap.sh <command> [options].' \
-        'setup: --core, --dataset ID, --offline, --platform linux/amd64|linux/arm64 (full ACE only)' \
-        'doctor: --core, --dataset ID, --json, --platform, --model (actual API calls); --core excludes --dataset/--platform/--model.' \
+        '사전 준비: Mac/Ubuntu, Git. ACE 전체 준비에는 Docker Engine과 Compose도 필요합니다.' \
+        '시작: make setup ARGS="--core" → make doctor ARGS="--core" → make demo.' \
+        'make가 없다면 sh scripts/bootstrap.sh <명령> [옵션]을 사용하세요.' \
+        '--core나 --dataset이 없는 setup/doctor는 ACE 전체 환경을 대상으로 합니다.' \
+        'setup: --core, --dataset ID, --offline, --platform linux/amd64|linux/arm64 (ACE 전체 전용)' \
+        'doctor: --core, --dataset ID, --json, --platform, --model (실제 API 호출). --core와 --dataset/--platform/--model은 함께 쓸 수 없습니다.' \
         'smoke/live: --platform; live: --iterations 1..20' \
-        'test/lint/demo use .venv without installing or requiring Docker.' \
-        'make doctor ARGS="--json" (ARGS uses normal shell command arguments).' \
-        'Full command help: python3 scripts/dev.py --help or <command> --help.'
+        'menu: 대화형 번호 메뉴(TTY 필요). 준비 후 사용자 CLI 도움말은 .venv/bin/agent-opt --help로 확인하세요.' \
+        'test/lint/demo는 설치나 Docker 실행 없이 기존 .venv를 사용합니다.' \
+        'make doctor ARGS="--json" (ARGS에는 일반 셸 인수 구문을 사용합니다).' \
+        '상세 옵션: python3 scripts/dev.py --help 또는 python3 scripts/dev.py <명령> --help.'
 }
 
 fail() {
@@ -130,8 +132,8 @@ if [ -n "$dataset" ]; then
 fi
 if [ "$show_help" = true ]; then
     if [ "$command" = menu ]; then
-        printf '%s\n' 'menu: interactive numbered frontend (TTY and Python >=3.11 required).' \
-            'Run sh scripts/bootstrap.sh menu; setup/doctor/demo/live remain available for automation.'
+        printf '%s\n' 'menu: 대화형 번호 메뉴(TTY와 Python >=3.11 필요).' \
+            'sh scripts/bootstrap.sh menu로 실행하세요. 자동화에는 setup/doctor/demo/live 명령을 사용하세요.'
     else
         help
     fi

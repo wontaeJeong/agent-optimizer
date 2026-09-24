@@ -1,4 +1,4 @@
-"""Numbered interactive frontend; explicit commands remain available for automation."""
+"""대화형 번호 메뉴. 자동화에는 명시적 명령을 사용합니다."""
 import getpass
 import os
 import stat
@@ -147,7 +147,7 @@ def reports():
 
 
 def main(argv=None, *, env=None):
-    parser = ColorArgumentParser(description=__doc__, epilog="TTY required. Use explicit setup/doctor/demo/live commands for automation.")
+    parser = ColorArgumentParser(description=__doc__, epilog="TTY 필요. 자동화에는 setup/doctor/demo/live 명령을 사용하세요.")
     parser.parse_args(argv)
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         print(style("menu requires a TTY;", "error")
