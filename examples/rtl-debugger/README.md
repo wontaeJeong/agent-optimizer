@@ -25,14 +25,14 @@ export AGENT_OPT_MODEL=openrouter/vendor/model:free
 ```bash
 cp examples/ace-rtl/environment/openai-compatible.json examples/rtl-debugger/agent/provider-compatible.json
 export OPENCODE_CONFIG=/work/agent/provider-compatible.json
-export MODEL_BASE_URL=https://your-endpoint.example/v1
-export MODEL_ID=your-model-id
-export AGENT_OPT_MODEL="compatible/$MODEL_ID"
-# MODEL_API_KEY는 shell 환경에만 설정
+export AGENT_OPT_MODEL_BASE_URL=https://your-endpoint.example/v1
+export AGENT_OPT_MODEL_ID=your-model-id
+export AGENT_OPT_MODEL="compatible/$AGENT_OPT_MODEL_ID"
+# AGENT_OPT_MODEL_API_KEY는 shell 환경에만 설정
 .venv/bin/python -m agent_optimizer run examples/rtl-debugger/experiment.toml
 ```
 
-같은 profile이 `OPENCODE_CONFIG`, `MODEL_BASE_URL`, `MODEL_ID`, `MODEL_API_KEY`를 전달합니다.
+같은 profile이 `OPENCODE_CONFIG`, `AGENT_OPT_MODEL_BASE_URL`, `AGENT_OPT_MODEL_ID`, `AGENT_OPT_MODEL_API_KEY`를 전달합니다.
 호스트 credential store를 마운트하지 않습니다. 기본 OpenRouter로 돌아가려면 `OPENCODE_CONFIG`를
 unset하고 무료 모델/auth 환경을 다시 선택하세요. 설정은 새 컨테이너 실행 시 읽습니다.
 

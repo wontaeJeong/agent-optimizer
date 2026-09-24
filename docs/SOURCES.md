@@ -171,6 +171,18 @@ Context7 `/astral-sh/uv`, `/docker/docs`로 아래 설치 계약을 확인하고
 
 ## 버전 변경 절차
 
+### 2026-09-25 설정·터미널 패키지 출처
+
+- Context7 `/pydantic/pydantic-settings`: [환경변수 접두어와 입력 출처](https://docs.pydantic.dev/latest/concepts/pydantic_settings/).
+  `src/agent_optimizer/models.py`에서 `AGENT_OPT_MODEL_` 접두어와 명시적 환경 입력, `.env` 자동 로딩 금지에 사용합니다.
+- Context7 `/websites/typer_tiangolo`: [명령·옵션](https://typer.tiangolo.com/tutorial/commands/),
+  [Typer의 Click 내장 변경](https://typer.tiangolo.com/tutorial/click/).
+  `src/agent_optimizer/cli.py`의 명령 구문과 종료 코드 경계에 적용합니다.
+- Context7 `/textualize/rich`: [Progress와 stdout/stderr 분리](https://rich.readthedocs.io/en/stable/progress.html).
+  `src/agent_optimizer/terminal_report.py`의 TTY 렌더링에 사용하며 비대화형 JSON/로그는 분리합니다.
+- 프로젝트 의존성은 `pyproject.toml`과 `uv.lock`에서 관리합니다. 이 패키지 정리는
+  CVDP driver·OpenCode·데이터/소스 고정 버전이나 채점 기준을 갱신하지 않습니다.
+
 ### 2026-09-22 모델 endpoint 연결 확인
 
 - Context7 `/anomalyco/opencode`의 custom provider(`@ai-sdk/openai-compatible`), 환경 치환,

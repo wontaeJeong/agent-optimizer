@@ -22,8 +22,9 @@ iterations = 3
 request_timeout_seconds = 60
 ```
 
-`MODEL_ENDPOINT`(완전한 completion URL) 또는 `MODEL_BASE_URL` 중 하나, `MODEL_API_KEY`, 선택적
-`MODEL_ID`(기본 `glm5.3-flash`)를 환경에 설정합니다. 설정 파일에 인증 값을 넣지 마세요.
+`AGENT_OPT_MODEL_ENDPOINT`(완전한 completion URL) 또는 `AGENT_OPT_MODEL_BASE_URL` 중 하나,
+`AGENT_OPT_MODEL_API_KEY`, 선택적 `AGENT_OPT_MODEL_ID`(기본 `glm5.3-flash`)를 환경에 설정합니다.
+설정 파일에 인증 값을 넣지 마세요.
 모델 응답은 `{"content":"전체 파일 내용"}`이어야 합니다. 잘못된 응답·환경 실패는 중단합니다.
 미수집 usage는 null입니다. 이번 예제는 seed 하나·파일 하나·1~20회 반복을 지원합니다.
 

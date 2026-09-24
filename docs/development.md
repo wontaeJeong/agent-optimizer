@@ -54,7 +54,7 @@ sh scripts/bootstrap.sh menu
 | 8. 일반 Agent 최적화 TUI | 코어 준비 후 `.venv/bin/agent-opt tui` 실행. 데이터셋을 명시적으로 선택하며 선택된 평가 자산은 필요 시 별도 준비합니다. |
 | 0. 종료 | EOF도 종료, Ctrl-C는 130으로 안전하게 종료합니다. |
 
-4번은 기존 `MODEL_*` 환경을 기본값으로 사용합니다. 빈 입력은 해당 기존 값을 유지하고 모델 ID가
+4번은 기존 `AGENT_OPT_MODEL_*` 환경을 기본값으로 사용합니다. 빈 입력은 해당 기존 값을 유지하고 모델 ID가
 없으면 `glm5.3-flash`를 사용합니다. URL 방식 변경 시 사용하지 않는 URL 변수는 제거합니다.
 토큰은 표시하지 않으며 숨김 입력이 불가능하면 취소합니다. 입력·검증이 모두 끝난 설정만 메뉴의
 자식 환경에 반영하며 shell 환경이나 `.env`·credential 파일에는 저장하지 않습니다. 연결 검사가
@@ -92,7 +92,7 @@ make setup
 sh scripts/bootstrap.sh setup
 make doctor
 make doctor ARGS="--json"
-# MODEL_ENDPOINT(또는 MODEL_BASE_URL), MODEL_API_KEY, 선택적 MODEL_ID 설정 후:
+# AGENT_OPT_MODEL_ENDPOINT(또는 AGENT_OPT_MODEL_BASE_URL), AGENT_OPT_MODEL_API_KEY, 선택적 AGENT_OPT_MODEL_ID 설정 후:
 make doctor ARGS="--model"  # 실제 호스트 API와 컨테이너 도구 호출
 make live ARGS="--iterations 3"
 make demo
@@ -182,7 +182,7 @@ live 설정 부재만으로는 setup/doctor가 실패하지 않습니다. 성공
 | `driver.lock`, `driver.packages`, `driver.imports` | 고정 requirements와 설치 상태 확인 후 online setup. 소스·lock drift는 검토 없이 pin 갱신하지 않음. |
 | `image.evaluation`, `image.agent`, `tools.evaluation`, `tools.opencode` | setup으로 이미지 identity/platform·실도구 복구; `external/setup-logs/` 확인. |
 | `setup offline: uv missing` / offline sync 실패 | online setup으로 uv/Python/패키지 cache를 준비한 뒤 offline 재실행. |
-| `live.key`, `live.model` | `MODEL_API_KEY`, `MODEL_ENDPOINT` 또는 `MODEL_BASE_URL`, 선택적 `MODEL_ID`(기본 `glm5.3-flash`) 설정. |
+| `live.key`, `live.model` | `AGENT_OPT_MODEL_API_KEY`, `AGENT_OPT_MODEL_ENDPOINT` 또는 `AGENT_OPT_MODEL_BASE_URL`, 선택적 `AGENT_OPT_MODEL_ID`(기본 `glm5.3-flash`) 설정. |
 | `environment.ca` | 준비 시점과 CA가 다름. 명시한 전체 bundle 또는 Ubuntu 시스템 CA를 확인하고 online setup 재실행. |
 | `live.execution` | `doctor --model`의 실제 모델/도구 호출 실패. endpoint/auth·proxy/NO_PROXY·CA와 `runs/doctor-model-*/logs` 확인. |
 
