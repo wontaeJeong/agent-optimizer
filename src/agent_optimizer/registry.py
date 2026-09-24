@@ -17,10 +17,13 @@ from agent_optimizer.optimizers.ecdysis import EcdysisOptimizer
 PROJECT_COMPONENTS: dict[str, dict[str, str]] = {
     "datasets": {"cvdp": "examples/benchmarks/cvdp.py:Provider",
                  "verilog-spec": "examples/benchmarks/verilog_eval.py:Provider",
-                 "verilog-completion": "examples/benchmarks/verilog_eval.py:CompletionProvider"},
+                 "verilog-completion": "examples/benchmarks/verilog_eval.py:CompletionProvider",
+                 "sample_text": "experiments/sample-team/provider.py:Provider"},
     "evaluators": {"cvdp": "examples/ace-rtl/evaluator.py:CVDPEvaluator",
-                   "verilog_eval": "examples/benchmarks/verilog_evaluator.py:VerilogEvaluator"},
-    "harnesses": {}, "optimizers": {},
+                   "verilog_eval": "examples/benchmarks/verilog_evaluator.py:VerilogEvaluator",
+                   "sample_eval": "examples/minimal/evaluator.py:TextFixtureEvaluator"},
+    "harnesses": {"sample_command": "experiments/sample-team/harness.py:Harness"},
+    "optimizers": {"sample_baseline": "experiments/sample-team/optimizer.py:Optimizer"},
 }
 
 PROJECT_DEPENDENCIES: dict[str, list[str]] = {

@@ -255,11 +255,20 @@ def wizard_arguments(project_root: Path) -> list[str]:
         raise ConfigurationError("Choose one or more listed optimizer numbers") from None
     if not selected or not all(item in optimizers for item in selected):
         raise ConfigurationError("Choose one or more listed optimizers")
+    harnesses = sorted(registry.factories["harnesses"])
+    print("\n  Select an Agent harness:", file=sys.stderr)
+    for index, key in enumerate(harnesses, 1):
+        print(f"    {index}. {key}", file=sys.stderr)
+    number = ask("Harness number")
+    if not number.isdigit() or not 1 <= int(number) <= len(harnesses):
+        raise ConfigurationError("Choose a listed harness number")
+    harness = harnesses[int(number) - 1]
     scaffold = (ask("Active runtime harness .py file (Enter to auto-detect one match)")
                 if any(item in {"meta_harness", "ecdysis"} for item in selected) else "")
     target_file = (ask("Editable text target (Enter to auto-detect one match)")
                    if "gepa" in selected else "")
-    print(f"\n  Agent: {agent}\n  Datasets: {', '.join(selected_datasets)}\n  Optimizers: {', '.join(selected)}",
+    print(f"\n  Agent: {agent}\n  Datasets: {', '.join(selected_datasets)}\n  Harness: {harness}"
+          f"\n  Optimizers: {', '.join(selected)}",
           file=sys.stderr)
     if ask("Prepare dataset and run? [y/N]").lower() not in {"y", "yes"}:
         raise ConfigurationError("Experiment cancelled without preparing data")
@@ -267,7 +276,7 @@ def wizard_arguments(project_root: Path) -> list[str]:
                  "--agent", agent, *[part for dataset in selected_datasets
                                      for part in ("--dataset", dataset)],
                  "--command-json", json.dumps(command),
-                 "--editable", editable[0], "--yes"]
+                 "--editable", editable[0], "--harness", harness, "--yes"]
     for item in editable[1:]:
         arguments += ["--editable", item]
     for optimizer in selected:

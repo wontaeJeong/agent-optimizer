@@ -31,7 +31,7 @@ class CLIExperienceTests(unittest.TestCase):
             result = main(["datasets", "list", "--project-root", str(self.root)])
         self.assertEqual(result, 0)
         names = {row["name"] for row in json.loads(output.getvalue())}
-        self.assertEqual(names, {"cvdp", "verilog-spec", "verilog-completion"})
+        self.assertEqual(names, {"cvdp", "verilog-spec", "verilog-completion", "sample_text"})
 
     def test_dataset_inventory_works_from_outside_project_import_path(self):
         package_root = Path(__file__).resolve().parents[1]
@@ -44,7 +44,35 @@ class CLIExperienceTests(unittest.TestCase):
                                      timeout=30, shell=False)
         self.assertEqual(process.returncode, 0, process.stderr)
         self.assertEqual({row["name"] for row in json.loads(process.stdout)},
-                         {"cvdp", "verilog-spec", "verilog-completion"})
+                         {"cvdp", "verilog-spec", "verilog-completion", "sample_text"})
+
+    def test_shipped_synthetic_team_components_run_from_generated_plan(self):
+        args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
+                "--name", "shipped-team", "--dataset", "sample_text", "--harness", "sample_command",
+                "--optimizer", "sample_baseline", "--editable", "configs/strategy.json",
+                "--argv", "{python}", "{agent_dir}/src/fixture_agent.py", "{task_dir}", "--yes"]
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        plan = Path(json.loads(output.getvalue())["experiment"])
+        spec = load_experiment(plan)
+        self.assertEqual(spec["_profiles"][0]["adapter"], "sample_command")
+        self.assertEqual(spec["_benchmark_metadata"]["dataset_provider"], "sample_text")
+        self.assertEqual(spec["evaluator"], "sample_eval")
+        self.assertFalse(spec.get("plugins"))
+        run, summary = run_experiment(spec, Registry(), self.root / "runs")
+        self.assertEqual(summary["status"], "completed")
+        self.assertEqual(summary["groups"][0]["stages"][0]["checkpoint"],
+                         {"kind": "synthetic_example"})
+        trials = [json.loads(path.read_text()) for path in run.glob("**/trials/**/result.json")]
+        self.assertTrue(trials)
+        self.assertTrue(all(row["metrics"]["sample_adapter"] == 1.0 for row in trials))
+        fingerprints = json.loads((run / "manifest.json").read_text())["plugin_sha256"]
+        for reference in ("experiments/sample-team/provider.py:Provider",
+                          "experiments/sample-team/harness.py:Harness",
+                          "experiments/sample-team/optimizer.py:Optimizer",
+                          "examples/minimal/evaluator.py:TextFixtureEvaluator"):
+            self.assertIn(reference, fingerprints)
 
     def test_noninteractive_init_requires_explicit_dataset_without_creating_files(self):
         error = io.StringIO()
@@ -98,13 +126,36 @@ class CLIExperienceTests(unittest.TestCase):
         answers = ["wizard-demo", str(self.agent),
                    "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                    "configs/strategy.json", str(self.data),
-                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1", "y"]
+                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1", "1", "y"]
         with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", side_effect=answers), \
                 contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(output):
             self.assertEqual(main(["tui", "--project-root", str(self.root)]), 0)
         self.assertEqual(json.loads(output.getvalue())["status"], "completed")
         self.assertTrue((self.root / "runs/configs/wizard-demo/experiment.toml").is_file())
         self.assertIn("fixture-validation", terminal.getvalue())
+
+    def test_wizard_selects_a_registered_harness_for_the_generated_run(self):
+        terminal = io.StringIO()
+        answers = iter(["chosen-harness", str(self.agent),
+                        "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
+                        "configs/strategy.json", str(self.data),
+                        "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1", "y"])
+
+        def answer():
+            if "Harness number" in terminal.getvalue().splitlines()[-1]:
+                return str(sorted(Registry().factories["harnesses"]).index("fixture") + 1)
+            return next(answers)
+
+        with patch("builtins.input", side_effect=answer), contextlib.redirect_stderr(terminal):
+            arguments = wizard_arguments(self.root)
+        self.assertEqual(arguments[arguments.index("--harness") + 1], "fixture")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(arguments), 0)
+        spec = load_experiment(self.root / "runs/configs/chosen-harness/experiment.toml")
+        self.assertEqual(spec["_profiles"][0]["adapter"], "fixture")
+        run, summary = run_experiment(spec, Registry(), self.root / "runs")
+        self.assertEqual(summary["status"], "completed")
+        self.assertTrue((run / "manifest.json").is_file())
 
     def test_tui_eof_leaves_sources_and_configuration_untouched(self):
         class Terminal(io.StringIO):
@@ -123,7 +174,7 @@ class CLIExperienceTests(unittest.TestCase):
         answers = ["harness-demo", str(self.agent),
                    "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                    "src/**", str(self.data),
-                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "5", "", "y"]
+                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "5", "1", "", "y"]
         with patch("builtins.input", side_effect=answers), contextlib.redirect_stderr(io.StringIO()):
             args = wizard_arguments(self.root)
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -310,11 +361,14 @@ class CLIExperienceTests(unittest.TestCase):
             algorithms = sorted([*Registry().factories["optimizers"], "future_opt"])
             answers = ["future-wizard", str(self.agent), "{python} {task_dir}",
                        "configs/strategy.json", str(choices.index("future_set") + 1),
-                       str(algorithms.index("future_opt") + 1), "y"]
+                       str(algorithms.index("future_opt") + 1),
+                       str(sorted([*Registry().factories["harnesses"], "future_harness"])
+                           .index("future_harness") + 1), "y"]
             with patch("builtins.input", side_effect=answers), contextlib.redirect_stderr(io.StringIO()):
                 wizard = wizard_arguments(self.root)
             self.assertIn("future_set", wizard)
             self.assertIn("future_opt", wizard)
+            self.assertEqual(wizard[wizard.index("--harness") + 1], "future_harness")
             self.assertNotIn("--extensions", wizard)
             args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
                     "--name", "future-demo", "--dataset", "future_set", "--harness", "future_harness",

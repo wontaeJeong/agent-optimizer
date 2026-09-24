@@ -21,7 +21,7 @@ class ProjectRegistryTests(unittest.TestCase):
         registry = Registry()
         registry.load_project(ROOT)
         self.assertEqual(set(registry.describe()["datasets"]["implemented"]),
-                         {"cvdp", "verilog-spec", "verilog-completion"})
+                         {"cvdp", "verilog-spec", "verilog-completion", "sample_text"})
         self.assertIn("verilog_eval", registry.describe()["evaluators"]["implemented"])
         self.assertEqual(registry.resolve("datasets", "verilog-completion")().describe()["task_form"],
                          "code-complete-iccad2023")
@@ -30,6 +30,18 @@ class ProjectRegistryTests(unittest.TestCase):
         self.assertEqual(components["datasets"]["cvdp"],
                          "examples/benchmarks/cvdp.py:Provider")
         self.assertIn("datasets/cvdp", dependencies)
+
+    def test_shipped_synthetic_team_is_registered_and_prepares_without_file_plugins(self):
+        registry = Registry()
+        registry.load_project(ROOT)
+        self.assertIn("sample_text", registry.describe()["datasets"]["implemented"])
+        self.assertIn("sample_eval", registry.describe()["evaluators"]["implemented"])
+        self.assertIn("sample_command", registry.describe()["harnesses"]["implemented"])
+        self.assertIn("sample_baseline", registry.describe()["optimizers"]["implemented"])
+        provider = registry.resolve("datasets", "sample_text")()
+        self.assertEqual(provider.describe()["evaluator"], "sample_eval")
+        self.assertEqual(provider.prepare(self.root / "external/datasets/sample_text", offline=True)["evaluator"],
+                         "sample_eval")
 
     def test_missing_file_and_duplicate_id_fail_before_importing_team_code(self):
         marker = self.root / "was-imported"
