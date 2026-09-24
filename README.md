@@ -85,6 +85,9 @@ make demo                        # 비대화형 최소 데모
 sh scripts/bootstrap.sh setup --core
 ```
 
+CLI·TUI·`make`의 안내/진단은 터미널에서 상태별 색상으로 강조합니다. 출력을 리다이렉트하거나
+`NO_COLOR=1`을 설정하면 색상이 꺼지며, JSON 출력에는 색상 코드를 넣지 않습니다.
+
 `setup --core` 출력의 `"status": "ready", "scope": "core"`와
 `make doctor ARGS="--core"`의 `Core development environment: ready`를 확인합니다.
 `make demo` 출력의 `"status": "completed", "trials_used": 7`과 `run_dir`을 확인하고

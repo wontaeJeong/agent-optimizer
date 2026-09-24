@@ -5,6 +5,8 @@ import sys
 import threading
 import time
 
+from agent_optimizer.terminal_style import style
+
 
 class ProgressDisplay:
     def __init__(self, stream=None):
@@ -57,7 +59,7 @@ class ProgressDisplay:
                 if self.active and self.active_started is not None:
                     label = self.active
                     elapsed = time.monotonic() - self.active_started
-                    self.stream.write(f"\r\x1b[2K  ◉ {label} · {elapsed:.0f}s elapsed"
+                    self.stream.write(f"\r\x1b[2K  {style('◉', 'warning', stream=self.stream)} {label} · {elapsed:.0f}s elapsed"
                                       + self._summary())
                     self.stream.flush()
 
@@ -89,7 +91,19 @@ class ProgressDisplay:
                 self.active, self.active_started = label, time.monotonic()
             if self.tty:
                 self.stream.write("\r\x1b[2K")
-            self.stream.write(f"[{event['timestamp'][11:19]}] {label}"
+            if name == "trial_completed":
+                tone = ("success" if event.get("status", "passed") == "passed" else
+                        "warning" if event["status"] == "interrupted" else "error")
+            elif name == "optimizer_iteration_completed":
+                tone = ("error" if event.get("status") == "invalid_interface" else
+                        "warning" if event.get("accepted") is False or
+                        event.get("status") == "no_failures" else "success")
+            elif name == "optimizer_merge_completed":
+                tone = "success" if event.get("accepted", True) else "warning"
+            else:
+                tone = "error" if name == "error" else "warning"
+            self.stream.write(f"[{event['timestamp'][11:19]}] "
+                              + style(label, tone, stream=self.stream)
                               + (f" elapsed={seconds:.2f}s" if name == "trial_completed"
                                  and seconds is not None else "") + self._summary() + "\n")
             self.stream.flush()
@@ -106,7 +120,7 @@ class PreparationStatus:
 
     def __enter__(self):
         self.started = time.monotonic()
-        self.stream.write(f"[prepare] dataset={self.name} starting\n")
+        self.stream.write(f"{style('[prepare]', 'warning', stream=self.stream)} dataset={self.name} starting\n")
         self.stream.flush()
         if self.stream.isatty():
             self.thread = threading.Thread(target=self._refresh, daemon=True)
@@ -115,7 +129,7 @@ class PreparationStatus:
 
     def _refresh(self):
         while not self.stopped.wait(1):
-            self.stream.write(f"\r\x1b[2K[prepare] dataset={self.name} "
+            self.stream.write(f"\r\x1b[2K{style('[prepare]', 'warning', stream=self.stream)} dataset={self.name} "
                               f"elapsed={time.monotonic()-self.started:.0f}s")
             self.stream.flush()
 
@@ -125,6 +139,7 @@ class PreparationStatus:
             self.thread.join(timeout=2)
             self.stream.write("\r\x1b[2K")
         status = "failed" if error_type else "complete"
-        self.stream.write(f"[prepare] dataset={self.name} {status} "
+        tone = "error" if error_type else "success"
+        self.stream.write(f"[prepare] dataset={self.name} {style(status, tone, stream=self.stream)} "
                           f"elapsed={time.monotonic()-self.started:.1f}s\n")
         self.stream.flush()
