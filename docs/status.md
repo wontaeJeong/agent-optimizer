@@ -3,7 +3,8 @@
 **2026-09-24 확장:** 코어 setup/doctor → 명시적 데이터셋 선택/준비 → CLI/TUI 최적화 → HTML 보고서.
 팀 개발의 API-free fixture → 파일 플러그인 경로도 유지한다.
 시작은 [README](../README.md#개발환경-빠른-시작)와 [역할별 템플릿](../experiments/README.md).
-번호 메뉴는 제공하며 1/2는 core, 7은 선택적 ACE 전체 준비다. 옵션 없는 setup/doctor의 전체 경로도 유지한다.
+번호 메뉴는 제공하며 1/2는 core, 7은 선택적 ACE 전체 준비, 8은 일반 Agent TUI다.
+옵션 없는 setup/doctor의 전체 ACE 경로와 `--dataset ID`의 선택 데이터셋 경로는 별개다.
 `agent-opt tui`의 대화형 설정·진행 화면은 사용 가능하며 병렬 scheduler·resume·native ACE는 [보류](FUTURE.md)다.
 
 ## 현재 기능
@@ -20,7 +21,7 @@
 | 단순 LLM 피드백 | 파일 플러그인, 기본 3회 train 수정/재평가. 로컬 fixture 회귀와 실제 배포 모델 실행은 별개 |
 | command/OpenCode/Docker | argv·timeout·오류/이벤트 계약. 실환경 통합 근거는 아래 날짜별 기록을 따름 |
 | core 준비/진단 | Docker/ACE/모델 없이 준비·진단·fixture. 첫 의존성 준비에는 다운로드가 필요할 수 있음 |
-| 사용자 CLI/TUI | 데이터셋 명시적 선택·자동 준비, 실행 argv/editable 검증, 동적 팀 플러그인 목록, 과제·iteration 실시간 경과 |
+| 사용자 CLI/TUI | 데이터셋 명시적 선택·자동 준비, argv/editable 검증, 중앙 Python 등록 팀 목록, 읽기 전용 `doctor --dataset/--plan`, 과제·iteration 실시간 경과 |
 | Dataset | CVDP reviewed no-commercial importer/공식 평가기, 고정 Verilog-Eval v2 + 별도 Icarus v12 private 평가기, 사용자 tasks.json + 지정 evaluator |
 | GEPA/Meta-Harness/Ecdysis | 원본을 복제하지 않은 자체 메서드 구현: train 반성·Pareto/merge, scaffold 탐색, 반복 실패/협업 검토/strict train 개선. 실제 배포 모델 검증과 분리 |
 | 결과 UX | 항상 `report.html`/summary/events/Markdown, dataset session별 독립 보고서 연결. 실패/중단 결과·slow task/usage 표시 |
@@ -57,4 +58,4 @@ native `ace_agent_runner.py`/`ace_cvdp_native_runner.py`의 자체 역할·반�
   그 당시 9-trial minimal 기록은 당시 결과이며 현재 7-trial 경로로 소급 수정하지 않는다.
 - **미검증:** 실제 배포 모델→어느 실 Agent든 세 알고리즘을 적용한 성능 향상, native ACE,
   Verilog-Eval의 전체 과제/Ubuntu x86_64 실행, 전체 sub-agent 사용량. 새 팀 컴포넌트도
-  복사/fixture 검증과 실제 환경 실행을 각각 구분한다. plan은 설정/등록 수준 검사다.
+  복사/fixture 검증과 실제 환경 실행을 각각 구분한다. plan doctor는 설정/등록·로컬 자산 수준 검사다.

@@ -11,8 +11,8 @@
 - 같은 기능에 여러 추상 계층을 추가하지 않는다. Python CLI·대화형 TUI와 평평한 모듈 구조를 유지한다.
 - 시작은 README의 개발환경 빠른 시작 → `experiments/README.md`에서 담당 템플릿 선택 →
   `docs/adding-components.md`와 `src/agent_optimizer/contracts.py`의 관련 계약 순서다.
-- 팀 Dataset/Harness/Optimizer/Evaluator는 `experiments/<team>/extensions.toml`과 파일 플러그인으로 소유한다.
-  컴포넌트를 추가할 때 registry/설치 entry point/CLI 선택지 코드를 수정하지 않는다.
+- 팀 Dataset/Harness/Optimizer/Evaluator 구현은 `experiments/<team>/`에서 소유하고
+  `src/agent_optimizer/registry.py`에 ID→구현 파일을 명시적으로 등록한다. CLI 선택지/설치 entry point는 수정하지 않는다.
 - 배경은 `docs/CONTEXT.md`, 현재 상태는 `docs/status.md`. 외부 연동 변경 때 `docs/SOURCES.md`를
   대조한다. `docs/verification.md`는 날짜별 증거이며 첫 실행의 필수 읽기 문서가 아니다.
 

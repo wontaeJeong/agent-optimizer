@@ -10,7 +10,7 @@
 
 - Mac/Ubuntu의 Python CLI·대화형 TUI와 독립 HTML 보고서. 웹/분산 서버는 현재 요구사항이 아니다.
 - 실제 Agent 개발자는 데이터셋을 직접 고른 뒤 검증된 준비 경로와 CLI/TUI로 Optimizer를 실행한다.
-  팀별 데이터셋·하네스·Optimizer를 계속 추가하므로 중앙 registry/CLI 선택지 수정 없이 목록이 확장되어야 한다.
+  팀별 데이터셋·하네스·Optimizer는 중앙 Python registry에 ID를 추가하여 목록을 확장한다(CLI 선택지 수정 불필요).
 - 알고리즘·Agent/Harness·평가 담당이 `contracts.py`로 통합한다. 같은 기능에 추상 계층을 늘리지 않는다.
 - 프롬프트뿐 아니라 설정·코드·역할·실행 흐름도 대상 Agent가 허용하는 범위에서 변경할 수 있어야 한다.
 - 실제 Agent는 별도 repo의 고정 commit 또는 준비한 local 소스. 후보는 스냅샷에서 만들고
@@ -31,13 +31,13 @@
   준비된 데이터셋은 고정 버전/해시와 split을 기록하고, Verilog-Eval private test/ref는 Agent 밖에 둔다.
 - 시간·iteration·dataset/과제 이벤트를 CLI/TUI와 HTML에서 같은 기록으로 확인한다.
   복수 dataset session은 독립 run과 보고서를 연결하고 서로 다른 평가 지표를 직접 순위화하지 않는다.
-- 팀 등록은 `experiments/<team>/extensions.toml`의 Dataset/Harness/Optimizer/Evaluator 파일 경로다.
+- 팀 구현은 `experiments/<team>/`, 등록은 `src/agent_optimizer/registry.py`의 Dataset/Harness/Optimizer/Evaluator ID→파일 경로다.
   기존 개별 experiment `[plugins.*]`도 그대로 사용한다.
 
 ## 현재 MVP 선택 (2026-09-22)
 
 - 코어 setup/doctor와 API-free fixture부터 시작하고 팀 파일 플러그인 하나를 연결한다.
-  `experiments/<team>/`가 소유권 경계이며 registry 수정/설치 entry point가 필요 없다.
+  `experiments/<team>/`가 소유권 경계이며 팀 컴포넌트는 중앙 registry에 등록한다(설치 entry point 불필요).
 - 여러 Agent × 호환 Harness 전체 조합 및 여러 독립 Optimizer를 순차 실행한다. 모든 stage는
   baseline에서 시작하며 stage-local train history와 공통 baseline cache를 사용한다.
   기본 최종 비교는 모든 stage winner, 선택은 lexicographic keep=1·mean/sum이다.

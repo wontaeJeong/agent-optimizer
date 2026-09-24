@@ -1,6 +1,6 @@
 # 보류 기능과 복원 조건
 
-현재 MVP는 여러 Agent × 호환 Harness와 여러 **독립 파일 Optimizer**를 지원한다.
+현재 MVP는 여러 Agent × 호환 Harness와 여러 **독립 Optimizer**(내장/등록 팀 파일)를 지원한다.
 baseline-only stage, stage-local train history, 모든 stage winner의 기본 비교,
 lexicographic keep=1·mean/sum을 먼저 검증한다. 아래 기능을 켜는 experimental flag는 없다.
 

@@ -24,6 +24,7 @@ editable 파일·Optimizer·**직접 선택하는 데이터셋**을 차례로 �
   --dataset examples/minimal/tasks.json \
   --evaluator examples/minimal/evaluator.py:TextFixtureEvaluator \
   --optimizer baseline --yes
+.venv/bin/agent-opt doctor --plan runs/configs/my-fixture/experiment.toml --json
 .venv/bin/agent-opt run runs/configs/my-fixture/experiment.toml
 # run 명령의 run_dir을 사용:
 .venv/bin/agent-opt report "runs/<run-id>" --html
@@ -39,7 +40,7 @@ Agent 명령에 `--input` 같은 옵션이 있으면 `--command-json '["python3"
 **또는** `MODEL_ENDPOINT`, `MODEL_ID`, `MODEL_API_KEY`를 환경에 설정합니다.
 자격증명은 생성 설정에 저장하지 않습니다.
 
-`--dataset cvdp`, `verilog-spec`, `verilog-completion`이나
+`--dataset cvdp`, `--dataset verilog-spec`, `--dataset verilog-completion`이나
 `--dataset <내 tasks.json> --evaluator <file.py:Symbol>`을 지정합니다.
 사용자 evaluator가 `passed` 외 지표를 보고할 때는 `--metric <지표 이름>`과
 `--direction maximize|minimize`를 지정합니다. 기본 9개 과제를 train/validation/test로 고르게
@@ -49,7 +50,8 @@ Agent 명령에 `--input` 같은 옵션이 있으면 `--command-json '["python3"
 `agent-opt run-session "runs/configs/<name>/session.json"`으로 실행합니다.
 데이터셋별 시간·과제·iteration 진행 상황과 완료 후 `runs/<run-id>/report.html`을 볼 수 있고,
 서로 다른 채점기의 점수를 직접 한 순위로 합치지 않습니다. 팀의 새 데이터셋/하네스/Optimizer는
-`experiments/<team>/extensions.toml`을 `--extensions`로 전달하면 registry·CLI 변경 없이 선택됩니다.
+`experiments/<team>/`에서 구현하고 `src/agent_optimizer/registry.py`에 ID→구현 파일을 등록합니다.
+CLI 선택지·설치 entry point 변경은 필요 없습니다.
 세 연구 알고리즘은 이 저장소의 **자체 메서드 구현**으로, upstream 논문 실험 재현과 구분합니다.
 
 ## 개발환경 빠른 시작
@@ -71,12 +73,18 @@ sh scripts/bootstrap.sh setup --core
 Python 3.12·frozen 개발 의존성을 `.venv`에 준비합니다. **최초 준비에는 의존성 다운로드가 필요할 수 있지만,
 최소 데모와 로컬 HTTP fixture 실행은 외부 모델·Docker를 사용하지 않습니다.**
 코어 준비는 ACE/CVDP 소스·데이터·이미지를 준비하지 않으며 모델/평가 환경의 준비 완료를 뜻하지 않습니다.
+데이터셋은 직접 선택하여 `make setup ARGS="--dataset verilog-spec"` 또는
+`.venv/bin/agent-opt datasets prepare verilog-spec`으로 별도 준비하고
+`make doctor ARGS="--dataset verilog-spec --json"`으로 진단합니다.
+`agent-opt doctor --dataset ID --json`도 같은 선택 자산을 읽기 전용으로 점검합니다.
+`--core`와 `--dataset`은 함께 쓸 수 없습니다. 아무 옵션 없는 setup/doctor는 기존 **ACE 전체** 경로입니다.
 설치 로그는 `external/setup-logs/`에 보존합니다. 완료 시 출력된
 `runs/<run-id>/report.html`, `report.md`, `summary.json`을 확인하세요. 최소 데모는 두 합성 Agent·한 repair stage·7 trial(solo 4/team 3)의
 연결 검증이며 실제 모델 성능 수치가 아닙니다. API 키는 **live 및 명시적 모델 연결 검사**에 필요합니다.
 
 메뉴는 Python 3.11+와 TTY가 필요하며 모델 토큰은 숨김 입력, 설정은 세션에만 유지됩니다.
 **7번은 선택적 ACE 전체 환경 준비**이며 4/5번의 실제 모델·평가 실행 전에 사용합니다.
+**8번은 일반 Agent 최적화 TUI**로 `.venv/bin/agent-opt tui`를 엽니다.
 [메뉴·OS별 설치 안내](docs/development.md#번호-메뉴)
 
 | 명령 | 용도 |
@@ -85,6 +93,9 @@ Python 3.12·frozen 개발 의존성을 `.venv`에 준비합니다. **최초 준
 | `make setup ARGS="--core"` | 코어 준비·진단·합성 데모 |
 | `make doctor ARGS="--core"` / `make doctor ARGS="--core --json"` | 코어만 읽기 전용 진단 / `scope=core` 단일 JSON |
 | `make setup ARGS="--core --offline"` | 준비한 uv/Python/패키지 cache만 재사용 |
+| `make setup ARGS="--dataset cvdp --offline"` | 검증된 선택 CVDP 평가 자산만 재사용; ACE Agent 이미지 준비는 별개 |
+| `make doctor ARGS="--dataset verilog-spec --json"` | 선택 데이터셋 준비 상태 읽기 전용 진단; Docker/고정 이미지 누락도 실패로 보고 |
+| `.venv/bin/agent-opt doctor --plan PATH --json` | Agent/컴포넌트 선언·선택 자산·예산·필요한 모델 설정의 정적 점검 |
 | `make setup` / `make doctor` | 선택적 ACE 전체 준비 / 전체 진단 (`--json` 지원) |
 | `make lint` / `make test` / `make demo` | `.venv`에서 일상 개발 검사·데모 |
 | `make setup ARGS="--offline"` | ACE 전체 자산·캐시 검증 및 재사용 |
@@ -142,7 +153,7 @@ examples/
   ace-rtl/                외부 ACE-RTL + OpenCode 스킬 + 공식 CVDP 평가
   benchmarks/             선택형 CVDP·Verilog-Eval Dataset/Evaluator와 고정 평가 환경
 experiments/              팀별 Dataset / Optimizer / Harness / 외부 Agent 파일 플러그인
-  dataset-template/       팀 Dataset provider와 extensions.toml 예제
+  dataset-template/       팀 Dataset provider와 중앙 등록 안내
 scripts/                  setup / doctor / smoke / live 및 최소 데모 명령
 docs/                     설계·확장·구현 상태
 tests/                    의미 있는 경계·실험 검증
@@ -186,8 +197,10 @@ make live ARGS="--iterations 3"     # 기본 8 trial: 후보 4개 × train/valid
 
 Ubuntu에서는 기존 proxy 환경과 `/etc/ssl/certs/ca-certificates.crt`를 사용합니다.
 명시적 `AGENT_OPT_CA_BUNDLE`이 우선합니다. [proxy/CA 안내](docs/network.md)를 확인하세요.
-`doctor --json`은 자동화용 결과와 실패 종료 코드 2를 제공합니다. 코어 `agent-opt doctor`는
-단순 바이너리 목록이며, **ACE 데모 준비 검사는 위 `scripts/dev.py doctor`**를 사용합니다.
+`doctor --json`은 자동화용 결과와 실패 종료 코드 2를 제공합니다. 인수 없는 `agent-opt doctor`는
+호환용 바이너리 목록, `agent-opt doctor --dataset ID`와 `--plan PATH`는 각각 선택 데이터셋과
+실험 선언의 읽기 전용 준비 점검입니다. `--plan`은 실제 Agent 산출물·평가기/모델 성공을 보증하지 않습니다.
+실제 모델 연결은 명시적 `--model`에서만 호출합니다. **ACE 전체 준비 검사는 위 `make doctor`**를 사용합니다.
 uv/Python이 없으면 `sh scripts/bootstrap.sh setup`이 프로젝트 전용 환경을 준비합니다.
 
 `--platform`을 생략하면 빌드 전에 Docker daemon의 native `linux/amd64` 또는 `linux/arm64`를

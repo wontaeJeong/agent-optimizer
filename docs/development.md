@@ -21,6 +21,11 @@ ACE/CVDP 소스·데이터·driver·이미지는 준비하지 않습니다. 여�
 프록시·CA가 필요하면 먼저 [네트워크 설정](network.md)을 적용하세요.
 
 기본 `make setup`/`make doctor`는 기존 전체 ACE 경로입니다(아래 선택적 준비 참고).
+특정 데이터셋만 준비할 때는 `make setup ARGS="--dataset cvdp"` 또는
+`make setup ARGS="--dataset verilog-spec"`을 사용합니다. 선택한 데이터셋의 evaluator 자산만
+준비하며, 특히 CVDP 선택 준비는 ACE OpenCode Agent 이미지와 별도 lock을 사용합니다.
+`make doctor ARGS="--dataset verilog-spec --json"`은 선택 자산을 읽기 전용으로 점검합니다.
+`--core`와 `--dataset`을 함께 쓰거나 `--dataset`에 `--platform`/`--model`을 붙일 수 없습니다.
 제품 모델 호출은 `make live` 또는 명시적 `make doctor ARGS="--model"`에서 수행합니다.
 
 ## 번호 메뉴
@@ -46,6 +51,7 @@ sh scripts/bootstrap.sh menu
 | 5. ACE 최적화 실행 | 설정한 모델로 **실제 `live --iterations N` 호출**. 기본 3회, 1..20회만 허용하며 7번 전체 준비와 4번 모델 설정이 필요합니다. |
 | 6. 실행 결과·보고서 확인 | 기존 `runs/<run-id>/report.md` 및 ACE `runs/dev-live/<run-id>/report.md`를 번호로 선택해 현재 내용을 표시합니다. setup 없이 사용 가능하며 경로 직접 입력·symlink 보고서는 허용하지 않습니다. |
 | 7. ACE 전체 환경 준비 | 기존 전체 `setup` 실행. 아래 Docker·Compose 사전 조건을 확인하고 고정 소스·데이터·driver·이미지를 준비합니다. 모델 API 호출은 하지 않습니다. |
+| 8. 일반 Agent 최적화 TUI | 코어 준비 후 `.venv/bin/agent-opt tui` 실행. 데이터셋을 명시적으로 선택하며 선택된 평가 자산은 필요 시 별도 준비합니다. |
 | 0. 종료 | EOF도 종료, Ctrl-C는 130으로 안전하게 종료합니다. |
 
 4번은 기존 `MODEL_*` 환경을 기본값으로 사용합니다. 빈 입력은 해당 기존 값을 유지하고 모델 ID가
@@ -141,13 +147,22 @@ smoke는 공식 이미지에서 실제 도구 및 host-Docker·공식 CVDP 정�
 
 ## 4. Doctor 문제 해결
 
+사용자 CLI의 `.venv/bin/agent-opt doctor --dataset ID --json`은 선택한 데이터셋의
+로컬 소스·해시·runtime/image 등을, `agent-opt doctor --plan <experiment.toml> --json`은
+Agent argv/output/editable 선언, 등록 ID, dataset/evaluator, 예산 및 모델 사용 stage의
+설정 존재 여부를 읽기 전용 점검합니다. 바이너리 목록은 인수 없는 `agent-opt doctor`의 호환 동작입니다.
+두 정적 검사는 다운로드·설치·컨테이너 실행·Agent/evaluator 실행·모델 호출을 하지 않습니다.
+실제 모델 연결은 명시적 `agent-opt doctor --plan PATH --model` 또는 ACE 전체
+`make doctor ARGS="--model"`을 사용하며, 사전 설정 및 해당 환경의 자산이 필요합니다.
+정적 doctor가 ready여도 실제 Agent 산출물·실모델 성능은 미검증입니다.
+
 `make doctor ARGS="--core"`는 network/core collector만 실행하며 Docker·ACE loader·모델을
 조회하지 않는 읽기 전용 진단입니다. `make doctor ARGS="--core --json"`은 `scope="core"`,
 `areas={"core": ...}`만 포함하며 `ready`와 종료 코드는 코어 준비 상태만 뜻합니다.
 ACE 평가/모델 준비 완료로 해석하지 마세요. `--core`는 setup/doctor 전용이며
 `--platform`, `doctor --model`과 함께 지정하면 실행 전에 거부합니다.
 
-기본 doctor는 설치·다운로드·모델 호출 없이 독립 검사를 계속합니다. 이미지가 준비되면 network=none의
+옵션 없는 **전체 ACE** doctor는 설치·다운로드·모델 호출 없이 독립 검사를 계속합니다. 이미지가 준비되면 network=none의
 임시 컨테이너로 도구를 실행하고 정리합니다. `error`는 해당 검사 실패, `blocked`는 표시된 선행
 검사 문제로 실행하지 못했다는 뜻입니다. core/evaluation 준비 여부가 종료 코드를 정하며,
 live 설정 부재만으로는 setup/doctor가 실패하지 않습니다. 성공은 smoke/inference 성공과 다릅니다.

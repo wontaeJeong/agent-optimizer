@@ -445,13 +445,23 @@ class DriverLockTests(unittest.TestCase):
         images = {"agent-optimizer-cvdp:8e894cf-arm64": "sha256:eval",
                   f"agent-optimizer-opencode:{setup.OPENCODE_VERSION}-arm64": "sha256:agent"}
         commands = []
+        checked_sources = []
 
         def inspected(argv, **kwargs):
+            if argv[:3] == ["git", "rev-parse", "HEAD"]:
+                checked_sources.append(Path(kwargs["cwd"]).name)
+                return setup.REPOS[Path(kwargs["cwd"]).name][1] + "\n"
+            if argv[:2] == ["git", "status"]:
+                return ""
             return json.dumps([{"Os": "linux", "Architecture": "arm64", "Id": images[argv[-1]]}])
 
-        with patch.object(setup, "ROOT", self.root), patch.object(setup, "run",
-                side_effect=lambda argv, *args, **kwargs: commands.append(argv)), \
-                patch.object(setup, "prepare_sources"), patch.object(setup, "prepare_data",
+        def execute(argv, *args, **kwargs):
+            commands.append(argv)
+            if argv[:2] == ["git", "clone"]:
+                Path(argv[-1]).mkdir(parents=True)
+
+        with patch.object(setup, "ROOT", self.root), patch.object(setup, "run", side_effect=execute), \
+                patch.object(setup, "prepare_data",
                 return_value=(self.external / "dataset", {})), patch.object(setup, "driver_requirements",
                 return_value={}), patch.object(setup, "validate_driver_python"), \
                 patch.object(setup, "driver_packages", return_value="PyYAML==6.0.2\n"), \
@@ -459,6 +469,9 @@ class DriverLockTests(unittest.TestCase):
                 patch.object(setup.subprocess, "check_output", side_effect=inspected):
             _, lock = setup.prepare_environment(platform="linux/arm64")
         self.assertEqual(set(lock["images"]), {"evaluation", "agent"})
+        self.assertEqual(set(checked_sources), {"ACE-RTL", "cvdp_benchmark"})
+        self.assertIn("ACE-RTL", {Path(cmd[-1]).name for cmd in commands if cmd[:2] == ["git", "clone"]})
+        self.assertEqual(set(lock["repos"]), {"ACE-RTL", "cvdp_benchmark"})
         self.assertEqual(len([cmd for cmd in commands if cmd[:2] == ["docker", "build"]]), 2)
         self.assertTrue((self.external / "environment-lock.json").is_file())
 

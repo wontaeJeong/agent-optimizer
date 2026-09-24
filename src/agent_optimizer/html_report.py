@@ -209,8 +209,7 @@ def write_html_report(root: Path, summary: dict) -> Path:
                   json.dumps({"agents": manifest.get("agents", []),
                               "dataset_provenance": manifest.get("benchmark", {}).get("dataset_provenance", {}),
                               "models": manifest.get("resolved_models", {}),
-                              "plugin_sha256": manifest.get("plugin_sha256", {}),
-                              "extensions_sha256": manifest.get("extensions_sha256")},
+                              "plugin_sha256": manifest.get("plugin_sha256", {})},
                              indent=2, ensure_ascii=False), 16000) + '</pre></details></div></section></main>',
               '<footer>Partial harness usage is never labeled complete. Compare only runs using '
               'equivalent data, model and budget. <a href="summary.json">summary.json</a> · '

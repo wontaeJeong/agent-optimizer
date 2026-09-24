@@ -37,6 +37,7 @@ class HTMLReportTests(unittest.TestCase):
                 self.assertIn(detail, page)
         self.assertIn("changes.diff", page)
         self.assertIn("sha256:checked", page)
+        self.assertNotIn("extensions_sha256", page)
         self.assertNotIn('src="https://', page)
         output = io.StringIO()
         with contextlib.redirect_stdout(output):

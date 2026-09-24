@@ -1,5 +1,34 @@
 # 검증 기록
 
+## 2026-09-24 central registration and selected readiness (Task 5)
+
+환경: Mac ARM64, 이 작업 worktree의 `.venv` Python 3.12.12, Docker daemon `linux/arm64`.
+아래 준비된 `external/` 자산은 이 worktree에 이미 존재했다. 다른 환경/새 checkout의 준비 성공을
+의미하지 않는다. 이번 검사는 모델 API 키 없이 수행했다.
+
+| 실제 명령 | 결과 |
+|---|---|
+| `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_plugin_contracts.py -v` | 18/18 통과. |
+| `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v` | 최종 실행 410개, 395 통과·15 skip, 실패 0 (49.757초). skip: 호스트 Yosys/Icarus/vvp 9, 선택적 네트워크 Docker 2, driver/YAML 2, OpenCode Docker 이미지 지정 1, v12 고정 checkout 환경 변수 1. v12은 아래 명시적 명령에서 실행. |
+| `PYTHONPATH=src .venv/bin/python -m agent_optimizer run examples/minimal/experiment.toml` | completed, **합성 fixture** 7 trials, `runs/20260924T015541Z-8e8d23cd/report.html`. 실제 Agent·모델 성능 아님. |
+| `make lint`; `.venv/bin/python -m build`; `git diff --check` | Ruff `All checks passed!`, sdist/wheel 생성 성공, diff 공백 검사 통과. wheel 설치/Ubuntu CI는 이번 검증에 포함하지 않음. |
+| `.venv/bin/agent-opt --help`, `.venv/bin/agent-opt doctor --help`, `.venv/bin/agent-opt init --help`; `.venv/bin/python scripts/dev.py setup --help`, `.venv/bin/python scripts/dev.py doctor --help`; `.venv/bin/agent-opt datasets list` | exit 0. 중앙 ID `cvdp`, `verilog-spec`, `verilog-completion`, `sample_text` 표시; setup/doctor의 core/dataset/full 및 `--model` 선택 문구 확인. |
+| `.venv/bin/agent-opt doctor --plan examples/minimal/experiment.toml --json` | exit 0, `scope=plan`, `ready=true`, 14개 정적 체크 ok. Agent/평가기 실행·모델 호출 없음. |
+| [adding-components](adding-components.md)의 `.venv/bin/agent-opt init --name team-wiring --agent examples/minimal/agents/solo --argv '{python}' '{agent_dir}/src/fixture_agent.py' '{task_dir}' --editable configs/strategy.json --dataset sample_text --harness sample_command --optimizer sample_baseline --yes` → `.venv/bin/agent-opt doctor --dataset sample_text --json` → `.venv/bin/agent-opt doctor --plan runs/configs/team-wiring/experiment.toml --json` → `.venv/bin/agent-opt run runs/configs/team-wiring/experiment.toml` | 네 명령 모두 exit 0, dataset/plan ready, **합성 fixture** run completed / 2 trials (`runs/20260924T020116Z-d13274b1/`). 실제 팀 provider나 배포 모델 검증이 아님. |
+| `make doctor ARGS="--dataset verilog-spec --json"`; `.venv/bin/agent-opt doctor --dataset cvdp --json` | 둘 다 exit 0, dataset ready. 앞 명령은 core 10+v12 고정 소스/manifest/image 4개 ok; 뒤 명령은 CVDP 평가 lock/소스/HF 3파일/driver/image 9개 ok. 사전에 준비된 Docker image/checkout에 대한 읽기 전용 검사. |
+| `.venv/bin/agent-opt doctor --dataset verilog-completion --json` | **예상 exit 2**, `ready=false` 및 해당 모드의 준비 cache 없음(출처/소스/tasks/v12 image 4개 error). `agent-opt datasets prepare verilog-completion`이 복구 안내. `verilog-spec` 성공을 다른 모드에 소급 적용하지 않음. |
+| `make doctor ARGS="--core --json"`; `make doctor ARGS="--json"` | 모두 exit 0. core는 10개 core check ok만 표시. 전체 ACE는 `core=true`, `evaluation=true`, `live=false`; live.key/live.model 설정 없음. full ACE와 dataset-only ready는 별개의 범위. |
+| `make setup ARGS="--dataset cvdp --offline"` | exit 0, 검증된 캐시 재사용 및 선택 평가 자산 진단 ready. 별도 dataset evaluation lock; 이 명령은 ACE Agent 이미지 검증/빌드·모델 호출을 하지 않음. |
+| `AGENT_OPT_TEST_VERILOG_EVAL_ROOT=external/verilog-eval/source/c498220d0a52248f8e3fdffe279075215bde2da6 PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_verilog_live.py -v` | 1/1 통과: 고정 v12 Docker + private testbench의 작은 정답/오답 fixture. 전체 문제 평가 아님. |
+| `make smoke` | exit 0, 기존 공식 CVDP/RTL 평가 smoke `status=passed`, `runs/dev-smoke-af0049ef4ed4/`; evaluator/tool 검사이며 모델 최적화 아님. |
+
+HTML에 제거된 `extensions_sha256:null`이 노출되던 문제와 중앙 provider가 evaluator 파일 참조를
+ID로 변환하던 문제를 재현 테스트 RED→GREEN으로 수정했다. 사용자 제공 tasks.json의 명시적
+`--evaluator file.py:Symbol`은 계속 허용한다. 기존 전체 ACE의 두 소스/두 이미지 검증은
+실제 `prepare_sources`를 실행하는 fixture에서 소스별 git 조회를 확인하도록 강화했다.
+실제 배포 모델 호출·연구 알고리즘 end-to-end 성능, Verilog-Eval 전체 과제 및 **이번 변경의**
+Ubuntu x86_64 실행/CI는 미검증이다. 과거 날짜별 기록은 당시 결과로 보존한다.
+
 ## 2026-09-24 CLI TUI and research method integration
 
 개발 환경: Mac ARM64, 프로젝트 `.venv` Python 3.12.12 / 시스템 Python 3.14.5,

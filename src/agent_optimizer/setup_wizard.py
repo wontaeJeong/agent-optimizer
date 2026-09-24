@@ -34,9 +34,8 @@ def prepare_selection(project_root: Path, selection: str, *, evaluator: str | No
             result = registry.resolve("datasets", selection)().prepare(
                 project_root / "external" / "datasets" / selection, offline=offline)
         evaluator_id = result["evaluator"]
-        # Accept older bundled providers that still report their registered file reference.
-        evaluator_id = next((name for name, reference in PROJECT_COMPONENTS["evaluators"].items()
-                             if reference == evaluator_id), evaluator_id)
+        if not isinstance(evaluator_id, str) or ":" in evaluator_id:
+            raise ConfigurationError("Registered dataset provider must return a registered evaluator ID")
         registry.resolve("evaluators", evaluator_id)
         result = {**result, "evaluator": evaluator_id, "dataset_provider": selection}
     elif Path(selection).is_file():

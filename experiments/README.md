@@ -1,9 +1,9 @@
 # 담당별 시작점
 
-팀 코드는 **`experiments/<team>/` 파일 플러그인**으로 소유합니다. `extensions.toml`에
-Dataset/Harness/Optimizer/Evaluator를 등록하면 CLI/TUI 목록에서 탐색할 수 있습니다.
+팀 구현은 **`experiments/<team>/`**에서 소유하고 Dataset/Harness/Optimizer/Evaluator ID를
+`src/agent_optimizer/registry.py`의 `PROJECT_COMPONENTS`에 등록하면 CLI/TUI·doctor 목록에서 탐색할 수 있습니다.
 프로젝트 루트에서 복사하고 선택한 README의 post-copy 경로를 바꾼 뒤 `plan`으로 배선을 확인하세요.
-새 팀 컴포넌트를 추가할 때 registry·CLI 선택지·entry-point 패키지 설치를 바꾸지 않습니다.
+필요한 helper 경로는 `PROJECT_DEPENDENCIES`에 선언하고 CLI 선택지·entry-point 패키지 설치는 바꾸지 않습니다.
 
 | 담당 | 복사할 템플릿 | 첫 완료 조건 |
 |---|---|---|

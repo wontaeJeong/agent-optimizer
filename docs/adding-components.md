@@ -2,7 +2,8 @@
 
 먼저 [팀 템플릿 선택](../experiments/README.md) 후 필요한 절만 읽으세요.
 팀 소유 파일은 `experiments/<team>/`, 공통 타입은 `src/agent_optimizer/contracts.py`입니다.
-프로젝트 루트에서 CLI를 실행하며 registry 수정/설치 entry point 없이 명시적으로 등록합니다:
+프로젝트 루트에서 CLI를 실행하며 팀 목록에 노출할 컴포넌트는 중앙 Python registry에 등록합니다.
+실험 하나에만 필요한 파일 플러그인은 기존 `[plugins.*]`를 계속 사용할 수 있습니다:
 
 ```toml
 [plugins.optimizers]
@@ -11,43 +12,51 @@ team_optimizer = "experiments/my-team/optimizer.py:Optimizer"
 team_harness = "experiments/my-team/adapter.py:Harness"
 [plugins.evaluators]
 team_evaluator = "experiments/my-team/evaluator.py:Evaluator"
-[plugins.datasets]
-team_dataset = "experiments/my-team/provider.py:Provider"
 ```
 
-필요한 종류만 등록하세요. `plan`과 CLI의 목록 조회도 Python 파일을 로딩하므로 신뢰한 코드만 사용합니다.
+필요한 종류만 등록하세요. `plan`과 CLI의 목록 조회도 신뢰한 Python 파일을 로딩합니다.
 등록 성공은 실제 구현·외부 실행 성공이 아니며 stub은 구현 전 명시적으로 실패합니다.
 
 ## Dataset provider / 팀 확장 목록
 
-[`experiments/dataset-template/`](../experiments/dataset-template/README.md)을 팀 폴더로 복사하여
-`extensions.toml`에 팀 Dataset/Harness/Optimizer/Evaluator 파일을 명시적으로 등록합니다.
-`load_extensions(path, project_root)`는 schema_version=1과 등록 파일·helper 경로를
-플러그인 코드 실행 전에 검사합니다. 등록 경로는 기존 실험 설정과 동일하게 project_root 기준입니다.
-Dataset provider의 `describe()`는 이름·과제 형태·평가기를 기술하고,
-`prepare(cache, offline=False)`는 준비된 공개 benchmark 경로·평가기·출처/해시를 반환합니다.
-private 채점 자료는 Agent workspace나 공개 과제 파일에 넣지 않습니다.
-CLI 목록·wizard는 데이터셋을 추천하지 않고, 사용자가 선택한 provider의 `prepare`를 호출합니다.
-등록된 파일 플러그인/의존성의 SHA-256과 extension manifest hash를 run manifest에 기록합니다.
-예제의 `examples/benchmarks/extensions.toml`과 같은 형식으로 각 팀 manifest를 등록합니다:
+[`experiments/dataset-template/`](../experiments/dataset-template/README.md)의 `provider.py`를 팀 폴더로 복사해
+`describe`/`prepare`/읽기 전용 `doctor`를 구현합니다. `src/agent_optimizer/registry.py`의
+`PROJECT_COMPONENTS`에 팀 Dataset/Harness/Optimizer/Evaluator ID→`file.py:Symbol`을 추가합니다.
+예를 들어 각 해당 종류 mapping에 다음 항목을 추가합니다(기존 ID는 유지):
 
-```toml
-schema_version = 1
-[plugins.datasets]
-team_dataset = "experiments/my-team/provider.py:Provider"
-[plugins.harnesses]
-team_harness = "experiments/my-team/adapter.py:Harness"
-[plugins.optimizers]
-team_optimizer = "experiments/my-team/optimizer.py:Optimizer"
-[plugins.evaluators]
-team_evaluator = "experiments/my-team/evaluator.py:Evaluator"
+```python
+"datasets": {"team_dataset": "experiments/my-team/provider.py:Provider"},
+"evaluators": {"team_evaluator": "experiments/my-team/evaluator.py:Evaluator"},
+"harnesses": {"team_harness": "experiments/my-team/adapter.py:Harness"},
+"optimizers": {"team_optimizer": "experiments/my-team/optimizer.py:Optimizer"},
 ```
 
-`agent-opt datasets list --extensions experiments/my-team/extensions.toml`로 이름을 확인하고,
-`agent-opt init --extensions ... --dataset team_dataset --harness team_harness
---optimizer team_optimizer ... --yes`로 동일 경로를 사용합니다. 추가 Python 코드가 필요하면
-`[plugin_dependencies]`에 파일을 선언합니다. source clone/데이터 다운로드/설치 스크립트의
-실제 실행 결과는 별도로 확인하며 stub 성공은 완료 증거가 아닙니다.
+공유 helper는 같은 파일의 `PROJECT_DEPENDENCIES`에
+`"datasets/team_dataset": ["experiments/my-team/importer.py"]`처럼 선언합니다.
+등록 파일/helper는 project_root 기준으로 검사·해시하며 선택된 컴포넌트만 run manifest에 fingerprint합니다.
+Dataset provider의 `describe()`는 이름·과제 형태·평가기를 기술하고,
+`prepare(cache, offline=False)`는 준비된 공개 benchmark 경로·**등록 evaluator ID**·출처/해시를 반환합니다.
+`doctor(cache)`는 파일/해시/도구를 읽기 전용으로 확인하고 `id`/`area`/`status`/`message`/`remedy` 체크를 반환합니다.
+private 채점 자료는 Agent workspace나 공개 과제 파일에 넣지 않습니다.
+CLI 목록·wizard는 데이터셋을 추천하지 않고, 사용자가 선택한 provider의 `prepare`를 호출합니다.
+`.venv/bin/agent-opt datasets list`로 ID를 확인하고, 구현 전에는 이미 등록된 합성 예제로
+CLI/doctor/run 경로를 점검할 수 있습니다(실제 팀 ID로 교체하려면 먼저 provider/평가기 구현 필요):
+
+```bash
+.venv/bin/agent-opt init --name team-wiring \
+  --agent examples/minimal/agents/solo \
+  --argv '{python}' '{agent_dir}/src/fixture_agent.py' '{task_dir}' \
+  --editable configs/strategy.json --dataset sample_text \
+  --harness sample_command --optimizer sample_baseline --yes
+.venv/bin/agent-opt doctor --dataset sample_text --json
+.venv/bin/agent-opt doctor --plan runs/configs/team-wiring/experiment.toml --json
+.venv/bin/agent-opt run runs/configs/team-wiring/experiment.toml
+```
+
+팀 등록 후에는 같은 옵션의 ID를 `team_dataset`/`team_harness`/`team_optimizer`로 바꿉니다.
+provider에서 임의 `file.py:Symbol` evaluator를 반환하지 않습니다.
+사용자가 직접 제공한 tasks.json은 `--evaluator file.py:Symbol`을 명시적으로 선택할 수 있습니다.
+source clone/데이터 다운로드/설치 스크립트의 실제 실행 결과는 별도로 확인하며 stub 성공은 완료 증거가 아닙니다.
 
 ## Optimizer
 

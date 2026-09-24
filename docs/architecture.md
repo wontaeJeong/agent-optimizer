@@ -9,7 +9,7 @@ private 자료를 제외한 validation 수치만 반환한다. baseline train �
 | 모듈 (`src/agent_optimizer/`) | 책임 |
 |---|---|
 | `contracts.py` | Agent/Candidate/Task, RunRequest/ExecutionResult/Evaluation, Optimizer 계약 |
-| `config.py`, `registry.py`, `catalog.py` | TOML·과제·호환성 검사, 내장 및 팀 manifest의 명시적 `file.py:Symbol` 등록 |
+| `config.py`, `registry.py`, `readiness.py` | TOML·과제·호환성 검사, 중앙 Python `file.py:Symbol` 등록, 선택 데이터셋/계획의 읽기 전용 진단 |
 | `datasets.py`, `examples/benchmarks/` | 고정 Git source·명시적 dataset 준비, CVDP/Verilog-Eval 평가 자료의 공개/비공개 경계 |
 | `runner.py` | Agent × Harness 그룹, 독립 stage, train/validation/test·예산 소유 |
 | `sources.py`, `workspace.py` | 원본 보존, editable 스냅샷·hash·diff·계보·산출물 경계 |
@@ -29,7 +29,7 @@ session index는 각 `report.html`을 연결하지만 이질적 점수를 하나
   실제 파일 hash를 cache 반환 전에도 검증한다. 직접 수정·위조 후보는 거부한다.
 - 공개 prompt/files만 Agent workspace로 복사한다. private evaluation은 evaluator에만 전달한다.
   Docker Agent에는 평가 데이터/Docker socket을 마운트하지 않는다. local 실행과 신뢰한 in-process
-  파일 플러그인의 논리적 분리는 OS 보안 격리가 아니다. `plan`도 Python plugin 코드를 로딩한다.
+  파일 플러그인의 논리적 분리는 OS 보안 격리가 아니다. `plan`도 신뢰한 Python plugin 코드를 로딩한다.
 - evaluator가 실제 결과를 판정한다. Agent 자기보고를 성공 근거로 사용하지 않는다.
   환경 오류/unsupported가 포함된 split의 집계는 null이며 정상 행만 남겨 분모를 줄이지 않는다.
 - ACE 스킬 프로필은 OpenCode 호출 후 외부 CVDP 평가다. native 역할 루프와 같지 않다.
@@ -38,6 +38,7 @@ session index는 각 `report.html`을 연결하지만 이질적 점수를 하나
 ## 재현 자료
 
 manifest/source-lock에 설정·resolved commit/content hash·benchmark/plugin/helper hash를 남긴다.
+선택된 중앙 등록의 구현과 선언 helper 및 실험별 명시적 파일 플러그인만 fingerprint한다.
 후보 `candidate.json`/`changes.diff`, trial 로그/`result.json`, 버전·timestamp·dataset/iteration/phase를 가진
 `events.jsonl`, `frozen_selection.json`, `summary.json`/`report.md`/`report.html`을 보존한다.
 seed가 모든 backend의 결정성을 보장하지는 않는다.
