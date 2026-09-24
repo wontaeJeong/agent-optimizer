@@ -106,10 +106,13 @@ class TerminalColorsTests(unittest.TestCase):
         master, slave = pty.openpty()
         process = None
         try:
+            # unittest is also run by `make test`; child make must behave as a direct invocation.
+            env = {key: value for key, value in os.environ.items()
+                   if key not in {"MAKEFLAGS", "MAKELEVEL", "MFLAGS", "GNUMAKEFLAGS"}}
+            env.update(NO_COLOR=no_color, **(extra_env or {}))
             process = subprocess.Popen([executable, *args], cwd=cwd, stdin=subprocess.DEVNULL,
                                        stdout=slave, stderr=slave if stderr_tty else subprocess.PIPE,
-                                       shell=False,
-                                       env={**os.environ, "NO_COLOR": no_color, **(extra_env or {})})
+                                       shell=False, env=env)
             chunks = []
             deadline = time.monotonic() + 40
             while True:
