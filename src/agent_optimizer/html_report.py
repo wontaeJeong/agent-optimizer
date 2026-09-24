@@ -279,11 +279,11 @@ def _candidates(root, report):
             candidate = next((item for item in group['candidates'] if item['candidate_id'] == identifier), None)
             sections.append(f'<div class="panel best"><strong>BEST · {text(identifier)}</strong> '
                             f'<span class="tag">{text(row.get("split"))} aggregate · '
-                            f'{value(row.get("trial_count"))} trials</span><p>{_metrics(row.get("metrics"))}</p>')
+                            f'{_count(row.get("trial_count"))} trials</span><p>{_metrics(row.get("metrics"))}</p>')
             if candidate:
                 sections.append(f'<p>Parents: {text(", ".join(candidate.get("parents") or []) or "—")} · '
                                 f'Producer: {text(candidate.get("producer"))} · '
-                                f'Changed files: {text(", ".join(map(str, candidate.get("changed_files") or [])) or "—")}</p>')
+                                f'Changed files: <code>{text(", ".join(map(str, candidate.get("changed_files") or [])) or "—")}</code></p>')
                 diff = _link(root, candidate.get('diff_path'), 'changes.diff')
                 bundle = _link(root, candidate.get('snapshot_path'), 'Snapshot bundle', directory=True)
                 sections.append('<p>' + ' · '.join(item for item in (diff, bundle) if item) + '</p>')
