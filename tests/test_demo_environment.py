@@ -51,6 +51,7 @@ class DemoEnvironmentTests(unittest.TestCase):
             self.assertEqual(dict(os.environ), environment)
         self.assertFalse(report["ready"])
         self.assertEqual(report["model_status"], "blocked")
+        self.assertIn("AGENT_OPT_MODEL_", report["checks"][-1]["remedy"])
         self.assertNotIn("fixture-secret", json.dumps(report))
 
     def test_explicit_probe_cannot_pass_without_container_tool_result(self):
