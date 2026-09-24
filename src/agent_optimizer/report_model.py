@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 from agent_optimizer.contracts import ConfigurationError
@@ -105,23 +106,96 @@ def _candidate_ids(root: Path, key: str, group: dict, events: list[dict]) -> lis
 
 def _evaluation(key: str, event: dict) -> dict:
     trial_id = event.get("trial_id")
-    return {"id": _qualified(key, trial_id), "trial_id": trial_id,
-            "group_key": key, "candidate_ref": _qualified(key, event.get("candidate_id")),
-            "candidate_id": event.get("candidate_id"),
-            **{name: event.get(name) for name in (
-                "stage_id", "task_id", "dataset", "split", "repeat", "seed_requested",
-                "status", "valid", "metrics", "timestamp", "feedback", "execution",
-                "artifacts", "error_type", "error")}}
+    row = {"id": _qualified(key, trial_id), "trial_id": trial_id,
+           "group_key": key, "candidate_ref": _qualified(key, event.get("candidate_id")),
+           "candidate_id": event.get("candidate_id"),
+           **{name: event.get(name) for name in (
+               "stage_id", "task_id", "dataset", "split", "repeat", "seed_requested",
+               "status", "valid", "metrics", "timestamp", "feedback", "execution",
+               "artifacts", "error_type", "error")}}
+    row["failure"] = _failure(row["status"], row["execution"], row["error_type"],
+                              row["error"], row["feedback"])
+    return row
+
+
+def _failure(status, execution=None, error_type=None, error=None, feedback=None) -> dict | None:
+    if status in {None, "passed", "completed"}:
+        return None
+    execution = execution if isinstance(execution, dict) else {}
+    causes = {"infrastructure_error": "infrastructure", "timeout": "timeout",
+              "unsupported": "unsupported", "interrupted": "interrupted",
+              "error": "run_error", "source_error": "run_error",
+              "budget_exhausted": "interrupted"}
+    execution_status = execution.get("status")
+    category = causes.get(execution_status) or causes.get(status)
+    if category == "run_error" and error_type == "TimeoutError":
+        category = "timeout"
+    if category is None:
+        category = ("timeout" if error_type == "TimeoutError" else
+                    "run_error" if error_type else
+                    "scored_failure" if status == "failed" else None)
+    if category is None:
+        return None
+    message = (error or (execution.get("detail") if execution_status != "completed" else None)
+               or feedback)
+    return {"category": category, "message": message if isinstance(message, str) else None}
+
+
+def _metric_value(row, key: str, name: str):
+    if (not isinstance(row, dict) or row.get("split") != "validation"
+            or row.get("valid") is not True or row.get("partial", False)):
+        return None
+    if row.get("agent_id") != key[0] or row.get("harness_id") != key[1]:
+        return None
+    metrics = row.get("metrics")
+    value = metrics.get(name) if isinstance(metrics, dict) else None
+    return value if type(value) in (int, float) and math.isfinite(value) else None
+
+
+def _trend(before, after, direction):
+    if before is None or after is None:
+        return "unknown"
+    if after == before:
+        return "unchanged"
+    return "improved" if (after > before) == (direction == "maximize") else "regressed"
+
+
+def _comparison(group: dict, objective: dict) -> tuple[list[dict], str]:
+    key = group["agent_id"], group["harness_id"]
+    selected = next((row for row in group.get("selected", [])
+                     if isinstance(row, dict) and row.get("split") == "validation"
+                     and row.get("valid") is True and not row.get("partial", False) and
+                     (row.get("agent_id"), row.get("harness_id")) == key), None)
+    if selected is None:
+        return [], "unknown"
+    comparison = []
+    overall = "unchanged"
+    for metric in objective.get("metrics", []):
+        name, direction = metric["name"], metric["direction"]
+        before = _metric_value(group.get("baseline"), key, name)
+        after = _metric_value(selected, key, name)
+        trend = _trend(before, after, direction)
+        item = {"name": name, "direction": direction, "baseline": before, "selected": after,
+                "delta": after - before if before is not None and after is not None else None,
+                "trend": trend}
+        if (metric.get("source") == "passed" and metric.get("aggregate", "mean") == "mean"
+                and before is not None and after is not None
+                and 0 <= before <= 1 and 0 <= after <= 1):
+            item["delta_pp"] = (after - before) * 100
+        comparison.append(item)
+        if overall == "unchanged" and trend != "unchanged":
+            overall = trend
+    return comparison, overall if comparison else "unknown"
 
 
 def _evaluation_counts(evaluations: list[dict]) -> dict:
     passed = sum(row["status"] == "passed" for row in evaluations)
-    return {"completed_evaluations": len(evaluations), "passed_evaluations": passed,
-            "failed_evaluations": sum(row["status"] is not None and row["status"] != "passed"
-                                      for row in evaluations)}
+    return {"evaluations": len(evaluations), "completed_evaluations": len(evaluations),
+            "passed_evaluations": passed,
+            "failed_evaluations": sum(row["failure"] is not None for row in evaluations)}
 
 
-def _group(root: Path, group: dict, events: list[dict]) -> dict:
+def _group(root: Path, group: dict, events: list[dict], objective: dict) -> dict:
     agent_id, harness_id = group["agent_id"], group["harness_id"]
     key = f"{agent_id}/{harness_id}"
     group_events = [event for event in events if event.get("agent_id") == agent_id
@@ -131,32 +205,42 @@ def _group(root: Path, group: dict, events: list[dict]) -> dict:
     candidates = [_candidate(root, key, identifier)
                   for identifier in _candidate_ids(root, key, group, group_events)]
     candidates = [candidate for candidate in candidates if candidate is not None]
+    comparison, overall = _comparison(group, objective)
+    failures = [{"evaluation_ref": row["id"], **row["failure"]}
+                for row in evaluations if row["failure"] is not None]
     return {"key": key, "agent_id": agent_id, "harness_id": harness_id,
             "baseline": group.get("baseline"), "selected": group.get("selected", []),
             "final_test": group.get("final_test", []), "stages": group.get("stages", []),
             "optimizer_usage": group.get("optimizer_usage", []), "status": group.get("status"),
-            "candidates": candidates, "evaluations": evaluations,
-            "structure": {"kind": None, "label": None, "units": []}, "comparison": [],
-            "counts": {"candidates": len(candidates), **_evaluation_counts(evaluations)}}
+            "candidates": candidates, "evaluations": evaluations, "failures": failures,
+            "structure": {"kind": None, "label": None, "units": []},
+            "comparison": comparison, "comparison_trend": overall,
+            "counts": {"candidates": len(candidates), "trials_used": group.get("trials_used"),
+                       **_evaluation_counts(evaluations)}}
 
 
 def _counts(groups: list[dict], summary: dict) -> dict:
     return {"groups": len(groups), "trials_used": summary.get("trials_used"),
             "candidates": sum(group["counts"]["candidates"] for group in groups),
             **{name: sum(group["counts"][name] for group in groups) for name in (
-                "completed_evaluations", "passed_evaluations", "failed_evaluations")}}
+                 "evaluations", "completed_evaluations", "passed_evaluations", "failed_evaluations")}}
 
 
 def build_report(root: Path, summary: dict) -> dict:
     """집계와 선택은 그대로 두고 trial별 근거만 별도로 보존한다."""
     manifest = _read_json(safe_path(root, "manifest.json"), {})
     events = _read_events(root)
-    groups = [_group(root, group, events) for group in summary.get("groups", [])]
     experiment = manifest.get("experiment", {})
+    objective = experiment.get("objective", {})
+    groups = [_group(root, group, events, objective) for group in summary.get("groups", [])]
     identity = {name: summary.get(name) for name in ("run_id", "status", "synthetic")}
     identity.update({name: summary[name] for name in ("error_type", "error") if name in summary})
+    run_failure = _failure(summary.get("status"), error_type=summary.get("error_type"),
+                           error=summary.get("error"))
+    if run_failure is not None:
+        identity["failure"] = run_failure
     return {"report_schema_version": 1,
             "identity": identity,
             "configuration": experiment, "provenance": manifest,
-            "objective": experiment.get("objective", {}),
+            "objective": objective,
             "counts": _counts(groups, summary), "groups": groups, "events": events}
