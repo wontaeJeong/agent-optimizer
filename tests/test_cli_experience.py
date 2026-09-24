@@ -13,6 +13,7 @@ from unittest.mock import patch
 from agent_optimizer.cli import main
 from agent_optimizer.config import load_experiment
 from agent_optimizer.registry import PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, Registry
+from agent_optimizer.readiness import collect_plan
 from agent_optimizer.runner import run_experiment
 from agent_optimizer.setup_wizard import _bounded_tasks, wizard_arguments, write_experiment
 from support import test_project
@@ -24,6 +25,150 @@ class CLIExperienceTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.agent = self.root / "examples/minimal/agents/solo"
         self.data = self.root / "examples/minimal/tasks.json"
+
+    def test_doctor_keeps_legacy_binary_inventory_without_options(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(main(["doctor"]), 0)
+        self.assertEqual(set(json.loads(output.getvalue())), {"python3", "git", "docker", "opencode"})
+
+    def test_plan_doctor_api_free_minimal_needs_no_model_credentials(self):
+        output = io.StringIO()
+        with patch.dict(os.environ, {"MODEL_API_KEY": "", "MODEL_ENDPOINT": "", "MODEL_BASE_URL": ""}), \
+                patch("agent_optimizer.models.probe_model", side_effect=AssertionError("model call")), \
+                contextlib.redirect_stdout(output):
+            code = main(["doctor", "--plan", str(self.root / "examples/minimal/experiment.toml"), "--json"])
+        report = json.loads(output.getvalue())
+        self.assertEqual(code, 0)
+        self.assertTrue(report["ready"], report)
+        self.assertNotIn("model.configuration", {row["id"] for row in report["checks"]})
+
+    def test_plan_doctor_collects_model_evaluator_budget_and_agent_failures(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        plan.write_text(plan.read_text().replace('evaluator = "text_fixture"', 'evaluator = "missing-evaluator"')
+                        .replace('max_trials = 40', 'max_trials = 1')
+                        + '\n[[stages]]\nid = "research"\noptimizer = "gepa"\nmax_trials = 3\n')
+        (self.root / "examples/minimal/agents/solo/prompts/system.md").unlink()
+        before = {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+        with patch.dict(os.environ, {"MODEL_API_KEY": "", "MODEL_ENDPOINT": "", "MODEL_BASE_URL": ""}), \
+                patch("agent_optimizer.runner.preflight", side_effect=AssertionError("preflight")), \
+                patch("agent_optimizer.models.probe_model", side_effect=AssertionError("model call")):
+            report = collect_plan(plan, Registry())
+        checks = {row["id"]: row for row in report["checks"]}
+        self.assertFalse(report["ready"])
+        for name in ("model.configuration", "evaluator.registration", "budget.trials", "agent.prompt"):
+            self.assertEqual(checks[name]["status"], "error", name)
+            self.assertTrue(checks[name]["remedy"])
+        self.assertEqual(before, {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
+
+    def test_explicit_model_probe_only_runs_when_requested(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        with patch("agent_optimizer.models.probe_model", return_value={"status": "passed"}) as probe, \
+                patch.dict(os.environ, {"MODEL_API_KEY": "", "MODEL_ENDPOINT": "", "MODEL_BASE_URL": ""}):
+            report = collect_plan(plan, Registry(), model=True)
+        self.assertTrue(report["ready"], report)
+        self.assertEqual({row["id"] for row in report["checks"] if row["area"] == "model"},
+                         {"model.probe"})
+        probe.assert_called_once()
+
+    def test_doctor_json_emits_one_remedial_object_for_unprepared_dataset_and_bad_plan(self):
+        missing = io.StringIO()
+        with contextlib.redirect_stdout(missing):
+            self.assertNotEqual(main(["doctor", "--dataset", "cvdp", "--json",
+                                      "--project-root", str(self.root)]), 0)
+        dataset = json.loads(missing.getvalue())
+        self.assertFalse(dataset["ready"])
+        self.assertTrue(any(row["status"] != "ok" and row["remedy"] for row in dataset["checks"]))
+
+        broken = self.root / "examples/minimal/experiment.toml"
+        broken.write_text(broken.read_text().replace('evaluator = "text_fixture"', 'evaluator = "absent"')
+                          .replace('optimizer = "file_variants"', 'optimizer = "gepa"'))
+        output = io.StringIO()
+        with patch.dict(os.environ, {"MODEL_API_KEY": "SECRET_VALUE", "MODEL_ENDPOINT": ""}), \
+                contextlib.redirect_stdout(output):
+            self.assertNotEqual(main(["doctor", "--plan", str(broken), "--json"]), 0)
+        report = json.loads(output.getvalue())
+        self.assertFalse(report["ready"])
+        self.assertIn("model.configuration", {row["id"] for row in report["checks"]})
+        self.assertNotIn("SECRET_VALUE", output.getvalue())
+
+    def test_invalid_plan_schema_still_reports_independent_evaluator(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        plan.write_text(plan.read_text().replace('agents = ["examples/minimal/solo.toml", "examples/minimal/team.toml"]',
+                                               'agents = ["missing.toml"]')
+                        .replace('evaluator = "text_fixture"', 'evaluator = "missing-evaluator"'))
+        report = collect_plan(plan, Registry())
+        self.assertFalse(report["ready"])
+        self.assertEqual({row["id"] for row in report["checks"] if row["status"] == "error"} &
+                         {"plan.schema", "evaluator.registration"},
+                         {"plan.schema", "evaluator.registration"})
+
+    def test_plan_doctor_checks_declared_command_and_research_options_without_running_evaluator(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        harness = self.root / "examples/minimal/harness.toml"
+        harness.write_text('id = "command"\nadapter = "command"\nallow_local = true\n[runtime]\nkind = "local"\n')
+        manifest = self.root / "examples/minimal/solo.toml"
+        manifest.write_text(manifest.read_text().replace('"fixture", "opencode", "command"', '"command"'))
+        manifest = self.root / "examples/minimal/team.toml"
+        manifest.write_text(manifest.read_text().replace('"fixture", "opencode", "command"', '"command"'))
+        evaluator = self.root / "examples/minimal/evaluator.py"
+        evaluator.write_text('class TextFixtureEvaluator:\n'
+                             '    def __init__(self, *args): raise AssertionError("evaluator constructed")\n'
+                             '    def validate_benchmark(self, *args): raise AssertionError("trial validation")\n')
+        plan.write_text(plan.read_text().replace('optimizer = "file_variants"', 'optimizer = "gepa"')
+                        .replace('include_seeds = true', 'file = "missing.txt"\niterations = -1'))
+        with patch.dict(os.environ, {"MODEL_ENDPOINT": "", "MODEL_API_KEY": ""}), \
+                patch("agent_optimizer.runner.preflight", side_effect=AssertionError("preflight")):
+            report = collect_plan(plan, Registry())
+        checks = {row["id"]: row for row in report["checks"]}
+        self.assertEqual(checks["agent.argv"]["status"], "error")
+        self.assertEqual(checks["optimizer.options"]["status"], "error")
+        self.assertEqual(checks["evaluator.registration"]["status"], "ok")
+
+    def test_opencode_profile_needs_its_declared_model_env_and_binary_not_optimizer_api_key(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        harness = self.root / "examples/minimal/harness.toml"
+        harness.write_text('id = "opencode"\nadapter = "opencode"\nmodel_env = "TEAM_MODEL"\n'
+                           '[runtime]\nkind = "docker"\nimage = "pinned-agent"\n')
+        with patch.dict(os.environ, {"MODEL_API_KEY": "", "MODEL_ENDPOINT": "", "TEAM_MODEL": ""}), \
+                patch("agent_optimizer.readiness.shutil.which", return_value=None):
+            checks = {row["id"]: row for row in collect_plan(plan, Registry())["checks"]}
+        self.assertEqual(checks["model.configuration"]["status"], "error")
+        self.assertIn("TEAM_MODEL", checks["model.configuration"]["remedy"])
+        self.assertEqual(checks["runtime.binary"]["status"], "error")
+        with patch.dict(os.environ, {"MODEL_API_KEY": "", "MODEL_ENDPOINT": "", "TEAM_MODEL": "team/model"}), \
+                patch("agent_optimizer.readiness.shutil.which", return_value="/usr/bin/docker"):
+            checks = {row["id"]: row for row in collect_plan(plan, Registry())["checks"]}
+        self.assertEqual(checks["model.configuration"]["status"], "ok")
+        self.assertEqual(checks["runtime.binary"]["status"], "ok")
+
+    def test_invalid_project_root_is_structured_json_failure(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        plan.write_text(plan.read_text().replace('project_root = "../.."', 'project_root = ["invalid"]'))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = main(["doctor", "--plan", str(plan), "--json"])
+        self.assertEqual(code, 2)
+        self.assertFalse(json.loads(output.getvalue())["ready"])
+
+    def test_multiple_harness_profiles_have_unique_stable_check_ids(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        plan.write_text(plan.read_text().replace('harnesses = ["examples/minimal/harness.toml"]',
+                                               'harnesses = ["examples/minimal/harness.toml", '
+                                               '"examples/minimal/second.toml"]'))
+        (self.root / "examples/minimal/second.toml").write_text('id = "second"\nadapter = "fixture"\n')
+        report = collect_plan(plan, Registry())
+        identifiers = [row["id"] for row in report["checks"]]
+        self.assertEqual(len(identifiers), len(set(identifiers)))
+        self.assertTrue(report["ready"], report)
+
+    def test_malformed_evaluator_id_is_structured_failure(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        plan.write_text(plan.read_text().replace('evaluator = "text_fixture"', 'evaluator = ["bad"]'))
+        report = collect_plan(plan, Registry())
+        self.assertFalse(report["ready"])
+        self.assertEqual({row["id"]: row["status"] for row in report["checks"]}["evaluator.registration"],
+                         "error")
 
     def test_dataset_inventory_lists_builtin_names_without_recommending_one(self):
         output = io.StringIO()
