@@ -53,13 +53,20 @@ export PIP_INDEX_URL=https://packages.example.invalid/simple
 Git 재작성은 원본 URL에 대한 접근을 대체할 뿐, 요청한 전체 commit SHA를 가진 소스가
 대상 저장소에 있어야 합니다. 실제 Agent에는 `--agent <Git URL> --revision <전체 commit>`도
 사용할 수 있습니다. `UV_DEFAULT_INDEX`는 uv, `PIP_INDEX_URL`은 pip용이며 인증정보는
-환경/credential store에 둡니다. uv 설치 프로그램 자체가 필요한 경우에는 기존 uv를
-먼저 준비하거나 부트스트랩의 원래 다운로드 주소에 접근해야 합니다.
+환경/credential store에 둡니다. 다만 현재 `uv.lock`은 PyPI registry와 개별 wheel의
+공개 절대 URL을 기록합니다. **`UV_DEFAULT_INDEX`만 설정해 `uv sync --frozen`의
+기존 lock 다운로드가 다른 서버로 바뀌지는 않습니다.** 검증된 uv/Python/패키지 cache를
+사용하거나, 별도 index에서 lock을 검토·재생성한 뒤 동일한 버전/해시 검증과 실제 sync를
+진행해야 합니다. uv 설치 프로그램 자체가 필요한 경우에는 기존 uv를 먼저 준비하거나
+부트스트랩의 원래 다운로드 주소에 접근해야 합니다.
 Docker image/패키지 registry와 daemon/BuildKit의 인증·CA·proxy는 해당 도구/러너에서
 설정합니다. 고정 HTTPS 데이터 파일은 Git 재작성 대상이 아니며, 원래 주소에 접근할 수
-없으면 검증된 자산을 기존 cache에 준비한 뒤 offline setup을 사용하세요. 해시 불일치는
-거부하며 다른 URL이나 자산으로 자동 대체하지 않습니다. 사용한 출처·접근 경로와 실행
-결과는 별도로 확인하세요.
+없으면 검증된 자산을 기존 cache에 준비하세요. 데이터만 미리 넣었다면 **첫 setup은 online
+경로**로 실행해야 합니다. 이 경로는 올바른 해시의 데이터 cache를 재사용하지만 나머지
+소스·driver·이미지를 계속 준비합니다. `setup --offline`은 이전 setup의 환경 lock·driver·이미지와
+필요한 uv cache까지 모두 준비된 환경을 재사용할 때만 가능합니다. 해시 불일치는 거부하며
+다른 URL이나 자산으로 자동 대체하지 않습니다. 사용한 출처·접근 경로와 실행 결과는
+별도로 확인하세요.
 
 ## 전달 규칙
 

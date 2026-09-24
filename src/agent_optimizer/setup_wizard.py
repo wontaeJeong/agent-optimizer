@@ -66,11 +66,11 @@ def _literal(value):
     if isinstance(value, float) and math.isfinite(value):
         return str(value)
     if isinstance(value, str):
-        return json.dumps(value, ensure_ascii=False)
+        return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f")
     if isinstance(value, (list, tuple)):
         return "[" + ", ".join(_literal(item) for item in value) + "]"
     if isinstance(value, dict) and all(isinstance(key, str) for key in value):
-        return "{ " + ", ".join(f"{json.dumps(key, ensure_ascii=False)} = {_literal(item)}"
+        return "{ " + ", ".join(f"{_literal(key)} = {_literal(item)}"
                                 for key, item in value.items()) + " }"
     raise ConfigurationError("Experiment options must contain only TOML-compatible values")
 

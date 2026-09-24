@@ -811,6 +811,51 @@ class CLIExperienceTests(unittest.TestCase):
             self.assertEqual(main(args), 2)
         self.assertEqual((existing / "sentinel").read_bytes(), b"unchanged")
 
+    def test_multi_dataset_generation_failure_can_retry_without_leaving_first_plan(self):
+        config_root = self.root / "runs/configs/multi-retry"
+        config_root.mkdir(parents=True)
+        (config_root / "sentinel").write_bytes(b"keep")
+        second = self.root / "second.json"
+        second.write_text("invalid JSON")
+        args = ["init", "--project-root", str(self.root), "--name", "multi-retry",
+                "--agent", str(self.agent), "--dataset", str(self.data), "--dataset", str(second),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "baseline", "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--yes"]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 2)
+        self.assertEqual((config_root / "sentinel").read_bytes(), b"keep")
+        self.assertFalse((config_root / "1-tasks").exists())
+        self.assertFalse((config_root / "session.json").exists())
+
+        document = json.loads(self.data.read_text())
+        document["id"] = "second-dataset"
+        second.write_text(json.dumps(document))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        prepared = json.loads(output.getvalue())
+        self.assertEqual(len(prepared["experiments"]), 2)
+        self.assertTrue((config_root / "1-tasks/experiment.toml").is_file())
+        self.assertTrue((config_root / "2-second/experiment.toml").is_file())
+
+    def test_generated_optimizer_strings_round_trip_del_character(self):
+        value = "repair\x7fversion"
+        options = {"file_variants": {"variants": [
+            {"name": value, "files": {"configs/strategy.json": '{"repair": true}'}}
+        ]}}
+        args = ["init", "--project-root", str(self.root), "--name", "special-options",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "file_variants", "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--optimizer-config", json.dumps(options), "--yes"]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        spec = load_experiment(self.root / "runs/configs/special-options/experiment.toml")
+        self.assertEqual(spec["stages"][0]["config"]["variants"][0]["name"], value)
+
     def test_gepa_trial_allowance_tracks_requested_iterations_and_merge(self):
         args = ["init", "--project-root", str(self.root), "--name", "long-search",
                 "--agent", str(self.agent), "--dataset", str(self.data),
