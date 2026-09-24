@@ -43,8 +43,7 @@ class TerminalColorsTests(unittest.TestCase):
     def test_cli_argument_errors_are_red_on_tty(self):
         error = TTYOutput()
         with patch.dict(os.environ, {"NO_COLOR": ""}), contextlib.redirect_stderr(error):
-            with self.assertRaises(SystemExit):
-                main(["run"])
+            self.assertEqual(main(["run"]), 2)
         self.assertIn("\x1b[31m", error.getvalue())
 
     def test_developer_argument_errors_are_red_on_tty(self):
