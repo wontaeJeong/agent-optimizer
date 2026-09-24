@@ -102,6 +102,9 @@ setup_command='sh scripts/bootstrap.sh setup'
 case "$command:$core" in
     *:true|test:*|lint:*|demo:*|menu:*) setup_command="$setup_command --core" ;;
 esac
+if [ -n "$dataset" ]; then
+    setup_command="$setup_command --dataset $dataset"
+fi
 if [ "$show_help" = true ]; then
     if [ "$command" = menu ]; then
         printf '%s\n' 'menu: interactive numbered frontend (TTY and Python >=3.11 required).' \
