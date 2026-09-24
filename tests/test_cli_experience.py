@@ -32,23 +32,28 @@ class CLIExperienceTests(unittest.TestCase):
         with contextlib.redirect_stdout(output), self.assertRaises(SystemExit) as exit_code:
             main(["--help"])
         self.assertEqual(exit_code.exception.code, 0)
+        self.assertIn("사용법:", output.getvalue())
+        self.assertIn("옵션:", output.getvalue())
+        self.assertIn("도움말 표시 후 종료", output.getvalue())
         self.assertIn('make setup ARGS="--core"', output.getvalue())
-        self.assertIn("Run a prepared experiment", output.getvalue())
-        self.assertIn("Read a run summary or regenerate HTML", output.getvalue())
+        self.assertIn("준비된 실험 실행", output.getvalue())
+        self.assertIn("실행 요약 확인 또는 HTML 재생성", output.getvalue())
         self.assertFalse((self.root / "runs").exists())
 
     def test_command_help_explains_dataset_choice_and_read_only_doctor(self):
         for argv, expected in (
-                (["init", "--help"], ("Local source path or Git URL", "Select a dataset explicitly",
+                (["init", "--help"], ("로컬 소스 경로 또는 Git URL", "데이터셋을 직접 선택",
                                             "--optimizer", "--yes")),
-                (["datasets", "prepare", "--help"], ("Registered dataset ID or local tasks.json",
+                (["datasets", "prepare", "--help"], ("등록된 데이터셋 ID 또는 로컬 tasks.json",
                                                           "--evaluator", "--offline")),
-                (["doctor", "--help"], ("Read-only", "--model", "requires --plan"))):
+                (["doctor", "--help"], ("읽기 전용", "--model", "--plan 필요"))):
             output = io.StringIO()
             with self.subTest(argv=argv), contextlib.redirect_stdout(output), \
                     self.assertRaises(SystemExit) as exit_code:
                 main(argv)
             self.assertEqual(exit_code.exception.code, 0)
+            self.assertIn("사용법:", output.getvalue())
+            self.assertIn("옵션:", output.getvalue())
             for phrase in expected:
                 self.assertIn(phrase, output.getvalue())
         self.assertFalse((self.root / "runs").exists())

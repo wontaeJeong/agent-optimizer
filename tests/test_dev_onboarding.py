@@ -94,7 +94,7 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
                 for command in ("setup", "doctor", "test", "lint", "demo", "smoke", "live", "menu"):
                     self.assertIn(command, result.stdout)
                 self.assertIn("make setup ARGS=", result.stdout)
-                self.assertIn("full ACE", result.stdout)
+                self.assertIn("ACE 전체", result.stdout)
         self.assertFalse((self.root / ".venv").exists())
         self.assertEqual(self.trace_text(), "")
 
@@ -576,6 +576,8 @@ class DeveloperCommandsTests(unittest.TestCase):
 
     def test_no_arguments_means_help(self):
         self.assertEqual(self.main([]), 0)
+        self.assertIn("사용법:", self.output.getvalue())
+        self.assertIn("옵션:", self.output.getvalue())
         self.assertIn("demo", self.output.getvalue())
 
     def test_network_is_loaded_before_core_and_shell_setup(self):
@@ -670,14 +672,14 @@ class DeveloperCommandsTests(unittest.TestCase):
                 self.main([command, "--help"])
             self.assertEqual(exit_code.exception.code, 0)
             help_text = self.output.getvalue()
-            self.assertIn("Without --core/--dataset: full ACE", help_text)
+            self.assertIn("ACE 전체", help_text)
             self.assertIn("--dataset ID", help_text)
             self.assertIn("--core/--platform/--model", help_text)
             if command == "doctor":
-                self.assertIn("Inspect one registered dataset", help_text)
+                self.assertIn("등록 데이터셋 하나 진단", help_text)
                 self.assertIn("--model", help_text)
             else:
-                self.assertIn("Prepare one registered dataset", help_text)
+                self.assertIn("등록 데이터셋 하나 준비", help_text)
 
     def test_core_setup_stops_before_example_and_requires_doctor_then_demo(self):
         for ready, demo_code, expected in ((True, 0, 0), (False, 0, 2), (True, 5, 2)):
