@@ -1,5 +1,41 @@
 # 검증 기록
 
+## 2026-09-25 사용자 설정·전송 경로·CI 재검증
+
+Mac ARM64 / Python 3.12.12 / Docker CLI 29.2.1. 아래 명령은 작업 중 실행했으며
+`origin/main`의 도움말 변경을 재배치한 뒤 전체 테스트·lint·Node 검사를 다시 실행했다.
+모델 자격증명은 사용하지 않았다. 이 환경에는 Docker
+Buildx와 호스트 Yosys/Icarus/vvp가 없다.
+
+| 실제 명령/실행 | 결과 |
+|---|---|
+| `make setup ARGS="--core"`; `make doctor ARGS="--core --json"` | 코어 환경 준비·진단 ready, 합성 데모 completed. 전체 ACE 준비 상태는 아님. |
+| `make test`; `make lint`; `actionlint`; `node --test tests/endpoint-plugin.test.mjs` | 재배치 후 전체 **433개 중 418 통과·15 skip·실패 0**, Ruff/워크플로 문법/Node 1개 통과. skip에는 호스트 RTL 도구 9개, 선택형 Docker 네트워크 2개 등이 포함된다. |
+| 아래 `audit-fixed-flow` 사용자 CLI 명령 | 합성 fixture에서 모두 성공. validation·test baseline 0 → 선택 후보 1, 4 trial, `runs/20260924T162700Z-52a358be/report.html`. 실제 RTL/모델 개선 근거 아님. 복수 데이터셋 실패·출력 실패 시 신규 설정/session 정리도 별도 회귀에서 확인. |
+| 임시 로컬 Git에 `GIT_CONFIG_COUNT`/`url.*.insteadOf` 적용 후 고정 Git Agent 스냅샷 테스트 | 공개 형식 URL을 로컬 저장소로 재작성해도 요청 SHA와 확보 SHA가 일치하며 잘못된 SHA는 거부. 실제 별도 서버 접속 검증은 아님. |
+| `.venv/bin/python -m build`; 독립 venv에 wheel offline 설치 후 `python -I -m agent_optimizer --help`, `agent-opt --help` | sdist/wheel 생성 및 독립 설치 CLI 확인. |
+| [PR #15](https://github.com/wontaeJeong/agent-optimizer/pull/15) 기본 CI [실행](https://github.com/wontaeJeong/agent-optimizer/actions/runs/36029966596) | Ubuntu Python 3.11·3.12 모두 통과. 공식 Docker job은 수동 입력이 없어 skip. |
+| `gh workflow run ci.yml --ref audit/readiness-2026-09-25 -f official_cvdp=true`; `gh run rerun 36030202137 --failed` — [실행/로그](https://github.com/wontaeJeong/agent-optimizer/actions/runs/36030202137) | 고정 Git 소스·HF 데이터 hash·driver 준비는 완료. 공식 CVDP 평가 이미지의 upstream Dockerfile `apt-get update && apt-get install`에서 Ubuntu 보안 저장소 `libexpat1`/`libexpat1-dev` 지정 버전 다운로드가 **두 번 모두 404**로 실패했다. 따라서 image/doctor/offline/smoke/정답·오답 평가는 시작하지 못했다. build 로그는 해당 실행의 `official-cvdp-36030202137` artifact (재실행 ID `10821431486`)에 있다. |
+
+`audit-fixed-flow`의 명시적 데이터셋/평가기/Optimizer 설정과 보고서 재생성 명령:
+
+```bash
+.venv/bin/agent-opt init --name audit-fixed-flow --agent examples/minimal/agents/solo \
+  --argv '{python}' '{agent_dir}/src/fixture_agent.py' '{task_dir}' \
+  --editable configs/strategy.json --dataset examples/minimal/tasks.json \
+  --evaluator examples/minimal/evaluator.py:TextFixtureEvaluator \
+  --optimizer file_variants \
+  --optimizer-config '{"file_variants":{"include_seeds":true,"variants":[{"name":"enable-repair","files":{"configs/strategy.json":"{\"repair\": true}"}}]}}' --yes
+.venv/bin/agent-opt doctor --plan runs/configs/audit-fixed-flow/experiment.toml --json
+.venv/bin/agent-opt run runs/configs/audit-fixed-flow/experiment.toml
+.venv/bin/agent-opt report runs/20260924T162700Z-52a358be --html
+```
+
+공식 CI의 404는 upstream Dockerfile이나 고정 버전을 수정해 통과시키지 않았다.
+실제 모델→ACE/OpenCode→평가의 end-to-end, 자체 러너와 추가 CA를 넣은 BuildKit 이미지
+통합은 아직 검증되지 않았다. `UV_DEFAULT_INDEX`만으로 기존 `uv.lock`의 공개 절대 URL이
+변경되지 않으므로 대체 package index도 실제 환경과 검토된 lock/cache로 별도 확인해야 한다.
+
 ## 2026-09-24 PR #12 whole-branch review fixes
 
 Mac ARM64 / Python 3.12.12 / Docker `linux/arm64`. 기존 고정 source·image·데이터 캐시를 사용하고,
