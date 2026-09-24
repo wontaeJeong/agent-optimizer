@@ -12,6 +12,7 @@ from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.results import write_json
 from agent_optimizer.network import host_environment, configured_build, ca_bundle, ca_fingerprint
 from agent_optimizer.models import ModelSettings
+from agent_optimizer.readiness import check
 ROOT = Path(__file__).resolve().parents[3]
 REPOS = {
     "ACE-RTL": ("https://github.com/NVlabs/ACE-RTL.git", "fead921f18bb57345b5a41ef93ba625be208e99c"),
@@ -123,9 +124,10 @@ def _run(args, cwd, log, environment):
     print(f"[setup] {label}: complete", flush=True)
 
 
-def prepare_sources(external, *, offline=False):
+def prepare_sources(external, *, offline=False, names=None):
     external.mkdir(parents=True, exist_ok=True)
-    for name, (url, sha) in REPOS.items():
+    for name in (REPOS if names is None else names):
+        url, sha = REPOS[name]
         path = external / name
         if not path.exists():
             if offline:
@@ -254,6 +256,175 @@ def read_environment_lock(path):
     return lock
 
 
+def evaluation_image(platform):
+    return f"agent-optimizer-cvdp:{REPOS['cvdp_benchmark'][1][:7]}-{platform.split('/')[1]}"
+
+
+def inspect_image(tag, platform):
+    try:
+        info = json.loads(subprocess.check_output(
+            ["docker", "image", "inspect", tag], text=True, stderr=subprocess.PIPE, timeout=15))[0]
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError, IndexError, KeyError) as exc:
+        raise UnavailableError(f"Required image missing/unavailable: {tag}") from exc
+    if (not isinstance(info, dict) or f"{info.get('Os')}/{info.get('Architecture')}" != platform
+            or not isinstance(info.get("Id"), str)
+            or not re.fullmatch(r"sha256:[0-9a-f]{64}", info["Id"])):
+        raise ConfigurationError(f"Evaluation image identity/platform invalid: {tag}")
+    return {"tag": tag, "id": info["Id"]}
+
+
+def verify_evaluation_tools(image_id, platform):
+    """Check the pinned official image's actual simulator versions before trusting it."""
+    for name, flag, version in (("yosys", "-V", r"\bYosys 0\.40\b"),
+                                ("iverilog", "-V", r"\bIcarus Verilog version 13\b"),
+                                ("vvp", "-V", r"\bIcarus Verilog runtime version 13\b"),
+                                ("verilator", "--version", r"\bVerilator 5\.038\b")):
+        argv = ["docker", "run", "--rm", "--pull", "never", "--platform", platform,
+                "--network", "none", image_id, name, flag]
+        try:
+            result = subprocess.run(argv, capture_output=True, text=True, timeout=120, shell=False)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise UnavailableError(f"CVDP simulator {name} unavailable; repair evaluation image") from exc
+        if result.returncode or not re.search(version, result.stdout + result.stderr):
+            raise UnavailableError(f"CVDP simulator {name} version differs; repair evaluation image")
+
+
+def prepare_evaluation_environment(*, offline=False, platform=None, cache: Path):
+    """Prepare CVDP scoring assets without touching the full ACE environment lock."""
+    platform = validate_platform(platform)
+    external = ROOT / "external"
+    lock_path = Path(cache) / "evaluation-lock.json"
+    previous = {}
+    if lock_path.exists():
+        try:
+            previous = json.loads(lock_path.read_text())
+        except (OSError, ValueError) as exc:
+            raise ConfigurationError("Invalid CVDP evaluation lock; preserve and repair the provider cache") from exc
+        if not isinstance(previous, dict):
+            raise ConfigurationError("Invalid CVDP evaluation lock; preserve and repair the provider cache")
+    fingerprint = ca_fingerprint()
+    if offline and (previous.get("platform") != platform or previous.get("ca_bundle_sha256") != fingerprint):
+        raise UnavailableError("Offline CVDP evaluation lock missing or platform/CA differs; rerun online setup")
+    venv = external / "cvdp-venv"
+    if venv.exists():
+        validate_driver_python(venv / "bin/python")
+    logs = Path(cache) / "setup-logs"
+    prepare_sources(external, offline=offline, names=("cvdp_benchmark",))
+    requirements = driver_requirements(external)
+    if offline:
+        validate_driver_lock(external, previous)
+    dataset, data_lock = prepare_data(external, offline=offline)
+    if offline and previous.get("dataset") != data_lock:
+        raise ConfigurationError("Offline CVDP dataset lock differs; rerun online setup")
+    uv = ["uv", *(["--offline"] if offline else [])]
+    if not venv.exists():
+        run([*uv, "venv", "--python", "3.12", str(venv)], log=logs / "driver-venv.log")
+        validate_driver_python(venv / "bin/python")
+    run([*uv, "pip", "sync", "--python", str(venv / "bin/python"), str(ROOT / DRIVER_LOCK)],
+        log=logs / "driver-uv.log")
+    tag = evaluation_image(platform)
+    if not offline:
+        run(["docker", "build", "--platform", platform, "-f", "docker/Dockerfile.sim", "-t", tag, "."],
+            external / "cvdp_benchmark", logs / "evaluation-build.log")
+    image = inspect_image(tag, platform)
+    if offline and previous.get("images", {}).get("evaluation") != image:
+        raise ConfigurationError("Offline evaluation image identity differs; rerun online setup")
+    verify_evaluation_tools(image["id"], platform)
+    packages = driver_packages(external)
+    if offline and sorted(packages.splitlines()) != sorted(previous.get("driver_packages", "").splitlines()):
+        raise ConfigurationError("Offline CVDP driver packages differ; rerun online setup")
+    lock = {"repos": {"cvdp_benchmark": REPOS["cvdp_benchmark"]}, "dataset": data_lock,
+            "platform": platform, "ca_bundle_sha256": fingerprint, "images": {"evaluation": image},
+            "driver_requirements": requirements, "driver_packages": packages,
+            "simulator_verified": True}
+    write_json(lock_path, lock)
+    return dataset, lock
+
+
+def evaluation_checks(cache: Path) -> list[dict]:
+    """Read-only inventory; probes cannot download, build, run containers or write bytecode."""
+    cache = Path(cache)
+    external = ROOT / "external"
+    try:
+        lock = json.loads((cache / "evaluation-lock.json").read_text())
+    except (OSError, ValueError):
+        lock = None
+    valid = (isinstance(lock, dict) and isinstance(lock.get("dataset"), dict)
+             and isinstance(lock.get("driver_requirements"), dict)
+             and isinstance(lock.get("driver_packages"), str)
+             and isinstance(lock.get("images"), dict)
+             and isinstance(lock["images"].get("evaluation"), dict)
+             and lock.get("repos") == {"cvdp_benchmark": list(REPOS["cvdp_benchmark"])}
+             and lock.get("simulator_verified") is True
+             and lock.get("platform") in {"linux/amd64", "linux/arm64"}
+             and lock["dataset"].get("revision") == DATA_REVISION
+             and isinstance(lock["dataset"].get("files"), dict)
+             and all(isinstance(lock["dataset"]["files"].get(name), dict) for name in ASSETS))
+    rows = [check("dataset.cvdp.lock", "dataset", valid, "Pinned CVDP evaluation lock",
+                  "Run agent-opt datasets prepare cvdp to repair the evaluation lock")]
+
+    def probe(argv, *, cwd=None):
+        try:
+            return subprocess.check_output(argv, cwd=cwd, text=True, stderr=subprocess.PIPE, timeout=30,
+                                           env={**os.environ, "PYTHONDONTWRITEBYTECODE": "1",
+                                                "GIT_OPTIONAL_LOCKS": "0"}).strip()
+        except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            return None
+
+    source = external / "cvdp_benchmark"
+    pinned = (source / ".git").exists() and probe(["git", "rev-parse", "HEAD"], cwd=source) == REPOS["cvdp_benchmark"][1]
+    pinned = pinned and probe(["git", "status", "--porcelain", "--untracked-files=no"], cwd=source) == ""
+    rows.append(check("dataset.cvdp.source", "dataset", pinned, "Pinned clean CVDP checkout",
+                      "Install Git; preserve changes and rerun agent-opt datasets prepare cvdp"))
+    for name, sha in ASSETS.items():
+        path = external / "cvdp-data" / DATA_REVISION / name
+        try:
+            digest = hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() and not path.is_symlink() else None
+        except OSError:
+            digest = None
+        rows.append(check(f"dataset.cvdp.data.{name}", "dataset", valid and digest == sha
+                          and lock["dataset"]["files"].get(name, {}).get("sha256") == sha,
+                          "Pinned CVDP dataset asset", f"Restore verified {name} with agent-opt datasets prepare cvdp"))
+    python = external / "cvdp-venv/bin/python"
+    version = probe([str(python), "-I", "-B", "-c",
+                     "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"]) if python.is_file() else None
+    rows.append(check("dataset.cvdp.python", "dataset", version == "3.12", "CVDP driver Python 3.12",
+                      "Repair the CVDP Python 3.12 driver and rerun agent-opt datasets prepare cvdp"))
+    requirements = lock["driver_requirements"] if valid else {}
+    try:
+        compiled = hashlib.sha256((ROOT / DRIVER_LOCK).read_bytes()).hexdigest()
+        upstream = hashlib.sha256((source / "requirements.txt").read_bytes()).hexdigest()
+    except OSError:
+        compiled = upstream = None
+    rows.append(check("dataset.cvdp.driver.lock", "dataset", valid and
+                      requirements == {"path": DRIVER_LOCK, "sha256": compiled,
+                                       "upstream_sha256": REQUIREMENTS_SHA256, "python": "3.12"}
+                      and upstream == REQUIREMENTS_SHA256, "Pinned driver requirements",
+                      "Restore the compiled driver lock and pinned source; rerun agent-opt datasets prepare cvdp"))
+    packages = probe(["uv", "--offline", "pip", "freeze", "--python", str(python)]) if version == "3.12" else None
+    rows.append(check("dataset.cvdp.driver.packages", "dataset", valid and packages is not None and
+                      sorted(packages.splitlines()) == sorted(lock["driver_packages"].splitlines()),
+                      "Prepared driver packages", "Install uv and rerun agent-opt datasets prepare cvdp"))
+    image = lock["images"]["evaluation"] if valid else {}
+    tag, identity = image.get("tag"), image.get("id")
+    platform = lock["platform"] if valid else None
+    proper = (isinstance(tag, str) and platform is not None and tag == evaluation_image(platform)
+              and isinstance(identity, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", identity)
+              and lock.get("ca_bundle_sha256") == ca_fingerprint())
+    info = None
+    if proper:
+        try:
+            info = json.loads(probe(["docker", "image", "inspect", tag]))[0]
+        except (ValueError, TypeError, IndexError, KeyError):
+            pass
+    rows.append(check("dataset.cvdp.image", "dataset", proper and isinstance(info, dict)
+                      and info.get("Id") == identity
+                      and f"{info.get('Os')}/{info.get('Architecture')}" == platform,
+                      "Verified official CVDP simulator image identity and platform",
+                      "Start Docker and rerun agent-opt datasets prepare cvdp for this platform/CA bundle"))
+    return rows
+
+
 def prepare_environment(*, offline=False, platform=None):
     platform = validate_platform(platform)
     external = ROOT / "external"
@@ -284,7 +455,7 @@ def prepare_environment(*, offline=False, platform=None):
     cvdp = external / "cvdp_benchmark"
     run([*uv, "pip", "sync", "--python", str(venv / "bin/python"), str(ROOT / DRIVER_LOCK)], log=logs / "driver-uv.log")
     arch = platform.split("/")[1]
-    images = {"evaluation": f"agent-optimizer-cvdp:8e894cf-{arch}",
+    images = {"evaluation": evaluation_image(platform),
               "agent": f"agent-optimizer-opencode:{OPENCODE_VERSION}-{arch}"}
     if offline and previous.get("platform") != platform:
         raise UnavailableError("Offline verified environment lock missing or platform differs")

@@ -14,7 +14,7 @@ from agent_optimizer.readiness import collect_dataset, collect_plan
 from agent_optimizer.registry import PROJECT_COMPONENTS, Registry
 from agent_optimizer.datasets import CustomDataset, acquire_pinned_git
 from agent_optimizer.contracts import ExecutionResult, Task, UnavailableError
-from examples.benchmarks.verilog_eval import REVISION, Provider, import_verilog_eval, prepare_runtime, split_families
+from examples.benchmarks.verilog_eval import REVISION, RUNTIME_IMAGE, Provider, CompletionProvider, import_verilog_eval, prepare_runtime, split_families
 from examples.benchmarks.verilog_evaluator import VerilogEvaluator
 from examples.benchmarks import cvdp as cvdp_provider
 from examples.benchmarks.cvdp import import_cvdp
@@ -159,6 +159,50 @@ class Provider:
         validate_runtime(prepared["evaluation_runtime"])
         self.assertEqual(prepared["provenance"]["image_id"], "sha256:verified")
 
+    def test_verilog_doctor_checks_both_modes_private_completeness_and_image_identity_without_writes(self):
+        subprocess.run(["git", "init", "-q", str(self.root)], check=True)
+        subprocess.run(["git", "-C", str(self.root), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(self.root), "-c", "user.name=Test",
+                        "-c", "user.email=test@example.invalid", "commit", "-qm", "fixture"], check=True)
+        revision = subprocess.check_output(["git", "-C", str(self.root), "rev-parse", "HEAD"], text=True).strip()
+        cache = self.root / "prepared"
+        providers = (Provider(url=str(self.root), revision=revision),
+                     CompletionProvider(url=str(self.root), revision=revision))
+        with patch("examples.benchmarks.verilog_eval.prepare_runtime", return_value={
+                "runtime": {"kind": "docker", "image": RUNTIME_IMAGE},
+                "image_id": "sha256:" + "a" * 64}):
+            for provider in providers:
+                provider.prepare(cache)
+        real_run = subprocess.run
+
+        def inspect(argv, **kwargs):
+            if argv[0] == "git":
+                return real_run(argv, **kwargs)
+            self.assertEqual(argv[:3], ["docker", "image", "inspect"])
+            self.assertNotIn("run", argv)
+            return subprocess.CompletedProcess(argv, 0, json.dumps([{"Id": "sha256:" + "a" * 64}]), "")
+
+        with patch("examples.benchmarks.verilog_eval.subprocess.run", side_effect=inspect):
+            before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in cache.rglob("*") if p.is_file()}
+            for provider in providers:
+                rows = provider.doctor(cache)
+                self.assertTrue(all(row["status"] == "ok" for row in rows), rows)
+            self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns)
+                                      for p in cache.rglob("*") if p.is_file()})
+            (cache / "source" / revision / "dataset_spec-to-rtl/Prob001_task_ref.sv").unlink()
+            rows = providers[0].doctor(cache)
+            self.assertTrue(any(row["status"] == "error" and row["remedy"] for row in rows), rows)
+            rows = providers[1].doctor(cache)
+            self.assertEqual(next(row["status"] for row in rows if row["id"] == "dataset.verilog.tasks"), "ok")
+            with patch("examples.benchmarks.verilog_eval.subprocess.run", return_value=
+                       subprocess.CompletedProcess([], 0, '[{"Id":"sha256:changed"}]', "")):
+                rows = providers[1].doctor(cache)
+            self.assertTrue(any("image" in row["id"] and row["status"] == "error"
+                                and row["remedy"] for row in rows), rows)
+        with patch("examples.benchmarks.verilog_eval.subprocess.run", side_effect=FileNotFoundError):
+            rows = providers[1].doctor(cache)
+        self.assertTrue(any("image" in row["id"] and row["status"] == "error" for row in rows), rows)
+
     def test_missing_v12_image_blocks_offline_prepare(self):
         with patch("examples.benchmarks.verilog_eval.subprocess.run") as run:
             run.return_value.returncode = 1
@@ -288,9 +332,9 @@ class Provider:
 
         def reviewed_or_fixture(path, name):
             if path.name == "setup.py":
-                return SimpleNamespace(prepare_environment=lambda **options:
-                                       (data, {"images": {"evaluation": {"tag": "pinned-sim:v1",
-                                                                           "id": "sha256:pinned"}}}))
+                return SimpleNamespace(prepare_evaluation_environment=lambda **options:
+                                        (data, {"images": {"evaluation": {"tag": "pinned-sim:v1",
+                                                                            "id": "sha256:pinned"}}}))
             return original_load(path, name)
 
         with patch.object(cvdp_provider, "_load", side_effect=reviewed_or_fixture):

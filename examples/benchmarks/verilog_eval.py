@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import subprocess
 from pathlib import Path
@@ -9,6 +10,7 @@ from pathlib import Path
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.datasets import acquire_pinned_git, split_families
 from agent_optimizer.results import write_json
+from agent_optimizer.readiness import check
 from agent_optimizer.workspace import safe_path
 
 
@@ -93,12 +95,71 @@ class Provider:
             task["evaluation"]["source_dir"] = str(source)
         output = cache / ("verilog-eval-" + self.mode) / "tasks.json"
         write_json(output, document)
+        write_json(output.with_name("provenance.json"), {"url": self.url, "revision": self.revision,
+                   "mode": self.mode, "image": runtime["runtime"]["image"],
+                   "image_id": runtime["image_id"]})
         return {"benchmark": str(output),
                 "evaluator": "verilog_eval",
                 "evaluation_runtime": runtime["runtime"],
                 "evaluator_config": {"image_id": runtime["image_id"]},
                 "provenance": {"url": self.url, "revision": self.revision,
                                "mode": self.mode, "image_id": runtime["image_id"]}}
+
+    def doctor(self, cache: Path) -> list[dict]:
+        cache = Path(cache)
+        source = cache / "source" / self.revision
+        folder = cache / ("verilog-eval-" + self.mode)
+        rows = []
+        try:
+            provenance = json.loads((folder / "provenance.json").read_text())
+        except (OSError, ValueError):
+            provenance = None
+        locked = (isinstance(provenance, dict) and provenance.get("url") == self.url
+                  and provenance.get("revision") == self.revision
+                  and provenance.get("mode") == self.mode
+                  and provenance.get("image") == RUNTIME_IMAGE
+                  and isinstance(provenance.get("image_id"), str)
+                  and bool(re.fullmatch(r"sha256:[0-9a-f]{64}", provenance["image_id"])))
+        rows.append(check("dataset.verilog.provenance", "dataset", locked,
+                          "Pinned Verilog-Eval v12 preparation provenance",
+                          "Run agent-opt datasets prepare verilog-" + ("spec" if self.mode == MODES[0] else "completion")))
+
+        def probe(argv, *, cwd=None):
+            try:
+                result = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=30, shell=False,
+                                        env={**os.environ, "GIT_OPTIONAL_LOCKS": "0", "PYTHONDONTWRITEBYTECODE": "1"})
+                return result.stdout.strip() if result.returncode == 0 else None
+            except (OSError, subprocess.TimeoutExpired):
+                return None
+
+        pinned = (source / ".git").exists() and probe(["git", "rev-parse", "HEAD"], cwd=source) == self.revision
+        pinned = pinned and probe(["git", "status", "--porcelain", "--untracked-files=all"], cwd=source) == ""
+        rows.append(check("dataset.verilog.source", "dataset", pinned, "Pinned clean Verilog-Eval checkout",
+                          "Install Git, preserve local changes and rerun dataset preparation"))
+        try:
+            document = import_verilog_eval(source, self.mode)
+            if document is not None:
+                document["source_revision"] = self.revision
+                for task in document["tasks"]:
+                    task["evaluation"]["source_dir"] = str(source)
+            published = json.loads((folder / "tasks.json").read_text())
+            complete = bool(document and document["tasks"] and document == published)
+        except (OSError, ValueError, ConfigurationError, TypeError, KeyError):
+            complete = False
+        rows.append(check("dataset.verilog.tasks", "dataset", complete,
+                          "Imported public tasks and private test/reference assets are complete",
+                          "Restore the pinned private task files and rerun dataset preparation"))
+        info = None
+        if locked:
+            try:
+                info = json.loads(probe(["docker", "image", "inspect", RUNTIME_IMAGE]))[0]
+            except (ValueError, TypeError, IndexError, KeyError):
+                pass
+        rows.append(check("dataset.verilog.image", "dataset", locked and isinstance(info, dict)
+                          and info.get("Id") == provenance["image_id"],
+                          "Prepared immutable Icarus v12 image identity",
+                          "Start Docker and rerun dataset preparation to verify the Icarus v12 image"))
+        return rows
 
 
 class CompletionProvider(Provider):
