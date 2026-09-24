@@ -89,12 +89,64 @@ class ReportModelTests(unittest.TestCase):
 
         self.assertEqual([u["unit_id"] for u in units], ["g0", "g0", "g1", "g1"])
         self.assertEqual([u.get("unit_ref") for u in units],
-                         ["agent-a/harness/search/g0", "agent-a/harness/refine/g0",
-                          "agent-a/harness/refine/g1", "agent-a/harness/search/g1"])
+                         ["agent-a/harness/search/report_unit/g0",
+                          "agent-a/harness/refine/report_unit/g0",
+                          "agent-a/harness/refine/report_unit/g1",
+                          "agent-a/harness/search/report_unit/g1"])
         self.assertEqual([u.get("parent_unit_ref") for u in units],
-                         [None, None, "agent-a/harness/refine/g0", "agent-a/harness/search/g0"])
+                         [None, None, "agent-a/harness/refine/report_unit/g0",
+                          "agent-a/harness/search/report_unit/g0"])
         self.assertEqual([u["parent_unit_id"] for u in units], [None, None, "g0", "g0"])
         self.assertEqual([u["candidate_ids"] for u in units], [["A"], ["B"], ["B"], ["A"]])
+
+    def test_explicit_iteration_name_cannot_resolve_parent_to_automatic_iteration(self):
+        common = {"agent_id": "agent-a", "harness_id": "harness", "stage_id": "search"}
+        self.events([{"event": "optimizer_iteration_started", **common, "iteration": 1,
+                      "candidate_id": "A"},
+                     {"event": "report_unit", **common, "unit_id": "branch",
+                      "parent_unit_id": "iteration-1", "unit_type": "branch",
+                      "label": "Branch", "candidate_ids": ["B"]},
+                     {"event": "report_unit", **common, "unit_id": "iteration-1",
+                      "unit_type": "phase", "label": "Explicit phase", "candidate_ids": ["C"]},
+                     {"event": "optimizer_iteration_completed", **common, "iteration": 1,
+                      "candidate_id": "D"},
+                     {"event": "report_unit", **common, "unit_id": "orphan",
+                      "parent_unit_id": "missing", "unit_type": "branch",
+                      "label": "Unlinked", "candidate_ids": ["E"]}])
+        units = build_report(self.root, {"groups": [self.group()]})["groups"][0]["structure"]["units"]
+
+        self.assertEqual([u["unit_id"] for u in units],
+                         ["search/iteration-1", "branch", "iteration-1", "orphan"])
+        self.assertEqual([u["unit_ref"] for u in units],
+                         ["agent-a/harness/search/iteration-1",
+                          "agent-a/harness/search/report_unit/branch",
+                          "agent-a/harness/search/report_unit/iteration-1",
+                          "agent-a/harness/search/report_unit/orphan"])
+        self.assertEqual(units[1]["parent_unit_ref"], units[2]["unit_ref"])
+        self.assertNotEqual(units[1]["parent_unit_ref"], units[0]["unit_ref"])
+        self.assertIsNone(units[3]["parent_unit_ref"])
+        self.assertEqual(units[3]["parent_unit_id"], "missing")
+        self.assertEqual(units[0]["candidate_ids"], ["A", "D"])
+
+    def test_repeated_explicit_unit_id_merges_members_without_ambiguous_parent(self):
+        common = {"event": "report_unit", "agent_id": "agent-a", "harness_id": "harness",
+                  "stage_id": "search", "unit_type": "generation"}
+        self.events([{**common, "unit_id": unit, "parent_unit_id": parent,
+                      "label": label, "candidate_ids": candidates}
+                     for unit, parent, label, candidates in (
+                         ("g0", None, "First", ["A"]), ("g0", None, "Repeated", ["A", "B"]),
+                         ("g1", "g0", "Child", ["C"]), ("g1", "g0", "Child", ["D"]),
+                         ("g2", "g0", "Conflicting", ["E"]),
+                         ("g2", "g1", "Conflicting", ["F"]))])
+        units = build_report(self.root, {"groups": [self.group()]})["groups"][0]["structure"]["units"]
+
+        self.assertEqual([u["unit_id"] for u in units], ["g0", "g1", "g2"])
+        self.assertEqual([u["candidate_ids"] for u in units],
+                         [["A", "B"], ["C", "D"], ["E", "F"]])
+        self.assertEqual(units[0]["label"], "First")
+        self.assertEqual(units[1]["parent_unit_ref"], units[0]["unit_ref"])
+        self.assertIsNone(units[2]["parent_unit_ref"])
+        self.assertIsNone(units[2]["parent_unit_id"])
 
     def test_merge_event_preserves_multiple_parents_independent_of_candidate_metadata(self):
         for name, parents in (("A", ()), ("B", ("A",)), ("C", ("A",)), ("D", ("B",))):
