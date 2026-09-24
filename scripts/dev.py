@@ -3,6 +3,7 @@ import argparse
 import importlib.util
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +16,8 @@ sys.path.insert(0, str(ROOT / "src"))
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.results import write_json
 from agent_optimizer.network import network_environment, ca_fingerprint, demo_environment
+from agent_optimizer.registry import Registry
+from agent_optimizer import readiness
 
 
 def load(name, path):
@@ -73,6 +76,7 @@ def main(argv=None):
         command = commands.add_parser(name, help=description, description=description, allow_abbrev=False)
         if name in {"setup", "doctor"}:
             command.add_argument("--core", action="store_true", help="Core tooling only; no Docker/ACE/model checks (excludes --platform/--model)")
+            command.add_argument("--dataset", metavar="ID", help="Prepare or diagnose one registered dataset")
         if name in {"setup", "doctor", "smoke", "live"}:
             command.add_argument("--platform",
                                  help="Default: Docker daemon native platform")
@@ -92,17 +96,29 @@ def main(argv=None):
     if args.command == "live" and args.iterations is not None and not 1 <= args.iterations <= 20:
         parser.error("--iterations must be from 1 to 20")
     core_only = getattr(args, "core", False)
+    dataset_id = getattr(args, "dataset", None)
+    if dataset_id is not None and not re.fullmatch(r"[a-z0-9][a-z0-9_.-]*", dataset_id):
+        parser.error("--dataset requires an identifier (lowercase letters, digits, _, . or -)")
+    if core_only and dataset_id is not None:
+        parser.error("--core cannot be combined with --dataset")
+    if dataset_id is not None and (args.platform is not None or getattr(args, "model", False)):
+        parser.error("--dataset cannot be combined with --platform or --model")
     if core_only and (args.platform is not None or getattr(args, "model", False)):
         parser.error("--core cannot be combined with --platform or --model; omit --core for full ACE commands")
     setup_command = "sh scripts/bootstrap.sh setup"
     if core_only or args.command in {"test", "lint", "demo"}:
         setup_command += " --core"
+    elif dataset_id is not None:
+        setup_command += f" --dataset {dataset_id}"
     repair = f"Inspect external/setup-logs/ and rerun {setup_command}"
     stage = args.command
     try:
         if args.command == "doctor":
             doctor = load("dev_doctor", Path(__file__).resolve().with_name("dev_doctor.py"))
-            report = doctor.collect_report(ROOT, args.platform, core_only=True) if core_only else doctor.collect_report(ROOT, args.platform)
+            if dataset_id is not None:
+                report = doctor.collect_report(ROOT, dataset=dataset_id)
+            else:
+                report = doctor.collect_report(ROOT, args.platform, core_only=True) if core_only else doctor.collect_report(ROOT, args.platform)
             if args.model:
                 checks = load("ace_model_checks", "examples/ace-rtl/environment/model_checks.py")
                 checks.check_models(ROOT, report)
@@ -120,6 +136,25 @@ def main(argv=None):
             return subprocess.run(["sh", str(ROOT / "scripts/bootstrap.sh"), *argv],
                                   cwd=ROOT, shell=False).returncode
         os.chdir(ROOT)
+        if args.command == "setup" and dataset_id is not None:
+            stage = "dataset registration"
+            registry = Registry()
+            registry.load_project(ROOT)
+            if dataset_id not in registry.factories["datasets"]:
+                raise ConfigurationError(f"Unknown dataset ID: {dataset_id}; run agent-opt datasets list "
+                                         "or register it in src/agent_optimizer/registry.py")
+            provider = registry.resolve("datasets", dataset_id)()
+            stage = "dataset preparation"
+            provider.prepare(ROOT / "external/datasets" / dataset_id, offline=args.offline)
+            stage = "final doctor"
+            doctor = load("dev_doctor", Path(__file__).resolve().with_name("dev_doctor.py"))
+            report = doctor.collect_report(ROOT, dataset=dataset_id)
+            doctor.render_report(report)
+            if not report["ready"]:
+                raise UnavailableError("Selected dataset doctor failed; follow the diagnostic repair instructions")
+            print(json.dumps({"status": "ready", "scope": "dataset", "dataset": dataset_id,
+                              "next": f'make doctor ARGS="--dataset {dataset_id} --json"'}))
+            return 0
         if not core_only:
             setup = load("ace_environment", "examples/ace-rtl/environment/setup.py")
             if args.command == "live":

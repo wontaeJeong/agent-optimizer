@@ -8,8 +8,8 @@ help() {
         'Prerequisites: Mac/Ubuntu, Git; full ACE setup also needs Docker Engine + Compose.' \
         'Start: sh scripts/bootstrap.sh setup --core; then make doctor ARGS="--core" and make demo.' \
         'No make? Use sh scripts/bootstrap.sh <command> [options].' \
-        'setup: --core, --offline, --platform linux/amd64|linux/arm64 (full ACE only)' \
-        'doctor: --core, --json, --platform, --model (actual API calls); --core excludes --platform/--model.' \
+        'setup: --core, --dataset ID, --offline, --platform linux/amd64|linux/arm64 (full ACE only)' \
+        'doctor: --core, --dataset ID, --json, --platform, --model (actual API calls); --core excludes --dataset/--platform/--model.' \
         'smoke/live: --platform; live: --iterations 1..20' \
         'test/lint/demo use .venv without installing or requiring Docker.' \
         'make doctor ARGS="--json" (ARGS uses normal shell command arguments).' \
@@ -32,8 +32,18 @@ core=false
 full_option=false
 want_platform=false
 want_iterations=false
+want_dataset=false
+dataset=
 show_help=false
 for option do
+    if [ "$want_dataset" = true ]; then
+        dataset=$option
+        want_dataset=false
+        case "$dataset" in
+            ''|[!a-z0-9]*|*[!a-z0-9_.-]*) fail '--dataset requires an identifier (lowercase letters, digits, _, . or -)' ;;
+        esac
+        continue
+    fi
     if [ "$want_iterations" = true ]; then
         case "$option" in ''|*[!0-9]*) fail '--iterations requires an integer from 1 to 20' ;; esac
         [ "$option" -ge 1 ] && [ "$option" -le 20 ] || fail '--iterations requires 1..20'
@@ -51,6 +61,15 @@ for option do
         *:--help|*:-h) show_help=true ;;
         setup:--offline) offline=true ;;
         setup:--core|doctor:--core) core=true ;;
+        setup:--dataset|doctor:--dataset)
+            [ -z "$dataset" ] || fail '--dataset may be specified only once'
+            want_dataset=true ;;
+        setup:--dataset=*|doctor:--dataset=*)
+            [ -z "$dataset" ] || fail '--dataset may be specified only once'
+            dataset=${option#*=}
+            case "$dataset" in
+                ''|[!a-z0-9]*|*[!a-z0-9_.-]*) fail '--dataset requires an identifier (lowercase letters, digits, _, . or -)' ;;
+            esac ;;
         doctor:--json) ;;
         doctor:--model) full_option=true ;;
         live:--iterations) want_iterations=true ;;
@@ -69,6 +88,13 @@ for option do
 done
 [ "$want_platform" = false ] || fail '--platform requires linux/amd64 or linux/arm64'
 [ "$want_iterations" = false ] || fail '--iterations requires 1..20'
+[ "$want_dataset" = false ] || fail '--dataset requires an identifier'
+if [ "$core" = true ] && [ -n "$dataset" ]; then
+    fail '--core cannot be combined with --dataset'
+fi
+if [ -n "$dataset" ] && [ "$full_option" = true ]; then
+    fail '--dataset cannot be combined with --platform or --model'
+fi
 if [ "$core" = true ] && [ "$full_option" = true ]; then
     fail '--core cannot be combined with --platform or --model. Omit --core for full ACE commands; run sh scripts/bootstrap.sh help.'
 fi
@@ -181,7 +207,7 @@ if [ -n "${AGENT_OPT_CA_BUNDLE:-}" ]; then
     export PIP_CERT="$AGENT_OPT_CA_BUNDLE" NODE_EXTRA_CA_CERTS="$AGENT_OPT_CA_BUNDLE" npm_config_cafile="$AGENT_OPT_CA_BUNDLE"
 fi
 
-if [ "$core" = true ]; then
+if [ "$core" = true ] || [ -n "$dataset" ]; then
     printf '%s\n' '[setup] core prerequisites: checking host OS and Git'
 else
     printf '%s\n' '[setup] prerequisites: checking Git, Docker daemon and Compose'
@@ -197,7 +223,7 @@ if ! command -v git >/dev/null 2>&1 || ! short_probe 'setup prerequisites: Git' 
     printf '%s\n' 'Git unavailable. Mac: xcode-select --install; Ubuntu: sudo apt install git.' >&2
     missing=true
 fi
-if [ "$core" = false ]; then
+if [ "$core" = false ] && [ -z "$dataset" ]; then
     if ! command -v docker >/dev/null 2>&1; then
         printf '%s\n' 'Docker CLI unavailable. Mac: install/open Docker Desktop https://docs.docker.com/desktop/setup/install/mac-install/ ; Ubuntu: install Engine + Compose plugin https://docs.docker.com/engine/install/ubuntu/' >&2
         missing=true
