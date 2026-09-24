@@ -36,6 +36,10 @@ and report output. Callers that pass an explicit environment mapping (menu,
 tests, doctor) must validate that mapping rather than accidentally falling back
 to process environment. The short-lived request worker receives the same
 validated endpoint/model/key and retains its total timeout and `shell=False`.
+The bootstrap/developer diagnostic path imports model modules before installation;
+load the Pydantic dependency only when model settings are actually validated.
+Without the package, a model-specific check reports an unavailable dependency
+instead of preventing the core help/doctor commands from starting.
 Keep existing TOML/JSON experiment contracts and source/evaluator isolation;
 do not convert the full schema to Pydantic in this change.
 
