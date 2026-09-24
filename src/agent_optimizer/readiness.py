@@ -326,7 +326,7 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
                 configured = False
             rows.append(check("model.configuration", "model", configured,
                               "Required model configuration is present",
-                              "Set MODEL_ENDPOINT (or MODEL_BASE_URL) and MODEL_API_KEY for research optimizers; "
+                               "Set AGENT_OPT_MODEL_ENDPOINT (or AGENT_OPT_MODEL_BASE_URL) and AGENT_OPT_MODEL_API_KEY for research optimizers; "
                               "set " + ", ".join(harness_models or ["AGENT_OPT_MODEL"]) + " for OpenCode harnesses"))
         if model:
             try:

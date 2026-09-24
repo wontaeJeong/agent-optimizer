@@ -36,7 +36,7 @@ class CVDPEvaluator:
         config = config or {}
         self.repo = Path(config.get("repo", os.environ.get("CVDP_REPO", "external/cvdp_benchmark"))).resolve()
         # Resolving a venv's Python symlink bypasses pyvenv.cfg and its dependencies.
-        self.python = Path(config.get("python", os.environ.get("CVDP_PYTHON", "external/cvdp-venv/bin/python"))).absolute()
+        self.python = Path(config.get("python", os.environ.get("AGENT_OPT_CVDP_PYTHON", "external/cvdp-venv/bin/python"))).absolute()
         self.sim_image = config.get("sim_image", os.environ.get("OSS_SIM_IMAGE"))
         self.sim_image_id = config.get("sim_image_id")
 

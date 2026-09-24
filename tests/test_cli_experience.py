@@ -3,6 +3,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -27,6 +28,42 @@ class CLIExperienceTests(unittest.TestCase):
         self.agent = self.root / "examples/minimal/agents/solo"
         self.data = self.root / "examples/minimal/tasks.json"
 
+    def test_top_level_help_points_to_setup_and_explains_run_and_report(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            self.assertEqual(main(["--help"]), 0)
+        text = re.sub(r"\x1b\[[0-9;]*m", "", output.getvalue())
+        self.assertIn("Usage:", text)
+        self.assertIn("Options", text)
+        self.assertNotIn("--install-completion", text)
+        self.assertIn('make setup ARGS="--core"', text)
+        self.assertIn("준비된 실험 실행", text)
+        self.assertIn("실행 요약 확인 또는 HTML 재생성", text)
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_command_help_explains_dataset_choice_and_read_only_doctor(self):
+        for argv, expected in (
+                (["init", "--help"], ("--agent", "데이터셋", "--optimizer", "--yes")),
+                (["datasets", "prepare", "--help"], ("등록된 데이터셋 ID 또는 로컬 tasks.json",
+                                                          "--evaluator", "--offline")),
+                (["doctor", "--help"], ("읽기 전용", "--model", "--plan 필요"))):
+            output = io.StringIO()
+            with self.subTest(argv=argv), contextlib.redirect_stdout(output):
+                self.assertEqual(main(argv), 0)
+            text = re.sub(r"\x1b\[[0-9;]*m", "", output.getvalue())
+            self.assertIn("Usage:", text)
+            self.assertIn("Options", text)
+            for phrase in expected:
+                self.assertIn(phrase, text)
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_datasets_list_rejects_ignored_positional_filters(self):
+        output, error = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+            self.assertEqual(main(["datasets", "list", "missing-dataset"]), 2)
+        self.assertIn("unexpected extra argument", error.getvalue())
+        self.assertEqual(output.getvalue(), "")
+
     def test_doctor_keeps_legacy_binary_inventory_without_options(self):
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
@@ -35,7 +72,7 @@ class CLIExperienceTests(unittest.TestCase):
 
     def test_plan_doctor_api_free_minimal_needs_no_model_credentials(self):
         output = io.StringIO()
-        with patch.dict(os.environ, {"MODEL_API_KEY": "", "MODEL_ENDPOINT": "", "MODEL_BASE_URL": ""}), \
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "", "AGENT_OPT_MODEL_ENDPOINT": "", "AGENT_OPT_MODEL_BASE_URL": ""}), \
                 patch("agent_optimizer.models.probe_model", side_effect=AssertionError("model call")), \
                 contextlib.redirect_stdout(output):
             code = main(["doctor", "--plan", str(self.root / "examples/minimal/experiment.toml"), "--json"])
@@ -44,6 +81,23 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertTrue(report["ready"], report)
         self.assertNotIn("model.configuration", {row["id"] for row in report["checks"]})
 
+    def test_research_plan_uses_only_prefixed_model_settings(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        plan.write_text(plan.read_text().replace('optimizer = "file_variants"', 'optimizer = "gepa"'))
+        configured = {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/v1/chat/completions",
+                      "AGENT_OPT_MODEL_API_KEY": "fixture-secret"}
+        with patch.dict(os.environ, configured, clear=True):
+            result = collect_plan(plan, Registry())
+        self.assertEqual(next(row["status"] for row in result["checks"]
+                              if row["id"] == "model.configuration"), "ok")
+        self.assertNotIn("fixture-secret", json.dumps(result))
+        with patch.dict(os.environ, {"MODEL_ENDPOINT": configured["AGENT_OPT_MODEL_ENDPOINT"],
+                                     "MODEL_API_KEY": "legacy-secret"}, clear=True):
+            result = collect_plan(plan, Registry())
+        self.assertEqual(next(row["status"] for row in result["checks"]
+                              if row["id"] == "model.configuration"), "error")
+        self.assertNotIn("legacy-secret", json.dumps(result))
+
     def test_plan_doctor_collects_model_evaluator_budget_and_agent_failures(self):
         plan = self.root / "examples/minimal/experiment.toml"
         plan.write_text(plan.read_text().replace('evaluator = "text_fixture"', 'evaluator = "missing-evaluator"')
@@ -51,7 +105,7 @@ class CLIExperienceTests(unittest.TestCase):
                         + '\n[[stages]]\nid = "research"\noptimizer = "gepa"\nmax_trials = 3\n')
         (self.root / "examples/minimal/agents/solo/prompts/system.md").unlink()
         before = {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
-        with patch.dict(os.environ, {"MODEL_API_KEY": "", "MODEL_ENDPOINT": "", "MODEL_BASE_URL": ""}), \
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "", "AGENT_OPT_MODEL_ENDPOINT": "", "AGENT_OPT_MODEL_BASE_URL": ""}), \
                 patch("agent_optimizer.runner.preflight", side_effect=AssertionError("preflight")), \
                 patch("agent_optimizer.models.probe_model", side_effect=AssertionError("model call")):
             report = collect_plan(plan, Registry())
@@ -65,7 +119,7 @@ class CLIExperienceTests(unittest.TestCase):
     def test_explicit_model_probe_only_runs_when_requested(self):
         plan = self.root / "examples/minimal/experiment.toml"
         with patch("agent_optimizer.models.probe_model", return_value={"status": "passed"}) as probe, \
-                patch.dict(os.environ, {"MODEL_API_KEY": "", "MODEL_ENDPOINT": "", "MODEL_BASE_URL": ""}):
+                patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "", "AGENT_OPT_MODEL_ENDPOINT": "", "AGENT_OPT_MODEL_BASE_URL": ""}):
             report = collect_plan(plan, Registry(), model=True)
         self.assertTrue(report["ready"], report)
         self.assertEqual({row["id"] for row in report["checks"] if row["area"] == "model"},
@@ -85,7 +139,7 @@ class CLIExperienceTests(unittest.TestCase):
         broken.write_text(broken.read_text().replace('evaluator = "text_fixture"', 'evaluator = "absent"')
                           .replace('optimizer = "file_variants"', 'optimizer = "gepa"'))
         output = io.StringIO()
-        with patch.dict(os.environ, {"MODEL_API_KEY": "SECRET_VALUE", "MODEL_ENDPOINT": ""}), \
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "SECRET_VALUE", "AGENT_OPT_MODEL_ENDPOINT": ""}), \
                 contextlib.redirect_stdout(output):
             self.assertNotEqual(main(["doctor", "--plan", str(broken), "--json"]), 0)
         report = json.loads(output.getvalue())
@@ -148,7 +202,7 @@ class CLIExperienceTests(unittest.TestCase):
                              '    def validate_benchmark(self, *args): raise AssertionError("trial validation")\n')
         plan.write_text(plan.read_text().replace('optimizer = "file_variants"', 'optimizer = "gepa"')
                         .replace('include_seeds = true', 'file = "missing.txt"\niterations = -1'))
-        with patch.dict(os.environ, {"MODEL_ENDPOINT": "", "MODEL_API_KEY": ""}), \
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_ENDPOINT": "", "AGENT_OPT_MODEL_API_KEY": ""}), \
                 patch("agent_optimizer.runner.preflight", side_effect=AssertionError("preflight")):
             report = collect_plan(plan, Registry())
         checks = {row["id"]: row for row in report["checks"]}
@@ -161,13 +215,13 @@ class CLIExperienceTests(unittest.TestCase):
         harness = self.root / "examples/minimal/harness.toml"
         harness.write_text('id = "opencode"\nadapter = "opencode"\nmodel_env = "TEAM_MODEL"\n'
                            '[runtime]\nkind = "docker"\nimage = "pinned-agent"\n')
-        with patch.dict(os.environ, {"MODEL_API_KEY": "", "MODEL_ENDPOINT": "", "TEAM_MODEL": ""}), \
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "", "AGENT_OPT_MODEL_ENDPOINT": "", "TEAM_MODEL": ""}), \
                 patch("agent_optimizer.readiness.shutil.which", return_value=None):
             checks = {row["id"]: row for row in collect_plan(plan, Registry())["checks"]}
         self.assertEqual(checks["model.configuration"]["status"], "error")
         self.assertIn("TEAM_MODEL", checks["model.configuration"]["remedy"])
         self.assertEqual(checks["runtime.binary"]["status"], "error")
-        with patch.dict(os.environ, {"MODEL_API_KEY": "", "MODEL_ENDPOINT": "", "TEAM_MODEL": "team/model"}), \
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "", "AGENT_OPT_MODEL_ENDPOINT": "", "TEAM_MODEL": "team/model"}), \
                 patch("agent_optimizer.readiness.shutil.which", return_value="/usr/bin/docker"):
             checks = {row["id"]: row for row in collect_plan(plan, Registry())["checks"]}
         self.assertEqual(checks["model.configuration"]["status"], "ok")
@@ -271,11 +325,11 @@ class CLIExperienceTests(unittest.TestCase):
                                                    str(self.root / "examples/minimal/experiment.toml"), "--json"]), 0)
                     self.assertIs(sys.dont_write_bytecode, enabled)
 
-                    def fail_during_doctor(_argv):
+                    def fail_during_doctor(*_args, **_kwargs):
                         self.assertTrue(sys.dont_write_bytecode)
                         raise RuntimeError("interrupted doctor")
 
-                    with patch.object(cli, "_main", side_effect=fail_during_doctor):
+                    with patch.object(cli.typer.main, "get_command", side_effect=fail_during_doctor):
                         with self.assertRaisesRegex(RuntimeError, "interrupted doctor"):
                             cli.main(["doctor"])
                     self.assertIs(sys.dont_write_bytecode, enabled)
@@ -449,7 +503,7 @@ class CLIExperienceTests(unittest.TestCase):
         args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
                 "--name", "shipped-team", "--dataset", "sample_text", "--harness", "sample_command",
                 "--optimizer", "sample_baseline", "--editable", "configs/strategy.json",
-                "--argv", "{python}", "{agent_dir}/src/fixture_agent.py", "{task_dir}", "--yes"]
+                 "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]', "--yes"]
         output = io.StringIO()
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
@@ -480,8 +534,8 @@ class CLIExperienceTests(unittest.TestCase):
                                          '"evaluator": "examples/minimal/evaluator.py:TextFixtureEvaluator"'))
         args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
                 "--dataset", "sample_text", "--name", "invalid-provider",
-                "--editable", "configs/strategy.json", "--argv", "{python}",
-                "{agent_dir}/src/fixture_agent.py", "{task_dir}", "--yes"]
+                 "--editable", "configs/strategy.json", "--command-json",
+                 '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]', "--yes"]
         errors = io.StringIO()
         with contextlib.redirect_stderr(errors), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(main(args), 2)
@@ -496,13 +550,24 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn("dataset", error.getvalue().lower())
         self.assertFalse((self.root / "runs").exists())
 
+    def test_init_rejects_removed_argv_without_preparing_dataset(self):
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors), contextlib.redirect_stdout(io.StringIO()):
+            code = main(["init", "--project-root", str(self.root), "--agent", str(self.agent),
+                         "--name", "old-argv", "--dataset", str(self.data),
+                         "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                         "--editable", "configs/strategy.json", "--optimizer", "baseline",
+                         "--argv", "{python}", "{task_dir}", "--yes"])
+        self.assertEqual(code, 2)
+        self.assertFalse((self.root / "runs").exists())
+
     def test_init_generates_loadable_config_for_custom_scored_dataset(self):
         output = io.StringIO()
         args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
                 "--name", "custom-demo", "--dataset", str(self.data),
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--editable", "configs/strategy.json", "--optimizer", "baseline",
-                "--argv", "{python}", "{agent_dir}/src/fixture_agent.py", "{task_dir}", "--yes"]
+                 "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]', "--yes"]
         before = (self.agent / "configs/strategy.json").read_bytes()
         with contextlib.redirect_stdout(output):
             self.assertEqual(main(args), 0)
@@ -604,7 +669,7 @@ class CLIExperienceTests(unittest.TestCase):
                 "--dataset", str(self.data),
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--editable", "configs/strategy.json", "--optimizer", "baseline",
-                "--argv", "{python}", "{agent_dir}/agent.py", "{task_dir}", "--yes"]
+                 "--command-json", '["{python}","{agent_dir}/agent.py","{task_dir}"]', "--yes"]
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(main(args), 0)
         spec = load_experiment(self.root / "runs/configs/remote-demo/experiment.toml")
@@ -616,7 +681,7 @@ class CLIExperienceTests(unittest.TestCase):
                 "--name", "glob-demo", "--dataset", str(self.data),
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--editable", "configs/**", "--optimizer", "gepa",
-                "--argv", "{python}", "{agent_dir}/src/fixture_agent.py", "{task_dir}", "--yes"]
+                 "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]', "--yes"]
         error = io.StringIO()
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(error):
             self.assertEqual(main(args), 0, error.getvalue())
@@ -646,8 +711,8 @@ class CLIExperienceTests(unittest.TestCase):
                 "--agent", str(self.agent), "--dataset", str(source),
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--optimizer", "gepa", "--max-tasks", "3", "--editable",
-                "configs/strategy.json", "--argv", "{python}",
-                "{agent_dir}/src/fixture_agent.py", "{task_dir}", "--yes"]
+                 "configs/strategy.json", "--command-json",
+                 '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]', "--yes"]
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
         spec = load_experiment(self.root / "runs/configs/sampled/experiment.toml")
@@ -721,6 +786,126 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn("optimizer-config", error.getvalue())
         self.assertFalse((self.root / "external").exists())
 
+    def test_structured_optimizer_options_complete_user_flow(self):
+        options = {"file_variants": {"include_seeds": True, "variants": [
+            {"name": "enable-repair", "files": {"configs/strategy.json": '{"repair": true}'}}
+        ]}}
+        args = ["init", "--project-root", str(self.root), "--name", "structured-options",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "file_variants", "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--optimizer-config", json.dumps(options), "--yes"]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        plan = self.root / "runs/configs/structured-options/experiment.toml"
+        spec = load_experiment(plan)
+        self.assertEqual(spec["stages"][0]["config"]["variants"], options["file_variants"]["variants"])
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["doctor", "--plan", str(plan), "--json"]), 0)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["run", str(plan)]), 0)
+        run = Path(json.loads(output.getvalue())["run_dir"])
+        summary = json.loads((run / "summary.json").read_text())
+        self.assertEqual(summary["status"], "completed")
+        self.assertTrue(summary["synthetic"])
+        self.assertEqual(summary["groups"][0]["baseline"]["metrics"]["solve_rate"], 0)
+        self.assertEqual(summary["groups"][0]["selected"][0]["metrics"]["solve_rate"], 1)
+        self.assertTrue((run / "report.html").is_file())
+
+    def test_failed_generation_can_retry_without_removing_existing_directory(self):
+        args = ["init", "--project-root", str(self.root), "--name", "invalid-once",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "baseline", "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--yes"]
+        bad = [*args, "--optimizer-config", '{"baseline":{"unsupported":null}}']
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(bad), 2)
+        self.assertFalse((self.root / "runs/configs/invalid-once").exists())
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+
+        existing = self.root / "runs/configs/existing"
+        existing.mkdir()
+        (existing / "sentinel").write_bytes(b"unchanged")
+        args[args.index("invalid-once")] = "existing"
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 2)
+        self.assertEqual((existing / "sentinel").read_bytes(), b"unchanged")
+
+    def test_multi_dataset_generation_failure_can_retry_without_leaving_first_plan(self):
+        config_root = self.root / "runs/configs/multi-retry"
+        config_root.mkdir(parents=True)
+        (config_root / "sentinel").write_bytes(b"keep")
+        second = self.root / "second.json"
+        second.write_text("invalid JSON")
+        args = ["init", "--project-root", str(self.root), "--name", "multi-retry",
+                "--agent", str(self.agent), "--dataset", str(self.data), "--dataset", str(second),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "baseline", "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--yes"]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 2)
+        self.assertEqual((config_root / "sentinel").read_bytes(), b"keep")
+        self.assertFalse((config_root / "1-tasks").exists())
+        self.assertFalse((config_root / "session.json").exists())
+
+        document = json.loads(self.data.read_text())
+        document["id"] = "second-dataset"
+        second.write_text(json.dumps(document))
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        prepared = json.loads(output.getvalue())
+        self.assertEqual(len(prepared["experiments"]), 2)
+        self.assertTrue((config_root / "1-tasks/experiment.toml").is_file())
+        self.assertTrue((config_root / "2-second/experiment.toml").is_file())
+
+    def test_generated_optimizer_strings_round_trip_del_character(self):
+        value = "repair\x7fversion"
+        options = {"file_variants": {"variants": [
+            {"name": value, "files": {"configs/strategy.json": '{"repair": true}'}}
+        ]}}
+        args = ["init", "--project-root", str(self.root), "--name", "special-options",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "file_variants", "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--optimizer-config", json.dumps(options), "--yes"]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        spec = load_experiment(self.root / "runs/configs/special-options/experiment.toml")
+        self.assertEqual(spec["stages"][0]["config"]["variants"][0]["name"], value)
+
+    def test_multi_dataset_output_failure_does_not_leave_dangling_session(self):
+        class BrokenOutput:
+            def write(self, value):
+                raise OSError("output unavailable")
+
+        args = ["init", "--project-root", str(self.root), "--name", "broken-output",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--dataset", "sample_text", "--evaluator",
+                "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "baseline", "--editable", "configs/strategy.json",
+                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                "--yes"]
+        with contextlib.redirect_stdout(BrokenOutput()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 2)
+        config_root = self.root / "runs/configs/broken-output"
+        self.assertFalse((config_root / "session.json").exists())
+        self.assertFalse((config_root / "1-tasks").exists())
+        self.assertFalse((config_root / "2-sample_text").exists())
+
+        (config_root / "session.json").write_bytes(b"existing session")
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 2)
+        self.assertEqual((config_root / "session.json").read_bytes(), b"existing session")
+        self.assertFalse((config_root / "1-tasks").exists())
+
     def test_gepa_trial_allowance_tracks_requested_iterations_and_merge(self):
         args = ["init", "--project-root", str(self.root), "--name", "long-search",
                 "--agent", str(self.agent), "--dataset", str(self.data),
@@ -787,7 +972,7 @@ class CLIExperienceTests(unittest.TestCase):
             args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
                     "--name", "future-demo", "--dataset", "future_set", "--harness", "future_harness",
                     "--optimizer", "future_opt", "--editable", "configs/strategy.json",
-                    "--argv", "{python}", "{task_dir}", "--yes"]
+                     "--command-json", '["{python}","{task_dir}"]', "--yes"]
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(main(args), 0)
             experiment = self.root / "runs/configs/future-demo/experiment.toml"
@@ -845,8 +1030,8 @@ class CLIExperienceTests(unittest.TestCase):
                 "--name", "comparison", "--dataset", str(datasets[0]),
                 "--dataset", str(datasets[1]), "--evaluator",
                 "examples/minimal/evaluator.py:TextFixtureEvaluator", "--editable",
-                "configs/strategy.json", "--optimizer", "baseline", "--argv", "{python}",
-                "{agent_dir}/src/fixture_agent.py", "{task_dir}", "--yes"]
+                 "configs/strategy.json", "--optimizer", "baseline", "--command-json",
+                 '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]', "--yes"]
         init_output = io.StringIO()
         with contextlib.redirect_stdout(init_output):
             self.assertEqual(main(args), 0)
@@ -892,9 +1077,8 @@ class CLIExperienceTests(unittest.TestCase):
     def test_removed_extensions_option_fails_before_asset_preparation(self):
         args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
                 "--dataset", "cvdp", "--extensions", "unused.toml", "--yes"]
-        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as failure:
-            main(args)
-        self.assertEqual(failure.exception.code, 2)
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 2)
         self.assertFalse((self.root / "external").exists())
 
     def test_session_preserves_other_dataset_report_when_one_config_fails(self):
@@ -905,7 +1089,7 @@ class CLIExperienceTests(unittest.TestCase):
                 "--agent", str(self.agent), "--dataset", str(first), "--dataset", str(second),
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--optimizer", "baseline", "--editable", "configs/strategy.json",
-                "--argv", "{python}", "{agent_dir}/src/fixture_agent.py", "{task_dir}", "--yes"]
+                 "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]', "--yes"]
         output = io.StringIO()
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)

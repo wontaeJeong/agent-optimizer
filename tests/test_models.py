@@ -62,7 +62,7 @@ def completion(content="hello", usage=None):
 class ModelTests(unittest.TestCase):
     def test_trickling_response_cannot_extend_total_request_deadline(self):
         with model_server([(200, completion())], trickle=True) as (url, _requests):
-            settings = ModelSettings.from_env({"MODEL_ENDPOINT": url + "/chat/completion", "MODEL_API_KEY": "key"})
+            settings = ModelSettings.from_env({"AGENT_OPT_MODEL_ENDPOINT": url + "/chat/completion", "AGENT_OPT_MODEL_API_KEY": "key"})
             started = time.monotonic()
             with self.assertRaises(UnavailableError):
                 complete([], settings=settings, timeout=0.5)
@@ -70,7 +70,7 @@ class ModelTests(unittest.TestCase):
 
     def test_exact_endpoint_and_default_model_reach_server_with_bearer(self):
         with model_server([(200, completion())]) as (url, requests), patch.dict(os.environ, {
-            "MODEL_ENDPOINT": url + "/v1/chat/completion", "MODEL_API_KEY": "fixture-secret",
+            "AGENT_OPT_MODEL_ENDPOINT": url + "/v1/chat/completion", "AGENT_OPT_MODEL_API_KEY": "fixture-secret",
         }, clear=True):
             self.assertEqual(complete([{"role": "user", "content": "hi"}])["choices"][0]["message"]["content"], "hello")
             self.assertEqual(requests[0]["path"], "/v1/chat/completion")
@@ -81,16 +81,16 @@ class ModelTests(unittest.TestCase):
 
     def test_base_url_and_model_override(self):
         with model_server([(200, completion())]) as (url, requests):
-            settings = ModelSettings.from_env({"MODEL_BASE_URL": url + "/v1/", "MODEL_API_KEY": "key", "MODEL_ID": "another/model"})
+            settings = ModelSettings.from_env({"AGENT_OPT_MODEL_BASE_URL": url + "/v1/", "AGENT_OPT_MODEL_API_KEY": "key", "AGENT_OPT_MODEL_ID": "another/model"})
             complete([], settings=settings)
             self.assertEqual(requests[0]["path"], "/v1/chat/completions")
             self.assertEqual(requests[0]["body"]["model"], "another/model")
 
     def test_invalid_config_is_rejected_before_network(self):
-        good = {"MODEL_ENDPOINT": "https://example.invalid/v1/chat/completion", "MODEL_API_KEY": "key"}
-        for update in [{"MODEL_API_KEY": ""}, {"MODEL_ID": ""}, {"MODEL_BASE_URL": "https://example.invalid/v1"},
-                       {"MODEL_ENDPOINT": "http://example.invalid/v1"}, {"MODEL_ENDPOINT": "https://key@example.invalid/v1"},
-                       {"MODEL_ENDPOINT": "https://example.invalid/v1?token=secret"}, {"MODEL_API_KEY": "key\nheader"}]:
+        good = {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/v1/chat/completion", "AGENT_OPT_MODEL_API_KEY": "key"}
+        for update in [{"AGENT_OPT_MODEL_API_KEY": ""}, {"AGENT_OPT_MODEL_ID": ""}, {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1"},
+                       {"AGENT_OPT_MODEL_ENDPOINT": "http://example.invalid/v1"}, {"AGENT_OPT_MODEL_ENDPOINT": "https://key@example.invalid/v1"},
+                       {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/v1?token=secret"}, {"AGENT_OPT_MODEL_API_KEY": "key\nheader"}]:
             with self.subTest(update=update), self.assertRaises((ConfigurationError, UnavailableError)):
                 ModelSettings.from_env({**good, **update})
 
@@ -98,7 +98,7 @@ class ModelTests(unittest.TestCase):
         for status, body in [(401, b"fixture-secret"), (500, b"fixture-secret"), (307, b"redirect"),
                              (200, b"not-json fixture-secret"), (200, {}), (200, {"choices": []})]:
             with self.subTest(status=status, body=body), model_server([(status, body)]) as (url, requests):
-                settings = ModelSettings.from_env({"MODEL_ENDPOINT": url + "/chat/completion", "MODEL_API_KEY": "fixture-secret"})
+                settings = ModelSettings.from_env({"AGENT_OPT_MODEL_ENDPOINT": url + "/chat/completion", "AGENT_OPT_MODEL_API_KEY": "fixture-secret"})
                 with self.assertRaises(UnavailableError) as error:
                     complete([], settings=settings)
                 self.assertNotIn("fixture-secret", str(error.exception))
@@ -109,10 +109,24 @@ class ModelTests(unittest.TestCase):
         reply["choices"][0]["message"]["tool_calls"] = [{"id": "call_1", "type": "function", "function": {
             "name": "connectivity_check", "arguments": '{"ok":true}'}}]
         with model_server([(200, reply)]) as (url, requests):
-            settings = ModelSettings.from_env({"MODEL_ENDPOINT": url + "/chat/completion", "MODEL_API_KEY": "key"})
+            settings = ModelSettings.from_env({"AGENT_OPT_MODEL_ENDPOINT": url + "/chat/completion", "AGENT_OPT_MODEL_API_KEY": "key"})
             self.assertEqual(probe_model(settings=settings)["status"], "passed")
             self.assertEqual(requests[0]["body"]["tool_choice"]["function"]["name"], "connectivity_check")
         with model_server([(200, completion())]) as (url, _requests):
-            settings = ModelSettings.from_env({"MODEL_ENDPOINT": url + "/chat/completion", "MODEL_API_KEY": "key"})
+            settings = ModelSettings.from_env({"AGENT_OPT_MODEL_ENDPOINT": url + "/chat/completion", "AGENT_OPT_MODEL_API_KEY": "key"})
             with self.assertRaises(UnavailableError):
                 probe_model(settings=settings)
+
+    def test_prefixed_only_and_explicit_mapping_isolation(self):
+        new = {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/v1/chat/completions",
+               "AGENT_OPT_MODEL_API_KEY": "fixture-secret"}
+        with patch.dict(os.environ, {"MODEL_ENDPOINT": new["AGENT_OPT_MODEL_ENDPOINT"],
+                                     "MODEL_API_KEY": "old-secret"}, clear=True):
+            with self.assertRaises((ConfigurationError, UnavailableError)):
+                ModelSettings.from_env()
+            settings = ModelSettings.from_env(new)
+            self.assertEqual(settings.model, "glm5.3-flash")
+            self.assertNotIn("fixture-secret", repr(settings))
+            with self.assertRaises((ConfigurationError, UnavailableError)):
+                ModelSettings.from_env({"MODEL_ENDPOINT": new["AGENT_OPT_MODEL_ENDPOINT"],
+                                        "MODEL_API_KEY": "old-secret"})

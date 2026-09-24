@@ -91,8 +91,10 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
             with self.subTest(args=args, make=make):
                 result = self.invoke(*args, make=make)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                for command in ("setup", "doctor", "test", "lint", "demo", "smoke", "live"):
+                for command in ("setup", "doctor", "test", "lint", "demo", "smoke", "live", "menu"):
                     self.assertIn(command, result.stdout)
+                self.assertIn("make setup ARGS=", result.stdout)
+                self.assertIn("ACE 전체", result.stdout)
         self.assertFalse((self.root / ".venv").exists())
         self.assertEqual(self.trace_text(), "")
 
@@ -574,6 +576,8 @@ class DeveloperCommandsTests(unittest.TestCase):
 
     def test_no_arguments_means_help(self):
         self.assertEqual(self.main([]), 0)
+        self.assertIn("사용법:", self.output.getvalue())
+        self.assertIn("옵션:", self.output.getvalue())
         self.assertIn("demo", self.output.getvalue())
 
     def test_network_is_loaded_before_core_and_shell_setup(self):
@@ -668,11 +672,14 @@ class DeveloperCommandsTests(unittest.TestCase):
                 self.main([command, "--help"])
             self.assertEqual(exit_code.exception.code, 0)
             help_text = self.output.getvalue()
-            self.assertIn("Without --core/--dataset: full ACE", help_text)
+            self.assertIn("ACE 전체", help_text)
             self.assertIn("--dataset ID", help_text)
             self.assertIn("--core/--platform/--model", help_text)
             if command == "doctor":
+                self.assertIn("등록 데이터셋 하나 진단", help_text)
                 self.assertIn("--model", help_text)
+            else:
+                self.assertIn("등록 데이터셋 하나 준비", help_text)
 
     def test_core_setup_stops_before_example_and_requires_doctor_then_demo(self):
         for ready, demo_code, expected in ((True, 0, 0), (False, 0, 2), (True, 5, 2)):
@@ -867,7 +874,7 @@ class DeveloperCommandsTests(unittest.TestCase):
 
     def test_live_auth_is_checked_before_docker_or_prepared_assets(self):
         setup = module("onboarding_auth", ROOT / "examples/ace-rtl/environment/setup.py")
-        with patch.dict(os.environ, {"MODEL_ENDPOINT": "https://example.invalid/chat/completion"}, clear=True), patch.object(self.dev, "load", return_value=setup), \
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/chat/completion"}, clear=True), patch.object(self.dev, "load", return_value=setup), \
                 patch.object(setup, "validate_platform", side_effect=AssertionError("Docker before auth")):
             self.assertEqual(self.main(["live"]), 2)
         self.assertIn("blocked_auth", self.output.getvalue())
@@ -897,7 +904,7 @@ class DeveloperCommandsTests(unittest.TestCase):
                                 patch.object(setup, "driver_requirements", return_value={}), \
                                 patch.object(setup, "prepare_data", side_effect=AssertionError("later data work")), \
                                 patch.dict(os.environ, {"AGENT_OPT_BOOTSTRAPPED": str(root),
-                                            "MODEL_API_KEY": "test", "MODEL_ENDPOINT": "https://example.invalid/chat/completion"}):
+                                            "AGENT_OPT_MODEL_API_KEY": "test", "AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/chat/completion"}):
                             code = self.main([command, "--platform", "linux/amd64", *(["--offline"] if offline else [])])
                         self.assertEqual(code, 2)
                         blocked = json.loads(self.output.getvalue().splitlines()[-1])

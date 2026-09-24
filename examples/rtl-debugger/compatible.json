@@ -5,7 +5,7 @@
     "compatible": {
       "npm": "@ai-sdk/openai-compatible",
       "name": "Configured model endpoint",
-      "options": {"apiKey": "{env:MODEL_API_KEY}"},
+      "options": {"apiKey": "{env:AGENT_OPT_MODEL_API_KEY}"},
       "models": {}
     }
   },

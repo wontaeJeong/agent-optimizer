@@ -30,8 +30,8 @@ class MenuFlows(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(dir=ROOT)
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        self.env = {"MODEL_ENDPOINT": "https://example.invalid/chat/completion",
-                    "MODEL_API_KEY": "inherited-secret"}
+        self.env = {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/chat/completion",
+                    "AGENT_OPT_MODEL_API_KEY": "inherited-secret"}
 
     def flow(self, inputs, *, env=None, token="", codes=()):
         calls = []
@@ -146,35 +146,36 @@ class MenuFlows(unittest.TestCase):
         self.assertNotIn("inherited-secret", output)
         self.assertEqual(calls[0][0][-2:], ["doctor", "--model"])
         child = calls[0][1]
-        self.assertNotIn("MODEL_ENDPOINT", child)
-        self.assertEqual(child["MODEL_BASE_URL"], "https://example.invalid/v1")
+        self.assertNotIn("AGENT_OPT_MODEL_ENDPOINT", child)
+        self.assertEqual(child["AGENT_OPT_MODEL_BASE_URL"], "https://example.invalid/v1")
         self.assertEqual(ModelSettings.from_env(child).endpoint, "https://example.invalid/v1/chat/completions")
-        self.assertEqual(child["MODEL_ID"], "other-model")
-        self.assertEqual(child["MODEL_API_KEY"], "new-hidden-secret")
+        self.assertEqual(child["AGENT_OPT_MODEL_ID"], "other-model")
+        self.assertEqual(child["AGENT_OPT_MODEL_API_KEY"], "new-hidden-secret")
+        self.assertNotIn("MODEL_API_KEY", child)
         self.assertEqual(calls[1][1], child)
 
     def test_model_exact_switch_default_model_and_empty_token_keeps_inherited(self):
-        env = {"MODEL_BASE_URL": "https://example.invalid/v1", "MODEL_API_KEY": "kept"}
+        env = {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1", "AGENT_OPT_MODEL_API_KEY": "kept"}
         _, _, calls = self.flow(["4", "1", "https://example.invalid/chat/completion", "", "0"], env=env)
         child = calls[0][1]
-        self.assertNotIn("MODEL_BASE_URL", child)
+        self.assertNotIn("AGENT_OPT_MODEL_BASE_URL", child)
         self.assertEqual(ModelSettings.from_env(child).endpoint, "https://example.invalid/chat/completion")
-        self.assertEqual(child["MODEL_ID"], "glm5.3-flash")
-        self.assertEqual(child["MODEL_API_KEY"], "kept")
+        self.assertEqual(child["AGENT_OPT_MODEL_ID"], "glm5.3-flash")
+        self.assertEqual(child["AGENT_OPT_MODEL_API_KEY"], "kept")
 
     def test_model_inherited_defaults(self):
-        env = {**self.env, "MODEL_ID": "inherited-model"}
+        env = {**self.env, "AGENT_OPT_MODEL_ID": "inherited-model"}
         _, _, calls = self.flow(["4", "", "", "", "0"], env=env)
         self.assertEqual(calls[0][1], env)
 
     def test_empty_inherited_model_id_uses_default_on_enter(self):
-        env = {**self.env, "MODEL_ID": ""}
+        env = {**self.env, "AGENT_OPT_MODEL_ID": ""}
         code, _, calls = self.flow(["4", "", "", "", "0"], env=env)
         self.assertEqual(code, 0)
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0][-2:], ["doctor", "--model"])
-        self.assertEqual(calls[0][1]["MODEL_ID"], "glm5.3-flash")
-        self.assertEqual(env["MODEL_ID"], "")
+        self.assertEqual(calls[0][1]["AGENT_OPT_MODEL_ID"], "glm5.3-flash")
+        self.assertEqual(env["AGENT_OPT_MODEL_ID"], "")
 
     def test_invalid_model_input_does_not_commit_partial_settings(self):
         for values in (["9"], ["1", "http://remote.invalid", ""],
@@ -289,7 +290,8 @@ class MenuEntrypoints(unittest.TestCase):
         self.bin = self.root / "bin"
         self.bin.mkdir()
         self.log = self.root / "calls.jsonl"
-        self.env = {k: v for k, v in os.environ.items() if not k.startswith("MODEL_")}
+        self.env = {k: v for k, v in os.environ.items()
+                    if not k.startswith(("MODEL_", "AGENT_OPT_MODEL_"))}
         self.env.update(PATH=str(self.bin) + os.pathsep + os.environ["PATH"],
                         PYTHONDONTWRITEBYTECODE="1", MENU_LOG=str(self.log))
         # Intercept only selected external actions, never the public menu entrypoint.
@@ -299,7 +301,7 @@ from pathlib import Path
 args = sys.argv[1:]
 if len(args) > 1 and args[1] in ("setup", "doctor", "demo", "live"):
     with open(os.environ["MENU_LOG"], "a") as stream:
-        stream.write(json.dumps({{"argv": args, "cwd": os.getcwd(), "env": {{k: v for k, v in os.environ.items() if k.startswith("MODEL_")}}}}) + "\\n")
+        stream.write(json.dumps({{"argv": args, "cwd": os.getcwd(), "env": {{k: v for k, v in os.environ.items() if k.startswith(("MODEL_", "AGENT_OPT_MODEL_"))}}}}) + "\\n")
     sys.exit(int(os.environ.get("MENU_EXIT", "0")))
 os.execv("/bin/sh", ["sh", *args])
 ''')
@@ -370,6 +372,9 @@ os.execv("/bin/sh", ["sh", *args])
             with self.subTest(entry=entry):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("menu", result.stdout)
+                self.assertIn("번호 메뉴", result.stdout)
+                if "dev.py" in " ".join(entry):
+                    self.assertIn("사용법:", result.stdout)
         self.assertFalse(self.log.exists())
         for name in ["runs", ".venv", "external", ".cache"]:
             self.assertFalse((self.root / name).exists())
@@ -440,8 +445,8 @@ os.execv("/bin/sh", ["sh", *args])
         before = dict(os.environ)
         secret = "pty-only-secret-914"
         code, output = self.interact(self.entries()[0], [
-            ("선택: ", "4\n"), ("URL 방식", "1\n"), ("MODEL_ENDPOINT", "https://example.invalid/chat/completion\n"),
-            ("MODEL_ID", "\n"), ("Bearer token", secret + "\n"), ("선택: ", "5\n"),
+            ("선택: ", "4\n"), ("URL 방식", "1\n"), ("AGENT_OPT_MODEL_ENDPOINT", "https://example.invalid/chat/completion\n"),
+            ("AGENT_OPT_MODEL_ID", "\n"), ("Bearer token", secret + "\n"), ("선택: ", "5\n"),
             ("반복 횟수", "3\n"), ("선택: ", "0\n"),
         ])
         self.assertEqual(code, 0)
@@ -449,9 +454,9 @@ os.execv("/bin/sh", ["sh", *args])
         calls = [json.loads(line) for line in self.log.read_text().splitlines()]
         self.assertEqual([call["argv"][1:] for call in calls], [["doctor", "--model"], ["live", "--iterations", "3"]])
         for call in calls:
-            self.assertEqual(call["env"]["MODEL_API_KEY"], secret)
+            self.assertEqual(call["env"]["AGENT_OPT_MODEL_API_KEY"], secret)
             self.assertNotIn(secret, " ".join(call["argv"]))
-            self.assertEqual(call["env"]["MODEL_ID"], "glm5.3-flash")
+            self.assertEqual(call["env"]["AGENT_OPT_MODEL_ID"], "glm5.3-flash")
         self.assertEqual(dict(os.environ), before)
 
 

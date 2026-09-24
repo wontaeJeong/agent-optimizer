@@ -4,11 +4,31 @@ from __future__ import annotations
 import sys
 import threading
 import time
+import os
+
+from rich.console import Console
+from rich.progress import Progress, ProgressColumn, SpinnerColumn, TimeElapsedColumn
+from rich.table import Column
+from rich.text import Text
+
+
+class _StatusColumn(ProgressColumn):
+    def render(self, task):
+        return Text(task.description, style=task.fields.get("tone", "yellow"))
+
+
+def _terminal_progress(stream):
+    return Progress(SpinnerColumn(), _StatusColumn(table_column=Column(overflow="fold")),
+                    TimeElapsedColumn(),
+                    console=Console(file=stream, force_terminal=True, color_system="standard",
+                                    no_color=bool(os.environ.get("NO_COLOR"))),
+                    refresh_per_second=1, transient=False,
+                    redirect_stdout=False, redirect_stderr=False)
 
 
 class ProgressDisplay:
     def __init__(self, stream=None):
-        self.stream = stream or sys.stderr
+        self.stream = sys.stderr if stream is None else stream
         self.tty = self.stream.isatty()
         self.active = None
         self.active_started = None
@@ -16,8 +36,9 @@ class ProgressDisplay:
         self.max_trials = None
         self.slowest = []
         self.lock = threading.Lock()
-        self.stopped = threading.Event()
-        self.thread = None
+        self.progress = None
+        self.task_id = None
+        self._managed = False
 
     def configure_budget(self, max_trials):
         with self.lock:
@@ -35,31 +56,21 @@ class ProgressDisplay:
         return budget
 
     def start(self):
-        if self.tty:
-            self.thread = threading.Thread(target=self._refresh, daemon=True)
-            self.thread.start()
+        if self.tty and self.progress is None:
+            self.progress = _terminal_progress(self.stream)
+            self.task_id = self.progress.add_task("waiting for events", total=None)
+            self.progress.start()
         return self
 
     def __enter__(self):
+        self._managed = True
         return self.start()
 
     def __exit__(self, *_):
-        self.stopped.set()
-        if self.thread:
-            self.thread.join(timeout=2)
-            self.stream.write("\n")
-            self.stream.flush()
-
-
-    def _refresh(self):
-        while not self.stopped.wait(1):
-            with self.lock:
-                if self.active and self.active_started is not None:
-                    label = self.active
-                    elapsed = time.monotonic() - self.active_started
-                    self.stream.write(f"\r\x1b[2K  ◉ {label} · {elapsed:.0f}s elapsed"
-                                      + self._summary())
-                    self.stream.flush()
+        if self.progress is not None:
+            self.progress.stop()
+            self.progress = None
+        self._managed = False
 
     def __call__(self, event):
         name = event["event"]
@@ -78,6 +89,17 @@ class ProgressDisplay:
         if iteration is not None:
             total = event.get("total")
             label += f" iteration={iteration}/{total}" if total is not None else f" iteration={iteration}"
+        if name == "trial_completed":
+            tone = ("green" if event.get("status", "passed") == "passed" else
+                    "yellow" if event["status"] == "interrupted" else "red")
+        elif name == "optimizer_iteration_completed":
+            tone = ("red" if event.get("status") == "invalid_interface" else
+                    "yellow" if event.get("accepted") is False or
+                    event.get("status") == "no_failures" else "green")
+        elif name == "optimizer_merge_completed":
+            tone = "green" if event.get("accepted", True) else "yellow"
+        else:
+            tone = "red" if name == "error" else "yellow"
         with self.lock:
             if name == "trial_completed":
                 self.completed += 1
@@ -88,11 +110,22 @@ class ProgressDisplay:
             else:
                 self.active, self.active_started = label, time.monotonic()
             if self.tty:
-                self.stream.write("\r\x1b[2K")
-            self.stream.write(f"[{event['timestamp'][11:19]}] {label}"
-                              + (f" elapsed={seconds:.2f}s" if name == "trial_completed"
-                                 and seconds is not None else "") + self._summary() + "\n")
-            self.stream.flush()
+                if self.progress is None:
+                    self.start()
+                self.progress.reset(self.task_id)
+                self.progress.update(self.task_id, description=(
+                    f"[{event['timestamp'][11:19]}] {label}"
+                    + (f" elapsed={seconds:.2f}s" if name == "trial_completed"
+                       and seconds is not None else "") + self._summary()), tone=tone)
+                self.progress.refresh()
+                if not self._managed:
+                    self.progress.stop()
+                    self.progress = None
+            else:
+                self.stream.write(f"[{event['timestamp'][11:19]}] {label}"
+                                  + (f" elapsed={seconds:.2f}s" if name == "trial_completed"
+                                     and seconds is not None else "") + self._summary() + "\n")
+                self.stream.flush()
 
 
 class PreparationStatus:
@@ -100,31 +133,29 @@ class PreparationStatus:
 
     def __init__(self, name: str, stream=None):
         self.name = name
-        self.stream = stream or sys.stderr
-        self.stopped = threading.Event()
-        self.thread = None
+        self.stream = sys.stderr if stream is None else stream
+        self.progress = None
 
     def __enter__(self):
         self.started = time.monotonic()
-        self.stream.write(f"[prepare] dataset={self.name} starting\n")
-        self.stream.flush()
         if self.stream.isatty():
-            self.thread = threading.Thread(target=self._refresh, daemon=True)
-            self.thread.start()
+            self.progress = _terminal_progress(self.stream)
+            self.task_id = self.progress.add_task(f"[prepare] dataset={self.name} starting",
+                                                  total=None, tone="yellow")
+            self.progress.start()
+        else:
+            self.stream.write(f"[prepare] dataset={self.name} starting\n")
+            self.stream.flush()
         return self
 
-    def _refresh(self):
-        while not self.stopped.wait(1):
-            self.stream.write(f"\r\x1b[2K[prepare] dataset={self.name} "
-                              f"elapsed={time.monotonic()-self.started:.0f}s")
-            self.stream.flush()
-
     def __exit__(self, error_type, *_):
-        self.stopped.set()
-        if self.thread:
-            self.thread.join(timeout=2)
-            self.stream.write("\r\x1b[2K")
         status = "failed" if error_type else "complete"
-        self.stream.write(f"[prepare] dataset={self.name} {status} "
-                          f"elapsed={time.monotonic()-self.started:.1f}s\n")
-        self.stream.flush()
+        message = (f"[prepare] dataset={self.name} {status} "
+                   f"elapsed={time.monotonic()-self.started:.1f}s")
+        if self.progress is not None:
+            self.progress.update(self.task_id, description=message,
+                                 tone="red" if error_type else "green")
+            self.progress.stop()
+        else:
+            self.stream.write(message + "\n")
+            self.stream.flush()

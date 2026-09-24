@@ -1,5 +1,61 @@
 # 검증 기록
 
+## 2026-09-25 공식 CVDP 평가 재실행
+
+환경: GitHub 제공 Ubuntu `linux/amd64`, Python 3.12.14, Docker 28.0.4,
+Compose v2.38.2. 모델 자격증명은 사용하지 않았다. 이전 [수동 실행의 패키지 404](https://github.com/wontaeJeong/agent-optimizer/actions/runs/36030202137)를
+조사할 때 `libexpat1`·`libexpat1-dev`의 동일 버전 URL이 다시 HTTP 200을 반환했다.
+고정 upstream Dockerfile·source commit·데이터 hash·평가기를 수정하지 않았다.
+
+| 실제 명령/근거 | 결과 |
+|---|---|
+| `gh workflow run ci.yml --ref main -f official_cvdp=true` — [실행 36034478872](https://github.com/wontaeJeong/agent-optimizer/actions/runs/36034478872) | apt 단계는 통과했고 artifact의 빌드 로그에서 Yosys 컴파일 31%까지 확인. 이후 새로운 `main` push로 workflow concurrency가 이 실행을 취소했으므로 평가 성공 증거는 아니다. |
+| `gh workflow run ci.yml --ref fix/cvdp-official-evaluation -f official_cvdp=true` — [실행 36035257600](https://github.com/wontaeJeong/agent-optimizer/actions/runs/36035257600), HEAD `b8bbfaf403b9e88a93d71f34fc3a49230e23b216` | 모델 키 없는 **수동 공식 Docker job 통과**(19분 23초). `make setup`, `make doctor`, `make setup ARGS="--offline"`, `make smoke`, 이미지 설정/endpoint 도구 검사 모두 성공. Python 3.11·3.12 코어 job도 통과. |
+| 실행 artifact `official-cvdp-36035257600`의 `external/environment-lock.json`, `external/setup-logs/doctor.json` | 고정 ACE `fead921f18bb57345b5a41ef93ba625be208e99c`·CVDP `8e894cf74414ab1eaea1e2b4e80a02f123df07b6`, HF `5b807d945f6a99aa645f7e43a64a2115e281b4bf`와 검증된 세 데이터 파일 hash를 기록. `doctor.ready=true`, Yosys 0.40·Icarus/vvp 13.0·OpenCode 1.18.31 실행. |
+| `runs/dev-smoke-22416bc0458f/summary.json`, `real-tool-tests/stderr.log`, `cvdp-positive`·`cvdp-negative`의 공식 `raw_result.json` | smoke `status=passed`, RTL 실도구 테스트 **9/9** 통과. 호스트 Docker toy 정답 1·오답 0·조기종료 0. 공식 LFSR `cvdp_copilot_lfsr_0001`에 비어 있지 않은 raw test 각 1개: 의도한 정답 `result=0`/`passed=1`, 오답 `result=1`/`passed=0`. |
+| `gh workflow run ci.yml --ref fix/cvdp-official-evaluation -f official_cvdp=true` — [최신 코드 재실행 36038288690](https://github.com/wontaeJeong/agent-optimizer/actions/runs/36038288690), HEAD `10a3ba0ebc02c061dec491c79c1167192f96c4cf` | 이후 반영된 설정·CLI·평가기 변경을 포함해 Python 3.11/3.12 CI와 수동 공식 Docker job **전부 통과**(Docker 15분 8초). `make setup`→`make doctor`→`setup --offline`→`make smoke`→이미지·endpoint 검사 각 단계 통과. |
+| 재실행 artifact `official-cvdp-36038288690`의 `runs/dev-smoke-e35ac77a5d36/summary.json`, `real-tool-tests/stderr.log`, 공식 정답·오답 `raw_result.json` | smoke `status=passed`, RTL 실도구 **9/9**. 호스트 Docker toy 정답 1·오답/조기종료 0. 같은 고정 공식 LFSR의 raw test 각 1개에서 정답 `result=0`/`passed=1`, 오답 `result=1`/`passed=0`; `error_msg=null`. `doctor.ready=true`, source commit과 데이터 hash 유지. |
+
+이는 **한 문제의 공식 채점기 정답·오답 및 실행 환경 검증**이다. 전체 CVDP 데이터셋의
+성능이나 ACE/OpenCode의 배포 모델 추론·최적화 효과를 검증한 것은 아니다. 첫 404는
+외부 Ubuntu 패키지 제공 상태가 회복된 뒤 같은 고정 빌드에서 재현되지 않았다.
+
+## 2026-09-25 사용자 설정·전송 경로·CI 재검증
+
+Mac ARM64 / Python 3.12.12 / Docker CLI 29.2.1. 아래 명령은 작업 중 실행했으며
+`origin/main`의 도움말 변경을 재배치한 뒤 전체 테스트·lint·Node 검사를 다시 실행했다.
+모델 자격증명은 사용하지 않았다. 이 환경에는 Docker
+Buildx와 호스트 Yosys/Icarus/vvp가 없다.
+
+| 실제 명령/실행 | 결과 |
+|---|---|
+| `make setup ARGS="--core"`; `make doctor ARGS="--core --json"` | 코어 환경 준비·진단 ready, 합성 데모 completed. 전체 ACE 준비 상태는 아님. |
+| `make test`; `make lint`; `actionlint`; `node --test tests/endpoint-plugin.test.mjs` | 재배치 후 전체 **433개 중 418 통과·15 skip·실패 0**, Ruff/워크플로 문법/Node 1개 통과. skip에는 호스트 RTL 도구 9개, 선택형 Docker 네트워크 2개 등이 포함된다. |
+| 아래 `audit-fixed-flow` 사용자 CLI 명령 | 합성 fixture에서 모두 성공. validation·test baseline 0 → 선택 후보 1, 4 trial, `runs/20260924T162700Z-52a358be/report.html`. 실제 RTL/모델 개선 근거 아님. 복수 데이터셋 실패·출력 실패 시 신규 설정/session 정리도 별도 회귀에서 확인. |
+| 임시 로컬 Git에 `GIT_CONFIG_COUNT`/`url.*.insteadOf` 적용 후 고정 Git Agent 스냅샷 테스트 | 공개 형식 URL을 로컬 저장소로 재작성해도 요청 SHA와 확보 SHA가 일치하며 잘못된 SHA는 거부. 실제 별도 서버 접속 검증은 아님. |
+| `.venv/bin/python -m build`; 독립 venv에 wheel offline 설치 후 `python -I -m agent_optimizer --help`, `agent-opt --help` | sdist/wheel 생성 및 독립 설치 CLI 확인. |
+| [PR #15](https://github.com/wontaeJeong/agent-optimizer/pull/15) 기본 CI [실행](https://github.com/wontaeJeong/agent-optimizer/actions/runs/36029966596) | Ubuntu Python 3.11·3.12 모두 통과. 공식 Docker job은 수동 입력이 없어 skip. |
+| `gh workflow run ci.yml --ref audit/readiness-2026-09-25 -f official_cvdp=true`; `gh run rerun 36030202137 --failed` — [실행/로그](https://github.com/wontaeJeong/agent-optimizer/actions/runs/36030202137) | 고정 Git 소스·HF 데이터 hash·driver 준비는 완료. 공식 CVDP 평가 이미지의 upstream Dockerfile `apt-get update && apt-get install`에서 Ubuntu 보안 저장소 `libexpat1`/`libexpat1-dev` 지정 버전 다운로드가 **두 번 모두 404**로 실패했다. 따라서 image/doctor/offline/smoke/정답·오답 평가는 시작하지 못했다. build 로그는 해당 실행의 `official-cvdp-36030202137` artifact (재실행 ID `10821431486`)에 있다. |
+
+`audit-fixed-flow`의 명시적 데이터셋/평가기/Optimizer 설정과 보고서 재생성 명령:
+
+```bash
+.venv/bin/agent-opt init --name audit-fixed-flow --agent examples/minimal/agents/solo \
+  --argv '{python}' '{agent_dir}/src/fixture_agent.py' '{task_dir}' \
+  --editable configs/strategy.json --dataset examples/minimal/tasks.json \
+  --evaluator examples/minimal/evaluator.py:TextFixtureEvaluator \
+  --optimizer file_variants \
+  --optimizer-config '{"file_variants":{"include_seeds":true,"variants":[{"name":"enable-repair","files":{"configs/strategy.json":"{\"repair\": true}"}}]}}' --yes
+.venv/bin/agent-opt doctor --plan runs/configs/audit-fixed-flow/experiment.toml --json
+.venv/bin/agent-opt run runs/configs/audit-fixed-flow/experiment.toml
+.venv/bin/agent-opt report runs/20260924T162700Z-52a358be --html
+```
+
+공식 CI의 404는 upstream Dockerfile이나 고정 버전을 수정해 통과시키지 않았다.
+실제 모델→ACE/OpenCode→평가의 end-to-end, 자체 러너와 추가 CA를 넣은 BuildKit 이미지
+통합은 아직 검증되지 않았다. `UV_DEFAULT_INDEX`만으로 기존 `uv.lock`의 공개 절대 URL이
+변경되지 않으므로 대체 package index도 실제 환경과 검토된 lock/cache로 별도 확인해야 한다.
+
 ## 2026-09-24 PR #12 whole-branch review fixes
 
 Mac ARM64 / Python 3.12.12 / Docker `linux/arm64`. 기존 고정 source·image·데이터 캐시를 사용하고,

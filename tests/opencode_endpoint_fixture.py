@@ -52,10 +52,10 @@ server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
 thread = threading.Thread(target=server.serve_forever, daemon=True)
 thread.start()
 try:
-    env = {**os.environ, "MODEL_ENDPOINT": f"http://127.0.0.1:{server.server_port}/v1/chat/completion",
-           "MODEL_API_KEY": "fixture-key", "MODEL_ID": "fixture-model",
+    env = {**os.environ, "AGENT_OPT_MODEL_ENDPOINT": f"http://127.0.0.1:{server.server_port}/v1/chat/completion",
+           "AGENT_OPT_MODEL_API_KEY": "fixture-key", "AGENT_OPT_MODEL_ID": "fixture-model",
            "OPENCODE_CONFIG": "/opt/agent-optimizer/compatible.json", "OPENCODE_DISABLE_MODELS_FETCH": "true"}
-    env.pop("MODEL_BASE_URL", None)
+    env.pop("AGENT_OPT_MODEL_BASE_URL", None)
     result = subprocess.run(["opencode", "run", "--format", "json", "--model", "compatible/fixture-model",
                              "Use bash to write fixture-tool-ok into probe.txt, then stop."],
                             env=env, capture_output=True, text=True, timeout=100)

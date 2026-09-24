@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import shlex
+import shutil
 import sys
 import contextlib
 import fnmatch
@@ -16,6 +18,7 @@ from agent_optimizer.datasets import CustomDataset
 from agent_optimizer.registry import PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, Registry
 from agent_optimizer.results import write_json
 from agent_optimizer.terminal_report import PreparationStatus
+from agent_optimizer.terminal_style import style
 from agent_optimizer.workspace import safe_path
 
 
@@ -58,9 +61,18 @@ def prepare_selection(project_root: Path, selection: str, *, evaluator: str | No
 def _literal(value):
     if isinstance(value, bool):
         return "true" if value else "false"
-    if isinstance(value, (int, float)):
+    if isinstance(value, int):
         return str(value)
-    return json.dumps(value, ensure_ascii=False)
+    if isinstance(value, float) and math.isfinite(value):
+        return str(value)
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False).replace("\x7f", "\\u007f")
+    if isinstance(value, (list, tuple)):
+        return "[" + ", ".join(_literal(item) for item in value) + "]"
+    if isinstance(value, dict) and all(isinstance(key, str) for key in value):
+        return "{ " + ", ".join(f"{_literal(key)} = {_literal(item)}"
+                                for key, item in value.items()) + " }"
+    raise ConfigurationError("Experiment options must contain only TOML-compatible values")
 
 
 def _section(name, mapping):
@@ -156,57 +168,61 @@ def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dat
     positive(wall_time, "max_wall_time_seconds")
     positive(trial_timeout, "trial_timeout_seconds")
     config_root.mkdir(parents=True)
-    write_json(config_root / "tasks.json", document)
-    agent_lines = ["schema_version = 2", f"id = {_literal(name)}",
-                   f"supported_harnesses = {_literal([harness.get('adapter', 'command')])}",
-                   f"editable = {_literal(editable)}", f"prompt_file = {_literal(prompt_file)}", "",
-                   "[source]", f"kind = {_literal(source_kind)}"]
-    if source_kind == "local":
-        agent_lines.append(f"path = {_literal(str(agent.absolute()))}")
-    else:
-        agent_lines += [f"url = {_literal(str(agent))}",
-                        f"revision = {_literal(harness['revision'])}"]
-    (config_root / "agent.toml").write_text("\n".join(agent_lines) + "\n", encoding="utf-8")
-    harness_lines = [f"id = {_literal(harness.get('id', 'user-command'))}",
-                     f"adapter = {_literal(harness.get('adapter', 'command'))}",
-                     f"command = {_literal(harness['command'])}", "allow_local = true", "",
-                     "[runtime]", 'kind = "local"']
-    (config_root / "harness.toml").write_text("\n".join(harness_lines) + "\n", encoding="utf-8")
-    lines = ["schema_version = 1", f"name = {_literal(name)}",
-             f"project_root = {_literal(os.path.relpath(project_root, config_root))}",
-             f"agents = {_literal([root_prefix + '/agent.toml'])}",
-             f"harnesses = {_literal([root_prefix + '/harness.toml'])}",
-             f"benchmark = {_literal(root_prefix + '/tasks.json')}",
-             f"evaluator = {_literal(dataset['evaluator'])}",
-             f"final_test = {_literal(bool(tests))}",
-             f"final_stages = {_literal([s['id'] for s in stages] or ['baseline'])}",
-             'output_dir = "runs"', ""]
-    lines += _section("budget", {"max_trials": max_trials if max_trials is not None else max(80, reserved),
-                                 "max_wall_time_seconds": wall_time,
-                                 "trial_timeout_seconds": trial_timeout})
-    lines += ["[objective]", 'mode = "lexicographic"', "keep = 1", "",
-              "[[objective.metrics]]",
-              f"name = {_literal('solve_rate' if objective_source == 'passed' else objective_source)}",
-              f"source = {_literal(objective_source)}",
-              f"direction = {_literal(objective_direction)}", 'aggregate = "mean"', ""]
-    for stage in stages:
-        lines += ["[[stages]]", f"id = {_literal(stage['id'])}",
-                  f"optimizer = {_literal(stage['optimizer'])}",
-                  f"max_trials = {stage['max_trials']}", "inputs = [\"baseline\"]", ""]
-        lines += _section("stages.config", stage["config"])
-    for kind, entries in plugins.items():
-        if entries:
-            lines += _section(f"plugins.{kind}", entries)
-    if dependencies:
-        lines += _section("plugin_dependencies", dependencies)
-    if "evaluation_runtime" in dataset:
-        lines += _section("evaluation_runtime", dataset["evaluation_runtime"])
-    if "evaluator_config" in dataset:
-        lines += _section("evaluator_config", dataset["evaluator_config"])
-    target = config_root / "experiment.toml"
-    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    load_experiment(target)
-    return target
+    try:
+        write_json(config_root / "tasks.json", document)
+        agent_lines = ["schema_version = 2", f"id = {_literal(name)}",
+                       f"supported_harnesses = {_literal([harness.get('adapter', 'command')])}",
+                       f"editable = {_literal(editable)}", f"prompt_file = {_literal(prompt_file)}", "",
+                       "[source]", f"kind = {_literal(source_kind)}"]
+        if source_kind == "local":
+            agent_lines.append(f"path = {_literal(str(agent.absolute()))}")
+        else:
+            agent_lines += [f"url = {_literal(str(agent))}",
+                            f"revision = {_literal(harness['revision'])}"]
+        (config_root / "agent.toml").write_text("\n".join(agent_lines) + "\n", encoding="utf-8")
+        harness_lines = [f"id = {_literal(harness.get('id', 'user-command'))}",
+                         f"adapter = {_literal(harness.get('adapter', 'command'))}",
+                         f"command = {_literal(harness['command'])}", "allow_local = true", "",
+                         "[runtime]", 'kind = "local"']
+        (config_root / "harness.toml").write_text("\n".join(harness_lines) + "\n", encoding="utf-8")
+        lines = ["schema_version = 1", f"name = {_literal(name)}",
+                 f"project_root = {_literal(os.path.relpath(project_root, config_root))}",
+                 f"agents = {_literal([root_prefix + '/agent.toml'])}",
+                 f"harnesses = {_literal([root_prefix + '/harness.toml'])}",
+                 f"benchmark = {_literal(root_prefix + '/tasks.json')}",
+                 f"evaluator = {_literal(dataset['evaluator'])}",
+                 f"final_test = {_literal(bool(tests))}",
+                 f"final_stages = {_literal([s['id'] for s in stages] or ['baseline'])}",
+                 'output_dir = "runs"', ""]
+        lines += _section("budget", {"max_trials": max_trials if max_trials is not None else max(80, reserved),
+                                     "max_wall_time_seconds": wall_time,
+                                     "trial_timeout_seconds": trial_timeout})
+        lines += ["[objective]", 'mode = "lexicographic"', "keep = 1", "",
+                  "[[objective.metrics]]",
+                  f"name = {_literal('solve_rate' if objective_source == 'passed' else objective_source)}",
+                  f"source = {_literal(objective_source)}",
+                  f"direction = {_literal(objective_direction)}", 'aggregate = "mean"', ""]
+        for stage in stages:
+            lines += ["[[stages]]", f"id = {_literal(stage['id'])}",
+                      f"optimizer = {_literal(stage['optimizer'])}",
+                      f"max_trials = {stage['max_trials']}", "inputs = [\"baseline\"]", ""]
+            lines += _section("stages.config", stage["config"])
+        for kind, entries in plugins.items():
+            if entries:
+                lines += _section(f"plugins.{kind}", entries)
+        if dependencies:
+            lines += _section("plugin_dependencies", dependencies)
+        if "evaluation_runtime" in dataset:
+            lines += _section("evaluation_runtime", dataset["evaluation_runtime"])
+        if "evaluator_config" in dataset:
+            lines += _section("evaluator_config", dataset["evaluator_config"])
+        target = config_root / "experiment.toml"
+        target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+        load_experiment(target)
+        return target
+    except Exception:
+        shutil.rmtree(config_root)
+        raise
 
 
 def wizard_arguments(project_root: Path) -> list[str]:
@@ -214,11 +230,13 @@ def wizard_arguments(project_root: Path) -> list[str]:
     registry, _, _ = component_inventory(project_root)
 
     def ask(label):
-        print(f"  {label}: ", end="", file=sys.stderr, flush=True)
+        print("  " + style(f"{label}:", "warning", stream=sys.stderr) + " ",
+              end="", file=sys.stderr, flush=True)
         return input().strip()
 
     print("\n╭─────────────────────────────────────────────────────────╮", file=sys.stderr)
-    print("│  Agent Optimizer   ·   new optimization experiment     │", file=sys.stderr)
+    print(style("│  Agent Optimizer   ·   new optimization experiment     │", "heading",
+                stream=sys.stderr), file=sys.stderr)
     print("╰─────────────────────────────────────────────────────────╯", file=sys.stderr)
     name = ask("Experiment name")
     agent = ask("Agent source directory or pinned Git URL")
@@ -226,10 +244,12 @@ def wizard_arguments(project_root: Path) -> list[str]:
     command = shlex.split(ask("Agent execution argv (e.g. python agent.py {task_dir})"))
     editable = [item.strip() for item in ask("Editable files (comma separated)").split(",") if item.strip()]
     choices = sorted(registry.factories["datasets"])
-    print("\n  Choose a dataset; there is no automatic recommendation:", file=sys.stderr)
+    print("\n  " + style("Choose a dataset; there is no automatic recommendation:", "heading",
+                           stream=sys.stderr), file=sys.stderr)
     for index, key in enumerate(choices, 1):
         info = registry.factories["datasets"][key]().describe()
-        print(f"    {index}. {key} · {info.get('task_form', 'custom')}", file=sys.stderr)
+        print(f"    {style(f'{index}.', 'heading', stream=sys.stderr)} "
+              f"{key} · {info.get('task_form', 'custom')}", file=sys.stderr)
     dataset_choice = ask("Dataset numbers or local tasks.json paths (comma separated)")
     selected_datasets = []
     for item in dataset_choice.split(","):
@@ -244,9 +264,10 @@ def wizard_arguments(project_root: Path) -> list[str]:
     if direction not in {"maximize", "minimize"}:
         raise ConfigurationError("Score direction must be maximize or minimize")
     optimizers = sorted(registry.factories["optimizers"])
-    print("\n  Select optimizer algorithms:", file=sys.stderr)
+    print("\n  " + style("Select optimizer algorithms:", "heading", stream=sys.stderr),
+          file=sys.stderr)
     for index, key in enumerate(optimizers, 1):
-        print(f"    {index}. {key}", file=sys.stderr)
+        print(f"    {style(f'{index}.', 'heading', stream=sys.stderr)} {key}", file=sys.stderr)
     numbers = ask("Optimizer numbers (comma separated)")
     try:
         selected = [optimizers[int(index.strip()) - 1] for index in numbers.split(",")]
@@ -255,9 +276,9 @@ def wizard_arguments(project_root: Path) -> list[str]:
     if not selected or not all(item in optimizers for item in selected):
         raise ConfigurationError("Choose one or more listed optimizers")
     harnesses = sorted(registry.factories["harnesses"])
-    print("\n  Select an Agent harness:", file=sys.stderr)
+    print("\n  " + style("Select an Agent harness:", "heading", stream=sys.stderr), file=sys.stderr)
     for index, key in enumerate(harnesses, 1):
-        print(f"    {index}. {key}", file=sys.stderr)
+        print(f"    {style(f'{index}.', 'heading', stream=sys.stderr)} {key}", file=sys.stderr)
     number = ask("Harness number")
     if not number.isdigit() or not 1 <= int(number) <= len(harnesses):
         raise ConfigurationError("Choose a listed harness number")

@@ -6,9 +6,9 @@ test("exact endpoint preserves streamed request, tool body and cancellation", as
   const original = { ...process.env };
   const originalFetch = globalThis.fetch;
   try {
-    delete process.env.MODEL_BASE_URL;
-    process.env.MODEL_ENDPOINT = "https://example.invalid/v1/chat/completion";
-    process.env.MODEL_ID = "dynamic-model";
+    delete process.env.AGENT_OPT_MODEL_BASE_URL;
+    process.env.AGENT_OPT_MODEL_ENDPOINT = "https://example.invalid/v1/chat/completion";
+    process.env.AGENT_OPT_MODEL_ID = "dynamic-model";
     let observed;
     globalThis.fetch = async (...args) => { observed = args; return new Response("data: [DONE]\n\n"); };
     const config = { provider: { compatible: { options: {} } } };
@@ -24,7 +24,7 @@ test("exact endpoint preserves streamed request, tool body and cancellation", as
     assert.equal(observed[1].redirect, "error");
     assert.equal(await reply.text(), "data: [DONE]\n\n");
     assert.throws(() => options.fetch("https://another.invalid", init));
-    process.env.MODEL_BASE_URL = "https://ambiguous.invalid/v1";
+    process.env.AGENT_OPT_MODEL_BASE_URL = "https://ambiguous.invalid/v1";
     await assert.rejects((await plugin()).config(config));
   } finally {
     process.env = original;

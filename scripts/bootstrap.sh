@@ -3,23 +3,48 @@
 set -eu
 
 help() {
+    if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+        printf '\033[36m%s\033[0m\n' '개발 명령: setup doctor test lint demo smoke live menu help'
+    else
+        printf '%s\n' '개발 명령: setup doctor test lint demo smoke live menu help'
+    fi
     printf '%s\n' \
-        'Development commands: setup doctor test lint demo smoke live help' \
-        'Prerequisites: Mac/Ubuntu, Git; full ACE setup also needs Docker Engine + Compose.' \
-        'Start: sh scripts/bootstrap.sh setup --core; then make doctor ARGS="--core" and make demo.' \
-        'No make? Use sh scripts/bootstrap.sh <command> [options].' \
-        'setup: --core, --dataset ID, --offline, --platform linux/amd64|linux/arm64 (full ACE only)' \
-        'doctor: --core, --dataset ID, --json, --platform, --model (actual API calls); --core excludes --dataset/--platform/--model.' \
+        '사전 준비: Mac/Ubuntu, Git. ACE 전체 준비에는 Docker Engine과 Compose도 필요합니다.' \
+        '시작: make setup ARGS="--core" → make doctor ARGS="--core" → make demo.' \
+        'make가 없다면 sh scripts/bootstrap.sh <명령> [옵션]을 사용하세요.' \
+        '--core나 --dataset이 없는 setup/doctor는 ACE 전체 환경을 대상으로 합니다.' \
+        'setup: --core, --dataset ID, --offline, --platform linux/amd64|linux/arm64 (ACE 전체 전용)' \
+        'doctor: --core, --dataset ID, --json, --platform, --model (실제 API 호출). --core와 --dataset/--platform/--model은 함께 쓸 수 없습니다.' \
         'smoke/live: --platform; live: --iterations 1..20' \
-        'test/lint/demo use .venv without installing or requiring Docker.' \
-        'make doctor ARGS="--json" (ARGS uses normal shell command arguments).' \
-        'Full command help: python3 scripts/dev.py --help or <command> --help.'
+        'menu: 대화형 번호 메뉴(TTY 필요). 준비 후 사용자 CLI 도움말은 .venv/bin/agent-opt --help로 확인하세요.' \
+        'test/lint/demo는 설치나 Docker 실행 없이 기존 .venv를 사용합니다.' \
+        'make doctor ARGS="--json" (ARGS에는 일반 셸 인수 구문을 사용합니다).' \
+        '상세 옵션: python3 scripts/dev.py --help 또는 python3 scripts/dev.py <명령> --help.'
 }
 
-fail() { printf '%s\n' "$*" >&2; exit 2; }
+fail() {
+    if [ -t 2 ] && [ -z "${NO_COLOR:-}" ] && [ "$json_output" = false ]; then
+        printf '\033[31m%s\033[0m\n' "$*" >&2
+    else
+        printf '%s\n' "$*" >&2
+    fi
+    exit 2
+}
+
+setup_status() {
+    if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+        printf '\033[%sm%s\033[0m\n' "$1" "$2"
+    else
+        printf '%s\n' "$2"
+    fi
+}
 
 command=${1:-help}
 [ "$#" -eq 0 ] || shift
+json_output=false
+for option do
+    if [ "$option" = --json ]; then json_output=true; fi
+done
 case "$command" in
     help|-h|--help) [ "$#" -eq 0 ] || fail 'help takes no options'; help; exit 0 ;;
     setup|doctor|test|lint|demo|smoke|live|menu) ;;
@@ -107,8 +132,8 @@ if [ -n "$dataset" ]; then
 fi
 if [ "$show_help" = true ]; then
     if [ "$command" = menu ]; then
-        printf '%s\n' 'menu: interactive numbered frontend (TTY and Python >=3.11 required).' \
-            'Run sh scripts/bootstrap.sh menu; setup/doctor/demo/live remain available for automation.'
+        printf '%s\n' 'menu: 대화형 번호 메뉴(TTY와 Python >=3.11 필요).' \
+            'sh scripts/bootstrap.sh menu로 실행하세요. 자동화에는 setup/doctor/demo/live 명령을 사용하세요.'
     else
         help
     fi
@@ -211,9 +236,9 @@ if [ -n "${AGENT_OPT_CA_BUNDLE:-}" ]; then
 fi
 
 if [ "$core" = true ] || [ -n "$dataset" ]; then
-    printf '%s\n' '[setup] core prerequisites: checking host OS and Git'
+    setup_status 33 '[setup] core prerequisites: checking host OS and Git'
 else
-    printf '%s\n' '[setup] prerequisites: checking Git, Docker daemon and Compose'
+    setup_status 33 '[setup] prerequisites: checking Git, Docker daemon and Compose'
 fi
 missing=false
 # Expand uname inside the bounded child, not in this parent shell.
@@ -247,7 +272,7 @@ if [ "$core" = false ] && [ -z "$dataset" ]; then
     fi
 fi
 [ "$missing" = false ] || fail "setup prerequisites failed; repair the items above and rerun $setup_command."
-printf '%s\n' '[setup] prerequisites: complete'
+setup_status 32 '[setup] prerequisites: complete'
 
 stage='uv preparation'
 logs="$ROOT/external/setup-logs"
@@ -260,7 +285,7 @@ if ! command -v uv >/dev/null 2>&1; then
     else fail "setup uv download: install curl/wget (Mac: brew install curl; Ubuntu: sudo apt install curl), then rerun $setup_command."
     fi
     mkdir -p "$logs" || fail "setup $stage: cannot create $logs; repair the path/permissions and rerun $setup_command."
-    printf '[setup] uv preparation: installing 0.10.7; log: %s/bootstrap-uv.log\n' "$logs"
+    setup_status 33 "[setup] uv preparation: installing 0.10.7; log: $logs/bootstrap-uv.log"
     installer=$(mktemp "${TMPDIR:-/tmp}/agent-opt-uv.XXXXXXXX") ||
         fail "setup $stage: cannot allocate installer in ${TMPDIR:-/tmp}; set TMPDIR to a writable directory and rerun $setup_command."
     wget_config=
@@ -306,7 +331,7 @@ if [ -e "$ROOT/.venv" ] || [ -L "$ROOT/.venv" ]; then
     python_request="$ROOT/.venv/bin/python"
 fi
 mkdir -p "$logs" || fail "setup $stage: cannot create $logs; repair the path/permissions and rerun $setup_command."
-printf '[setup] %s; log: %s/project-uv.log\n' "$stage" "$logs"
+setup_status 33 "[setup] $stage; log: $logs/project-uv.log"
 export UV_PROJECT_ENVIRONMENT="$ROOT/.venv"
 if [ "$offline" = true ]; then export UV_PYTHON_DOWNLOADS=never; fi
 cd "$ROOT"
@@ -317,7 +342,7 @@ else
     uv sync --frozen --python "$python_request" --extra dev >"$logs/project-uv.log" 2>&1 ||
         fail "setup project sync failed; see $logs/project-uv.log; repair and rerun $setup_command."
 fi
-printf '[setup] %s: complete\n' "$stage"
+setup_status 32 "[setup] $stage: complete"
 stage='Python dispatch'
 compatible_python "$ROOT/.venv/bin/python" ||
     fail "setup $stage: $ROOT/.venv/bin/python unavailable after sync; inspect $logs/project-uv.log, repair the interpreter/permissions and rerun $setup_command."

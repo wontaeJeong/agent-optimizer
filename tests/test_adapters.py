@@ -90,11 +90,11 @@ class DockerEnvironmentTests(unittest.TestCase):
                     (ROOT / "examples/ace-rtl/environment/openai-compatible.json").read_text())
                 model = "openrouter/vendor/model:free" if provider == "openrouter" else "compatible/example-model"
                 with patch.dict(os.environ, {"AGENT_OPT_MODEL": model}):
-                    for key in ("OPENCODE_CONFIG", "OPENROUTER_API_KEY", "MODEL_API_KEY", "MODEL_ID", "MODEL_BASE_URL"):
+                    for key in ("OPENCODE_CONFIG", "OPENROUTER_API_KEY", "AGENT_OPT_MODEL_API_KEY", "AGENT_OPT_MODEL_ID", "AGENT_OPT_MODEL_BASE_URL"):
                         os.environ.pop(key, None)
                     if provider == "compatible":
                         os.environ.update(OPENCODE_CONFIG="/work/agent/provider-compatible.json",
-                                          MODEL_ID="example-model", MODEL_BASE_URL="http://example.invalid/v1")
+                                          AGENT_OPT_MODEL_ID="example-model", AGENT_OPT_MODEL_BASE_URL="http://example.invalid/v1")
                     else:
                         self.assertNotIn("OPENCODE_CONFIG", os.environ)
                     result = execute(["opencode", "debug", "config"], work, work / "logs", 60, runtime)
