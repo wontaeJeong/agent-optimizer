@@ -30,13 +30,14 @@ def _read_events(root: Path) -> list[dict]:
     if not path.is_file():
         return []
     events = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        try:
-            event = json.loads(line, parse_constant=_reject_constant)
-        except ValueError:
-            continue
-        if isinstance(event, dict):
-            events.append(event)
+    with path.open("rb") as stream:
+        for line in stream:
+            try:
+                event = json.loads(line.decode("utf-8"), parse_constant=_reject_constant)
+            except (ValueError, UnicodeError):
+                continue
+            if isinstance(event, dict):
+                events.append(event)
     return events
 
 
@@ -54,11 +55,11 @@ def _relative_path(root: Path, relative: str) -> Path | None:
 def _candidate(root: Path, key: str, candidate_id: str) -> dict | None:
     relative = f"{key}/candidates/{candidate_id}"
     metadata_path = _relative_path(root, f"{relative}/candidate.json")
-    if metadata_path is None or not metadata_path.is_file():
+    if metadata_path is None:
         return None
     metadata = _read_json(metadata_path, {})
-    if metadata.get("id") != candidate_id:
-        return None
+    if metadata.get("id") not in (None, candidate_id):
+        metadata = {}
     parents = metadata.get("parents", [])
     if not isinstance(parents, list):
         parents = []
