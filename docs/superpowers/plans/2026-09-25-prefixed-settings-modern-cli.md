@@ -55,7 +55,7 @@ def test_prefixed_only_and_explicit_mapping_isolation(self):
 ```
 
 - [ ] **2단계: 실패 확인.** `PYTHONPATH=src python3 -m unittest discover -s tests -p test_models.py -v`에서 새 이름으로 실패하는지 확인합니다.
-- [ ] **3단계: 의존성.** `pyproject.toml`의 `dependencies = ["pydantic-settings>=2,<3", "typer>=0.16,<1", "rich>=14,<15"]`; `uv lock`, `uv sync --frozen --python 3.12 --extra dev`를 이 워크트리에서 실행합니다. Python 3.11 호환성을 확인하고 현재 안정판이 범위를 넘었으면 범위를 검토해 재고정합니다.
+- [ ] **3단계: 의존성.** `pyproject.toml`의 `dependencies = ["pydantic-settings>=2,<3", "typer>=0.27,<0.28", "rich>=14,<15"]`; `uv lock`, `uv sync --frozen --python 3.12 --extra dev`를 이 워크트리에서 실행합니다. Typer 0.27의 내장 Click 예외 경계를 사용하므로 0.28 이상은 별도 호환성 검토 전에는 허용하지 않습니다. Python 3.11 호환성도 확인합니다.
 - [ ] **4단계: 구현.** 설치 전 `registry.py`가 `models.py`를 간접 import하므로 `ModelSettings.from_env`에서만 `pydantic_settings`를 로드합니다. 비공개 `BaseSettings`의 `endpoint`·`base_url`·`id`·`api_key`에 `SettingsConfigDict(env_prefix="AGENT_OPT_MODEL_", env_file=None)`를 적용합니다. 명시 mapping이면 모든 필드를 직접 지정해 프로세스 환경 유입을 막습니다. 기존 URL/공백 검증과 비노출 `ModelSettings`를 유지하고, 의존성·검증 오류에 키를 포함하지 않습니다. `asdict(settings)`는 worker payload에만 사용합니다.
 - [ ] **5단계: 통과 확인.** `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_models.py -v`로 timeout·HTTP·인증 값 비노출을 확인합니다.
 - [ ] **6단계: 커밋.** status/diff/log 확인 후 네 파일만 `Use prefixed Pydantic model settings`로 커밋합니다.

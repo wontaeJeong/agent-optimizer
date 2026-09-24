@@ -24,7 +24,7 @@ requires-dist = [
     { name = "pydantic-settings", specifier = ">=2,<3" },
     { name = "rich", specifier = ">=14,<15" },
     { name = "ruff", marker = "extra == 'dev'", specifier = "==0.11.13" },
-    { name = "typer", specifier = ">=0.16,<1" },
+    { name = "typer", specifier = ">=0.27,<0.28" },
 ]
 provides-extras = ["dev"]
 
