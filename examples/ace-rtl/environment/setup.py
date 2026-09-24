@@ -50,7 +50,7 @@ def validate_platform(platform):
 def validate_live():
     settings = ModelSettings.from_env()
     model = "compatible/" + settings.model
-    os.environ.update(MODEL_ID=settings.model, AGENT_OPT_MODEL=model,
+    os.environ.update(AGENT_OPT_MODEL_ID=settings.model, AGENT_OPT_MODEL=model,
                       OPENCODE_CONFIG="/opt/agent-optimizer/compatible.json")
     return model
 

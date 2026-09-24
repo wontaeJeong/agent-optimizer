@@ -35,8 +35,8 @@ class ResearchSearchTests(unittest.TestCase):
             sent.append(messages)
             return {"choices": [{"message": {"content": '{"content":"{\\"repair\\": true}"}'}}]}
 
-        environment = {"MODEL_BASE_URL": "http://localhost:12345/v1", "MODEL_API_KEY": "fixture-key",
-                       "MODEL_ID": "offline-fixture"}
+        environment = {"AGENT_OPT_MODEL_BASE_URL": "http://localhost:12345/v1", "AGENT_OPT_MODEL_API_KEY": "fixture-key",
+                       "AGENT_OPT_MODEL_ID": "offline-fixture"}
         with patch.dict(os.environ, environment), patch("agent_optimizer.optimizers.research.complete",
                                                          side_effect=reply):
             root, summary = run_experiment(self.spec, Registry(), self.root / "runs")
@@ -57,7 +57,7 @@ class ResearchSearchTests(unittest.TestCase):
         self.spec["stages"] = [{"id": "gepa", "optimizer": "gepa", "max_trials": 5,
                                 "config": {"file": "configs/strategy.json", "iterations": 1}}]
         self.spec["final_stages"] = ["gepa"]
-        environment = {"MODEL_BASE_URL": "http://localhost:12345/v1", "MODEL_API_KEY": "fixture-key"}
+        environment = {"AGENT_OPT_MODEL_BASE_URL": "http://localhost:12345/v1", "AGENT_OPT_MODEL_API_KEY": "fixture-key"}
         with patch.dict(os.environ, environment), patch("agent_optimizer.optimizers.research.complete",
                                                          side_effect=UnavailableError("model unavailable")):
             with self.assertRaisesRegex(UnavailableError, "model unavailable"):
@@ -73,7 +73,7 @@ class ResearchSearchTests(unittest.TestCase):
         self.spec["final_stages"] = ["gepa"]
         output = self.root / "runs"
         with patch.dict(os.environ, {}, clear=True):
-            with self.assertRaisesRegex((UnavailableError, ValueError), "MODEL_ENDPOINT|MODEL_BASE_URL"):
+            with self.assertRaisesRegex((UnavailableError, ValueError), "AGENT_OPT_MODEL_ENDPOINT|AGENT_OPT_MODEL_BASE_URL"):
                 run_experiment(self.spec, Registry(), output)
         self.assertFalse(output.exists())
 
@@ -86,7 +86,7 @@ class ResearchSearchTests(unittest.TestCase):
                                            "batch_size": 1}}]
         self.spec["final_stages"] = ["gepa"]
         response = {"choices": [{"message": {"content": '{"content":"{\\"repair\\": true}"}'}}]}
-        environment = {"MODEL_BASE_URL": "http://localhost:12345/v1", "MODEL_API_KEY": "fixture-key"}
+        environment = {"AGENT_OPT_MODEL_BASE_URL": "http://localhost:12345/v1", "AGENT_OPT_MODEL_API_KEY": "fixture-key"}
         with patch.dict(os.environ, environment), patch("agent_optimizer.optimizers.research.complete",
                                                          return_value=response):
             root, summary = run_experiment(self.spec, Registry(), self.root / "runs")
@@ -152,7 +152,7 @@ class ResearchSearchTests(unittest.TestCase):
             def reply(messages, **kwargs):
                 return {"choices": [{"message": {"content": json.dumps({"content": next(responses)})}}]}
 
-            environment = {"MODEL_BASE_URL": "http://localhost:12345/v1", "MODEL_API_KEY": "fixture-key"}
+            environment = {"AGENT_OPT_MODEL_BASE_URL": "http://localhost:12345/v1", "AGENT_OPT_MODEL_API_KEY": "fixture-key"}
             with patch.dict(os.environ, environment), patch("agent_optimizer.optimizers.research.complete",
                                                              side_effect=reply):
                 from agent_optimizer.optimizers.gepa import GEPAOptimizer
@@ -172,7 +172,7 @@ class ResearchSearchTests(unittest.TestCase):
         def reply(messages, **kwargs):
             return {"choices": [{"message": {"content": json.dumps({"content": next(responses)})}}]}
 
-        environment = {"MODEL_BASE_URL": "http://localhost:12345/v1", "MODEL_API_KEY": "fixture-key"}
+        environment = {"AGENT_OPT_MODEL_BASE_URL": "http://localhost:12345/v1", "AGENT_OPT_MODEL_API_KEY": "fixture-key"}
         with patch.dict(os.environ, environment), patch("agent_optimizer.optimizers.research.complete",
                                                          side_effect=reply):
             _, summary = run_experiment(self.spec, Registry(), self.root / "runs")
@@ -199,7 +199,7 @@ class ResearchSearchTests(unittest.TestCase):
         def reply(messages, **kwargs):
             return {"choices": [{"message": {"content": json.dumps(next(responses))}}]}
 
-        environment = {"MODEL_BASE_URL": "http://localhost:12345/v1", "MODEL_API_KEY": "fixture-key"}
+        environment = {"AGENT_OPT_MODEL_BASE_URL": "http://localhost:12345/v1", "AGENT_OPT_MODEL_API_KEY": "fixture-key"}
         with patch.dict(os.environ, environment), patch("agent_optimizer.optimizers.research.complete",
                                                          side_effect=reply):
             _, summary = run_experiment(self.spec, Registry(), self.root / "runs")

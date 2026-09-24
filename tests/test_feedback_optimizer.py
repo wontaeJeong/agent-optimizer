@@ -32,7 +32,7 @@ class FeedbackOptimizerTests(unittest.TestCase):
                     if self.calls > 1:
                         raise BudgetExceeded("deadline")
                     return 0.01
-            with patch.dict(os.environ, {"MODEL_ENDPOINT": "https://example.invalid/chat/completion", "MODEL_API_KEY": "key"}, clear=True), patch.object(
+            with patch.dict(os.environ, {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/chat/completion", "AGENT_OPT_MODEL_API_KEY": "key"}, clear=True), patch.object(
                     optimizer, "complete", side_effect=UnavailableError("timed out")), self.assertRaises(BudgetExceeded):
                 optimizer.Optimizer().optimize(Context(), [candidate], {"file": "guidance.md", "iterations": 1})
 
@@ -51,7 +51,7 @@ class FeedbackOptimizerTests(unittest.TestCase):
 
     def run_with(self, replies):
         with model_server([(200, r) for r in replies]) as (url, requests), patch.dict(os.environ, {
-            "MODEL_ENDPOINT": url + "/v1/chat/completion", "MODEL_API_KEY": "fixture-key",
+            "AGENT_OPT_MODEL_ENDPOINT": url + "/v1/chat/completion", "AGENT_OPT_MODEL_API_KEY": "fixture-key",
         }, clear=True):
             run, summary = run_experiment(self.spec, Registry(), self.output)
         return run, summary, requests

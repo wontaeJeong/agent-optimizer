@@ -187,13 +187,13 @@ def collect_checks(root: Path, platform: str | None = None, *, environment=None)
                 runner.run(["docker", "rm", "--force", container], timeout=15)
 
     runner.area = "live"
-    runner.add("live.key", bool(environment.get("MODEL_API_KEY", "").strip()),
-               "Live credential presence (not authentication).", "Set MODEL_API_KEY in your environment.")
+    runner.add("live.key", bool(environment.get("AGENT_OPT_MODEL_API_KEY", "").strip()),
+               "Live credential presence (not authentication).", "Set AGENT_OPT_MODEL_API_KEY in your environment.")
     try:
-        ModelSettings.from_env({**environment, "MODEL_API_KEY": "configuration-check"})
+        ModelSettings.from_env({**environment, "AGENT_OPT_MODEL_API_KEY": "configuration-check"})
         model_valid = True
     except (ConfigurationError, UnavailableError, ValueError):
         model_valid = False
     runner.add("live.model", model_valid, "OpenAI-compatible model configuration (not endpoint availability).",
-               "Set exactly one of MODEL_ENDPOINT/MODEL_BASE_URL; optional MODEL_ID defaults to glm5.3-flash.")
+               "Set exactly one of AGENT_OPT_MODEL_ENDPOINT/AGENT_OPT_MODEL_BASE_URL; optional AGENT_OPT_MODEL_ID defaults to glm5.3-flash.")
     return runner.checks
