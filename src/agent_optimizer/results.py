@@ -90,6 +90,7 @@ def write_report(root: Path, summary: dict, report: dict | None = None) -> None:
         for stage in group["stages"]:
             lines.append(_table_row(group["agent_id"], group["harness_id"], stage["id"],
                                     stage["status"], _json(stage.get("checkpoint", {}))))
+    for group in groups:
         lines += ["", f"Optimizer usage ({_cell(group['agent_id'])}/{_cell(group['harness_id'])}):",
                   "```json", json.dumps(group["optimizer_usage"], indent=2, ensure_ascii=False), "```",
                   "Candidate changes: see this group's candidates/*/changes.diff."]
