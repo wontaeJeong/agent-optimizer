@@ -146,6 +146,15 @@ def _failure(status, execution=None, error_type=None, error=None, feedback=None)
     return {"category": category, "message": message if isinstance(message, str) and message else None}
 
 
+def _finite_number(value) -> bool:
+    if type(value) not in (int, float):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:  # An integer can exceed the range of a float.
+        return False
+
+
 def _metric_value(row, key: str, name: str):
     if (not isinstance(row, dict) or row.get("split") != "validation"
             or row.get("valid") is not True or row.get("partial", False)):
@@ -154,7 +163,7 @@ def _metric_value(row, key: str, name: str):
         return None
     metrics = row.get("metrics")
     value = metrics.get(name) if isinstance(metrics, dict) else None
-    return value if type(value) in (int, float) and math.isfinite(value) else None
+    return value if _finite_number(value) else None
 
 
 def _trend(before, after, direction):
@@ -179,10 +188,14 @@ def _comparison(group: dict, objective: dict) -> tuple[list[dict], str]:
         name, direction = metric["name"], metric["direction"]
         before = _metric_value(group.get("baseline"), key, name)
         after = _metric_value(selected, key, name)
-        trend = _trend(before, after, direction)
+        try:
+            difference = after - before if before is not None and after is not None else None
+        except OverflowError:
+            difference = None
+        delta = difference if _finite_number(difference) else None
+        trend = _trend(before, after, direction) if delta is not None else "unknown"
         item = {"name": name, "direction": direction, "baseline": before, "selected": after,
-                "delta": after - before if before is not None and after is not None else None,
-                "trend": trend}
+                "delta": delta, "trend": trend}
         if (metric.get("source") == "passed" and metric.get("aggregate", "mean") == "mean"
                 and before is not None and after is not None
                 and 0 <= before <= 1 and 0 <= after <= 1):
@@ -213,10 +226,9 @@ def _agent_usage(group: dict, events: list[dict]) -> list[dict]:
             values = [(item.get("metrics") or {}).get(name) for item in matching]
             complete = (bool(values) and len(values) == row.get("trial_count")
                         and all(item.get("valid", True) for item in matching)
-                        and all(type(value) in (int, float) and math.isfinite(value)
-                                for value in values))
+                        and all(_finite_number(value) for value in values))
             total = sum(values) if complete else None
-            entry[name] = total if total is not None and math.isfinite(total) else None
+            entry[name] = total if _finite_number(total) else None
         usage.append(entry)
     return usage
 

@@ -41,8 +41,12 @@ def text(value, limit=4000):
 def value(item):
     if item is None:
         return '<span class="subtle">—</span>'
-    if type(item) in (int, float) and math.isfinite(item):
-        return text(f"{item:.3f}")
+    if type(item) in (int, float):
+        try:
+            if math.isfinite(item):
+                return text(f"{item:.3f}")
+        except OverflowError:  # Unrepresentable integer: keep a bounded, escaped preview.
+            pass
     return text(item, 200)
 
 
