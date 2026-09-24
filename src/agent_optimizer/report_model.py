@@ -204,6 +204,8 @@ def _structure(key: str, candidates: list[dict], evaluations: list[dict], events
     by_id = {candidate["candidate_id"]: candidate for candidate in candidates}
     units = []
     seen = {}
+    explicit = {}
+    conflicting_parents = set()
     for event in events:
         name = event.get("event")
         candidate_id = event.get("candidate_id")
@@ -227,16 +229,25 @@ def _structure(key: str, candidates: list[dict], evaluations: list[dict], events
                 continue
             stage_id = event.get("stage_id")
             parent_id = event.get("parent_unit_id")
-            scope = f"{key}/{stage_id}" if isinstance(stage_id, str) else None
+            scope = f"{key}/{stage_id}/report_unit" if isinstance(stage_id, str) else None
             ids = event.get("candidate_ids", [])
             if not isinstance(ids, list):
                 ids = []
             ids = list(dict.fromkeys(value for value in ids if isinstance(value, str)))
+            identity = (stage_id if isinstance(stage_id, str) else None, unit_id)
+            if identity in explicit:
+                existing = explicit[identity]
+                existing["candidate_ids"].extend(value for value in ids
+                                                 if value not in existing["candidate_ids"])
+                if existing["parent_unit_id"] != parent_id:
+                    existing["parent_unit_id"] = None
+                    conflicting_parents.add(identity)
+                continue
             unit = {"unit_id": unit_id, "unit_ref": f"{scope}/{unit_id}" if scope else None,
                     "stage_id": stage_id, "parent_unit_id": parent_id,
-                    "parent_unit_ref": f"{scope}/{parent_id}" if scope and isinstance(parent_id, str)
-                    else None, "unit_type": unit_type,
+                    "parent_unit_ref": None, "unit_type": unit_type,
                     "label": event.get("label"), "candidate_ids": ids}
+            explicit[identity] = unit
             units.append(unit)
         elif name in ("optimizer_iteration_started", "optimizer_iteration_completed"):
             iteration = event.get("iteration")
@@ -253,6 +264,12 @@ def _structure(key: str, candidates: list[dict], evaluations: list[dict], events
             if isinstance(candidate_id, str) and candidate_id not in seen[identifier]["candidate_ids"]:
                 seen[identifier]["candidate_ids"].append(candidate_id)
 
+    for (stage_id, unit_id), unit in explicit.items():
+        parent_id = unit["parent_unit_id"]
+        if ((stage_id, unit_id) not in conflicting_parents and isinstance(stage_id, str)
+                and isinstance(parent_id, str) and parent_id != unit_id
+                and (stage_id, parent_id) in explicit):
+            unit["parent_unit_ref"] = explicit[(stage_id, parent_id)]["unit_ref"]
     for unit in units:
         unit["candidate_refs"] = [_qualified(key, value) for value in unit["candidate_ids"]]
         unit["evaluation_refs"] = [evaluation["id"] for evaluation in evaluations
