@@ -53,7 +53,7 @@ def check_models(root, report):
         os.environ.update(original)
     report["checks"].append({"id": "live.execution", "area": "live", "status": "ok" if passed else "error",
                              "message": "Actual host API and container OpenCode/tool execution.",
-                             "remedy": "" if passed else "Check MODEL_* settings, proxy/NO_PROXY, CA and runs/doctor-model-*/logs."})
+                             "remedy": "" if passed else "Check AGENT_OPT_MODEL_* settings, proxy/NO_PROXY, CA and runs/doctor-model-*/logs."})
     report["model_status"] = "passed" if passed else "blocked"
     report["areas"]["live"] = passed
     report["ready"] = report["ready"] and passed

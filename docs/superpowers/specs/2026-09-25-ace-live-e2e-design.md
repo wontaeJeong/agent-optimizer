@@ -7,7 +7,7 @@
 ## 선택한 접근과 경계
 
 - 기존 `scripts/dev.py`와 `examples/ace-rtl/environment/{setup,model_checks,checks}.py` 경로를 재사용한다. `live --iterations 1`은 준비한 train/validation 각각에 baseline·후보를 실행하는 4-trial 상한이다. Agent의 공개 입력과 CVDP의 private 평가 자료 분리를 유지한다.
-- 모델은 OpenAI 호환 `MODEL_BASE_URL=https://api.deepseek.com`, `MODEL_ID=deepseek-flash`로 연결한다. `/anthropic` 경로는 현재 OpenAI 호환 클라이언트 계약과 다르다. 인증정보는 실행 중 환경/credential store에서만 읽고 저장소 설정·문서·커밋·PR·검증 기록에 남기지 않는다. API 요청과 도구 실행은 제한된 trial/시간 예산을 따른다.
+- 모델은 OpenAI 호환 `AGENT_OPT_MODEL_BASE_URL=https://api.deepseek.com`, `AGENT_OPT_MODEL_ID=deepseek-flash`로 연결한다. 진행 중 `origin/main`에 병합된 접두어 설정을 최종 코드 기준으로 사용한다. `/anthropic` 경로는 현재 OpenAI 호환 클라이언트 계약과 다르다. 인증정보는 실행 중 환경/credential store에서만 읽고 저장소 설정·문서·커밋·PR·검증 기록에 남기지 않는다. API 요청과 도구 실행은 제한된 trial/시간 예산을 따른다.
 - `doctor --model`은 모델의 호스트 tool-call과 컨테이너 OpenCode 도구 실행을 확인한다. `smoke`는 모델 없이 실제 도구 및 공식 CVDP 정답·오답 평가를 확인한다. `live`의 성공/실패와 각 단계의 원시 결과·이벤트를 별도로 판정해 합성 fixture나 mock 응답을 실제 모델 실행으로 기록하지 않는다.
 
 ## 오류 처리·변경 범위
