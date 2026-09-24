@@ -171,12 +171,45 @@ class ReportModelTests(unittest.TestCase):
         self.assertEqual(report["identity"]["failure"],
                          {"category": "run_error", "message": "run stopped"})
 
+    def test_nonzero_process_status_is_counted_as_execution_failure(self):
+        event = {"event": "trial_completed", "trial_id": "nonzero", "agent_id": "agent-a",
+                 "harness_id": "harness", "status": "process_error", "feedback": "",
+                 "execution": {"status": "process_error", "returncode": 2, "detail": ""}}
+        (self.root / "events.jsonl").write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+        report = build_report(self.root, {"groups": [self.group()]})
+        group = report["groups"][0]
+
+        self.assertEqual(group["evaluations"][0]["failure"],
+                         {"category": "execution", "message": None})
+        self.assertEqual(group["failures"], [{"evaluation_ref": "agent-a/harness/nonzero",
+                                              "category": "execution", "message": None}])
+        self.assertEqual(group["counts"]["failed_evaluations"], 1)
+        self.assertEqual(report["counts"]["failed_evaluations"], 1)
+
+    def test_failed_score_with_process_error_execution_is_not_scored_failure(self):
+        event = {"event": "trial_completed", "trial_id": "mismatch", "agent_id": "agent-a",
+                 "harness_id": "harness", "status": "failed", "feedback": "low score",
+                 "execution": {"status": "process_error", "returncode": 1,
+                               "detail": "command exited nonzero"}}
+        (self.root / "events.jsonl").write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+        report = build_report(self.root, {"groups": [self.group()]})
+        group = report["groups"][0]
+
+        self.assertEqual(group["evaluations"][0]["failure"],
+                         {"category": "execution", "message": "command exited nonzero"})
+        self.assertEqual(group["failures"][0]["category"], "execution")
+        self.assertEqual(group["counts"]["failed_evaluations"], 1)
+
     def test_partial_run_and_non_failure_status_are_not_labeled_as_failures(self):
         events = [
             {"event": "trial_completed", "trial_id": "one", "agent_id": "agent-a",
              "harness_id": "harness", "status": "passed"},
             {"event": "trial_completed", "trial_id": "two", "agent_id": "agent-a",
              "harness_id": "harness", "status": "completed"},
+            {"event": "trial_completed", "trial_id": "unknown", "agent_id": "agent-a",
+             "harness_id": "harness", "status": "future_status"},
         ]
         (self.root / "events.jsonl").write_text(
             "\n".join(json.dumps(row) for row in events) + "\n", encoding="utf-8")
@@ -184,7 +217,7 @@ class ReportModelTests(unittest.TestCase):
         report = build_report(self.root, {"status": "partial", "groups": [self.group()]})
 
         self.assertNotIn("failure", report["identity"])
-        self.assertEqual(report["counts"]["evaluations"], 2)
+        self.assertEqual(report["counts"]["evaluations"], 3)
         self.assertEqual(report["counts"]["passed_evaluations"], 1)
         self.assertEqual(report["counts"]["failed_evaluations"], 0)
         self.assertEqual(report["groups"][0]["failures"], [])
