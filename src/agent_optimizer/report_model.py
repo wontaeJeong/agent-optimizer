@@ -225,12 +225,17 @@ def _structure(key: str, candidates: list[dict], evaluations: list[dict], events
             unit_type = event.get("unit_type")
             if not isinstance(unit_id, str) or not isinstance(unit_type, str):
                 continue
+            stage_id = event.get("stage_id")
+            parent_id = event.get("parent_unit_id")
+            scope = f"{key}/{stage_id}" if isinstance(stage_id, str) else None
             ids = event.get("candidate_ids", [])
             if not isinstance(ids, list):
                 ids = []
             ids = list(dict.fromkeys(value for value in ids if isinstance(value, str)))
-            unit = {"unit_id": unit_id, "stage_id": event.get("stage_id"),
-                    "parent_unit_id": event.get("parent_unit_id"), "unit_type": unit_type,
+            unit = {"unit_id": unit_id, "unit_ref": f"{scope}/{unit_id}" if scope else None,
+                    "stage_id": stage_id, "parent_unit_id": parent_id,
+                    "parent_unit_ref": f"{scope}/{parent_id}" if scope and isinstance(parent_id, str)
+                    else None, "unit_type": unit_type,
                     "label": event.get("label"), "candidate_ids": ids}
             units.append(unit)
         elif name in ("optimizer_iteration_started", "optimizer_iteration_completed"):
@@ -240,8 +245,9 @@ def _structure(key: str, candidates: list[dict], evaluations: list[dict], events
                 continue
             identifier = f"{stage_id}/iteration-{iteration}"
             if identifier not in seen:
-                seen[identifier] = {"unit_id": identifier, "stage_id": stage_id,
-                                    "parent_unit_id": None, "unit_type": "iteration",
+                seen[identifier] = {"unit_id": identifier, "unit_ref": f"{key}/{identifier}",
+                                    "stage_id": stage_id, "parent_unit_id": None,
+                                    "parent_unit_ref": None, "unit_type": "iteration",
                                     "label": f"Iteration {iteration}", "candidate_ids": []}
                 units.append(seen[identifier])
             if isinstance(candidate_id, str) and candidate_id not in seen[identifier]["candidate_ids"]:

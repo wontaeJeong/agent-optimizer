@@ -122,6 +122,44 @@ class LifecycleTests(unittest.TestCase):
         self.assertLess(next(i for i, e in enumerate(events) if e["event"] == "stage_started"),
                         events.index(completed[0]))
 
+    def test_stage_precheck_budget_expiry_has_no_start_or_completion_boundary(self):
+        def optimize(context, seeds, config):
+            self.fail("Optimizer must not run after the baseline exhausts the budget")
+
+        def expire_after_baseline(event):
+            if event["event"] == "trial_completed" and event["stage_id"] == "baseline":
+                self.now = 11
+
+        self.optimizer(optimize)
+        with patch("agent_optimizer.runner.time.monotonic", side_effect=lambda: self.now):
+            run, summary = run_experiment(self.spec, self.registry, self.output,
+                                          on_event=expire_after_baseline)
+        events = self.persisted()[2]
+        self.assertEqual(summary["status"], "budget_exhausted")
+        self.assertIsNotNone(summary["groups"][0]["baseline"])
+        self.assertEqual(summary["groups"][0]["stages"][0]["status"], "budget_exhausted")
+        self.assertEqual(json.loads((run / "rtl-solo/fixture/stages/search.json").read_text())
+                         ["status"], "budget_exhausted")
+        self.assertFalse(any(e["event"] in {"stage_started", "stage_completed"} for e in events))
+        self.assertTrue(any(e["event"] == "budget_exhausted" for e in events))
+
+    def test_optimizer_construction_error_has_no_stage_boundary(self):
+        self.optimizer(lambda context, seeds, config: OptimizationResult(seeds))
+
+        def broken_optimizer():
+            raise RuntimeError("optimizer construction failed")
+
+        self.registry.factories["optimizers"]["controlled"] = broken_optimizer
+        with self.assertRaisesRegex(RuntimeError, "optimizer construction failed"):
+            self.run_experiment()
+        run, summary, events = self.persisted()
+        self.assertEqual(summary["status"], "error")
+        self.assertEqual(summary["groups"][0]["stages"][0]["status"], "error")
+        self.assertEqual(json.loads((run / "rtl-solo/fixture/stages/search.json").read_text())
+                         ["status"], "error")
+        self.assertFalse(any(e["event"] in {"stage_started", "stage_completed"} for e in events))
+        self.assertTrue(any(e["event"] == "error" for e in events))
+
     def test_failed_reservation_does_not_count_a_trial(self):
         with patch("agent_optimizer.runner.time.monotonic", side_effect=lambda: self.now):
             budget = Budget({"max_wall_time_seconds": 1})

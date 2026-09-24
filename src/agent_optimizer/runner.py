@@ -275,19 +275,20 @@ class GroupRunner:
         self.summary["baseline"] = self.evaluate(baseline, "validation")
         outputs, by_id, stages = {"baseline": [baseline]}, {baseline.id: baseline}, self.summary["stages"]
         for stage in self.spec.get("stages", []):
-            t0 = time.monotonic()
+            started_at = None
             stage_result = {"id": stage["id"], "optimizer": stage["optimizer"], "status": "running",
                             "selected": [], "evaluated": [], "checkpoint": {}}
             stages.append(stage_result)
             self.current_stage = stage
             boundary = {"stage_id": stage["id"], "agent_id": self.agent.id,
                         "harness_id": self.profile["id"], "optimizer": stage["optimizer"]}
-            self.events.append({"event": "stage_started", **boundary})
             try:
                 self.budget.remaining()
                 self.verify_candidate(baseline)
                 context = Context(self, baseline, stage)
                 optimizer = self.registry.resolve("optimizers", stage["optimizer"])()
+                started_at = time.monotonic()
+                self.events.append({"event": "stage_started", **boundary})
                 result = optimizer.optimize(context, [baseline], stage.get("config", {}))
                 stage_result["checkpoint"] = result.checkpoint
                 self.budget.remaining()
@@ -309,9 +310,10 @@ class GroupRunner:
                 raise
             finally:
                 self.current_stage = None
-                stage_result["stage_wall_time_seconds"] = time.monotonic()-t0
-                self.events.append({"event": "stage_completed", **boundary,
-                                    "status": stage_result["status"]})
+                if started_at is not None:
+                    stage_result["stage_wall_time_seconds"] = time.monotonic()-started_at
+                    self.events.append({"event": "stage_completed", **boundary,
+                                        "status": stage_result["status"]})
                 write_json(self.root / "stages" / (stage["id"] + ".json"), stage_result)
         final_names = self.spec.get("final_stages", [stage["id"] for stage in stages
                                                        if stage["id"] in outputs] or ["baseline"])

@@ -77,6 +77,25 @@ class ReportModelTests(unittest.TestCase):
         self.assertEqual(len(group["evaluations"]), 1)
         self.assertEqual(len(group["candidates"]), 3)
 
+    def test_reused_unit_ids_in_distinct_stages_have_unambiguous_parent_refs(self):
+        self.events([{"event": "report_unit", "agent_id": "agent-a", "harness_id": "harness",
+                      "stage_id": stage, "unit_id": unit_id, "parent_unit_id": parent,
+                      "unit_type": "generation", "label": unit_id, "candidate_ids": [candidate]}
+                     for stage, unit_id, parent, candidate in (
+                         ("search", "g0", None, "A"), ("refine", "g0", None, "B"),
+                         ("refine", "g1", "g0", "B"), ("search", "g1", "g0", "A"))])
+
+        units = build_report(self.root, {"groups": [self.group()]})["groups"][0]["structure"]["units"]
+
+        self.assertEqual([u["unit_id"] for u in units], ["g0", "g0", "g1", "g1"])
+        self.assertEqual([u.get("unit_ref") for u in units],
+                         ["agent-a/harness/search/g0", "agent-a/harness/refine/g0",
+                          "agent-a/harness/refine/g1", "agent-a/harness/search/g1"])
+        self.assertEqual([u.get("parent_unit_ref") for u in units],
+                         [None, None, "agent-a/harness/refine/g0", "agent-a/harness/search/g0"])
+        self.assertEqual([u["parent_unit_id"] for u in units], [None, None, "g0", "g0"])
+        self.assertEqual([u["candidate_ids"] for u in units], [["A"], ["B"], ["B"], ["A"]])
+
     def test_merge_event_preserves_multiple_parents_independent_of_candidate_metadata(self):
         for name, parents in (("A", ()), ("B", ("A",)), ("C", ("A",)), ("D", ("B",))):
             self.candidate("agent-a", "harness", name, parents)
