@@ -168,12 +168,22 @@ class Provider:
         cache = self.root / "prepared"
         providers = (Provider(url=str(self.root), revision=revision),
                      CompletionProvider(url=str(self.root), revision=revision))
-        with patch("examples.benchmarks.verilog_eval.prepare_runtime", return_value={
-                "runtime": {"kind": "docker", "image": RUNTIME_IMAGE},
-                "image_id": "sha256:" + "a" * 64}):
+        real_run = subprocess.run
+
+        def build(argv, **kwargs):
+            if argv[0] == "git":
+                return real_run(argv, **kwargs)
+            if argv[:3] == ["docker", "image", "inspect"]:
+                return subprocess.CompletedProcess(argv, 0, json.dumps([{"Id": "sha256:" + "a" * 64}]), "")
+            if argv[:2] == ["docker", "build"]:
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            if argv[:2] == ["docker", "run"]:
+                return subprocess.CompletedProcess(argv, 0, "Icarus Verilog version 12.0", "")
+            raise AssertionError(argv)
+
+        with patch("examples.benchmarks.verilog_eval.subprocess.run", side_effect=build):
             for provider in providers:
                 provider.prepare(cache)
-        real_run = subprocess.run
 
         def inspect(argv, **kwargs):
             if argv[0] == "git":
@@ -189,6 +199,13 @@ class Provider:
                 self.assertTrue(all(row["status"] == "ok" for row in rows), rows)
             self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns)
                                       for p in cache.rglob("*") if p.is_file()})
+            runtime_lock = cache / "runtime-lock.json"
+            original_lock = runtime_lock.read_bytes()
+            runtime_lock.write_text(json.dumps({**json.loads(original_lock), "dockerfile_sha256": "0" * 64}))
+            rows = providers[0].doctor(cache)
+            self.assertEqual(next(row["status"] for row in rows if row["id"] == "dataset.verilog.provenance"),
+                             "error")
+            runtime_lock.write_bytes(original_lock)
             (cache / "source" / revision / "dataset_spec-to-rtl/Prob001_task_ref.sv").unlink()
             rows = providers[0].doctor(cache)
             self.assertTrue(any(row["status"] == "error" and row["remedy"] for row in rows), rows)
@@ -208,6 +225,52 @@ class Provider:
             run.return_value.returncode = 1
             with self.assertRaisesRegex(UnavailableError, "offline"):
                 prepare_runtime(offline=True)
+
+    def test_preexisting_unproven_v12_image_requires_online_build_and_owned_lock(self):
+        cache = self.root / "runtime"
+        image_id = "sha256:" + "a" * 64
+        commands = []
+
+        def docker(argv, **kwargs):
+            commands.append(argv)
+            if argv[:3] == ["docker", "image", "inspect"]:
+                return subprocess.CompletedProcess(argv, 0, json.dumps([{"Id": image_id}]), "")
+            if argv[:2] == ["docker", "run"]:
+                return subprocess.CompletedProcess(argv, 0, "Icarus Verilog version 12.0", "")
+            if argv[:2] == ["docker", "build"]:
+                return subprocess.CompletedProcess(argv, 0, "", "")
+            raise AssertionError(argv)
+
+        with patch("examples.benchmarks.verilog_eval.subprocess.run", side_effect=docker):
+            with self.assertRaisesRegex(UnavailableError, "provenance|offline"):
+                prepare_runtime(cache, offline=True)
+            self.assertEqual([c[:2] for c in commands], [["docker", "image"]])
+            prepared = prepare_runtime(cache)
+            self.assertEqual(prepared["image_id"], image_id)
+            self.assertIn(["docker", "build"], [c[:2] for c in commands])
+            self.assertNotIn(["docker", "rmi"], [c[:2] for c in commands])
+            lock = json.loads((cache / "runtime-lock.json").read_text())
+            self.assertEqual(lock["image_id"], image_id)
+            self.assertEqual(len(lock["dockerfile_sha256"]), 64)
+            self.assertEqual(len(lock["source_revision"]), 40)
+            commands.clear()
+            prepare_runtime(cache, offline=True)
+            self.assertNotIn(["docker", "build"], [c[:2] for c in commands])
+            (cache / "runtime-lock.json").unlink()
+            commands.clear()
+            with self.assertRaises(UnavailableError):
+                prepare_runtime(cache, offline=True)
+            self.assertNotIn(["docker", "run"], [c[:2] for c in commands])
+
+    def test_unproven_existing_v12_tag_alone_cannot_satisfy_offline_prepare(self):
+        def existing(argv, **kwargs):
+            if argv[:3] == ["docker", "image", "inspect"]:
+                return subprocess.CompletedProcess(argv, 0, json.dumps([{"Id": "sha256:" + "a" * 64}]), "")
+            return subprocess.CompletedProcess(argv, 0, "Icarus Verilog version 12.0", "")
+
+        with patch("examples.benchmarks.verilog_eval.subprocess.run", side_effect=existing):
+            with self.assertRaisesRegex(UnavailableError, "offline|provenance"):
+                prepare_runtime(self.root / "no-provider-lock", offline=True)
 
     def test_verilog_evaluator_rejects_unverified_simulator_version(self):
         tool = self.root / "iverilog"

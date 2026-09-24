@@ -1,11 +1,15 @@
 """A blocking trial must leave enough durable state to locate its slow phase."""
 import json
+import io
+import contextlib
 import unittest
 
 from agent_optimizer.config import load_experiment
+from agent_optimizer.cli import main
 from agent_optimizer.contracts import ConfigurationError, Evaluation
 from agent_optimizer.registry import Registry
 from agent_optimizer.runner import run_experiment
+from agent_optimizer.terminal_report import ProgressDisplay
 from support import test_project
 
 
@@ -30,6 +34,42 @@ class ProgressTests(unittest.TestCase):
         started = next(e for e in events if e["event"] == "trial_started")
         self.assertEqual((started["agent_id"], started["task_id"], started["split"]),
                          ("rtl-solo", "fixture-validation", "validation"))
+
+    def test_terminal_progress_shows_known_iterations_budget_and_slowest_tasks(self):
+        output = io.StringIO()
+        display = ProgressDisplay(stream=output)
+        display({"event": "optimizer_iteration_started", "timestamp": "2026-09-24T10:00:00Z",
+                 "stage_id": "search", "iteration": 2, "total": 3})
+        for task, duration in (("fast", 1.0), ("slow", 5.0)):
+            display({"event": "trial_completed", "timestamp": "2026-09-24T10:00:00Z", "task_id": task,
+                     "dataset": "demo", "metrics": {"task_wall_time_seconds": duration}})
+        text = output.getvalue()
+        self.assertIn("iteration=2/3", text)
+        self.assertIn("completed=2", text)
+        self.assertIn("slow: 5.00s", text)
+        last_line = text.splitlines()[-1]
+        self.assertLess(last_line.index("slow: 5.00s"), last_line.index("fast: 1.00s"))
+        self.assertNotIn("ETA", text)
+
+    def test_configured_max_trial_budget_is_not_a_planned_total(self):
+        output = io.StringIO()
+        display = ProgressDisplay(stream=output)
+        display.configure_budget(4)
+        display({"event": "trial_completed", "timestamp": "2026-09-24T10:00:00Z", "task_id": "a",
+                 "metrics": {"task_wall_time_seconds": 1.0}})
+        text = output.getvalue()
+        self.assertIn("MAX TRIAL BUDGET", text)
+        self.assertIn("completed=1", text)
+        self.assertIn("remaining=3", text)
+        self.assertNotIn("planned", text)
+
+    def test_run_command_passes_experiment_maximum_into_live_progress(self):
+        progress = io.StringIO()
+        with contextlib.redirect_stderr(progress), contextlib.redirect_stdout(io.StringIO()):
+            result = main(["run", str(self.root / "examples/minimal/experiment.toml"),
+                           "--output", str(self.root / "runs")])
+        self.assertEqual(result, 0)
+        self.assertIn("MAX TRIAL BUDGET completed=7 remaining=33 / 40", progress.getvalue())
 
     def test_optimizer_validation_view_omits_feedback_and_private_data(self):
         path = self.root / "examples/minimal/observer.py"

@@ -46,6 +46,18 @@ def doctor():
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "doctor":
+        previous = sys.dont_write_bytecode
+        sys.dont_write_bytecode = True
+        try:
+            return _main(argv)
+        finally:
+            sys.dont_write_bytecode = previous
+    return _main(argv)
+
+
+def _main(argv):
+    argv = list(sys.argv[1:] if argv is None else argv)
     if argv and argv[0] == "rerank":
         print("error: rerank is deferred; configure the objective for a new run. "
               "Stored reports and frozen selections remain available; see deferred/README.md", file=sys.stderr)
@@ -266,6 +278,7 @@ def main(argv=None):
             experiment = Path(prepared["experiment"])
             spec = load_experiment(experiment)
             with ProgressDisplay() as progress:
+                progress.configure_budget(spec.get("budget", {}).get("max_trials", 100))
                 root, summary = run_experiment(spec, Registry(), on_event=progress)
             show({"run_dir": root, "status": summary["status"], "trials_used": summary["trials_used"],
                   "report_html": root / "report.html"})
@@ -287,6 +300,7 @@ def main(argv=None):
                     previous = set((session_root / "runs").iterdir()) if (session_root / "runs").exists() else set()
                     try:
                         spec = load_experiment(Path(item["experiment"]))
+                        progress.configure_budget(spec.get("budget", {}).get("max_trials", 100))
                         run, result = run_experiment(spec, Registry(), session_root / "runs",
                                                      on_event=progress)
                         entries.append({"dataset": item["dataset"], "status": result["status"],
@@ -329,6 +343,7 @@ def main(argv=None):
             spec = load_experiment(args.experiment.resolve())
             if args.command == "run":
                 with ProgressDisplay() as progress:
+                    progress.configure_budget(spec.get("budget", {}).get("max_trials", 100))
                     root, summary = run_experiment(spec, registry, args.output, on_event=progress)
                 show({"run_dir": root, "status": summary["status"], "trials_used": summary["trials_used"]})
                 return 0 if summary["status"] == "completed" else 3

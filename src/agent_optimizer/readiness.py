@@ -99,9 +99,28 @@ def collect_dataset(root: Path, dataset_id: str, registry: Registry) -> dict:
 
 def _source_checks(spec: dict) -> list[dict]:
     sources, prompts, editables = [], [], []
+    deferred = False
     for agent in spec["_agents"]:
         source = agent.source
         local = source is not None and source.kind == "local"
+        if source is not None and source.kind == "git":
+            # load_agent already validates the locator and full commit SHA. Only
+            # declarations can be inspected until materialize_agent snapshots it.
+            deferred = True
+            sources.append(True)
+            try:
+                safe_path(Path("/schema-validation"), agent.prompt_file)
+                prompts.append(selected(agent.prompt_file, source))
+            except (ConfigurationError, OSError, ValueError):
+                prompts.append(False)
+            try:
+                editables.append(bool(agent.editable) and all(
+                    selected(pattern, source) and
+                    safe_path(Path("/schema-validation"), pattern)
+                    for pattern in agent.editable))
+            except (ConfigurationError, OSError, ValueError):
+                editables.append(False)
+            continue
         try:
             root = safe_path(source.path, source.subdir) if local else None
         except (ConfigurationError, OSError, ValueError):
@@ -132,12 +151,17 @@ def _source_checks(spec: dict) -> list[dict]:
             editables.append(bool(paths))
         except (ConfigurationError, OSError, ValueError):
             editables.append(False)
-    return [check("agent.source", "agent", all(sources), "Local Agent sources are available",
-                  "Provide existing local Agent sources or prepare pinned Git sources"),
+    note = "; pinned Git source contents unverified until run snapshot" if deferred else ""
+    return [check("agent.source", "agent", all(sources),
+                  "Agent source declarations checked" + note if deferred else "Local Agent sources are available",
+                   "Provide existing local Agent sources or prepare pinned Git sources"),
             check("agent.prompt", "agent", len(prompts) == len(sources) and all(prompts),
-                  "Declared Agent prompt sources are available", "Provide each declared prompt_file in Agent source"),
+                   "Declared Agent prompt paths checked" + note if deferred else
+                   "Declared Agent prompt sources are available",
+                   "Provide each declared prompt_file in Agent source"),
             check("agent.editable", "agent", len(editables) == len(sources) and all(editables),
-                  "Editable Agent files exist", "Declare editable paths matching existing Agent files")]
+                   "Declared editable Agent paths checked" + note if deferred else "Editable Agent files exist",
+                   "Declare editable paths matching existing Agent files")]
 
 
 def _budget_check(spec: dict) -> dict:
@@ -169,9 +193,11 @@ def _optimizer_options(spec: dict) -> dict:
         if surface:
             try:
                 surface = all(any(fnmatch.fnmatchcase(filename, pattern) for pattern in agent.editable) and
-                               agent.source is not None and agent.source.kind == "local" and
-                               selected(filename, agent.source) and
-                               safe_path(safe_path(agent.source.path, agent.source.subdir), filename).is_file()
+                                agent.source is not None and
+                                selected(filename, agent.source) and
+                                (safe_path(safe_path(agent.source.path, agent.source.subdir), filename).is_file()
+                                 if agent.source.kind == "local" else
+                                 bool(safe_path(Path("/schema-validation"), filename)))
                               for agent in spec["_agents"])
             except ConfigurationError:
                 surface = False

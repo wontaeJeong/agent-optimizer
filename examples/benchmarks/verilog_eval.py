@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 import subprocess
@@ -18,16 +19,42 @@ SOURCE_URL = "https://github.com/NVlabs/verilog-eval.git"
 REVISION = "c498220d0a52248f8e3fdffe279075215bde2da6"
 MODES = ("spec-to-rtl", "code-complete-iccad2023")
 RUNTIME_IMAGE = "agent-opt/iverilog-v12:4fd52916"
+IVERILOG_REVISION = "4fd5291632232fbe1ba49b2c26bb6b2bf1c6c9cf"
 
 
-def prepare_runtime(*, offline: bool = False) -> dict:
+def _build_identity() -> dict:
+    dockerfile = Path(__file__).with_name("Dockerfile.iverilog12")
+    content = dockerfile.read_bytes()
+    if not re.search(rb"git checkout --detach " + IVERILOG_REVISION.encode() + rb"(?:\s|$)", content):
+        raise ConfigurationError("Verilog-Eval Dockerfile does not pin the reviewed Icarus source")
+    return {"image": RUNTIME_IMAGE, "source_revision": IVERILOG_REVISION,
+            "dockerfile_sha256": hashlib.sha256(content).hexdigest()}
+
+
+def _verified_lock(cache: Path, image_id: str) -> bool:
+    try:
+        lock = json.loads((cache / "runtime-lock.json").read_text())
+        return (isinstance(lock, dict) and lock == {**_build_identity(), "image_id": image_id}
+                and bool(re.fullmatch(r"sha256:[0-9a-f]{64}", image_id)))
+    except (OSError, ValueError, ConfigurationError):
+        return False
+
+
+def prepare_runtime(cache: Path | None = None, *, offline: bool = False) -> dict:
     """Build a separate pinned Icarus v12 image; never accept v13 as a fallback."""
+    cache = Path(cache) if cache is not None else Path(__file__).resolve().parents[2] / "external/datasets/verilog-runtime"
+    identity = _build_identity()
     try:
         inspect = subprocess.run(["docker", "image", "inspect", RUNTIME_IMAGE],
                                  capture_output=True, text=True, timeout=20, shell=False)
-        if inspect.returncode:
+        try:
+            image_id = json.loads(inspect.stdout)[0]["Id"] if not inspect.returncode else None
+        except (ValueError, TypeError, IndexError, KeyError):
+            image_id = None
+        built = False
+        if not image_id or not _verified_lock(cache, image_id):
             if offline:
-                raise UnavailableError("Verilog-Eval v12 image is missing offline")
+                raise UnavailableError("Verilog-Eval v12 image/build provenance missing or unverified offline")
             dockerfile = Path(__file__).with_name("Dockerfile.iverilog12")
             build = subprocess.run(["docker", "build", "-f", str(dockerfile), "-t", RUNTIME_IMAGE,
                                     str(dockerfile.parent)], capture_output=True, text=True,
@@ -35,9 +62,16 @@ def prepare_runtime(*, offline: bool = False) -> dict:
             if build.returncode:
                 raise UnavailableError("Verilog-Eval Icarus v12 image build failed")
             inspect = subprocess.run(["docker", "image", "inspect", RUNTIME_IMAGE],
-                                     capture_output=True, text=True, timeout=20, shell=False)
+                                      capture_output=True, text=True, timeout=20, shell=False)
+            built = True
         if inspect.returncode:
             raise UnavailableError("Verilog-Eval v12 image is unavailable")
+        try:
+            image_id = json.loads(inspect.stdout)[0]["Id"]
+            if not isinstance(image_id, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
+                raise ValueError("Invalid image ID")
+        except (ValueError, TypeError, IndexError, KeyError) as exc:
+            raise UnavailableError("Verilog-Eval v12 image identity is invalid") from exc
         probe = subprocess.run(["docker", "run", "--rm", "--network", "none", RUNTIME_IMAGE,
                                 "iverilog", "-V"], capture_output=True, text=True, timeout=30,
                                shell=False)
@@ -45,8 +79,10 @@ def prepare_runtime(*, offline: bool = False) -> dict:
         raise UnavailableError("Cannot prepare Verilog-Eval Icarus v12 runtime") from exc
     if probe.returncode or not re.search(r"Icarus Verilog version 12\b", probe.stdout + probe.stderr):
         raise UnavailableError("Verilog-Eval image does not contain Icarus v12")
+    if built:
+        write_json(cache / "runtime-lock.json", {**identity, "image_id": image_id})
     return {"runtime": {"kind": "docker", "image": RUNTIME_IMAGE},
-            "image_id": json.loads(inspect.stdout)[0]["Id"]}
+            "image_id": image_id}
 
 
 def import_verilog_eval(tree: Path, mode: str) -> dict:
@@ -88,7 +124,7 @@ class Provider:
     def prepare(self, cache: Path, *, offline: bool = False) -> dict:
         source = acquire_pinned_git(cache / "source" / self.revision, self.url,
                                     self.revision, offline=offline)
-        runtime = prepare_runtime(offline=offline)
+        runtime = prepare_runtime(cache, offline=offline)
         document = import_verilog_eval(source, self.mode)
         document["source_revision"] = self.revision
         for task in document["tasks"]:
@@ -97,7 +133,7 @@ class Provider:
         write_json(output, document)
         write_json(output.with_name("provenance.json"), {"url": self.url, "revision": self.revision,
                    "mode": self.mode, "image": runtime["runtime"]["image"],
-                   "image_id": runtime["image_id"]})
+                   "image_id": runtime["image_id"], **_build_identity()})
         return {"benchmark": str(output),
                 "evaluator": "verilog_eval",
                 "evaluation_runtime": runtime["runtime"],
@@ -119,7 +155,9 @@ class Provider:
                   and provenance.get("mode") == self.mode
                   and provenance.get("image") == RUNTIME_IMAGE
                   and isinstance(provenance.get("image_id"), str)
-                  and bool(re.fullmatch(r"sha256:[0-9a-f]{64}", provenance["image_id"])))
+                   and bool(re.fullmatch(r"sha256:[0-9a-f]{64}", provenance["image_id"]))
+                   and all(provenance.get(key) == value for key, value in _build_identity().items())
+                   and _verified_lock(cache, provenance["image_id"]))
         rows.append(check("dataset.verilog.provenance", "dataset", locked,
                           "Pinned Verilog-Eval v12 preparation provenance",
                           "Run agent-opt datasets prepare verilog-" + ("spec" if self.mode == MODES[0] else "completion")))
