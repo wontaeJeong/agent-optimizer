@@ -36,6 +36,31 @@ unset HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY http_proxy https_proxy all_proxy
 unset AGENT_OPT_CA_BUNDLE
 ```
 
+## 별도 패키지·Git 소스 경로
+
+표준 도구 설정을 셸/러너에 제공하면 프로젝트의 고정 commit·자산 해시를 바꾸지 않고
+다른 다운로드 경로를 쓸 수 있습니다. 예를 들어 Git URL 재작성은 public 기본 URL을
+유지한 채 Git 프로세스에서만 적용됩니다(아래 주소는 형식 예시):
+
+```bash
+export GIT_CONFIG_COUNT=1
+export GIT_CONFIG_KEY_0='url.https://mirror.example.invalid/NVlabs/.insteadOf'
+export GIT_CONFIG_VALUE_0='https://github.com/NVlabs/'
+export UV_DEFAULT_INDEX=https://packages.example.invalid/simple
+export PIP_INDEX_URL=https://packages.example.invalid/simple
+```
+
+Git 재작성은 원본 URL에 대한 접근을 대체할 뿐, 요청한 전체 commit SHA를 가진 소스가
+대상 저장소에 있어야 합니다. 실제 Agent에는 `--agent <Git URL> --revision <전체 commit>`도
+사용할 수 있습니다. `UV_DEFAULT_INDEX`는 uv, `PIP_INDEX_URL`은 pip용이며 인증정보는
+환경/credential store에 둡니다. uv 설치 프로그램 자체가 필요한 경우에는 기존 uv를
+먼저 준비하거나 부트스트랩의 원래 다운로드 주소에 접근해야 합니다.
+Docker image/패키지 registry와 daemon/BuildKit의 인증·CA·proxy는 해당 도구/러너에서
+설정합니다. 고정 HTTPS 데이터 파일은 Git 재작성 대상이 아니며, 원래 주소에 접근할 수
+없으면 검증된 자산을 기존 cache에 준비한 뒤 offline setup을 사용하세요. 해시 불일치는
+거부하며 다른 URL이나 자산으로 자동 대체하지 않습니다. 사용한 출처·접근 경로와 실행
+결과는 별도로 확인하세요.
+
 ## 전달 규칙
 
 | 설정 | 동작 |

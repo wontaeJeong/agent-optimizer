@@ -1,11 +1,12 @@
 import copy
 import json
+import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from agent_optimizer.contracts import AgentSpec, SourceSpec, ExecutionResult
+from agent_optimizer.contracts import AgentSpec, SourceSpec, ExecutionResult, UnavailableError
 from agent_optimizer.sources import materialize_agent
 from support import ROOT, module
 
@@ -20,6 +21,47 @@ def row():
                                   "docker-compose.yml": "services:\n  direct:\n    build: .\n"}}}
 
 class SourceTests(unittest.TestCase):
+    def test_git_url_rewrite_preserves_pinned_source_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repo = root / "mirror"
+            repo.mkdir()
+
+            def git(*args):
+                return subprocess.check_output(["git", *args], cwd=repo, text=True).strip()
+
+            git("init", "-q")
+            (repo / "prompt.md").write_text("pinned content")
+            git("add", "prompt.md")
+            git("-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                "commit", "-qm", "pinned")
+            revision = git("rev-parse", "HEAD")
+            (repo / "prompt.md").write_text("later content")
+            git("add", "prompt.md")
+            git("-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+                "commit", "-qm", "later")
+            public_url = "https://github.com/example/pinned-agent.git"
+            agent = AgentSpec("test", root, None, "test", ("command",), ("*.md",), "prompt.md",
+                              source=SourceSpec("git", url=public_url, revision=revision,
+                                                timeout_seconds=10))
+            rewrite = {"GIT_CONFIG_COUNT": "1",
+                       "GIT_CONFIG_KEY_0": f"url.file://{repo}.insteadOf",
+                       "GIT_CONFIG_VALUE_0": public_url}
+            with patch.dict(os.environ, rewrite):
+                resolved, lock = materialize_agent(agent, root / "snapshot")
+                wrong = AgentSpec("test", root, None, "test", ("command",), ("*.md",), "prompt.md",
+                                  source=SourceSpec("git", url=public_url, revision="0" * 40,
+                                                    timeout_seconds=10))
+                with self.assertRaises(UnavailableError):
+                    materialize_agent(wrong, root / "wrong-revision")
+            self.assertEqual((resolved.bundle / "prompt.md").read_text(), "pinned content")
+            self.assertEqual(lock["url"], public_url)
+            self.assertEqual(lock["requested_commit"], revision)
+            self.assertEqual(lock["resolved_commit"], revision)
+            self.assertEqual(json.loads((root / "snapshot/source-lock.json").read_text())
+                             ["resolved_commit"], revision)
+            self.assertFalse((root / "wrong-revision").exists())
+
     def test_git_source_pinned_and_original_untouched(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d); repo = root / "repo"; repo.mkdir()
