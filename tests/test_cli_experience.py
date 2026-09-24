@@ -92,6 +92,36 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn("model.configuration", {row["id"] for row in report["checks"]})
         self.assertNotIn("SECRET_VALUE", output.getvalue())
 
+    def test_shipped_sample_dataset_doctor_checks_fixture_files_without_writes(self):
+        for missing, failing in ((None, None), ("examples/minimal/tasks.json", "dataset.sample_text.tasks"),
+                                 ("examples/minimal/evaluator.py", "dataset.sample_text.evaluator")):
+            with self.subTest(missing=missing):
+                temporary, root = test_project()
+                self.addCleanup(temporary.cleanup)
+                if missing:
+                    (root / missing).unlink()
+                before = {str(p): p.read_bytes() for p in root.rglob("*") if p.is_file()}
+                output = io.StringIO()
+                with patch("agent_optimizer.runner.preflight", side_effect=AssertionError("preflight")), \
+                        patch("agent_optimizer.models.probe_model", side_effect=AssertionError("model")), \
+                        contextlib.redirect_stdout(output):
+                    code = main(["doctor", "--dataset", "sample_text", "--project-root", str(root), "--json"])
+                report = json.loads(output.getvalue())
+                self.assertEqual(report["scope"], "dataset")
+                self.assertEqual(report["ready"], missing is None, report)
+                self.assertEqual(code, 0 if missing is None else 2)
+                checks = {row["id"]: row for row in report["checks"]}
+                self.assertTrue({"dataset.sample_text.tasks", "dataset.sample_text.evaluator"} <= set(checks))
+                if missing == "examples/minimal/evaluator.py":
+                    self.assertEqual(checks["dataset.registration"]["status"], "error")
+                else:
+                    self.assertNotIn("dataset.registration", checks)
+                if failing:
+                    self.assertEqual(checks[failing]["status"], "error")
+                    self.assertIn(missing, checks[failing]["remedy"])
+                self.assertEqual(before, {str(p): p.read_bytes() for p in root.rglob("*") if p.is_file()})
+                self.assertFalse(list(root.rglob("*.pyc")))
+
     def test_invalid_plan_schema_still_reports_independent_evaluator(self):
         plan = self.root / "examples/minimal/experiment.toml"
         plan.write_text(plan.read_text().replace('agents = ["examples/minimal/solo.toml", "examples/minimal/team.toml"]',
