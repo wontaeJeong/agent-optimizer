@@ -338,6 +338,143 @@ class DriverLockTests(unittest.TestCase):
                 if offline:
                     self.assertFalse(any(cmd[:2] == ["docker", "build"] for cmd in commands))
 
+    def test_selected_cvdp_setup_preserves_full_ace_lock_and_never_prepares_agent_image(self):
+        from examples.benchmarks import cvdp as provider_module
+        dataset = "\n".join(json.dumps({**official_row(), "id": f"cvdp_copilot_{i:04d}"})
+                            for i in range(3)).encode() + b"\n"
+        assets = {setup.DATA_FILE: hashlib.sha256(dataset).hexdigest(),
+                  "LICENSE": hashlib.sha256(b"license").hexdigest(),
+                  "NOTICE": hashlib.sha256(b"notice").hexdigest()}
+        full_lock = self.external / "environment-lock.json"
+        full_lock.write_bytes(b"full ACE lock sentinel\n")
+        before_full_lock = full_lock.read_bytes()
+        (self.external / "cvdp_benchmark/.git").mkdir()
+        commands = []
+        original_load = provider_module._load
+
+        def load(path, name):
+            return setup if path.name == "setup.py" else original_load(path, name)
+
+        def external_command(argv, *args, **kwargs):
+            commands.append(argv)
+            if argv[:2] == ["git", "clone"]:
+                (Path(argv[-1]) / ".git").mkdir(parents=True)
+            if "venv" in argv:
+                python = self.external / "cvdp-venv/bin/python"
+                python.parent.mkdir(parents=True, exist_ok=True)
+                python.write_text("fixture")
+
+        def inspected(argv, **kwargs):
+            if argv[:2] == ["docker", "version"]:
+                return "linux/arm64\n"
+            if argv[:3] == ["git", "rev-parse", "HEAD"]:
+                return setup.REPOS["cvdp_benchmark"][1] + "\n"
+            if argv[:2] == ["git", "status"]:
+                return ""
+            if argv[:3] == ["docker", "image", "inspect"]:
+                return json.dumps([{"Id": "sha256:" + "a" * 64, "Os": "linux", "Architecture": "arm64"}])
+            if argv[0] == "uv":
+                return "PyYAML==6.0.2\n"
+            return "3.12\n"
+
+        def tool(argv, **kwargs):
+            name = argv[-2]
+            version = {"yosys": "Yosys 0.40", "iverilog": "Icarus Verilog version 13.0",
+                       "vvp": "Icarus Verilog runtime version 13.0",
+                       "verilator": "Verilator 5.038"}[name]
+            return subprocess.CompletedProcess(argv, 0, version, "")
+
+        def downloaded(url, **kwargs):
+            return io.BytesIO(dataset if url.endswith(setup.DATA_FILE) else
+                              b"license" if url.endswith("LICENSE") else b"notice")
+
+        with patch.object(setup, "ROOT", self.root), patch.object(setup, "ASSETS", assets), \
+                patch.object(setup, "REQUIREMENTS_SHA256", self.expected["upstream_sha256"]), \
+                patch.object(setup, "run", side_effect=external_command), \
+                patch.object(setup.subprocess, "check_output", side_effect=inspected), \
+                patch.object(setup.subprocess, "run", side_effect=tool), \
+                patch("urllib.request.urlopen", side_effect=downloaded), \
+                patch.object(provider_module, "_load", side_effect=load), \
+                patch.object(setup, "prepare_environment", side_effect=AssertionError("ACE setup invoked")):
+            result = provider_module.Provider().prepare(self.external / "datasets/cvdp")
+            self.assertIn("evaluation", result["provenance"])
+            self.assertNotIn("agent_image", result["provenance"])
+            self.assertEqual(before_full_lock, full_lock.read_bytes())
+            self.assertTrue((self.external / "datasets/cvdp/evaluation-lock.json").is_file())
+            self.assertFalse((self.external / "ACE-RTL").exists())
+            self.assertEqual(result["evaluator"], "cvdp")
+            self.assertEqual(result["evaluator_config"]["sim_image_id"], "sha256:" + "a" * 64)
+            self.assertFalse(any(cmd[:2] == ["docker", "build"] and "docker/Dockerfile.sim" not in cmd
+                                 for cmd in commands))
+            self.assertFalse(any("opencode" in str(cmd).lower() for cmd in commands))
+            commands.clear()
+            reused = provider_module.Provider().prepare(self.external / "datasets/cvdp", offline=True)
+            self.assertEqual(reused["evaluator_config"]["sim_image_id"], result["evaluator_config"]["sim_image_id"])
+            self.assertFalse(any(cmd[:2] == ["docker", "build"] or cmd[:2] == ["git", "clone"]
+                                 for cmd in commands))
+            before = {p: (p.read_bytes(), p.stat().st_mtime_ns) for p in self.external.rglob("*") if p.is_file()}
+            rows = provider_module.Provider().doctor(self.external / "datasets/cvdp")
+            self.assertTrue(all(row["status"] == "ok" for row in rows), rows)
+            self.assertEqual(before, {p: (p.read_bytes(), p.stat().st_mtime_ns)
+                                      for p in self.external.rglob("*") if p.is_file()})
+            evaluation_lock = self.external / "datasets/cvdp/evaluation-lock.json"
+            original_lock = evaluation_lock.read_bytes()
+            changed = json.loads(original_lock)
+            changed["images"]["evaluation"]["id"] = "sha256:" + "b" * 64
+            evaluation_lock.write_text(json.dumps(changed))
+            rows = provider_module.Provider().doctor(self.external / "datasets/cvdp")
+            self.assertTrue(any(row["id"] == "dataset.cvdp.image" and row["status"] == "error"
+                                and row["remedy"] for row in rows), rows)
+            evaluation_lock.write_bytes(original_lock)
+            (self.external / "cvdp-data" / setup.DATA_REVISION / "LICENSE").write_text("tampered")
+            rows = provider_module.Provider().doctor(self.external / "datasets/cvdp")
+            self.assertTrue(any(row["status"] == "error" and "LICENSE" in row["id"]
+                                and row["remedy"] for row in rows), rows)
+            self.assertEqual(before_full_lock, full_lock.read_bytes())
+            (self.external / "cvdp-data" / setup.DATA_REVISION / "LICENSE").write_bytes(b"license")
+            malformed = json.loads(evaluation_lock.read_text())
+            malformed["dataset"]["files"]["LICENSE"] = []
+            evaluation_lock.write_text(json.dumps(malformed))
+            rows = provider_module.Provider().doctor(self.external / "datasets/cvdp")
+            self.assertTrue(any(row["status"] == "error" and row["remedy"] for row in rows), rows)
+            with self.assertRaises(ConfigurationError):
+                provider_module.Provider().prepare(self.external / "datasets/cvdp", offline=True)
+            self.assertEqual(evaluation_lock.read_text(), json.dumps(malformed))
+
+    def test_legacy_full_ace_still_prepares_two_sources_and_images(self):
+        images = {"agent-optimizer-cvdp:8e894cf-arm64": "sha256:eval",
+                  f"agent-optimizer-opencode:{setup.OPENCODE_VERSION}-arm64": "sha256:agent"}
+        commands = []
+
+        def inspected(argv, **kwargs):
+            return json.dumps([{"Os": "linux", "Architecture": "arm64", "Id": images[argv[-1]]}])
+
+        with patch.object(setup, "ROOT", self.root), patch.object(setup, "run",
+                side_effect=lambda argv, *args, **kwargs: commands.append(argv)), \
+                patch.object(setup, "prepare_sources"), patch.object(setup, "prepare_data",
+                return_value=(self.external / "dataset", {})), patch.object(setup, "driver_requirements",
+                return_value={}), patch.object(setup, "validate_driver_python"), \
+                patch.object(setup, "driver_packages", return_value="PyYAML==6.0.2\n"), \
+                patch.object(setup, "doctor", return_value={"ready": True}), \
+                patch.object(setup.subprocess, "check_output", side_effect=inspected):
+            _, lock = setup.prepare_environment(platform="linux/arm64")
+        self.assertEqual(set(lock["images"]), {"evaluation", "agent"})
+        self.assertEqual(len([cmd for cmd in commands if cmd[:2] == ["docker", "build"]]), 2)
+        self.assertTrue((self.external / "environment-lock.json").is_file())
+
+    def test_selected_evaluation_image_rejects_wrong_simulator_tool_version(self):
+        def version(argv, **kwargs):
+            return subprocess.CompletedProcess(argv, 0, "Icarus Verilog version 12.0", "")
+
+        with patch.object(setup.subprocess, "run", side_effect=version):
+            with self.assertRaisesRegex(UnavailableError, "version"):
+                setup.verify_evaluation_tools("sha256:" + "a" * 64, "linux/arm64")
+
+    def test_invalid_evaluation_image_inspection_is_a_configuration_error(self):
+        with patch.object(setup.subprocess, "check_output", return_value='[{}]'):
+            with self.assertRaises(ConfigurationError):
+                setup.inspect_image("agent-optimizer-cvdp:test", "linux/arm64")
+
 
 class PreparedImageTests(unittest.TestCase):
     def run_dev(self, command, *, actual_id=None, missing=False, tag="agent-optimizer-cvdp:8e894cf-amd64",

@@ -48,7 +48,7 @@ class Provider:
 
     def prepare(self, cache: Path, *, offline: bool = False) -> dict:
         setup = _load(ROOT / "examples/ace-rtl/environment/setup.py", "agent_opt_cvdp_setup")
-        data_path, lock = setup.prepare_environment(offline=offline)
+        data_path, lock = setup.prepare_evaluation_environment(offline=offline, cache=cache)
         document = import_cvdp(data_path)
         output = cache / "cvdp" / "tasks.json"
         write_json(output, document)
@@ -58,5 +58,10 @@ class Provider:
                                      "sim_image": lock["images"]["evaluation"]["tag"],
                                      "sim_image_id": lock["images"]["evaluation"]["id"]},
                 "provenance": {"source_revision": SOURCE_REVISION,
-                               "dataset": lock.get("dataset"), "sha256": document["data_sha256"],
+                               "evaluation": lock, "dataset": lock.get("dataset"),
+                               "sha256": document["data_sha256"],
                                "image_id": lock["images"]["evaluation"]["id"]}}
+
+    def doctor(self, cache: Path) -> list[dict]:
+        setup = _load(ROOT / "examples/ace-rtl/environment/setup.py", "agent_opt_cvdp_diagnostics")
+        return setup.evaluation_checks(cache)
