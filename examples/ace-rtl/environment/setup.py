@@ -256,8 +256,9 @@ def read_environment_lock(path):
     return lock
 
 
-def evaluation_image(platform):
-    return f"agent-optimizer-cvdp:{REPOS['cvdp_benchmark'][1][:7]}-{platform.split('/')[1]}"
+def evaluation_image(platform, *, selected=False):
+    prefix = "agent-optimizer-cvdp-eval" if selected else "agent-optimizer-cvdp"
+    return f"{prefix}:{REPOS['cvdp_benchmark'][1][:7]}-{platform.split('/')[1]}"
 
 
 def inspect_image(tag, platform):
@@ -300,8 +301,16 @@ def prepare_evaluation_environment(*, offline=False, platform=None, cache: Path)
             previous = json.loads(lock_path.read_text())
         except (OSError, ValueError) as exc:
             raise ConfigurationError("Invalid CVDP evaluation lock; preserve and repair the provider cache") from exc
-        if not isinstance(previous, dict):
-            raise ConfigurationError("Invalid CVDP evaluation lock; preserve and repair the provider cache")
+        if (not isinstance(previous, dict)
+                or not isinstance(previous.get("dataset"), dict)
+                or not isinstance(previous.get("driver_requirements"), dict)
+                or not isinstance(previous.get("driver_packages"), str)
+                or not isinstance(previous.get("images"), dict)
+                or not isinstance(previous["images"].get("evaluation"), dict)
+                or any(not isinstance(previous["images"]["evaluation"].get(key), str)
+                       for key in ("tag", "id"))):
+            raise ConfigurationError("Invalid CVDP evaluation lock; existing file preserved. "
+                                     "Move it aside and rerun agent-opt datasets prepare cvdp")
     fingerprint = ca_fingerprint()
     if offline and (previous.get("platform") != platform or previous.get("ca_bundle_sha256") != fingerprint):
         raise UnavailableError("Offline CVDP evaluation lock missing or platform/CA differs; rerun online setup")
@@ -322,7 +331,7 @@ def prepare_evaluation_environment(*, offline=False, platform=None, cache: Path)
         validate_driver_python(venv / "bin/python")
     run([*uv, "pip", "sync", "--python", str(venv / "bin/python"), str(ROOT / DRIVER_LOCK)],
         log=logs / "driver-uv.log")
-    tag = evaluation_image(platform)
+    tag = evaluation_image(platform, selected=True)
     if not offline:
         run(["docker", "build", "--platform", platform, "-f", "docker/Dockerfile.sim", "-t", tag, "."],
             external / "cvdp_benchmark", logs / "evaluation-build.log")
@@ -408,7 +417,7 @@ def evaluation_checks(cache: Path) -> list[dict]:
     image = lock["images"]["evaluation"] if valid else {}
     tag, identity = image.get("tag"), image.get("id")
     platform = lock["platform"] if valid else None
-    proper = (isinstance(tag, str) and platform is not None and tag == evaluation_image(platform)
+    proper = (isinstance(tag, str) and platform is not None and tag == evaluation_image(platform, selected=True)
               and isinstance(identity, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", identity)
               and lock.get("ca_bundle_sha256") == ca_fingerprint())
     info = None

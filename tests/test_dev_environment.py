@@ -462,6 +462,80 @@ class DriverLockTests(unittest.TestCase):
         self.assertEqual(len([cmd for cmd in commands if cmd[:2] == ["docker", "build"]]), 2)
         self.assertTrue((self.external / "environment-lock.json").is_file())
 
+    def test_selected_online_rebuild_preserves_full_ace_tag_and_locked_image_identity(self):
+        images = {}
+        builds = []
+        stage = ["full"]
+        original = "sha256:" + "a" * 64
+        rebuilt = "sha256:" + "b" * 64
+
+        def execute(argv, *args, **kwargs):
+            if argv[:2] == ["docker", "build"]:
+                tag = argv[argv.index("-t") + 1]
+                builds.append((stage[0], tag))
+                images[tag] = (rebuilt if stage[0] == "selected" else
+                               "sha256:" + "c" * 64 if "opencode" in tag else original)
+
+        def inspected(argv, **kwargs):
+            self.assertEqual(argv[:3], ["docker", "image", "inspect"])
+            return json.dumps([{"Id": images[argv[-1]], "Os": "linux", "Architecture": "arm64"}])
+
+        def tool(argv, **kwargs):
+            versions = {"yosys": "Yosys 0.40", "iverilog": "Icarus Verilog version 13.0",
+                        "vvp": "Icarus Verilog runtime version 13.0", "verilator": "Verilator 5.038"}
+            return subprocess.CompletedProcess(argv, 0, versions[argv[-2]], "")
+
+        with patch.object(setup, "ROOT", self.root), patch.object(setup, "run", side_effect=execute), \
+                patch.object(setup, "prepare_sources"), patch.object(setup, "prepare_data",
+                return_value=(self.external / "dataset", {"revision": "fixture", "files": {}})), \
+                patch.object(setup, "validate_driver_python"), \
+                patch.object(setup, "driver_packages", return_value="PyYAML==6.0.2\n"), \
+                patch.object(setup, "doctor", return_value={"ready": True}), \
+                patch.object(setup.subprocess, "check_output", side_effect=inspected), \
+                patch.object(setup.subprocess, "run", side_effect=tool):
+            _, full = setup.prepare_environment(platform="linux/arm64")
+            full_lock = self.external / "environment-lock.json"
+            original_lock = full_lock.read_bytes()
+            stage[0] = "selected"
+            _, selected = setup.prepare_evaluation_environment(
+                platform="linux/arm64", cache=self.external / "datasets/cvdp")
+            self.assertNotEqual(selected["images"]["evaluation"]["tag"], full["images"]["evaluation"]["tag"])
+            self.assertEqual(images[full["images"]["evaluation"]["tag"]], original)
+            self.assertEqual(setup.verified_sim_image(setup.read_environment_lock(full_lock)),
+                             full["images"]["evaluation"]["tag"])
+            self.assertEqual(full_lock.read_bytes(), original_lock)
+        self.assertEqual(len([tag for stage_name, tag in builds if stage_name == "selected"]), 1)
+
+    def test_malformed_selected_lock_fails_with_repair_without_running_setup_or_overwriting_cache(self):
+        cache = self.external / "datasets/cvdp"
+        cache.mkdir(parents=True)
+        lock_path = cache / "evaluation-lock.json"
+        valid = {"platform": "linux/arm64", "ca_bundle_sha256": None,
+                 "driver_requirements": self.expected, "driver_packages": "PyYAML==6.0.2\n",
+                 "dataset": {"revision": setup.DATA_REVISION, "files": {}},
+                 "images": {"evaluation": {"tag": setup.evaluation_image("linux/arm64", selected=True),
+                                           "id": "sha256:" + "a" * 64}}}
+        for key, malformed in (("driver_packages", {}), ("images", [])):
+            for offline in (False, True):
+                with self.subTest(key=key, offline=offline):
+                    lock = {**valid, key: malformed}
+                    original = json.dumps(lock).encode()
+                    lock_path.write_bytes(original)
+                    commands = []
+                    with patch.object(setup, "ROOT", self.root), \
+                            patch.object(setup, "ca_fingerprint", return_value=None), \
+                            patch.object(setup, "prepare_sources"), \
+                            patch.object(setup, "prepare_data", return_value=(self.external / "data", valid["dataset"])), \
+                            patch.object(setup, "validate_driver_python"), \
+                            patch.object(setup, "driver_packages", return_value="PyYAML==6.0.2\n"), \
+                            patch.object(setup, "inspect_image", return_value=valid["images"]["evaluation"]), \
+                            patch.object(setup, "verify_evaluation_tools"), \
+                            patch.object(setup, "run", side_effect=lambda argv, *a, **kw: commands.append(argv)):
+                        with self.assertRaisesRegex(ConfigurationError, "evaluation lock.*preserved.*prepare cvdp"):
+                            setup.prepare_evaluation_environment(offline=offline, platform="linux/arm64", cache=cache)
+                    self.assertEqual(lock_path.read_bytes(), original)
+                    self.assertEqual(commands, [])
+
     def test_selected_evaluation_image_rejects_wrong_simulator_tool_version(self):
         def version(argv, **kwargs):
             return subprocess.CompletedProcess(argv, 0, "Icarus Verilog version 12.0", "")
