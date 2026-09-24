@@ -370,6 +370,9 @@ os.execv("/bin/sh", ["sh", *args])
             with self.subTest(entry=entry):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn("menu", result.stdout)
+                self.assertIn("번호 메뉴", result.stdout)
+                if "dev.py" in " ".join(entry):
+                    self.assertIn("사용법:", result.stdout)
         self.assertFalse(self.log.exists())
         for name in ["runs", ".venv", "external", ".cache"]:
             self.assertFalse((self.root / name).exists())
