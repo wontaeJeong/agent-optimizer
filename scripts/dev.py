@@ -151,6 +151,11 @@ def main(argv=None):
             evaluator_id = prepared.get("evaluator")
             if not isinstance(evaluator_id, str) or ":" in evaluator_id:
                 raise ConfigurationError("Registered dataset provider must return a registered evaluator ID")
+            try:
+                registry.resolve("evaluators", evaluator_id)
+            except UnavailableError:
+                raise ConfigurationError(f"Dataset provider returned unregistered evaluator ID {evaluator_id!r}; "
+                                         "register it in src/agent_optimizer/registry.py") from None
             stage = "final doctor"
             doctor = load("dev_doctor", Path(__file__).resolve().with_name("dev_doctor.py"))
             report = doctor.collect_report(ROOT, dataset=dataset_id)

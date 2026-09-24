@@ -721,6 +721,7 @@ class DeveloperCommandsTests(unittest.TestCase):
         def load_project(registry, root):
             events.append(("registry", root))
             registry.factories["datasets"]["sample_text"] = Provider
+            registry.factories["evaluators"]["fixture"] = object
         def collect(root, name, registry):
             events.append(("doctor", name))
             return {"scope": "dataset", "ready": self.ready, "checks": []}
@@ -752,6 +753,22 @@ class DeveloperCommandsTests(unittest.TestCase):
                 patch.object(self.dev, "load", side_effect=AssertionError("doctor must not run")):
             self.assertEqual(self.main(["setup", "--dataset", "sample_text"]), 2)
         self.assertIn("registered evaluator ID", self.output.getvalue())
+        self.assertNotIn('"status": "ready"', self.output.getvalue())
+
+    def test_selected_setup_rejects_unregistered_evaluator_id_despite_ready_doctor(self):
+        from agent_optimizer.registry import Registry
+        class Provider:
+            def prepare(self, cache, *, offline=False):
+                return {"benchmark": "fixture", "evaluator": "missing_eval", "provenance": {}}
+        doctor = SimpleNamespace(collect_report=lambda *a, **kw: {"ready": True},
+                                 render_report=lambda *a, **kw: None)
+        with patch.dict(os.environ, {"AGENT_OPT_BOOTSTRAPPED": str(ROOT)}), \
+                patch.object(Registry, "load_project", lambda registry, root:
+                             registry.factories["datasets"].update(sample_text=Provider)), \
+                patch.object(self.dev, "load", return_value=doctor):
+            self.assertEqual(self.main(["setup", "--dataset", "sample_text"]), 2)
+        self.assertIn("missing_eval", self.output.getvalue())
+        self.assertIn("src/agent_optimizer/registry.py", self.output.getvalue())
         self.assertNotIn('"status": "ready"', self.output.getvalue())
 
     def test_unknown_selected_name_fails_after_core_sync_before_provider(self):
