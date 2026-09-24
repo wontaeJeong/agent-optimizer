@@ -231,6 +231,15 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual(checks["plan.schema"]["status"], "ok")
         self.assertEqual(checks["agent.editable"]["status"], "error")
 
+    def test_excluded_symlink_under_editable_glob_does_not_block_snapshot(self):
+        manifest = self.root / "examples/minimal/solo.toml"
+        manifest.write_text(manifest.read_text() + '\nexclude = ["src/link.py"]\n')
+        (self.agent / "src/link.py").symlink_to(self.root / "examples/minimal/tasks.json")
+        report = collect_plan(self.root / "examples/minimal/experiment.toml", Registry())
+        checks = {row["id"]: row for row in report["checks"]}
+        self.assertEqual(checks["agent.editable"]["status"], "ok")
+        self.assertTrue(report["ready"], report)
+
     def test_prompt_must_survive_declared_source_snapshot_filters(self):
         manifest = self.root / "examples/minimal/solo.toml"
         for key, value in (("include", '["configs/**", "src/**"]'),

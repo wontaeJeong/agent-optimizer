@@ -85,6 +85,15 @@ class ProgressTests(unittest.TestCase):
             run_experiment(self.spec, Registry(), output)
         self.assertFalse(output.exists())
 
+    def test_repeated_baseline_and_final_test_reserve_trials_before_run_directory(self):
+        self.spec.update(stages=[{"id": "limited", "optimizer": "baseline", "max_trials": 1}],
+                         repetitions=3, final_test=True, final_stages=["limited"])
+        self.spec["budget"]["max_trials"] = 5  # Old calculation: 1 + 1 + 2 = 4; actual minimum: 3 + 1 + 6 = 10.
+        output = self.root / "runs"
+        with self.assertRaisesRegex(ConfigurationError, "at least 10 trials"):
+            run_experiment(self.spec, Registry(), output)
+        self.assertFalse(output.exists())
+
     def test_optimizer_can_sample_only_named_train_tasks(self):
         path = self.root / "examples/minimal/batch.py"
         path.write_text(
