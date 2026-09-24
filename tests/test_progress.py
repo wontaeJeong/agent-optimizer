@@ -9,7 +9,7 @@ from agent_optimizer.cli import main
 from agent_optimizer.contracts import ConfigurationError, Evaluation
 from agent_optimizer.registry import Registry
 from agent_optimizer.runner import run_experiment
-from agent_optimizer.terminal_report import ProgressDisplay
+from agent_optimizer.terminal_report import PreparationStatus, ProgressDisplay
 from support import test_project
 
 
@@ -50,6 +50,36 @@ class ProgressTests(unittest.TestCase):
         last_line = text.splitlines()[-1]
         self.assertLess(last_line.index("slow: 5.00s"), last_line.index("fast: 1.00s"))
         self.assertNotIn("ETA", text)
+
+    def test_interactive_progress_uses_rich_styling_and_keeps_json_stdout_clean(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        output, terminal = io.StringIO(), Terminal()
+        with contextlib.redirect_stdout(output), ProgressDisplay(stream=terminal) as progress:
+            progress.configure_budget(4)
+            progress({"event": "trial_completed", "timestamp": "2026-09-24T10:00:00Z",
+                      "dataset": "fixture", "task_id": "slow",
+                      "metrics": {"task_wall_time_seconds": 5.0}})
+            print('{"status":"completed"}')
+        self.assertEqual(json.loads(output.getvalue()), {"status": "completed"})
+        self.assertIn("slow", terminal.getvalue())
+        self.assertIn("remaining=3", terminal.getvalue())
+        self.assertRegex(terminal.getvalue(), r"\x1b\[[0-9;]+m")
+
+    def test_interactive_preparation_keeps_failure_visible(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        terminal = Terminal()
+        with self.assertRaisesRegex(ValueError, "fixture failure"):
+            with PreparationStatus("chosen", stream=terminal):
+                raise ValueError("fixture failure")
+        self.assertIn("dataset=chosen", terminal.getvalue())
+        self.assertIn("failed", terminal.getvalue())
+        self.assertRegex(terminal.getvalue(), r"\x1b\[[0-9;]+m")
 
     def test_configured_max_trial_budget_is_not_a_planned_total(self):
         output = io.StringIO()
