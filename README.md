@@ -25,7 +25,7 @@ make help                         # 개발환경 명령
 .venv/bin/agent-opt datasets list
 .venv/bin/agent-opt init --name my-fixture \
   --agent examples/minimal/agents/solo \
-  --argv '{python}' '{agent_dir}/src/fixture_agent.py' '{task_dir}' \
+  --command-json '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]' \
   --editable configs/strategy.json \
   --dataset examples/minimal/tasks.json \
   --evaluator examples/minimal/evaluator.py:TextFixtureEvaluator \
@@ -51,8 +51,10 @@ Agent 명령에 `--input` 같은 옵션이 있으면 `--command-json '["python3"
 형태로 argv 배열을 지정합니다(셸 실행이 아님).
 `--optimizer gepa --optimizer meta_harness --optimizer ecdysis`처럼 반복해 독립 stage를 지정할 수 있습니다.
 코드 하네스 방식은 실제 실행되는 `.py` 파일이 필요하고, 여러 파일이 일치하면
-`--scaffold-file`(GEPA는 `--target-file`)을 지정합니다. 모델 제안에는 `MODEL_BASE_URL`
-**또는** `MODEL_ENDPOINT`, `MODEL_ID`, `MODEL_API_KEY`를 환경에 설정합니다.
+`--scaffold-file`(GEPA는 `--target-file`)을 지정합니다. 모델 제안에는 `AGENT_OPT_MODEL_BASE_URL`
+**또는** `AGENT_OPT_MODEL_ENDPOINT`, `AGENT_OPT_MODEL_ID`, `AGENT_OPT_MODEL_API_KEY`를 환경에 설정합니다.
+기존 `MODEL_*` 변수와 `init --argv`는 더 이상 사용하지 않습니다. Agent 명령은
+`--command-json`에 JSON argv 배열로 입력합니다.
 자격증명은 생성 설정에 저장하지 않습니다.
 
 `--dataset cvdp`, `--dataset verilog-spec`, `--dataset verilog-completion`이나
@@ -152,8 +154,9 @@ make doctor ARGS="--core"
 make demo
 ```
 
-별도로 설치한 **시스템 Python 3.11+**가 있으면 uv 없이도 아래처럼 실행할 수 있습니다.
-`setup --core`로 준비한 뒤에는 부모 shell이 자동 활성화되지 않으므로 `python3` 대신 `.venv/bin/python`을 사용하세요.
+uv 없이 실행하려면 Python 3.11+ 가상환경에 `python -m pip install -e .`로
+`pyproject.toml`의 런타임 의존성을 먼저 설치하세요. 아래 `python3`는 해당 환경의 Python입니다.
+`setup --core`로 준비한 뒤에는 부모 shell이 자동 활성화되지 않으므로 `.venv/bin/python`을 사용하세요.
 
 ```bash
 PYTHONPATH=src python3 -m agent_optimizer run examples/minimal/experiment.toml
@@ -208,9 +211,9 @@ Python 3.11+, uv, Git, Docker Engine/Compose가 필요합니다. Ubuntu 시스�
 
 ```bash
 # 실제 주소·토큰은 셸/credential store에서 설정; .env.example은 자동 로딩하지 않음
-export MODEL_ENDPOINT=https://model.example/v1/chat/completion
-export MODEL_ID=glm5.3-flash
-# MODEL_API_KEY도 export. 표준 API는 MODEL_ENDPOINT 대신 MODEL_BASE_URL 사용.
+export AGENT_OPT_MODEL_ENDPOINT=https://model.example/v1/chat/completion
+export AGENT_OPT_MODEL_ID=glm5.3-flash
+# AGENT_OPT_MODEL_API_KEY도 export. 표준 API는 AGENT_OPT_MODEL_ENDPOINT 대신 AGENT_OPT_MODEL_BASE_URL 사용.
 make setup                         # Python 환경·소스·데이터·두 이미지 일괄 준비
 make doctor                        # 준비 상태와 실패 조치; 모델 호출 없음
 make doctor ARGS="--model"          # 실제 호스트 API + 컨테이너 OpenCode 도구 호출

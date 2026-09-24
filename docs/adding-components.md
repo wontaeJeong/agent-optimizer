@@ -45,7 +45,7 @@ CLI/doctor/run 경로를 점검할 수 있습니다(실제 팀 ID로 교체하�
 ```bash
 .venv/bin/agent-opt init --name team-wiring \
   --agent examples/minimal/agents/solo \
-  --argv '{python}' '{agent_dir}/src/fixture_agent.py' '{task_dir}' \
+  --command-json '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]' \
   --editable configs/strategy.json --dataset sample_text \
   --harness sample_command --optimizer sample_baseline --yes
 .venv/bin/agent-opt doctor --dataset sample_text --json
