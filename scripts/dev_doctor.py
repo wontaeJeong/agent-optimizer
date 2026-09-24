@@ -12,6 +12,7 @@ from agent_optimizer.contracts import ConfigurationError
 from agent_optimizer.network import CA_VARIABLES, demo_environment, network_environment
 from agent_optimizer.registry import Registry
 from agent_optimizer import readiness
+from agent_optimizer.terminal_style import style
 
 SETUP = "Run sh scripts/bootstrap.sh setup (or python3 scripts/dev.py setup)."
 
@@ -157,13 +158,16 @@ def render_report(report: dict, *, json_output: bool = False) -> None:
         return
     title = ("Core development environment: " if report.get("scope") == "core" else
              "Selected dataset environment: " if report.get("scope") == "dataset" else "Development environment: ")
-    print(title + ("ready" if report["ready"] else "not ready"))
+    print(title + style("ready" if report["ready"] else "not ready",
+                        "success" if report["ready"] else "error"))
     for area, ready in report["areas"].items():
-        print(f"  {area}: {'ready' if ready else 'not ready'}")
+        print(f"  {area}: " + style("ready" if ready else "not ready", "success" if ready else "error"))
     for check in report["checks"]:
-        print(f"[{check['status']}] {check['id']}: {check['message']}")
+        tone = {"ok": "success", "error": "error", "blocked": "warning"}.get(
+            check["status"], "warning")
+        print(f"[{style(check['status'], tone)}] {check['id']}: {check['message']}")
         if check["remedy"]:
-            print(f"  Fix: {check['remedy']}")
+            print(f"  {style('Fix:', 'warning')} {check['remedy']}")
     if report.get("scope") == "core":
         print("ACE evaluation and model readiness not checked; use full setup/doctor (menu option 7 prepares ACE).")
     elif report.get("scope") == "dataset":
