@@ -153,6 +153,48 @@ class ReportModelTests(unittest.TestCase):
         self.assertEqual(group["evaluations"][0]["candidate_ref"], "agent-a/harness/c0002")
         self.assertEqual(group["counts"]["candidates"], 2)
 
+    def test_unrecorded_directories_require_matching_candidate_metadata(self):
+        candidates = self.root / "agent-a" / "harness" / "candidates"
+        (candidates / "empty").mkdir(parents=True)
+        (candidates / "damaged").mkdir()
+        (candidates / "damaged" / "candidate.json").write_text("{broken", encoding="utf-8")
+        (candidates / "wrong-id").mkdir()
+        (candidates / "wrong-id" / "candidate.json").write_text(
+            json.dumps({"id": "someone-else"}), encoding="utf-8")
+        self.candidate("agent-a", "harness", "c0003")
+
+        report = build_report(self.root, {"groups": [
+            {"agent_id": "agent-a", "harness_id": "harness"}]})
+
+        self.assertEqual([item["candidate_id"] for item in report["groups"][0]["candidates"]],
+                         ["c0003"])
+        self.assertEqual(report["groups"][0]["counts"]["candidates"], 1)
+        self.assertEqual(report["counts"]["candidates"], 1)
+
+    def test_recorded_candidates_with_missing_or_null_metadata_id_hide_metadata(self):
+        candidates = self.root / "agent-a" / "harness" / "candidates"
+        for candidate_id, metadata in (
+            ("c0001", {"parents": ["fabricated"], "producer": "unverified"}),
+            ("c0002", {"id": None, "parents": ["fabricated"], "producer": "unverified"}),
+        ):
+            directory = candidates / candidate_id
+            directory.mkdir(parents=True)
+            (directory / "candidate.json").write_text(json.dumps(metadata), encoding="utf-8")
+        event = {"event": "trial_completed", "trial_id": "trial-2", "agent_id": "agent-a",
+                 "harness_id": "harness", "candidate_id": "c0002", "status": "passed"}
+        (self.root / "events.jsonl").write_text(json.dumps(event) + "\n", encoding="utf-8")
+        summary = {"groups": [{"agent_id": "agent-a", "harness_id": "harness",
+                               "selected": [{"candidate_id": "c0001"}]}]}
+
+        report = build_report(self.root, summary)
+
+        group = report["groups"][0]
+        self.assertEqual([item["candidate_id"] for item in group["candidates"]], ["c0001", "c0002"])
+        self.assertEqual([item["metadata"] for item in group["candidates"]], [{}, {}])
+        self.assertEqual([item["parents"] for item in group["candidates"]], [[], []])
+        self.assertEqual([item["producer"] for item in group["candidates"]], [None, None])
+        self.assertEqual(group["evaluations"][0]["candidate_ref"], "agent-a/harness/c0002")
+
     def test_untrusted_candidate_id_cannot_read_outside_group(self):
         (self.root / "secret.json").write_text('{"producer": "secret"}', encoding="utf-8")
         summary = {"groups": [{"agent_id": "agent-a", "harness_id": "harness",

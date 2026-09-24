@@ -58,7 +58,7 @@ def _candidate(root: Path, key: str, candidate_id: str) -> dict | None:
     if metadata_path is None:
         return None
     metadata = _read_json(metadata_path, {})
-    if metadata.get("id") not in (None, candidate_id):
+    if metadata.get("id") != candidate_id:
         metadata = {}
     parents = metadata.get("parents", [])
     if not isinstance(parents, list):
@@ -94,7 +94,12 @@ def _candidate_ids(root: Path, key: str, group: dict, events: list[dict]) -> lis
             ids.add(row["candidate_id"])
     directory = _relative_path(root, f"{key}/candidates")
     if directory is not None and directory.is_dir():
-        ids.update(entry.name for entry in directory.iterdir() if entry.is_dir() and not entry.is_symlink())
+        for entry in directory.iterdir():
+            if not entry.is_dir() or entry.is_symlink():
+                continue
+            metadata_path = _relative_path(root, f"{key}/candidates/{entry.name}/candidate.json")
+            if metadata_path is not None and _read_json(metadata_path, {}).get("id") == entry.name:
+                ids.add(entry.name)
     return sorted(ids)
 
 
