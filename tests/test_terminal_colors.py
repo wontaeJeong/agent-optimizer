@@ -6,10 +6,13 @@ import os
 import pty
 import re
 import select
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -24,6 +27,34 @@ class TTYOutput(io.StringIO):
 
 
 class TerminalColorsTests(unittest.TestCase):
+    def test_failed_trial_and_rejected_optimizer_iteration_are_not_successes(self):
+        with patch.dict(os.environ, {"NO_COLOR": ""}):
+            for event, expected in (({"event": "trial_completed", "status": "passed"}, "\x1b[32m"),
+                                    ({"event": "trial_completed", "status": "failed"}, "\x1b[31m"),
+                                    ({"event": "trial_completed", "status": "error"}, "\x1b[31m"),
+                                    ({"event": "optimizer_iteration_completed", "accepted": False}, "\x1b[33m"),
+                                    ({"event": "optimizer_iteration_completed",
+                                      "status": "invalid_interface"}, "\x1b[31m")):
+                with self.subTest(event=event):
+                    output = TTYOutput()
+                    ProgressDisplay(stream=output)({"timestamp": "2026-09-24T10:00:00Z", **event})
+                    self.assertIn(expected, output.getvalue())
+
+    def test_cli_argument_errors_are_red_on_tty(self):
+        error = TTYOutput()
+        with patch.dict(os.environ, {"NO_COLOR": ""}), contextlib.redirect_stderr(error):
+            with self.assertRaises(SystemExit):
+                main(["run"])
+        self.assertIn("\x1b[31m", error.getvalue())
+
+    def test_developer_argument_errors_are_red_on_tty(self):
+        dev = module("color_dev_args", ROOT / "scripts/dev.py")
+        error = TTYOutput()
+        with patch.dict(os.environ, {"NO_COLOR": ""}), contextlib.redirect_stderr(error):
+            with self.assertRaises(SystemExit):
+                dev.main(["setup", "--not-a-flag"])
+        self.assertIn("\x1b[31m", error.getvalue())
+
     def test_developer_setup_highlights_progress_without_coloring_summary_json(self):
         dev = module("color_dev", ROOT / "scripts/dev.py")
         output = TTYOutput()
@@ -70,14 +101,15 @@ class TerminalColorsTests(unittest.TestCase):
         self.assertIn("\x1b[36m", output.getvalue())
         self.assertIn("\x1b[33m", output.getvalue())
 
-    def run_make_tty(self, *args, no_color="", stderr_tty=True):
+    def run_make_tty(self, *args, no_color="", stderr_tty=True, executable="make",
+                     cwd=ROOT, extra_env=None):
         master, slave = pty.openpty()
         process = None
         try:
-            process = subprocess.Popen(["make", *args], cwd=ROOT, stdin=subprocess.DEVNULL,
+            process = subprocess.Popen([executable, *args], cwd=cwd, stdin=subprocess.DEVNULL,
                                        stdout=slave, stderr=slave if stderr_tty else subprocess.PIPE,
                                        shell=False,
-                                       env={**os.environ, "NO_COLOR": no_color})
+                                       env={**os.environ, "NO_COLOR": no_color, **(extra_env or {})})
             chunks = []
             deadline = time.monotonic() + 40
             while True:
@@ -108,6 +140,29 @@ class TerminalColorsTests(unittest.TestCase):
         code, error = self.run_make_tty("doctor", "ARGS=--core --dataset sample_text")
         self.assertNotEqual(code, 0)
         self.assertIn("\x1b[31m", error)
+
+    def test_shell_setup_highlights_prerequisites_and_install_stages(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "scripts").mkdir()
+            (root / "bin").mkdir()
+            shutil.copyfile(ROOT / "scripts/bootstrap.sh", root / "scripts/bootstrap.sh")
+            fake_uv = root / "bin/uv"
+            fake_uv.write_text("#!/bin/sh\nexit 2\n")
+            fake_uv.chmod(0o755)
+            code, output = self.run_make_tty(
+                "scripts/bootstrap.sh", "setup", "--core", "--offline", executable="sh", cwd=root,
+                extra_env={"PATH": f"{root / 'bin'}:{os.environ['PATH']}", "AGENT_OPT_CA_BUNDLE": ""})
+            plain_code, plain = self.run_make_tty(
+                "scripts/bootstrap.sh", "setup", "--core", "--offline", executable="sh", cwd=root,
+                no_color="1", extra_env={"PATH": f"{root / 'bin'}:{os.environ['PATH']}",
+                                         "AGENT_OPT_CA_BUNDLE": ""})
+        self.assertEqual(code, 2, output)
+        self.assertEqual(plain_code, 2, plain)
+        self.assertIn("\x1b[33m[setup] core prerequisites", output)
+        self.assertIn("\x1b[32m[setup] prerequisites: complete", output)
+        self.assertIn("\x1b[33m[setup] project Python", output)
+        self.assertNotIn("\x1b[", plain)
 
     def test_make_respects_no_color_and_json_output(self):
         code, help_text = self.run_make_tty("help", no_color="1")

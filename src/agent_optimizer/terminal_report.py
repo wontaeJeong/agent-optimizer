@@ -91,10 +91,17 @@ class ProgressDisplay:
                 self.active, self.active_started = label, time.monotonic()
             if self.tty:
                 self.stream.write("\r\x1b[2K")
-            tone = ("error" if name == "error" else "warning" if name in {
-                "interrupted", "stage_budget_exhausted", "budget_exhausted"} else
-                "success" if name in {"trial_completed", "optimizer_iteration_completed",
-                                       "optimizer_merge_completed"} else "warning")
+            if name == "trial_completed":
+                tone = ("success" if event.get("status", "passed") == "passed" else
+                        "warning" if event["status"] == "interrupted" else "error")
+            elif name == "optimizer_iteration_completed":
+                tone = ("error" if event.get("status") == "invalid_interface" else
+                        "warning" if event.get("accepted") is False or
+                        event.get("status") == "no_failures" else "success")
+            elif name == "optimizer_merge_completed":
+                tone = "success" if event.get("accepted", True) else "warning"
+            else:
+                tone = "error" if name == "error" else "warning"
             self.stream.write(f"[{event['timestamp'][11:19]}] "
                               + style(label, tone, stream=self.stream)
                               + (f" elapsed={seconds:.2f}s" if name == "trial_completed"

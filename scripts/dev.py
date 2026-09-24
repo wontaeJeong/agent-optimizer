@@ -1,5 +1,4 @@
 """Development commands: setup -> doctor -> demo; run from any working directory."""
-import argparse
 import importlib.util
 import json
 import os
@@ -18,7 +17,7 @@ from agent_optimizer.results import write_json
 from agent_optimizer.network import network_environment, ca_fingerprint, demo_environment
 from agent_optimizer.registry import Registry
 from agent_optimizer import readiness
-from agent_optimizer.terminal_style import style
+from agent_optimizer.terminal_style import ColorArgumentParser, style
 
 
 def load(name, path):
@@ -57,7 +56,7 @@ def run_core(command):
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    parser = argparse.ArgumentParser(description=__doc__, epilog=(
+    parser = ColorArgumentParser(description=__doc__, epilog=(
         "Core prerequisites: Git; full ACE setup also needs Docker Engine/Compose. No Python/make? "
         "Use sh scripts/bootstrap.sh setup --core. make <command> ARGS='...' uses normal shell arguments."
     ))

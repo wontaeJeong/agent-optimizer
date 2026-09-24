@@ -1,5 +1,4 @@
 """Numbered interactive frontend; explicit commands remain available for automation."""
-import argparse
 import getpass
 import os
 import stat
@@ -14,7 +13,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.models import ModelSettings
-from agent_optimizer.terminal_style import style
+from agent_optimizer.terminal_style import ColorArgumentParser, style
 
 MENU = """
 1. 코어 개발 환경 설치
@@ -148,7 +147,7 @@ def reports():
 
 
 def main(argv=None, *, env=None):
-    parser = argparse.ArgumentParser(description=__doc__, epilog="TTY required. Use explicit setup/doctor/demo/live commands for automation.")
+    parser = ColorArgumentParser(description=__doc__, epilog="TTY required. Use explicit setup/doctor/demo/live commands for automation.")
     parser.parse_args(argv)
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         print(style("menu requires a TTY;", "error")

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import argparse
 import contextlib
 import csv
 import io
@@ -21,7 +20,7 @@ from agent_optimizer.setup_wizard import (component_inventory, prepare_selection
                                           _bounded_tasks, choose_editable_file, wizard_arguments,
                                           write_experiment)
 from agent_optimizer.terminal_report import ProgressDisplay
-from agent_optimizer.terminal_style import style
+from agent_optimizer.terminal_style import ColorArgumentParser, style
 from agent_optimizer.results import write_json
 from agent_optimizer.readiness import collect_dataset, collect_plan
 
@@ -63,7 +62,7 @@ def _main(argv):
         print(style("error:", "error", stream=sys.stderr) + " rerank is deferred; configure the objective for a new run. "
               "Stored reports and frozen selections remain available; see deferred/README.md", file=sys.stderr)
         return 2
-    parser = argparse.ArgumentParser(description="Multi-agent optimization experiment workbench")
+    parser = ColorArgumentParser(description="Multi-agent optimization experiment workbench")
     sub = parser.add_subparsers(dest="command", required=True)
     plugins = sub.add_parser("plugins", help="List implemented integrations")
     plugins.add_argument("--project-root", type=Path, default=Path.cwd())
