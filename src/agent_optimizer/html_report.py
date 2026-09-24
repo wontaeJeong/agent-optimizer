@@ -72,21 +72,6 @@ def table(header, body):
         body or f'<tr><td colspan="{len(header)}" class="subtle">Not evaluated</td></tr>') + "</tbody></table></div>"
 
 
-def _records(root: Path):
-    path = root / "events.jsonl"
-    if not path.is_file():
-        return []
-    records = []
-    for line in path.read_text(encoding="utf-8").splitlines():
-        try:
-            entry = json.loads(line)
-            if isinstance(entry, dict):
-                records.append(entry)
-        except ValueError:
-            continue  # An interrupted trailing event cannot hide earlier evidence.
-    return records
-
-
 def _candidate_link(root: Path, group: dict, candidate_id: str) -> str:
     relative = "/".join([group["agent_id"], group["harness_id"], "candidates", candidate_id,
                          "changes.diff"])
@@ -99,24 +84,26 @@ def _candidate_link(root: Path, group: dict, candidate_id: str) -> str:
     return f'<a href="{text(quote(relative, safe="/"))}">View changes.diff ↗</a>'
 
 
-def write_html_report(root: Path, summary: dict) -> Path:
-    manifest_path = root / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
-    events = _records(root)
-    trials = [event for event in events if event.get("event") == "trial_completed"]
-    groups = summary.get("groups", [])
+def write_html_report(root: Path, summary: dict, report: dict | None = None) -> Path:
+    if report is None:
+        from agent_optimizer.report_model import build_report
+        report = build_report(root, summary)
+    manifest = report["provenance"]
+    groups = report["groups"]
+    trials = [trial for group in groups for trial in group["evaluations"]]
     stages = [stage for group in groups for stage in group.get("stages", [])]
-    spent = sum(t.get("metrics", {}).get("task_wall_time_seconds") or 0 for t in trials)
-    status = str(summary.get("status", "unknown"))
-    synthetic = bool(summary.get("synthetic", False))
+    spent = sum((t.get("metrics") or {}).get("task_wall_time_seconds") or 0 for t in trials)
+    identity = report["identity"]
+    status = str(identity.get("status", "unknown"))
+    synthetic = bool(identity.get("synthetic", False))
     parts = ['<!doctype html><html lang="en"><head><meta charset="utf-8">',
              '<meta name="viewport" content="width=device-width,initial-scale=1">',
              '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; '
              'style-src \'unsafe-inline\'; img-src data:">',
-             f'<title>Agent Optimizer · {text(summary.get("run_id", "Run"))}</title>',
+             f'<title>Agent Optimizer · {text(identity.get("run_id", "Run"))}</title>',
              f'<style>{STYLE}</style></head><body><header>',
              '<div class="eyebrow">Agent Optimizer / Run intelligence</div>',
-             f'<h1>Experiment {text(summary.get("run_id", ""))}</h1>',
+             f'<h1>Experiment {text(identity.get("run_id", ""))}</h1>',
              '<p class="lede">Compare independent optimization stages, investigate slow evaluations, '
              'and trace how the final Agent was selected.</p>',
              f'<span class="pill">{text(status)}</span> ',
@@ -126,15 +113,15 @@ def write_html_report(root: Path, summary: dict) -> Path:
              '<a href="#slow">Timing</a><a href="#trials">Trials</a>'
              '<a href="#provenance">Provenance</a></nav></header><main>',
              '<div class="cards">',
-             f'<div class="card"><strong>{text(len(groups))}</strong><span>Agent × Harness groups</span></div>',
+             f'<div class="card"><strong>{text(report["counts"]["groups"])}</strong><span>Agent × Harness groups</span></div>',
              f'<div class="card"><strong>{text(len(stages))}</strong><span>Optimizer stages</span></div>',
-             f'<div class="card"><strong>{text(summary.get("trials_used", 0))}</strong><span>Trials used</span></div>',
+             f'<div class="card"><strong>{text(report["counts"]["trials_used"])}</strong><span>Trials used</span></div>',
              f'<div class="card"><strong>{spent:.1f}s</strong><span>Summed task wall time</span></div>',
              '</div>']
-    if summary.get("error"):
+    if identity.get("error"):
         parts.append('<div class="panel bad"><strong>Run stopped: '
-                     + text(summary.get("error_type", "error")) + '</strong><p>'
-                     + text(summary["error"], 1000) + '</p></div>')
+                     + text(identity.get("error_type", "error")) + '</strong><p>'
+                     + text(identity["error"], 1000) + '</p></div>')
 
     baseline = [group.get("baseline") for group in groups]
     selected = [row for group in groups for row in group.get("selected", [])]
@@ -145,8 +132,24 @@ def write_html_report(root: Path, summary: dict) -> Path:
               'A missing test is not a zero score.</p>',
               '<div class="eyebrow">Baseline</div>', table(header, rows(baseline)),
               '<div class="eyebrow">Validation winner</div>', table(header, rows(selected)),
-              '<div class="eyebrow">Held-out test</div>', table(header, rows(tested)), '</section>',
-              '<section id="stages"><h2>Optimizer decisions</h2>']
+              '<div class="eyebrow">Held-out test</div>', table(header, rows(tested)),
+              '<div class="eyebrow">Group comparison · completed evaluations</div>']
+    comparison_rows = []
+    for group in groups:
+        for item in group["comparison"] or [None]:
+            comparison_rows.append('<tr>' + ''.join(f'<td>{cell}</td>' for cell in (
+                text(group["agent_id"]), text(group["harness_id"]), text(group["comparison_trend"]),
+                text(f'{group["counts"]["completed_evaluations"]} completed'),
+                text(group["counts"]["passed_evaluations"]),
+                text(group["counts"]["failed_evaluations"]),
+                text(item["name"]) if item else value(None),
+                value(item["baseline"]) if item else value(None),
+                value(item["selected"]) if item else value(None),
+                value(item["delta"]) if item else value(None),
+            )) + '</tr>')
+    parts += [table(("Agent", "Harness", "Trend", "Completed", "Passed", "Failed",
+                    "Metric", "Baseline", "Selected", "Delta"), ''.join(comparison_rows)), '</section>',
+               '<section id="stages"><h2>Optimizer decisions</h2>']
     for group in groups:
         parts += [f'<div class="panel"><span class="eyebrow">{text(group.get("agent_id", ""))} '
                   f'/ {text(group.get("harness_id", ""))}</span>']
@@ -169,7 +172,7 @@ def write_html_report(root: Path, summary: dict) -> Path:
                                            ensure_ascii=False), 8000) + '</pre></div>']
     parts.append('</section><section id="slow"><h2>Slowest tasks &amp; datasets</h2>')
     timed = sorted((event for event in trials
-                    if type(event.get("metrics", {}).get("task_wall_time_seconds")) in (int, float)),
+                    if type((event.get("metrics") or {}).get("task_wall_time_seconds")) in (int, float)),
                    key=lambda row: -row["metrics"]["task_wall_time_seconds"])
     maximum = max((row["metrics"]["task_wall_time_seconds"] for row in timed), default=1) or 1
     timing_rows = []

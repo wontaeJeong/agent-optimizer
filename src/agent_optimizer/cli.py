@@ -361,8 +361,8 @@ def _main(argv):
         elif args.command == "report":
             data = json.loads((args.run_dir / "summary.json").read_text())
             if args.html:
-                from agent_optimizer.html_report import write_html_report
-                target = write_html_report(args.run_dir, data)
+                from agent_optimizer.results import write_report_artifacts
+                target = write_report_artifacts(args.run_dir, data)
                 show({"html": target, "status": data["status"]})
                 return 0
             if args.csv:

@@ -452,8 +452,6 @@ def run_experiment(spec, registry, output: Path | None = None, on_event=None):
             summary["run_wall_time_seconds"] = elapsed
         write_json(root / "manifest.json", manifest)
         write_json(root / "summary.json", summary)
-        from agent_optimizer.results import write_report
-        write_report(root, summary)
-        from agent_optimizer.html_report import write_html_report
-        write_html_report(root, summary)
+        from agent_optimizer.results import write_report_artifacts
+        write_report_artifacts(root, summary)
     return root, summary

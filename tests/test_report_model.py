@@ -286,6 +286,41 @@ class ReportModelTests(unittest.TestCase):
         self.assertEqual(report["groups"][1]["failures"][0]["message"],
                          "timeout mentioned in feedback")
 
+    def test_agent_usage_requires_every_expected_valid_trial_for_each_metric(self):
+        group = self.group(
+            {"candidate_id": "base", "split": "validation", "trial_count": 2},
+            [{"candidate_id": "chosen", "split": "validation", "trial_count": 2}])
+        self.events([{"event": "trial_completed", "agent_id": "agent-a", "harness_id": "harness",
+                      "candidate_id": candidate, "split": "validation", "valid": valid,
+                      "metrics": {"harness_reported_io_tokens": tokens,
+                                  "harness_reported_cost_usd": cost}}
+                     for candidate, valid, tokens, cost in (
+                         ("base", True, 3, 0.2), ("base", True, 4, None),
+                         ("chosen", True, 5, 0.1), ("chosen", False, 6, 0.2))])
+
+        usage = build_report(self.root, {"groups": [group]})["groups"][0]["agent_usage"]
+
+        self.assertEqual(usage, [
+            {"candidate_id": "base", "split": "validation",
+             "harness_reported_io_tokens": 7, "harness_reported_cost_usd": None},
+            {"candidate_id": "chosen", "split": "validation",
+             "harness_reported_io_tokens": None, "harness_reported_cost_usd": None},
+        ])
+
+    def test_agent_usage_distinguishes_missing_valid_from_explicit_null(self):
+        self.events([{"event": "trial_completed", "agent_id": "agent-a", "harness_id": "harness",
+                      "candidate_id": "missing-valid", "split": "validation",
+                      "metrics": {"harness_reported_io_tokens": 3}},
+                     {"event": "trial_completed", "agent_id": "agent-a", "harness_id": "harness",
+                      "candidate_id": "invalid", "split": "validation", "valid": None,
+                      "metrics": {"harness_reported_io_tokens": 4}}])
+        rows = [{"candidate_id": name, "split": "validation", "trial_count": 1}
+                for name in ("missing-valid", "invalid")]
+
+        usage = build_report(self.root, {"groups": [self.group(selected=rows)]})["groups"][0]["agent_usage"]
+
+        self.assertEqual([item["harness_reported_io_tokens"] for item in usage], [3, None])
+
     def test_explicit_execution_and_error_type_classification_never_uses_feedback(self):
         events = [
             {"event": "trial_completed", "trial_id": "execution", "agent_id": "agent-a",

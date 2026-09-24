@@ -200,6 +200,26 @@ def _evaluation_counts(evaluations: list[dict]) -> dict:
             "failed_evaluations": sum(row["failure"] is not None for row in evaluations)}
 
 
+def _agent_usage(group: dict, events: list[dict]) -> list[dict]:
+    rows = [group.get("baseline"), *group.get("selected", []), *group.get("final_test", [])]
+    distinct = {(row["candidate_id"], row["split"]): row for row in rows
+                if isinstance(row, dict) and "candidate_id" in row and "split" in row}
+    usage = []
+    for (candidate_id, split), row in distinct.items():
+        matching = [item for item in events if item.get("event") == "trial_completed"
+                    and item.get("candidate_id") == candidate_id and item.get("split") == split]
+        entry = {"candidate_id": candidate_id, "split": split}
+        for name in ("harness_reported_io_tokens", "harness_reported_cost_usd"):
+            values = [(item.get("metrics") or {}).get(name) for item in matching]
+            complete = (bool(values) and len(values) == row.get("trial_count")
+                        and all(item.get("valid", True) for item in matching)
+                        and all(type(value) in (int, float) and math.isfinite(value)
+                                for value in values))
+            entry[name] = sum(values) if complete else None
+        usage.append(entry)
+    return usage
+
+
 def _structure(key: str, candidates: list[dict], evaluations: list[dict], events: list[dict]) -> dict:
     by_id = {candidate["candidate_id"]: candidate for candidate in candidates}
     units = []
@@ -300,6 +320,7 @@ def _group(root: Path, group: dict, events: list[dict], objective: dict) -> dict
             "baseline": group.get("baseline"), "selected": group.get("selected", []),
             "final_test": group.get("final_test", []), "stages": group.get("stages", []),
             "optimizer_usage": group.get("optimizer_usage", []), "status": group.get("status"),
+            "agent_usage": _agent_usage(group, group_events),
             "candidates": candidates, "evaluations": evaluations, "failures": failures,
             "structure": structure,
             "comparison": comparison, "comparison_trend": overall,
