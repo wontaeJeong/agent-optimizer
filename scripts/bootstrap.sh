@@ -3,8 +3,12 @@
 set -eu
 
 help() {
+    if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+        printf '\033[36m%s\033[0m\n' '개발 명령: setup doctor test lint demo smoke live menu help'
+    else
+        printf '%s\n' '개발 명령: setup doctor test lint demo smoke live menu help'
+    fi
     printf '%s\n' \
-        '개발 명령: setup doctor test lint demo smoke live menu help' \
         '사전 준비: Mac/Ubuntu, Git. ACE 전체 준비에는 Docker Engine과 Compose도 필요합니다.' \
         '시작: make setup ARGS="--core" → make doctor ARGS="--core" → make demo.' \
         'make가 없다면 sh scripts/bootstrap.sh <명령> [옵션]을 사용하세요.' \
@@ -18,10 +22,29 @@ help() {
         '상세 옵션: python3 scripts/dev.py --help 또는 python3 scripts/dev.py <명령> --help.'
 }
 
-fail() { printf '%s\n' "$*" >&2; exit 2; }
+fail() {
+    if [ -t 2 ] && [ -z "${NO_COLOR:-}" ] && [ "$json_output" = false ]; then
+        printf '\033[31m%s\033[0m\n' "$*" >&2
+    else
+        printf '%s\n' "$*" >&2
+    fi
+    exit 2
+}
+
+setup_status() {
+    if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+        printf '\033[%sm%s\033[0m\n' "$1" "$2"
+    else
+        printf '%s\n' "$2"
+    fi
+}
 
 command=${1:-help}
 [ "$#" -eq 0 ] || shift
+json_output=false
+for option do
+    if [ "$option" = --json ]; then json_output=true; fi
+done
 case "$command" in
     help|-h|--help) [ "$#" -eq 0 ] || fail 'help takes no options'; help; exit 0 ;;
     setup|doctor|test|lint|demo|smoke|live|menu) ;;
@@ -213,9 +236,9 @@ if [ -n "${AGENT_OPT_CA_BUNDLE:-}" ]; then
 fi
 
 if [ "$core" = true ] || [ -n "$dataset" ]; then
-    printf '%s\n' '[setup] core prerequisites: checking host OS and Git'
+    setup_status 33 '[setup] core prerequisites: checking host OS and Git'
 else
-    printf '%s\n' '[setup] prerequisites: checking Git, Docker daemon and Compose'
+    setup_status 33 '[setup] prerequisites: checking Git, Docker daemon and Compose'
 fi
 missing=false
 # Expand uname inside the bounded child, not in this parent shell.
@@ -249,7 +272,7 @@ if [ "$core" = false ] && [ -z "$dataset" ]; then
     fi
 fi
 [ "$missing" = false ] || fail "setup prerequisites failed; repair the items above and rerun $setup_command."
-printf '%s\n' '[setup] prerequisites: complete'
+setup_status 32 '[setup] prerequisites: complete'
 
 stage='uv preparation'
 logs="$ROOT/external/setup-logs"
@@ -262,7 +285,7 @@ if ! command -v uv >/dev/null 2>&1; then
     else fail "setup uv download: install curl/wget (Mac: brew install curl; Ubuntu: sudo apt install curl), then rerun $setup_command."
     fi
     mkdir -p "$logs" || fail "setup $stage: cannot create $logs; repair the path/permissions and rerun $setup_command."
-    printf '[setup] uv preparation: installing 0.10.7; log: %s/bootstrap-uv.log\n' "$logs"
+    setup_status 33 "[setup] uv preparation: installing 0.10.7; log: $logs/bootstrap-uv.log"
     installer=$(mktemp "${TMPDIR:-/tmp}/agent-opt-uv.XXXXXXXX") ||
         fail "setup $stage: cannot allocate installer in ${TMPDIR:-/tmp}; set TMPDIR to a writable directory and rerun $setup_command."
     wget_config=
@@ -308,7 +331,7 @@ if [ -e "$ROOT/.venv" ] || [ -L "$ROOT/.venv" ]; then
     python_request="$ROOT/.venv/bin/python"
 fi
 mkdir -p "$logs" || fail "setup $stage: cannot create $logs; repair the path/permissions and rerun $setup_command."
-printf '[setup] %s; log: %s/project-uv.log\n' "$stage" "$logs"
+setup_status 33 "[setup] $stage; log: $logs/project-uv.log"
 export UV_PROJECT_ENVIRONMENT="$ROOT/.venv"
 if [ "$offline" = true ]; then export UV_PYTHON_DOWNLOADS=never; fi
 cd "$ROOT"
@@ -319,7 +342,7 @@ else
     uv sync --frozen --python "$python_request" --extra dev >"$logs/project-uv.log" 2>&1 ||
         fail "setup project sync failed; see $logs/project-uv.log; repair and rerun $setup_command."
 fi
-printf '[setup] %s: complete\n' "$stage"
+setup_status 32 "[setup] $stage: complete"
 stage='Python dispatch'
 compatible_python "$ROOT/.venv/bin/python" ||
     fail "setup $stage: $ROOT/.venv/bin/python unavailable after sync; inspect $logs/project-uv.log, repair the interpreter/permissions and rerun $setup_command."
