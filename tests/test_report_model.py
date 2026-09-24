@@ -37,6 +37,73 @@ class ReportModelTests(unittest.TestCase):
         return {"candidate_id": "c0001", "agent_id": "agent-a", "harness_id": "harness",
                 "split": "validation", "valid": True, "metrics": metrics} | fields
 
+    def events(self, rows):
+        (self.root / "events.jsonl").write_text(
+            "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
+
+    def test_common_iteration_events_keep_recorded_order_without_checkpoint_inference(self):
+        self.events([{"event": "optimizer_iteration_started", "agent_id": "agent-a",
+                      "harness_id": "harness", "stage_id": "search", "optimizer": "unknown",
+                      "iteration": number, "candidate_id": "A"}
+                     for number in (2, 1)])
+        group = build_report(self.root, {"groups": [self.group(
+            stages=[{"id": "search", "checkpoint": {"generations": [0, 1]}}])]})["groups"][0]
+
+        self.assertEqual(group["structure"]["kind"], "iteration")
+        self.assertEqual([u["unit_id"] for u in group["structure"]["units"]],
+                         ["search/iteration-2", "search/iteration-1"])
+        self.assertEqual(group["structure"]["units"][0]["candidate_ids"], ["A"])
+
+    def test_explicit_generations_allow_multiple_candidates_and_unassessed_members(self):
+        for name in ("A", "B", "C"):
+            self.candidate("agent-a", "harness", name)
+        self.events([{"event": "report_unit", "agent_id": "agent-a", "harness_id": "harness",
+                      "stage_id": "search", "unit_id": "g0", "unit_type": "generation",
+                      "label": "Generation 0", "candidate_ids": ["A", "B"]},
+                     {"event": "report_unit", "agent_id": "agent-a", "harness_id": "harness",
+                      "stage_id": "search", "unit_id": "g1", "parent_unit_id": "g0",
+                      "unit_type": "generation", "label": "Generation 1",
+                      "candidate_ids": ["B", "C"]},
+                     {"event": "trial_completed", "agent_id": "agent-a", "harness_id": "harness",
+                      "trial_id": "one", "candidate_id": "A", "status": "passed"}])
+        group = build_report(self.root, {"groups": [self.group()]})["groups"][0]
+
+        self.assertEqual(group["structure"]["kind"], "generation")
+        self.assertEqual([u["unit_id"] for u in group["structure"]["units"]], ["g0", "g1"])
+        self.assertEqual(group["structure"]["units"][1]["parent_unit_id"], "g0")
+        self.assertEqual(group["structure"]["units"][1]["candidate_ids"], ["B", "C"])
+        self.assertEqual(group["structure"]["units"][0]["evaluation_refs"],
+                         ["agent-a/harness/one"])
+        self.assertEqual(len(group["evaluations"]), 1)
+        self.assertEqual(len(group["candidates"]), 3)
+
+    def test_merge_event_preserves_multiple_parents_independent_of_candidate_metadata(self):
+        for name, parents in (("A", ()), ("B", ("A",)), ("C", ("A",)), ("D", ("B",))):
+            self.candidate("agent-a", "harness", name, parents)
+        self.events([{"event": "optimizer_merge_completed", "agent_id": "agent-a",
+                      "harness_id": "harness", "stage_id": "search", "candidate_id": "D",
+                      "parents": ["B", "C"]}])
+        group = build_report(self.root, {"groups": [self.group()]})["groups"][0]
+
+        self.assertTrue(group["structure"].get("edges"), "merge lineage must be present")
+        self.assertEqual(group["structure"]["edges"][-1]["parents"], ["B", "C"])
+        self.assertEqual(group["structure"]["edges"][-1]["candidate_id"], "D")
+        self.assertEqual(next(c for c in group["candidates"] if c["candidate_id"] == "D")["parents"],
+                         ["B", "C"])
+
+    def test_unknown_optimizer_with_no_units_falls_back_to_recorded_lineage_and_evaluations(self):
+        self.candidate("agent-a", "harness", "A")
+        self.candidate("agent-a", "harness", "B", ("A",))
+        self.events([{"event": "trial_completed", "agent_id": "agent-a", "harness_id": "harness",
+                      "trial_id": "only", "candidate_id": "A", "status": "passed"}])
+        group = build_report(self.root, {"groups": [self.group(stages=[
+            {"id": "search", "optimizer": "unknown", "checkpoint": {"iterations": [1, 2]}}])]})["groups"][0]
+
+        self.assertEqual(group["structure"]["units"], [])
+        self.assertTrue(group["structure"].get("edges"), "recorded lineage must be present")
+        self.assertEqual(group["structure"]["edges"][0]["parents"], ["A"])
+        self.assertEqual([r["trial_id"] for r in group["evaluations"]], ["only"])
+
     def test_minimize_comparison_uses_validation_aggregates_not_test(self):
         self.manifest_objective([{"name": "latency", "direction": "minimize", "aggregate": "mean"}])
         baseline = self.row({"latency": 12})

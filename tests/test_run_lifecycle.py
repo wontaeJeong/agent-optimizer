@@ -68,6 +68,60 @@ class LifecycleTests(unittest.TestCase):
         self.spec["stages"] = [{"id": "search", "optimizer": "controlled"}]
         self.spec["final_stages"] = ["search"]
 
+    def test_created_candidates_and_stage_boundaries_precede_evaluation(self):
+        def optimize(context, seeds, config):
+            unevaluated = context.propose(seeds[0], {"prompts/system.md": "unused"}, "search")
+            candidate = context.propose(seeds[0], {"prompts/system.md": "chosen"}, "search")
+            context.emit("report_unit", unit_id="generation-1", parent_unit_id=None,
+                         unit_type="generation", label="Generation 1",
+                         candidate_ids=[unevaluated.id, candidate.id])
+            return OptimizationResult([candidate])
+
+        self.optimizer(optimize)
+        run, summary = self.run_experiment()
+        events = self.persisted()[2]
+        group = summary["groups"][0]
+        created = [event for event in events if event["event"] == "candidate_created"]
+        self.assertEqual([event["candidate_id"] for event in created], ["c0001", "c0002", "c0003"])
+        self.assertEqual([event["parent_id"] for event in created], [None, "c0001", "c0001"])
+        self.assertEqual([event["producer"] for event in created], ["baseline", "search", "search"])
+        self.assertEqual([(e["agent_id"], e["harness_id"]) for e in created],
+                         [("rtl-solo", "fixture")] * 3)
+        self.assertEqual([e["stage_id"] for e in created], ["baseline", "search", "search"])
+        self.assertLess(events.index(created[0]), next(i for i, e in enumerate(events)
+                                                     if e["event"] == "trial_completed"))
+        self.assertLess(events.index(created[2]), next(i for i, e in enumerate(events)
+                                                     if e["event"] == "trial_completed"
+                                                     and e["candidate_id"] == "c0003"))
+        self.assertEqual([e["event"] for e in events if e["event"] in
+                          {"stage_started", "stage_completed"}], ["stage_started", "stage_completed"])
+        self.assertEqual([e["status"] for e in events if e["event"] == "stage_completed"],
+                         ["completed"])
+        self.assertEqual(group["selected"][0]["candidate_id"], "c0003")
+        from agent_optimizer.report_model import build_report
+        report_group = build_report(run, summary)["groups"][0]
+        self.assertEqual([u["unit_id"] for u in report_group["structure"]["units"]],
+                         ["generation-1"])
+        self.assertEqual(len(report_group["candidates"]), 3)
+
+    def test_stage_failure_has_actual_completed_boundary_and_run_wall_time(self):
+        def optimize(context, seeds, config):
+            context.propose(seeds[0], {"prompts/system.md": "unused"}, "search")
+            self.now = 11
+            raise BudgetExceeded("search timed out")
+
+        self.optimizer(optimize)
+        with patch("agent_optimizer.runner.time.monotonic", side_effect=lambda: self.now):
+            _, summary = self.run_experiment()
+        events = self.persisted()[2]
+        self.assertEqual(summary["status"], "budget_exhausted")
+        self.assertEqual(summary.get("run_wall_time_seconds"), 11)
+        completed = [e for e in events if e["event"] == "stage_completed"]
+        self.assertEqual(len(completed), 1)
+        self.assertEqual(completed[0]["status"], "budget_exhausted")
+        self.assertLess(next(i for i, e in enumerate(events) if e["event"] == "stage_started"),
+                        events.index(completed[0]))
+
     def test_failed_reservation_does_not_count_a_trial(self):
         with patch("agent_optimizer.runner.time.monotonic", side_effect=lambda: self.now):
             budget = Budget({"max_wall_time_seconds": 1})

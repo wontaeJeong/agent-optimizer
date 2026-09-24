@@ -70,6 +70,10 @@ class Context:
         self._group.verify_candidate(parent)
         candidate = self._group.candidates.create(parent, files, producer)
         self._candidate_ids.add(candidate.id)
+        self._group.events.append({"event": "candidate_created", "agent_id": self._group.agent.id,
+                                   "harness_id": self._group.profile["id"], "stage_id": self._stage_id,
+                                   "candidate_id": candidate.id, "parent_id": parent.id,
+                                   "producer": producer})
         return candidate
 
     def evaluate(self, candidate: Candidate):
@@ -264,6 +268,10 @@ class GroupRunner:
 
     def run(self):
         baseline = self.candidates.create()
+        self.events.append({"event": "candidate_created", "agent_id": self.agent.id,
+                            "harness_id": self.profile["id"], "stage_id": "baseline",
+                            "candidate_id": baseline.id, "parent_id": None,
+                            "producer": baseline.producer})
         self.summary["baseline"] = self.evaluate(baseline, "validation")
         outputs, by_id, stages = {"baseline": [baseline]}, {baseline.id: baseline}, self.summary["stages"]
         for stage in self.spec.get("stages", []):
@@ -271,12 +279,15 @@ class GroupRunner:
             stage_result = {"id": stage["id"], "optimizer": stage["optimizer"], "status": "running",
                             "selected": [], "evaluated": [], "checkpoint": {}}
             stages.append(stage_result)
-            self.budget.remaining()
-            self.verify_candidate(baseline)
-            context = Context(self, baseline, stage)
-            optimizer = self.registry.resolve("optimizers", stage["optimizer"])()
             self.current_stage = stage
+            boundary = {"stage_id": stage["id"], "agent_id": self.agent.id,
+                        "harness_id": self.profile["id"], "optimizer": stage["optimizer"]}
+            self.events.append({"event": "stage_started", **boundary})
             try:
+                self.budget.remaining()
+                self.verify_candidate(baseline)
+                context = Context(self, baseline, stage)
+                optimizer = self.registry.resolve("optimizers", stage["optimizer"])()
                 result = optimizer.optimize(context, [baseline], stage.get("config", {}))
                 stage_result["checkpoint"] = result.checkpoint
                 self.budget.remaining()
@@ -292,9 +303,15 @@ class GroupRunner:
                 stage_result.update(status="budget_exhausted", detail=str(exc))
                 self.events.append({"event": "stage_budget_exhausted", "stage_id": stage["id"],
                                     "agent_id": self.agent.id, "harness_id": self.profile["id"]})
+            except (Exception, KeyboardInterrupt) as exc:
+                stage_result["status"] = ("interrupted" if isinstance(exc, KeyboardInterrupt) else
+                                          "budget_exhausted" if isinstance(exc, BudgetExceeded) else "error")
+                raise
             finally:
                 self.current_stage = None
                 stage_result["stage_wall_time_seconds"] = time.monotonic()-t0
+                self.events.append({"event": "stage_completed", **boundary,
+                                    "status": stage_result["status"]})
                 write_json(self.root / "stages" / (stage["id"] + ".json"), stage_result)
         final_names = self.spec.get("final_stages", [stage["id"] for stage in stages
                                                        if stage["id"] in outputs] or ["baseline"])
@@ -352,6 +369,7 @@ def run_experiment(spec, registry, output: Path | None = None, on_event=None):
     run_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + uuid.uuid4().hex[:8]
     root = base.resolve() / run_id
     root.mkdir(parents=True, exist_ok=False)
+    run_started = time.monotonic()
     budget = Budget(spec.get("budget", {}))
     events = EventStore(root / "events.jsonl", on_event=on_event)
     summary = {"schema_version": 1, "run_id": run_id, "status": "running",
@@ -427,6 +445,9 @@ def run_experiment(spec, registry, output: Path | None = None, on_event=None):
             if current["status"] == "running":
                 current["status"] = summary["status"]
         summary["trials_used"] = budget.used
+        elapsed = time.monotonic() - run_started
+        if math.isfinite(elapsed) and elapsed >= 0:
+            summary["run_wall_time_seconds"] = elapsed
         write_json(root / "manifest.json", manifest)
         write_json(root / "summary.json", summary)
         from agent_optimizer.results import write_report

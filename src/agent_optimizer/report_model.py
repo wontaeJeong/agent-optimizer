@@ -89,10 +89,14 @@ def _candidate_ids(root: Path, key: str, group: dict, events: list[dict]) -> lis
     for stage in group.get("stages", []):
         rows.extend(stage.get("selected", []))
         rows.extend(stage.get("evaluated", []))
-    rows.extend(event for event in events if event.get("event") == "trial_completed")
+    rows.extend(event for event in events if event.get("event") in (
+        "trial_completed", "candidate_created", "optimizer_merge_completed"))
     for row in rows:
         if isinstance(row, dict) and isinstance(row.get("candidate_id"), str):
             ids.add(row["candidate_id"])
+    for event in events:
+        if event.get("event") == "report_unit" and isinstance(event.get("candidate_ids"), list):
+            ids.update(value for value in event["candidate_ids"] if isinstance(value, str))
     directory = _relative_path(root, f"{key}/candidates")
     if directory is not None and directory.is_dir():
         for entry in directory.iterdir():
@@ -196,6 +200,65 @@ def _evaluation_counts(evaluations: list[dict]) -> dict:
             "failed_evaluations": sum(row["failure"] is not None for row in evaluations)}
 
 
+def _structure(key: str, candidates: list[dict], evaluations: list[dict], events: list[dict]) -> dict:
+    by_id = {candidate["candidate_id"]: candidate for candidate in candidates}
+    units = []
+    seen = {}
+    for event in events:
+        name = event.get("event")
+        candidate_id = event.get("candidate_id")
+        candidate = by_id.get(candidate_id) if isinstance(candidate_id, str) else None
+        if candidate is not None and name == "candidate_created":
+            parent = event.get("parent_id")
+            if not candidate["metadata"]:
+                candidate["parents"] = [parent] if isinstance(parent, str) else []
+                candidate["parent_refs"] = [_qualified(key, value) for value in candidate["parents"]]
+                candidate["producer"] = event.get("producer")
+        elif candidate is not None and name == "optimizer_merge_completed":
+            parents = event.get("parents")
+            if isinstance(parents, list) and all(isinstance(p, str) for p in parents):
+                candidate["parents"] = parents
+                candidate["parent_refs"] = [_qualified(key, value) for value in parents]
+
+        if name == "report_unit":
+            unit_id = event.get("unit_id")
+            unit_type = event.get("unit_type")
+            if not isinstance(unit_id, str) or not isinstance(unit_type, str):
+                continue
+            ids = event.get("candidate_ids", [])
+            if not isinstance(ids, list):
+                ids = []
+            ids = list(dict.fromkeys(value for value in ids if isinstance(value, str)))
+            unit = {"unit_id": unit_id, "stage_id": event.get("stage_id"),
+                    "parent_unit_id": event.get("parent_unit_id"), "unit_type": unit_type,
+                    "label": event.get("label"), "candidate_ids": ids}
+            units.append(unit)
+        elif name in ("optimizer_iteration_started", "optimizer_iteration_completed"):
+            iteration = event.get("iteration")
+            stage_id = event.get("stage_id")
+            if type(iteration) is not int or not isinstance(stage_id, str):
+                continue
+            identifier = f"{stage_id}/iteration-{iteration}"
+            if identifier not in seen:
+                seen[identifier] = {"unit_id": identifier, "stage_id": stage_id,
+                                    "parent_unit_id": None, "unit_type": "iteration",
+                                    "label": f"Iteration {iteration}", "candidate_ids": []}
+                units.append(seen[identifier])
+            if isinstance(candidate_id, str) and candidate_id not in seen[identifier]["candidate_ids"]:
+                seen[identifier]["candidate_ids"].append(candidate_id)
+
+    for unit in units:
+        unit["candidate_refs"] = [_qualified(key, value) for value in unit["candidate_ids"]]
+        unit["evaluation_refs"] = [evaluation["id"] for evaluation in evaluations
+                                   if evaluation["candidate_id"] in unit["candidate_ids"]]
+    edges = [{"candidate_id": candidate["candidate_id"], "candidate_ref": candidate["id"],
+              "parents": candidate["parents"], "parent_refs": candidate["parent_refs"]}
+             for candidate in candidates if candidate["parents"]]
+    kinds = {unit["unit_type"] for unit in units}
+    kind = next(iter(kinds)) if len(kinds) == 1 else "mixed" if kinds else "lineage" if edges else None
+    return {"kind": kind, "label": None, "units": units, "edges": edges}
+
+
 def _group(root: Path, group: dict, events: list[dict], objective: dict) -> dict:
     agent_id, harness_id = group["agent_id"], group["harness_id"]
     key = f"{agent_id}/{harness_id}"
@@ -209,12 +272,13 @@ def _group(root: Path, group: dict, events: list[dict], objective: dict) -> dict
     comparison, overall = _comparison(group, objective)
     failures = [{"evaluation_ref": row["id"], **row["failure"]}
                 for row in evaluations if row["failure"] is not None]
+    structure = _structure(key, candidates, evaluations, group_events)
     return {"key": key, "agent_id": agent_id, "harness_id": harness_id,
             "baseline": group.get("baseline"), "selected": group.get("selected", []),
             "final_test": group.get("final_test", []), "stages": group.get("stages", []),
             "optimizer_usage": group.get("optimizer_usage", []), "status": group.get("status"),
             "candidates": candidates, "evaluations": evaluations, "failures": failures,
-            "structure": {"kind": None, "label": None, "units": []},
+            "structure": structure,
             "comparison": comparison, "comparison_trend": overall,
             "counts": {"candidates": len(candidates), "trials_used": group.get("trials_used"),
                        **_evaluation_counts(evaluations)}}
