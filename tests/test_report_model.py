@@ -321,6 +321,21 @@ class ReportModelTests(unittest.TestCase):
 
         self.assertEqual([item["harness_reported_io_tokens"] for item in usage], [3, None])
 
+    def test_agent_usage_overflow_is_null_while_independent_finite_cost_is_preserved(self):
+        self.events([{"event": "trial_completed", "agent_id": "agent-a", "harness_id": "harness",
+                      "candidate_id": "c1", "split": "validation", "valid": True,
+                      "metrics": {"harness_reported_io_tokens": 1e308,
+                                  "harness_reported_cost_usd": cost}}
+                     for cost in (0.5, 0.25)])
+        row = {"candidate_id": "c1", "split": "validation", "trial_count": 2}
+
+        report = build_report(self.root, {"groups": [self.group(selected=[row])]})
+
+        self.assertEqual(report["groups"][0]["agent_usage"], [{
+            "candidate_id": "c1", "split": "validation",
+            "harness_reported_io_tokens": None, "harness_reported_cost_usd": 0.75}])
+        json.dumps(report, allow_nan=False)
+
     def test_explicit_execution_and_error_type_classification_never_uses_feedback(self):
         events = [
             {"event": "trial_completed", "trial_id": "execution", "agent_id": "agent-a",

@@ -215,7 +215,8 @@ def _agent_usage(group: dict, events: list[dict]) -> list[dict]:
                         and all(item.get("valid", True) for item in matching)
                         and all(type(value) in (int, float) and math.isfinite(value)
                                 for value in values))
-            entry[name] = sum(values) if complete else None
+            total = sum(values) if complete else None
+            entry[name] = total if total is not None and math.isfinite(total) else None
         usage.append(entry)
     return usage
 

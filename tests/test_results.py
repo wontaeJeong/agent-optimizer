@@ -24,6 +24,30 @@ class UsageReportTests(unittest.TestCase):
             self.assertIn("| a | h | c2 | validation | null | null |", report)
             self.assertIn("partial", report)
 
+    def test_overflowing_usage_writes_all_artifacts_without_masking_run_error(self):
+        from agent_optimizer.results import write_report_artifacts
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            row = {"candidate_id": "c1", "split": "validation", "trial_count": 2,
+                   "metrics": {"score": 1}}
+            summary = {"status": "error", "synthetic": True, "error_type": "RuntimeError",
+                       "error": "original run error", "groups": [{"agent_id": "a", "harness_id": "h",
+                       "baseline": row, "selected": [], "final_test": [], "stages": []}]}
+            events = [{"event": "trial_completed", "agent_id": "a", "harness_id": "h",
+                       "candidate_id": "c1", "split": "validation", "valid": True,
+                       "metrics": {"harness_reported_io_tokens": 1e308}}
+                      for _ in range(2)]
+            (root / "events.jsonl").write_text("\n".join(map(json.dumps, events)) + "\n")
+
+            self.assertEqual(write_report_artifacts(root, summary), root / "report.html")
+            model = json.loads((root / "report.json").read_text())
+            self.assertIsNone(model["groups"][0]["agent_usage"][0]["harness_reported_io_tokens"])
+            self.assertEqual(model["identity"]["error"], "original run error")
+            self.assertIn("| a | h | c1 | validation | null | null |",
+                          (root / "report.md").read_text())
+            self.assertIn("original run error", (root / "report.html").read_text())
+
     def test_common_artifacts_compare_two_groups_without_cross_group_ranking(self):
         from agent_optimizer.results import write_report_artifacts
 
