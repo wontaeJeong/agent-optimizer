@@ -336,6 +336,51 @@ class ReportModelTests(unittest.TestCase):
             "harness_reported_io_tokens": None, "harness_reported_cost_usd": 0.75}])
         json.dumps(report, allow_nan=False)
 
+    def test_large_integer_usage_sum_is_null_without_discarding_other_usage(self):
+        self.events([{"event": "trial_completed", "agent_id": "agent-a", "harness_id": "harness",
+                      "candidate_id": "c1", "split": "validation", "valid": True,
+                      "metrics": {"harness_reported_io_tokens": 10**308,
+                                  "harness_reported_cost_usd": cost}}
+                     for cost in (1, 2)])
+        row = {"candidate_id": "c1", "split": "validation", "trial_count": 2}
+
+        report = build_report(self.root, {"groups": [self.group(selected=[row])]})
+
+        self.assertEqual(report["groups"][0]["agent_usage"], [{
+            "candidate_id": "c1", "split": "validation",
+            "harness_reported_io_tokens": None, "harness_reported_cost_usd": 3}])
+        json.dumps(report, allow_nan=False)
+
+    def test_unrepresentable_integer_usage_value_is_null(self):
+        self.events([{"event": "trial_completed", "agent_id": "agent-a", "harness_id": "harness",
+                      "candidate_id": "c1", "split": "validation", "valid": True,
+                      "metrics": {"harness_reported_io_tokens": 10**400}}])
+        row = {"candidate_id": "c1", "split": "validation", "trial_count": 1}
+
+        report = build_report(self.root, {"groups": [self.group(selected=[row])]})
+
+        self.assertIsNone(report["groups"][0]["agent_usage"][0]["harness_reported_io_tokens"])
+        json.dumps(report, allow_nan=False)
+
+    def test_overflowing_validation_delta_keeps_scores_but_trend_unknown(self):
+        self.manifest_objective([{"name": "quality", "direction": "maximize"},
+                                 {"name": "latency", "direction": "minimize"}])
+        baseline = self.row({"quality": -1e308, "latency": 1e308})
+        selected = self.row({"quality": 1e308, "latency": -1e308}, candidate_id="c0002")
+
+        report = build_report(self.root, {"groups": [self.group(baseline, [selected])]})
+        group = report["groups"][0]
+
+        self.assertEqual(group["baseline"], baseline)
+        self.assertEqual(group["selected"], [selected])
+        self.assertEqual(group["comparison"], [
+            {"name": "quality", "direction": "maximize", "baseline": -1e308,
+             "selected": 1e308, "delta": None, "trend": "unknown"},
+            {"name": "latency", "direction": "minimize", "baseline": 1e308,
+             "selected": -1e308, "delta": None, "trend": "unknown"}])
+        self.assertEqual(group["comparison_trend"], "unknown")
+        json.dumps(report, allow_nan=False)
+
     def test_explicit_execution_and_error_type_classification_never_uses_feedback(self):
         events = [
             {"event": "trial_completed", "trial_id": "execution", "agent_id": "agent-a",

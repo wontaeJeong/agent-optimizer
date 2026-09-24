@@ -48,6 +48,85 @@ class UsageReportTests(unittest.TestCase):
                           (root / "report.md").read_text())
             self.assertIn("original run error", (root / "report.html").read_text())
 
+    def test_large_integer_usage_writes_null_without_blocking_artifacts(self):
+        from agent_optimizer.results import write_report_artifacts
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            row = {"candidate_id": "c1", "split": "validation", "trial_count": 2,
+                   "metrics": {"score": 1}}
+            summary = {"status": "completed", "synthetic": True, "groups": [
+                {"agent_id": "a", "harness_id": "h", "baseline": row,
+                 "selected": [], "final_test": [], "stages": []}]}
+            events = [{"event": "trial_completed", "agent_id": "a", "harness_id": "h",
+                       "candidate_id": "c1", "split": "validation", "valid": True,
+                       "metrics": {"harness_reported_io_tokens": 10**308}}
+                      for _ in range(2)]
+            (root / "events.jsonl").write_text("\n".join(map(json.dumps, events)) + "\n")
+
+            self.assertEqual(write_report_artifacts(root, summary), root / "report.html")
+            model = json.loads((root / "report.json").read_text())
+            self.assertIsNone(model["groups"][0]["agent_usage"][0]["harness_reported_io_tokens"])
+            self.assertIn("| a | h | c1 | validation | null | null |",
+                          (root / "report.md").read_text())
+            self.assertIn("Agent Optimizer", (root / "report.html").read_text())
+
+    def test_unrepresentable_integer_usage_still_renders_html_and_preserves_evidence(self):
+        from agent_optimizer.results import write_report_artifacts
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            row = {"candidate_id": "c1", "split": "validation", "trial_count": 1,
+                   "metrics": {"score": 1}}
+            summary = {"status": "completed", "synthetic": True, "groups": [
+                {"agent_id": "a", "harness_id": "h", "baseline": row,
+                 "selected": [], "final_test": [], "stages": []}]}
+            event = {"event": "trial_completed", "agent_id": "a", "harness_id": "h",
+                     "candidate_id": "c1", "split": "validation", "valid": True,
+                     "metrics": {"harness_reported_io_tokens": 10**400}}
+            (root / "events.jsonl").write_text(json.dumps(event) + "\n")
+
+            self.assertEqual(write_report_artifacts(root, summary), root / "report.html")
+            model = json.loads((root / "report.json").read_text())
+            self.assertIsNone(model["groups"][0]["agent_usage"][0]["harness_reported_io_tokens"])
+            self.assertEqual(model["groups"][0]["evaluations"][0]["metrics"], event["metrics"])
+            self.assertIn("| a | h | c1 | validation | null | null |",
+                          (root / "report.md").read_text())
+            self.assertIn("harness_reported_io_tokens", (root / "report.html").read_text())
+
+    def test_overflowing_comparison_delta_keeps_raw_scores_in_all_artifacts(self):
+        from agent_optimizer.results import write_report_artifacts
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "manifest.json").write_text(json.dumps({"experiment": {"objective": {
+                "metrics": [{"name": "score", "direction": "maximize"}]}}}))
+            def row(candidate, score):
+                return {"agent_id": "a", "harness_id": "h", "candidate_id": candidate,
+                        "split": "validation", "valid": True, "metrics": {"score": score}}
+            baseline, selected = row("base", -1e308), row("chosen", 1e308)
+            summary = {"status": "completed", "synthetic": True, "groups": [
+                {"agent_id": "a", "harness_id": "h", "baseline": baseline,
+                 "selected": [selected], "final_test": [], "stages": []}]}
+
+            self.assertEqual(write_report_artifacts(root, summary), root / "report.html")
+            model = json.loads((root / "report.json").read_text())
+            group = model["groups"][0]
+            self.assertEqual(group["baseline"], baseline)
+            self.assertEqual(group["selected"], [selected])
+            self.assertEqual(group["comparison"][0]["baseline"], -1e308)
+            self.assertEqual(group["comparison"][0]["selected"], 1e308)
+            self.assertIsNone(group["comparison"][0]["delta"])
+            self.assertEqual(group["comparison_trend"], "unknown")
+            markdown = (root / "report.md").read_text()
+            html = (root / "report.html").read_text()
+            self.assertIn("-1e+308", markdown)
+            self.assertIn("1e+308", markdown)
+            self.assertIn("| a | h | unknown | 0 completed | 0 | 0 | score | -1e+308 | 1e+308 | null |", markdown)
+            self.assertIn("unknown", html)
+            self.assertIn("Validation winner", html)
+            self.assertIn("chosen", html)
+
     def test_common_artifacts_compare_two_groups_without_cross_group_ranking(self):
         from agent_optimizer.results import write_report_artifacts
 
