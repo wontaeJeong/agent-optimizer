@@ -99,7 +99,18 @@ class ResearchSearchTests(unittest.TestCase):
         self.assertEqual(len([r for r in records if r["split"] == "train"
                               and r["candidate_id"] in candidate_ids]), 1)
 
-    def test_gepa_keeps_incomparable_frontier_then_merges_complementary_candidates(self):
+    def test_gepa_merge_is_rejected_before_evaluation(self):
+        class NoEvaluation:
+            def evaluate(self, candidate):
+                raise AssertionError("병합 거부 전에 평가하면 안 됩니다")
+
+        from agent_optimizer.optimizers.gepa import GEPAOptimizer
+        seed = Candidate("seed", "fixture", self.root, "hash")
+        with self.assertRaisesRegex(UnavailableError, "GEPA merge.*보류"):
+            GEPAOptimizer().optimize(NoEvaluation(), [seed],
+                                     {"file": "prompt.md", "iterations": 1, "merge": True})
+
+    def test_gepa_keeps_incomparable_frontier_without_merge(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             base.joinpath("prompt.md").write_text("seed")
@@ -147,7 +158,7 @@ class ResearchSearchTests(unittest.TestCase):
                 def emit(self, event, **fields):
                     pass
 
-            responses = iter("left right both".split())
+            responses = iter("left right".split())
 
             def reply(messages, **kwargs):
                 return {"choices": [{"message": {"content": json.dumps({"content": next(responses)})}}]}
@@ -157,9 +168,9 @@ class ResearchSearchTests(unittest.TestCase):
                                                              side_effect=reply):
                 from agent_optimizer.optimizers.gepa import GEPAOptimizer
                 result = GEPAOptimizer().optimize(Context(), [seed],
-                                                  {"file": "prompt.md", "iterations": 2, "merge": True})
-            self.assertEqual([item.id for item in result.candidates], ["c3"])
-            self.assertEqual(result.checkpoint["merges"][0]["parents"], ["c1", "c2"])
+                                                  {"file": "prompt.md", "iterations": 2, "merge": False})
+            self.assertEqual([item.id for item in result.candidates], ["c1", "c2"])
+            self.assertEqual(result.checkpoint["merges"], [])
 
     def test_meta_harness_rejects_invalid_code_then_selects_runnable_scaffold(self):
         source = self.root / "examples/minimal/agents/solo/src/fixture_agent.py"

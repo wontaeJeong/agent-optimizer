@@ -29,6 +29,8 @@ class GEPAOptimizer:
     def optimize(self, context, seeds, config) -> OptimizationResult:
         only_keys(config, {"file", "iterations", "request_timeout_seconds", "metric", "direction",
                            "merge", "batch_size", "seed"}, "GEPA optimizer")
+        if config.get("merge", False) is not False:
+            raise UnavailableError("GEPA merge는 보류 중입니다: validation 수치를 모델 수정 근거로 전달하지 않도록 재설계가 필요합니다")
         if len(seeds) != 1 or not config.get("file"):
             raise ConfigurationError("GEPA requires one seed and an editable file")
         iterations = config.get("iterations", 3)
