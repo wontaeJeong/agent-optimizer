@@ -348,7 +348,7 @@ PR CI는 Python 3.11/3.12와 Ubuntu native Yosys/Icarus로 코어·실제 RTL·�
 미수집 토큰/비용은 `null`입니다. OpenCode root 이벤트에서 관측된 사용량은 별도 partial 지표이며
 sub-agent까지 합산된 Agent 전체 사용량으로 표시하지 않습니다.
 실험 trial 수·벽시계·trial timeout을 제한합니다. 엄격한 API 비용 상한/호출 수 제한, 재시작 resume,
-병렬 스케줄링은 아직 없습니다. 비용 상한은 사용하는 provider/proxy에서도 설정하세요.
+단일 실험 안의 과제·stage 병렬 실행은 아직 없습니다. 비용 상한은 사용하는 provider/proxy에서도 설정하세요.
 
 코어 플러그인은 신뢰한 팀 코드로 실행합니다. local 모드는 OS 격리가 없으며 개발용입니다.
 Docker Agent는 해당 trial workspace와 설정한 경우 읽기 전용 CA bundle만 마운트하고,

@@ -15,12 +15,13 @@ private 자료를 제외한 validation 수치만 반환한다. baseline train �
 | `sources.py`, `workspace.py` | 원본 보존, editable 스냅샷·hash·diff·계보·산출물 경계 |
 | `process.py`, `models.py` | argv 프로세스/timeout, 모델 요청 전체 deadline worker |
 | `objectives.py`, `results.py`, `report_model.py`, `html_report.py` | lexicographic keep=1·mean/sum 집계, v1 기록의 보고서 정규화·Markdown/독립 HTML/CSV 출력 |
-| `setup_wizard.py`, `terminal_report.py`, `cli.py` | 사용자 dataset 선택·팀 컴포넌트 탐색·설정 생성·TUI/CLI 진행 화면 |
+| `setup_wizard.py`, `session.py`, `terminal_report.py`, `cli.py` | 사용자 dataset 선택·팀 컴포넌트 탐색·설정 생성·복수 데이터셋 독립 프로세스 실행·TUI/CLI 진행 화면 |
 
 복수 Agent/Harness 전체 조합을 유지하며 모든 Agent가 모든 adapter를 지원해야 한다.
 독립 Agent와 내부 sub-agent는 별개다. 조합별 후보·결과를 분리하며 임의 pair matrix는 없다.
 팀 확장은 `experiments/<team>/`, 도메인 연결은 `examples/`에 둔다. 별도 pipeline/plugin manager는 없다.
-여러 dataset을 선택하면 서로 다른 evaluator를 가진 독립 run을 session 안에서 순차 실행한다.
+여러 dataset을 선택하면 서로 다른 evaluator를 가진 독립 run을 session 안에서 기본 최대 2개까지
+병렬 실행한다(`run-session --jobs N`). 단일 run의 Agent×Harness 조합·stage·과제/반복은 순차 실행한다.
 session index는 각 `report.html`을 연결하지만 이질적 점수를 하나로 순위화하지 않는다.
 
 ## 격리와 평가

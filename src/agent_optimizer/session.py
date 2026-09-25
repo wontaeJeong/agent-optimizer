@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import contextlib
 import multiprocessing
+import os
 import queue as queue_module
+import signal
 import time
 import traceback
 from pathlib import Path
@@ -122,11 +124,19 @@ def run_session(experiments: list[dict], session_root: Path, *, jobs: int,
                 launch()
     except KeyboardInterrupt:
         for index, (process, started) in active.items():
-            process.terminate()
+            # The Agent process has its own session; SIGINT lets the worker's
+            # run_process finally/except stop that child (and Docker cleanup).
+            try:
+                os.kill(process.pid, signal.SIGINT)
+            except ProcessLookupError:
+                pass
             process.join(timeout=5)
             if process.is_alive():
-                process.kill()
-                process.join()
+                process.terminate()
+                process.join(timeout=5)
+                if process.is_alive():
+                    process.kill()
+                    process.join()
             entries[index] = {"dataset": experiments[index]["dataset"], "status": "interrupted",
                               "report": _report(session_root / "runs" / f"{index + 1:02d}", session_root)}
             progress.finish(index, "interrupted", time.monotonic() - started)

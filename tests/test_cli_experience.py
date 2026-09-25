@@ -5,10 +5,12 @@ import json
 import multiprocessing
 import os
 import re
+import signal
 import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -1754,6 +1756,45 @@ class CLIExperienceTests(unittest.TestCase):
                          ["interrupted", "interrupted", "interrupted"])
         self.assertFalse((session_root / "runs/03").exists())
         self.assertEqual({process.pid for process in multiprocessing.active_children()}, existing)
+
+    def test_session_interrupt_stops_running_agent_child_process(self):
+        marker = self.root / "agent-child.pid"
+        agent_file = self.root / "examples/minimal/agents/solo/src/fixture_agent.py"
+        agent_file.write_text("import os\nimport time\nfrom pathlib import Path\n"
+                              f"Path({str(marker)!r}).write_text(str(os.getpid()))\n"
+                              "time.sleep(30)\n", encoding="utf-8")
+        experiment = self.root / "examples/minimal/experiment.toml"
+        items = [{"dataset": str(index), "experiment": str(experiment)} for index in range(2)]
+        progress = SessionProgress(["first", "second"], stream=io.StringIO())
+
+        def interrupt_after_agent_launch(index, event):
+            if event["event"] != "agent_started":
+                return
+            deadline = time.monotonic() + 3
+            while not marker.exists() and time.monotonic() < deadline:
+                time.sleep(0.02)
+            self.assertTrue(marker.exists(), "agent child never started")
+            raise KeyboardInterrupt
+
+        try:
+            with progress, patch.object(progress, "event", side_effect=interrupt_after_agent_launch):
+                with self.assertRaises(SessionInterrupted):
+                    run_session(items, self.root / "session-agent-interrupt", jobs=1, progress=progress)
+            child_pid = int(marker.read_text())
+            for _ in range(30):
+                try:
+                    os.kill(child_pid, 0)
+                except ProcessLookupError:
+                    break
+                time.sleep(0.05)
+            else:
+                self.fail("interrupted session left a running Agent process")
+        finally:
+            if marker.exists():
+                try:
+                    os.killpg(int(marker.read_text()), signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
 
 
 if __name__ == "__main__":

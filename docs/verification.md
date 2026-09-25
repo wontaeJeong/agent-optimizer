@@ -1,5 +1,45 @@
 # 검증 기록
 
+## 2026-09-26 데이터셋 병렬 실행·터미널 진행 화면
+
+Mac ARM64 / Python 3.12.12, `feat/live-terminal-ux` 워크트리에서 모델 API·Docker 없이 합성
+`examples/minimal/tasks.json`을 **직접 두 번 선택**했다. 예산·평가 점수는 데이터셋별로 분리했고
+동명 선택은 순번 `[1/2]`, `[2/2]`로 구별했다. `--jobs 1`과 `--jobs 2`는 동일한
+`runs/configs/terminal-ux-capture/session.json` 설정으로 각각 실행했다.
+
+| 실제 실행·근거 | 관찰한 결과 |
+|---|---|
+| `make setup-core`; `PYTHONPATH=src .venv/bin/python -m agent_optimizer init --project-root . --name terminal-ux-capture --agent examples/minimal/agents/solo --command '{python} {agent_dir}/src/fixture_agent.py {task_dir}' --editable configs/strategy.json --dataset examples/minimal/tasks.json --dataset examples/minimal/tasks.json --evaluator examples/minimal/evaluator.py:TextFixtureEvaluator --optimizer baseline --max-tasks 3 --yes` | 코어 준비·진단·7-trial 데모 `completed`; 두 독립 실험의 session.json 생성. 실제 모델·공식 평가 실행은 아님. |
+| `PYTHONPATH=src .venv/bin/python -m agent_optimizer run-session runs/configs/terminal-ux-capture/session.json --jobs 1 --output runs/terminal-ux-measurement` | `runs/terminal-ux-measurement/20260925T163838Z-ca099430/summary.json`: 두 독립 report, 각 2 trial, 세션 실측 **0.555 s**, 단일 run 실측 **0.154 s / 0.197 s**. |
+| 동일 명령 `--jobs 2` | `runs/terminal-ux-measurement/20260925T163846Z-5133c4c8/summary.json`: 각 2 trial, 세션 **0.277 s**, 단일 run **0.191 s / 0.199 s**. 합성 fixture에서 두 실행이 겹쳐 관측되었고 session 시간은 약 절반이었다. 짧은 샘플 1회씩이므로 실환경 속도 향상 비율을 주장하지 않는다. |
+| `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v`; `PYTHONPATH=src .venv/bin/python -m agent_optimizer run examples/minimal/experiment.toml`; `make lint`; `git diff --check` | **625개 중 610 통과·15 skip·실패 0**, 최소 실험 7 trial `completed`, Ruff 통과. skip은 실도구/선택형 외부 연동 검사이며 합성 회귀는 실모델 성공 증거가 아니다. |
+
+한 데이터셋 안의 다른 순차 경계도 확인했다. 데이터셋 **준비**는 `cli.py`의
+`for ... in args.dataset`에서 하나씩 수행하고, 단일 실행의 Agent×Harness **그룹**은
+`runner.py`의 중첩 루프, **stage**는 `GroupRunner.run`, 과제·반복 **평가**는
+`GroupRunner.evaluate`의 trial 루프에서 순서대로 수행한다. GEPA/Meta-Harness/Ecdysis는
+앞선 후보·train 기록을 다음 반복에 사용하므로 알고리즘 반복을 단순 병렬화할 수 없다.
+이번 합성 최소 실험의 단일 run은 **0.363 s / 7 trial / 2 그룹**이며, stage 두 개는
+각각 **0.053 s / 0.039 s**였다. 데이터셋이 하나여도 느린 과제/반복 평가가 길어지면
+trial 루프가 다음 병목 후보지만 이 합성 기록만으로 실제 모델·Docker의 지배 구간을
+판단하지 않는다. 실환경에서는 `events.jsonl`의 `trial_started`/`agent_started`/
+`evaluation_started`와 완료 시각, `task_wall_time_seconds` 및 stage 시간을 먼저 측정한 뒤
+공유 예산·cache·선택 고정 경계를 유지하는 내부 병렬화 여부를 결정해야 한다.
+
+**화면 캡처:** `docs/superpowers/terminal-ux-before.png`, `terminal-ux-after.png`는
+실제 `script -q -e -F <임시 PTY 로그> /usr/bin/env PYTHONPATH=<checkout>/src
+<venv>/bin/python -m agent_optimizer run-session <session.json> [--jobs 2]`로 생성한
+**실행 중 ANSI PTY 화면**을 브라우저에서 재생해 1150×330으로 캡처했다. 전자는
+변경 전 `origin/main` 소스를, 후자는 이 워크트리 소스를 사용했다. 진행 중인 두 행을
+볼 수 있도록 두 설정의 임시 합성 평가기에서 `time.sleep(1.2)`로 과제별 대기 시간을
+넣고 `Evaluation('passed', {'passed': 1.0})`을 반환했다. 이 임시 캡처용 설정·평가기와
+PTY 원본은 Git 제외 `runs/` 및 임시 디렉터리에 있으며, 이미지는 그 출력의 실제 프레임이다.
+캡처만 재현하려면 위 `init` 후 `runs/configs/terminal-ux-capture/slow_evaluator.py`에
+`evaluate(self, task, output_dir, timeout_seconds)`가 1.2초 기다렸다가 위 합성 결과를
+반환하는 클래스를 만들고, 생성한 두 `experiment.toml`의 `user_evaluator` 파일 경로를
+이 파일로 바꿔 위 `script` 명령을 실행한다. 기본 빠른 fixture도 동일한 상태/완료 행을
+보여주지만 1초 미만 실행에서는 TTY 자동 새로고침 전에 끝날 수 있다.
+
 ## 2026-09-25 선택형 wheel 연동 검증
 
 Mac ARM64 / Python 3.12.12 / Docker daemon `linux/arm64`. 개발용 작업 브랜치

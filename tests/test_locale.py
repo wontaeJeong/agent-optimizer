@@ -92,6 +92,15 @@ class TerminalLanguageTests(unittest.TestCase):
         self.assertIn("Legacy JSON string array", rendered)
         self.assertNotIn("명령 하네스의 Agent argv", result.stdout)
 
+    def test_english_session_help_explains_parallel_dataset_workers(self):
+        result = subprocess.run([str(ROOT / ".venv/bin/agent-opt"), "run-session", "--help"], cwd=ROOT,
+                                env=dict(os.environ, AGENT_OPT_LANG="en", COLUMNS="160"),
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Run selected datasets in parallel", result.stdout)
+        self.assertIn("--jobs", result.stdout)
+        self.assertNotIn("병렬 실행", result.stdout)
+
     def test_english_init_missing_agent_error(self):
         result = subprocess.run([str(ROOT / ".venv/bin/agent-opt"), "init", "--dataset", "sample_text", "--yes"],
                                 cwd=ROOT, env=dict(os.environ, AGENT_OPT_LANG="en"),
