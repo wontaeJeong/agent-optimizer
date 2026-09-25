@@ -140,6 +140,36 @@ def init_command(project_root: Path | None = None,
                  offline: bool = False,
                  yes: bool = typer.Option(False, help="TTY 없이 준비를 확인하고 진행")) -> int:
     """직접 선택한 데이터셋으로 실험 설정 생성."""
+    if (not any((agent, dataset, editable, command, command_json, name, revision, optimizer))
+            and not yes and sys.stdin.isatty() and sys.stderr.isatty()):
+        try:
+            arguments = wizard_arguments((project_root or Path.cwd()).absolute(), execute=False)
+        except EOFError:
+            print("입력이 종료되어 설정을 만들지 않았습니다", file=sys.stderr)
+            return 2
+        except KeyboardInterrupt:
+            print("\n설정 만들기가 중단되었습니다", file=sys.stderr)
+            return 130
+        except ConfigurationError as exc:
+            print(f"{style('error:', 'error', stream=sys.stderr)} {exc}", file=sys.stderr)
+            return 2
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = main(arguments)
+        if code:
+            return code
+        print(output.getvalue(), end="")
+        prepared = json.loads(output.getvalue())
+        target = prepared.get("experiment") or prepared["session"]
+        if "session" in prepared:
+            checks = "\n".join(f"       agent-opt doctor --plan {item['experiment']}"
+                               for item in prepared["experiments"])
+            print(f"설정 생성: {target}\n다음: 각 데이터셋의 계획 진단\n{checks}\n"
+                  f"       agent-opt run-session {target}", file=sys.stderr)
+        else:
+            print(f"설정 생성: {target}\n다음: agent-opt doctor --plan {target}\n"
+                  f"       agent-opt run {target}", file=sys.stderr)
+        return 0
     return _invoke("init", project_root=project_root or Path.cwd(), agent=agent,
                    revision=revision, name=name, command_text=command, command_json=command_json,
                    editable=editable, prompt_file=prompt_file, dataset=dataset,
@@ -350,24 +380,53 @@ def _dispatch(args):
             if not sys.stdin.isatty() or not sys.stderr.isatty():
                 raise ConfigurationError("TUI requires a TTY for both input and output")
             try:
-                init_args = wizard_arguments(args.project_root.absolute())
+                print("\n실험 시작: 1. 기존 실험 실행  2. 새 실험 만들고 실행", file=sys.stderr)
+                print("선택 [1/2]: ", end="", file=sys.stderr, flush=True)
+                choice = input().strip()
+                if choice == "1":
+                    print("기존 experiment.toml 경로: ", end="", file=sys.stderr, flush=True)
+                    selected = input().strip()
+                    if not selected:
+                        raise ConfigurationError("실험 설정 경로를 입력하세요")
+                    experiment = Path(selected).expanduser()
+                    if not experiment.is_absolute():
+                        experiment = args.project_root / experiment
+                    experiment = experiment.resolve()
+                    report = collect_plan(experiment, registry)
+                    print(f"실험 설정: {experiment}", file=sys.stderr)
+                    print(f"계획 진단: {'준비됨' if report['ready'] else '준비 부족'}", file=sys.stderr)
+                    if not report["ready"]:
+                        for check in report["checks"]:
+                            if check["status"] != "ok":
+                                print(f"  {check['id']}: {check['message']} {check['remedy']}", file=sys.stderr)
+                        return 2
+                    print("이 실험을 실행할까요? [y/N]: ", end="", file=sys.stderr, flush=True)
+                    if input().strip().lower() not in {"y", "yes"}:
+                        print("실험 실행을 취소했습니다", file=sys.stderr)
+                        return 2
+                    init_args = None
+                elif choice == "2":
+                    init_args = wizard_arguments(args.project_root.absolute())
+                else:
+                    raise ConfigurationError("1 또는 2를 선택하세요")
             except EOFError:
                 print(style("TUI cancelled:", "warning", stream=sys.stderr) + " input ended", file=sys.stderr)
                 return 2
             except KeyboardInterrupt:
                 print("\n" + style("TUI interrupted", "warning", stream=sys.stderr), file=sys.stderr)
                 return 130
-            print("\n  " + style("Preparing the selected dataset…", "warning", stream=sys.stderr),
-                  file=sys.stderr, flush=True)
-            output = io.StringIO()
-            with contextlib.redirect_stdout(output):
-                code = main(init_args)
-            if code:
-                return code
-            prepared = json.loads(output.getvalue())
-            if "session" in prepared:
-                return main(["run-session", prepared["session"]])
-            experiment = Path(prepared["experiment"])
+            if init_args is not None:
+                print("\n  " + style("Preparing the selected dataset…", "warning", stream=sys.stderr),
+                      file=sys.stderr, flush=True)
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    code = main(init_args)
+                if code:
+                    return code
+                prepared = json.loads(output.getvalue())
+                if "session" in prepared:
+                    return main(["run-session", prepared["session"]])
+                experiment = Path(prepared["experiment"])
             spec = load_experiment(experiment)
             with ProgressDisplay() as progress:
                 progress.configure_budget(spec.get("budget", {}).get("max_trials", 100))
