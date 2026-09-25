@@ -544,6 +544,36 @@ class CLIExperienceTests(unittest.TestCase):
             self.assertTrue(all(row["requires_preparation"] for row in rows))
             self.assertEqual(list(Path(directory).iterdir()), [])
 
+    def test_bare_workspace_custom_agent_and_evaluator(self):
+        temporary = tempfile.TemporaryDirectory(prefix="agent-opt-bare-")
+        self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        agent = root / "agents/solo"
+        shutil.copytree(self.agent, agent)
+        shutil.copyfile(self.data, root / "tasks.json")
+        shutil.copyfile(self.root / "examples/minimal/evaluator.py", root / "evaluator.py")
+        before = (agent / "configs/strategy.json").read_bytes()
+        args = ["init", "--project-root", str(root), "--name", "bare-user",
+                "--agent", "agents/solo", "--dataset", "tasks.json",
+                "--evaluator", "evaluator.py:TextFixtureEvaluator",
+                "--editable", "configs/strategy.json", "--optimizer", "baseline",
+                "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "--yes"]
+        output, error = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+            self.assertEqual(main(args), 0, error.getvalue())
+        experiment = Path(json.loads(output.getvalue())["experiment"])
+        diagnostic, run = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(diagnostic), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["doctor", "--plan", str(experiment), "--json"]), 0,
+                             diagnostic.getvalue())
+        self.assertTrue(json.loads(diagnostic.getvalue())["ready"])
+        with contextlib.redirect_stdout(run), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["run", str(experiment)]), 0)
+        result = json.loads(run.getvalue())
+        self.assertEqual(result["status"], "completed")
+        self.assertTrue((Path(result["run_dir"]) / "report.html").is_file())
+        self.assertEqual((agent / "configs/strategy.json").read_bytes(), before)
+
     def test_dataset_inventory_works_from_outside_project_import_path(self):
         package_root = Path(__file__).resolve().parents[1]
         command = [sys.executable, "-c", "import sys; from agent_optimizer.cli import main; "
