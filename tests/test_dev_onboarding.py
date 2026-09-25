@@ -95,7 +95,8 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
                 self.assertEqual(result.returncode, 0, result.stderr)
                 for command in ("setup", "doctor", "test", "lint", "demo", "smoke", "live", "menu"):
                     self.assertIn(command, result.stdout)
-                self.assertIn("make setup ARGS=", result.stdout)
+                self.assertIn("make setup-core", result.stdout)
+                self.assertIn("make doctor-core", result.stdout)
                 self.assertIn("ACE 전체", result.stdout)
         self.assertFalse((self.root / ".venv").exists())
         self.assertEqual(self.trace_text(), "")
@@ -139,6 +140,16 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
         self.assertIn("arg:sync\narg:--frozen\n", trace)
         self.assertIn("arg:--extra\narg:dev\n", trace)
         self.assertIn("arg:setup\narg:--core\n", trace)
+
+    def test_core_make_aliases_forward_the_selected_command_and_core_flag(self):
+        self.tool("git")
+        self.tool("python3", 'case "$1" in -I) exit 0;; esac\nprintf "arg:%s\\n" "$@" >> "$TRACE"\n')
+        self.uv()
+        for target, expected in (("setup-core", "setup"), ("doctor-core", "doctor")):
+            with self.subTest(target=target):
+                result = self.invoke(target, make=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f"arg:{expected}\narg:--core\n", self.trace_text())
 
     def test_core_offline_sync_without_docker_never_downloads(self):
         self.tool("git")
