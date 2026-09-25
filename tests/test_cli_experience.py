@@ -558,6 +558,71 @@ class CLIExperienceTests(unittest.TestCase):
             self.assertFalse((Path(directory) / "examples").exists())
             self.assertIn("cvdp", {row["name"] for row in json.loads(output.getvalue())})
 
+    def test_ace_pending_pointer_before_preparation_is_read_only(self):
+        workspace = self.root / "new-user-workspace"
+        output, error = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+            self.assertEqual(main(["init", "--profile", "ace-rtl",
+                                   "--workspace", str(workspace)]), 0, error.getvalue())
+        pointer = Path(json.loads(output.getvalue())["experiment"])
+        self.assertEqual(pointer, workspace.resolve() / "experiment.toml")
+        self.assertEqual({p.name for p in workspace.iterdir()}, {"experiment.toml"})
+        diagnostic = io.StringIO()
+        with contextlib.redirect_stdout(diagnostic), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["doctor", "--plan", str(pointer), "--json"]), 2)
+        self.assertEqual({row["id"]: row["status"] for row in json.loads(diagnostic.getvalue())["checks"]}
+                         ["integration.prepare"], "blocked")
+        error = io.StringIO()
+        with contextlib.redirect_stderr(error), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["run", str(pointer)]), 2)
+        self.assertIn("prepare", error.getvalue())
+        self.assertFalse((workspace / "integrations").exists())
+
+    def test_ace_profile_rejects_mixed_agent_settings_without_writes(self):
+        workspace = self.root / "invalid-profile"
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["init", "--profile", "ace-rtl", "--workspace", str(workspace),
+                                   "--agent", str(self.agent)]), 2)
+        self.assertFalse(workspace.exists())
+
+    def test_ace_prepare_marks_workspace_ready_only_after_lifecycle_checks(self):
+        from agent_optimizer.catalog import INTEGRATIONS
+        from agent_optimizer.contracts import ConfigurationError
+        from agent_optimizer.integrations import resolve_pointer
+
+        workspace = self.root / "prepared-user-workspace"
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["init", "--profile", "ace-rtl", "--workspace", str(workspace)]), 0)
+        pointer = Path(json.loads(output.getvalue())["experiment"])
+
+        def prepared_files(root, integration_id, *, offline=False):
+            self.assertEqual((root, integration_id, offline), (workspace.resolve(), "ace-rtl", True))
+            lifecycle = root / "examples/ace-rtl/environment/lifecycle.py"
+            lifecycle.parent.mkdir(parents=True)
+            lifecycle.write_text(
+                'from pathlib import Path\n'
+                'def prepare(root, *, offline=False, platform=None):\n'
+                '    target = root / "datasets/ace-demo/tasks.json"\n'
+                '    target.parent.mkdir(parents=True, exist_ok=True)\n'
+                '    target.write_text("{}")\n'
+                '    return target\n'
+                'def inspect(root, *, platform=None):\n'
+                '    return {"ready": True, "checks": [], "lock": {"platform": "linux/arm64"}}\n')
+            return {"url": INTEGRATIONS["ace-rtl"]["url"],
+                    "revision": INTEGRATIONS["ace-rtl"]["revision"],
+                    "paths": ["examples/ace-rtl/environment/lifecycle.py"]}
+
+        with patch("agent_optimizer.integrations.acquire_integration", side_effect=prepared_files), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["prepare", str(pointer), "--offline"]), 0)
+        marker = json.loads((workspace / ".agent-opt/integration-ready.json").read_text())
+        self.assertTrue(marker["ready"])
+        self.assertEqual(marker["revision"], INTEGRATIONS["ace-rtl"]["revision"])
+        (workspace / "examples/ace-rtl/environment/lifecycle.py").write_text("tampered")
+        with self.assertRaises(ConfigurationError):
+            resolve_pointer(pointer)
+
     def test_unrelated_project_with_same_package_name_is_not_treated_as_source_checkout(self):
         with tempfile.TemporaryDirectory(prefix="user-project-") as directory:
             root = Path(directory)
@@ -843,6 +908,8 @@ class CLIExperienceTests(unittest.TestCase):
         (self.root / "examples/ace-rtl/environment/lifecycle.py").write_text(
             'import os\n'
             'def run(root, *, iterations=None, platform=None):\n'
+            '    if os.getcwd() != str(root):\n'
+            '        return 2\n'
             '    with (root / "launch.marker").open("a") as stream:\n'
             '        stream.write(str(root) + ":direct\\n")\n'
             '    return int(os.environ.get("LIVE_STATUS", "0"))\n')

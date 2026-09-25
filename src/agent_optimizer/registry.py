@@ -96,10 +96,16 @@ class Registry:
         self.loaded = {}
 
     def load_project(self, root: Path) -> None:
-        if not is_source_checkout(root):
-            return
-        plugin_files(root, PROJECT_COMPONENTS, PROJECT_DEPENDENCIES)
-        self.load_plugins(root, PROJECT_COMPONENTS)
+        if is_source_checkout(root):
+            plugin_files(root, PROJECT_COMPONENTS, PROJECT_DEPENDENCIES)
+            self.load_plugins(root, PROJECT_COMPONENTS)
+        else:
+            from agent_optimizer.integrations import integration_plugins, verified_integration
+            prepared = verified_integration(root)
+            if prepared is not None:
+                plugins, dependencies = integration_plugins(prepared["id"])
+                plugin_files(root, plugins, dependencies)
+                self.load_plugins(root, plugins)
 
     def selected_files(self, root: Path, spec: dict) -> dict[str, Path]:
         """Return source and declared helpers for only the selected project components."""
@@ -117,7 +123,16 @@ class Registry:
                         selected[kind][name] = PROJECT_COMPONENTS[kind][name]
                     elif kind == "datasets" and name:
                         raise ConfigurationError(f"Unregistered dataset provider: {name}")
-        dependencies = {key: paths for key, paths in PROJECT_DEPENDENCIES.items()
+            available_dependencies = PROJECT_DEPENDENCIES
+        else:
+            from agent_optimizer.integrations import integration_plugins, verified_integration
+            prepared = verified_integration(root)
+            available, available_dependencies = (integration_plugins(prepared["id"])
+                                                  if prepared is not None else ({}, {}))
+            for kind, requested in names.items():
+                selected[kind] = {name: available.get(kind, {})[name] for name in requested
+                                  if name in available.get(kind, {})}
+        dependencies = {key: paths for key, paths in available_dependencies.items()
                         if key.split("/", 1)[1] in selected.get(key.split("/", 1)[0], {})}
         files = plugin_files(root, selected, dependencies)
         files.update(plugin_files(root, spec.get("plugins", {}), spec.get("plugin_dependencies", {})))

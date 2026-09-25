@@ -269,8 +269,21 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
             raw = read_toml(path)
         except (OSError, ValueError):
             return _report("plan", [check("plan.schema", "plan", False,
-                                           "Experiment file is missing or invalid",
-                                           "Provide a valid experiment.toml")])
+                                            "Experiment file is missing or invalid",
+                                            "Provide a valid experiment.toml")])
+        if "integration" in raw:
+            from agent_optimizer.integrations import resolve_pointer
+            try:
+                prepared = resolve_pointer(path)
+            except UnavailableError:
+                return _report("plan", [{"id": "integration.prepare", "area": "integration",
+                                         "status": "blocked", "message": "선택한 연동의 준비가 필요합니다",
+                                         "remedy": f"agent-opt prepare {path}"}])
+            except (ConfigurationError, OSError, ValueError, TypeError):
+                return _report("plan", [check("integration.pin", "integration", False,
+                                              "선택형 연동의 ID·pin을 검증할 수 없습니다",
+                                              "검토된 실험 선언을 복원하세요")])
+            return collect_plan(prepared, registry, model=model)
         project_root = raw.get("project_root", "../..")
         if not isinstance(project_root, str):
             return _report("plan", [check("plan.schema", "plan", False,

@@ -121,7 +121,12 @@ def _launch_existing(spec: dict, registry: Registry, *, output: Path | None = No
             raise ConfigurationError("전용 실행 프로필은 --output을 지원하지 않습니다")
         if len(spec["_profiles"]) != 1 or len(spec["_agents"]) != 1:
             raise ConfigurationError("전용 실행 프로필은 단일 Agent·하네스 실험에서만 사용할 수 있습니다")
-        return launchers[0](spec)
+        previous = Path.cwd()
+        try:
+            os.chdir(spec["_root"])
+            return launchers[0](spec)
+        finally:
+            os.chdir(previous)
     return None
 
 
@@ -129,6 +134,12 @@ def _launch_existing(spec: dict, registry: Registry, *, output: Path | None = No
 def plugins_command(project_root: Path | None = None) -> int:
     """구현된 연동 목록 표시."""
     return _invoke("plugins", project_root=project_root or Path.cwd())
+
+
+@app.command("prepare")
+def prepare_command(experiment: Path, offline: bool = False) -> int:
+    """직접 선택한 실험의 버전 고정 연동 자산을 준비합니다."""
+    return _invoke("prepare", experiment=experiment, offline=offline)
 
 
 @app.command("doctor")
@@ -161,6 +172,8 @@ def datasets_prepare(name: str | None = typer.Argument(None, help="등록된 데
 
 @app.command("init")
 def init_command(project_root: Path | None = None,
+                 profile: str | None = typer.Option(None, "--profile", help="명시적으로 선택하는 준비된 실험 프로필"),
+                 workspace: Path | None = typer.Option(None, "--workspace", help="선택형 실험 작업공간"),
                  agent: str | None = typer.Option(None, help="로컬 소스 경로 또는 Git URL(Git이면 --revision 지정)"),
                  revision: str | None = None, name: str | None = None,
                  command: str | None = typer.Option(None, "--command", help="명령 하네스의 Agent argv: 인용을 분리하지만 셸 확장·파이프·리다이렉션은 실행하지 않음"),
@@ -177,6 +190,10 @@ def init_command(project_root: Path | None = None,
                  offline: bool = False,
                  yes: bool = typer.Option(False, help="TTY 없이 준비를 확인하고 진행")) -> int:
     """직접 선택한 데이터셋으로 실험 설정 생성."""
+    if profile is not None or workspace is not None:
+        return _invoke("init-profile", profile=profile, workspace=workspace, agent=agent,
+                       dataset=dataset, evaluator=evaluator, optimizer=optimizer, editable=editable,
+                       command_text=command, command_json=command_json, revision=revision, name=name)
     if (not any((agent, dataset, editable, command, command_json, name, revision, optimizer))
             and not yes and sys.stdin.isatty() and sys.stderr.isatty()):
         try:
@@ -268,6 +285,9 @@ def _dispatch(args):
         if args.command == "plugins":
             registry.load_project(args.project_root.absolute())
             show(registry.describe())
+        elif args.command == "prepare":
+            from agent_optimizer.integrations import prepare_pointer
+            show(prepare_pointer(args.experiment, offline=args.offline))
         elif args.command == "datasets":
             root = args.project_root.absolute()
             inventory, _, _ = component_inventory(root)
@@ -288,6 +308,15 @@ def _dispatch(args):
                 result, _, _ = prepare_selection(root, args.name, evaluator=args.evaluator,
                                                   offline=args.offline)
                 show(result)
+        elif args.command == "init-profile":
+            if not args.profile or args.workspace is None:
+                raise ConfigurationError("--profile과 --workspace를 함께 지정하세요")
+            if any((args.agent, args.dataset, args.evaluator, args.optimizer, args.editable,
+                    args.command_text, args.command_json, args.revision, args.name)):
+                raise ConfigurationError("--profile에는 Agent·데이터셋·실행 명령 옵션을 섞지 마세요")
+            from agent_optimizer.integrations import write_pending_experiment
+            target = write_pending_experiment(args.workspace, args.profile)
+            show({"experiment": target, "profile": args.profile, "ready": False})
         elif args.command == "init":
             if not args.dataset:
                 raise ConfigurationError("Select a dataset explicitly with --dataset")

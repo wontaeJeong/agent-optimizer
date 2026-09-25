@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
+import json
+import os
+import re
 import shutil
 import tempfile
 from pathlib import Path
 
 from agent_optimizer.catalog import INTEGRATIONS
-from agent_optimizer.contracts import ConfigurationError
+from agent_optimizer.config import read_toml
+from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.datasets import acquire_pinned_git
+from agent_optimizer.results import write_json
 from agent_optimizer.workspace import safe_path
 
 
@@ -76,7 +82,8 @@ def acquire_integration(workspace: Path, integration_id: str, *, offline: bool =
     source_info = INTEGRATIONS[integration_id]
     url = source_url or source_info["url"]
     commit = revision or source_info["revision"]
-    cache = cache_dir or Path.home() / ".cache/agent-optimizer/integrations"
+    cache_home = Path(os.environ["XDG_CACHE_HOME"]).expanduser() if os.environ.get("XDG_CACHE_HOME") else Path.home() / ".cache"
+    cache = cache_dir or cache_home / "agent-optimizer/integrations"
     source = acquire_pinned_git(cache / commit, url, commit, offline=offline)
     originals = selected_files(source, integration_id)
     for original in originals:
@@ -107,3 +114,123 @@ def acquire_integration(workspace: Path, integration_id: str, *, offline: bool =
             temporary.replace(destination)
     return {"url": url, "revision": commit,
             "paths": [path.relative_to(source).as_posix() for path in originals]}
+
+
+def write_pending_experiment(workspace: Path, integration_id: str) -> Path:
+    if integration_id != "ace-rtl":
+        raise ConfigurationError(f"실험 프로필을 지원하지 않습니다: {integration_id}")
+    if workspace.is_symlink():
+        raise ConfigurationError("실험 작업공간은 symlink일 수 없습니다")
+    workspace = workspace.resolve()
+    workspace.mkdir(parents=True, exist_ok=True)
+    path = safe_path(workspace, "experiment.toml")
+    if path.exists() or path.is_symlink():
+        raise ConfigurationError(f"실험 선언이 이미 있습니다: {path}")
+    revision = INTEGRATIONS[integration_id]["revision"]
+    content = ('schema_version = 1\n[integration]\n'
+               f'id = "{integration_id}"\nrevision = "{revision}"\n'
+               'contract = 1\nconfig = "examples/ace-rtl/experiment.toml"\n')
+    temporary = safe_path(workspace, "experiment.toml.tmp")
+    if temporary.exists() or temporary.is_symlink():
+        raise ConfigurationError(f"임시 실험 선언이 이미 있습니다: {temporary}")
+    temporary.write_text(content, encoding="utf-8")
+    temporary.replace(path)
+    return path
+
+
+def read_pointer(path: Path) -> tuple[Path, dict]:
+    path = path.resolve()
+    data = read_toml(path)
+    if set(data) != {"schema_version", "integration"} or data["schema_version"] != 1:
+        raise ConfigurationError("선택형 연동 실험 선언 형식이 올바르지 않습니다")
+    integration = data["integration"]
+    if not isinstance(integration, dict) or set(integration) != {"id", "revision", "contract", "config"}:
+        raise ConfigurationError("선택형 연동 ID·pin·계약 형식이 올바르지 않습니다")
+    selected = INTEGRATIONS.get(integration["id"])
+    if (selected is None or integration["revision"] != selected["revision"]
+            or integration["contract"] != selected["contract"]
+            or integration["config"] != "examples/ace-rtl/experiment.toml"
+            or integration["id"] != "ace-rtl"):
+        raise ConfigurationError("선택형 연동의 고정 출처/계약이 설치된 카탈로그와 다릅니다")
+    return path.parent, integration
+
+
+def verified_integration(workspace: Path) -> dict | None:
+    marker = safe_path(workspace, ".agent-opt/integration-ready.json")
+    if not marker.exists():
+        return None
+    try:
+        ready = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        raise ConfigurationError("연동 준비 기록을 읽을 수 없습니다") from None
+    if not isinstance(ready, dict) or ready.get("id") not in INTEGRATIONS:
+        raise ConfigurationError("연동 준비 기록의 ID가 올바르지 않습니다")
+    expected = INTEGRATIONS[ready["id"]]
+    if (ready.get("revision") != expected["revision"] or ready.get("ready") is not True
+            or ready.get("url") != expected["url"] or ready.get("contract") != expected["contract"]):
+        raise ConfigurationError("연동 준비 기록의 ID·pin이 실험 선언과 다릅니다")
+    files = ready.get("files")
+    if not isinstance(files, dict) or not files:
+        raise ConfigurationError("연동 준비 파일 목록이 없습니다")
+    for relative, digest in files.items():
+        if (not isinstance(relative, str) or not isinstance(digest, str)
+                or not re.fullmatch(r"[0-9a-f]{64}", digest)):
+            raise ConfigurationError("연동 파일 해시가 올바르지 않습니다")
+        selected = safe_path(workspace, relative)
+        if not selected.is_file() or hashlib.sha256(selected.read_bytes()).hexdigest() != digest:
+            raise ConfigurationError(f"준비된 연동 파일이 변경됐습니다: {relative}")
+    return ready
+
+
+def integration_plugins(integration_id: str) -> tuple[dict, dict]:
+    if integration_id in {"ace-rtl", "cvdp"}:
+        return ({"datasets": {"cvdp": "examples/benchmarks/cvdp.py:Provider"},
+                 "evaluators": {"cvdp": "examples/ace-rtl/evaluator.py:CVDPEvaluator"}},
+                {"datasets/cvdp": ["examples/ace-rtl/prepare.py",
+                                   "examples/ace-rtl/environment/setup.py"],
+                 "evaluators/cvdp": ["examples/ace-rtl/environment/network_driver.py"]})
+    if integration_id in {"verilog-spec", "verilog-completion"}:
+        symbol = "Provider" if integration_id == "verilog-spec" else "CompletionProvider"
+        return ({"datasets": {integration_id: f"examples/benchmarks/verilog_eval.py:{symbol}"},
+                 "evaluators": {"verilog_eval":
+                                "examples/benchmarks/verilog_evaluator.py:VerilogEvaluator"}},
+                {"datasets/" + integration_id: ["examples/benchmarks/Dockerfile.iverilog12"],
+                 "evaluators/verilog_eval": ["examples/benchmarks/verilog_eval.py"]})
+    raise ConfigurationError(f"지원하지 않는 선택형 연동: {integration_id}")
+
+
+def resolve_pointer(path: Path) -> Path:
+    workspace, integration = read_pointer(path)
+    ready = verified_integration(workspace)
+    if ready is None:
+        raise UnavailableError(f"연동 준비가 필요합니다: agent-opt prepare {path}")
+    if ready["id"] != integration["id"] or ready["revision"] != integration["revision"]:
+        raise ConfigurationError("연동 준비 기록이 선택한 실험과 다릅니다")
+    return safe_path(workspace, integration["config"])
+
+
+def prepare_pointer(path: Path, *, offline: bool = False) -> dict:
+    workspace, integration = read_pointer(path)
+    obtained = acquire_integration(workspace, integration["id"], offline=offline)
+    if (obtained["url"] != INTEGRATIONS[integration["id"]]["url"]
+            or obtained["revision"] != integration["revision"]):
+        raise ConfigurationError("연동 출처가 선택한 고정 버전과 다릅니다")
+    lifecycle_file = safe_path(workspace, "examples/ace-rtl/environment/lifecycle.py")
+    if not lifecycle_file.is_file():
+        raise ConfigurationError("선택한 ACE lifecycle이 없습니다")
+    loaded = importlib.util.spec_from_file_location("ace_prepared_lifecycle", lifecycle_file)
+    if loaded is None or loaded.loader is None:
+        raise ConfigurationError("ACE lifecycle을 불러올 수 없습니다")
+    lifecycle = importlib.util.module_from_spec(loaded)
+    loaded.loader.exec_module(lifecycle)
+    lifecycle.prepare(workspace, offline=offline)
+    report = lifecycle.inspect(workspace)
+    if not report["ready"]:
+        raise UnavailableError("ACE 평가 실행환경을 준비하지 못했습니다")
+    fingerprint = {relative: hashlib.sha256(safe_path(workspace, relative).read_bytes()).hexdigest()
+                   for relative in obtained["paths"]}
+    marker = safe_path(workspace, ".agent-opt/integration-ready.json")
+    write_json(marker, {"ready": True, "id": integration["id"],
+                        "revision": integration["revision"], "contract": integration["contract"],
+                        "url": obtained["url"], "files": fingerprint})
+    return {"experiment": path.resolve(), "profile": integration["id"], "ready": True}
