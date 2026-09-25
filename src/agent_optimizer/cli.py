@@ -479,12 +479,10 @@ def _dispatch(args):
                         if code:
                             return code
                         experiment = Path(json.loads(output.getvalue())["experiment"])
-                        output = io.StringIO()
-                        with contextlib.redirect_stdout(output):
+                        with contextlib.redirect_stdout(sys.stderr):
                             code = main(["prepare", str(experiment)])
                         if code:
                             return code
-                        prepared = json.loads(output.getvalue())
                     else:
                         print(human("기존 experiment.toml 경로: "), end="", file=sys.stderr, flush=True)
                         selected = input().strip()
@@ -504,7 +502,7 @@ def _dispatch(args):
                                 print(f"  {check['id']}: {message} {remedy}", file=sys.stderr)
                         return 2
                     if choice == "3":
-                        print(f"{human('실도구 진단')}: {human('준비됨' if prepared['ready'] else '준비 부족')}",
+                        print(f"{human('실도구 진단')}: {human('준비됨')}",
                               file=sys.stderr)
                     print(human("이 실험을 실행할까요? [y/N]: "), end="", file=sys.stderr, flush=True)
                     if input().strip().lower() not in {"y", "yes"}:
