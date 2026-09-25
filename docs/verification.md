@@ -1,5 +1,28 @@
 # 검증 기록
 
+## 2026-09-25 선택형 wheel 연동 검증
+
+Mac ARM64 / Python 3.12.12 / Docker daemon `linux/arm64`. 개발용 작업 브랜치
+`feat/selected-integrations-prepare`; 모델 endpoint·키를 사용한 **실제 모델 호출은 하지 않았다**.
+첫-party 예제 출처 `ae0874fb94d94284a07a17d84ef60058ed9a97b6`과
+ACE `fead921f18bb57345b5a41ef93ba625be208e99c`·CVDP
+`8e894cf74414ab1eaea1e2b4e80a02f123df07b6` pin은 유지했다.
+
+| 실제 명령·작업공간 | 결과와 한계 |
+|---|---|
+| `make setup`; `make doctor`; `sh scripts/bootstrap.sh setup --offline`; `make smoke` | 개발용 full ACE 공통 lifecycle의 새 준비·진단·offline 재준비 성공. `runs/dev-smoke-d52ef4d2b5dc/summary.json`은 `passed`: 실제 RTL 도구 9개·toy 정답/오답/조기 종료·공식 CVDP LFSR 정답/오답 실행. Docker 빌드는 기존 layer cache를 사용했다. |
+| `make test`; `make lint`; `make demo`; `node --test tests/endpoint-plugin.test.mjs`; `actionlint`; `sh -n scripts/bootstrap.sh`; `git diff --check`; 격리 문서 환경에서 `mkdocs build --strict --site-dir <임시 경로>` | 전체 **614개 중 599 통과·15 skip·실패 0**, Ruff·7-trial 합성 데모·Node 1개·워크플로/셸 문법·공백 검사·엄격 문서 빌드 통과. skip 15개는 호스트 Yosys/Icarus 등 선택적 실도구 검사이며 위 Docker smoke는 별도로 실행했다. |
+| `.venv/bin/python -m build`; `.venv/bin/python tests/test_installed_cli.py dist/agent_optimizer-0.3.0-py3-none-any.whl` | wheel 생성 후 공백이 있는 소스 밖 임시 경로에 설치. 목록·TTY ACE 선택 거절(자산 미생성)·로컬 사용자 Agent/별도 evaluator의 init/doctor/run/report와 원본 보존을 확인. |
+| 설치된 wheel의 `agent-opt init --profile ace-rtl --workspace <작업공간>` → `doctor --plan <작업공간>/experiment.toml --json` → `prepare <...>` → `doctor --plan <...> --json` → `prepare <...> --offline` | 저장소 소스가 없는 `/var/folders/.../opencode/ace-wheel-verification-20260925-workspace`에서 준비 전 `integration.prepare=blocked`, 준비 후 `ready=true`, offline 재준비 `ready=true`. 동일 wheel로 `runs/wheel-selected-ace-20260925`에서 재준비 성공. |
+| 설치된 wheel Python으로 공유 작업공간을 cwd로 `tests/test_installed_ace.py` 실행(2회); endpoint만 넣고 모델 키 없이 `agent-opt run runs/wheel-selected-ace-20260925/experiment.toml` | 공식 LFSR 참조 RTL `passed=1`/의도한 오답 `passed=0`, 각각 **실제 비어 있지 않은 raw test** 확인. 재실행도 독립 결과 디렉터리에서 통과. 키 없는 실행은 `blocked_auth`, 종료 코드 2. 모델 개선·후보 선택은 검증하지 않았다. |
+| 설치된 wheel의 pseudo-TTY `agent-opt tui --project-root <개발 작업공간>` → `3` → `runs/wheel-tui-ace-fixed-20260925` → 준비 승인 `y` → 실행 거절 `n` | 실제 소스/driver/이미지 준비와 `계획 진단: 준비됨`, `실도구 진단: 준비됨`을 출력한 뒤 실행 없이 종료 코드 2·stdout 빈 값·준비 완료 marker를 확인. 초기에는 준비 로그와 JSON을 한 문자열로 읽는 TUI 오류를 발견해 회귀 테스트로 재현·수정한 뒤 재실행했다. |
+
+macOS Docker Desktop에서는 `/var/folders/.../opencode`의 임시 작업공간이 호스트에서는
+존재해도 컨테이너 bind mount에서 비어 있었다. 그곳의 공식 정답 평가가 `0/1`로 실패했고,
+컨테이너의 `/src`가 비어 있음을 확인했다. 위 공식 평가 통과는 Docker가 공유하는
+`/Users/.../runs/wheel-selected-ace-20260925` 경로에서의 결과다. 따라서 정적 계획 진단이나
+이미지 도구 진단만으로 임의 작업공간의 평가 성공을 주장하지 않는다.
+
 ## 2026-09-25 wheel 독립 실행과 ACE 예제 lifecycle 분리
 
 Mac ARM64 / Python 3.12.12 / Docker daemon `linux/arm64`, 작업 브랜치

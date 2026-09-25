@@ -24,19 +24,46 @@ python3.12 -m venv .venv-docs
 
 ## Agent 개발자가 사용하는 경로
 
-설치된 wheel만 사용하는 경우 저장소 clone 없이도 `agent-opt datasets list`와 사용자 로컬/Git
+wheel만 설치해도 저장소 clone 없이 `agent-opt datasets list`와 사용자 로컬/고정 Git
 Agent·명시적 evaluator 실험의 `init` → `doctor --plan` → `run` → `report`가 동작합니다.
-`cvdp`·Verilog-Eval은 선택형 연동 항목으로 표시되며, 이 단계에서는 소스 저장소의 해당
-예제 또는 이후 고정 버전 연동 준비가 있어야 실행할 수 있습니다. 목록 노출은 자산 준비나
-모델 연결 성공을 뜻하지 않습니다.
+`cvdp`·Verilog-Eval은 **직접 선택한 뒤에만** 검증된 고정 버전 코드·데이터·평가 환경을
+준비합니다. 목록 노출은 자산 준비나 모델 연결 성공을 뜻하지 않습니다.
 
-먼저 `make setup-core`로 CLI를 준비합니다. `.venv/bin/agent-opt tui`에서 **기존 실험 실행**을
+저장소 개발자는 먼저 `make setup-core`로 CLI를 준비합니다. `.venv/bin/agent-opt tui`에서 **기존 실험 실행**을
 선택하면 `experiment.toml`의 계획 진단·확인 뒤 실행하고, **새 실험 만들고 실행**에서는
 Agent·editable 파일·Optimizer·**직접 선택하는 데이터셋**을 묻습니다. 새 `command` 하네스에서만
-Agent 실행 명령을 묻고, 설정만 만들려면 `.venv/bin/agent-opt init`을 대화형으로 실행합니다.
+Agent 실행 명령을 묻습니다. **3번 ACE-RTL + CVDP 예제**에서는 작업공간과 준비 작업을
+확인한 뒤 선택형 연동을 준비하고, 진단 뒤 실행을 다시 확인합니다. 설정만 만들려면
+`.venv/bin/agent-opt init`을 대화형으로 실행합니다.
 데이터셋을 자동 추천하지 않으며, 선택한 CVDP/Verilog-Eval은 고정 버전 소스·데이터·OSS 평가 환경을
 자동 준비합니다(첫 실행에는 다운로드·Docker 빌드가 걸릴 수 있습니다). 사용자 데이터셋도 별도의
 채점기를 지정해 사용할 수 있습니다.
+
+### 저장소 없이 wheel에서 ACE 예제 선택
+
+Python 3.11+, Git, uv, Docker Engine/Compose가 필요합니다. 제공받은 wheel을 가상환경에
+설치한 뒤 **새 작업공간**을 지정하세요. macOS Docker Desktop은 해당 작업공간을 컨테이너에
+공유할 수 있어야 하므로 홈 디렉터리처럼 공유된 경로를 사용합니다.
+
+```bash
+python3 -m venv "$HOME/agent-opt-env"
+"$HOME/agent-opt-env/bin/python" -m pip install /path/to/agent_optimizer-0.3.0-py3-none-any.whl
+"$HOME/agent-opt-env/bin/agent-opt" init --profile ace-rtl --workspace "$HOME/agent-opt-ace"
+"$HOME/agent-opt-env/bin/agent-opt" doctor --plan "$HOME/agent-opt-ace/experiment.toml" --json
+"$HOME/agent-opt-env/bin/agent-opt" prepare "$HOME/agent-opt-ace/experiment.toml"
+"$HOME/agent-opt-env/bin/agent-opt" doctor --plan "$HOME/agent-opt-ace/experiment.toml" --json
+# 자격증명과 모델 endpoint는 환경/credential store에 설정한 뒤에만:
+"$HOME/agent-opt-env/bin/agent-opt" run "$HOME/agent-opt-ace/experiment.toml"
+```
+
+첫 `doctor --plan`은 `integration.prepare=blocked`, 준비 뒤에는 정적 계획 검사가
+`ready=true`로 바뀝니다. `prepare`는 고정 Git 소스·CVDP 데이터·별도 Python driver·Docker
+이미지를 준비하고 실제 도구를 검사합니다. 검증한 캐시만 재사용하려면 `prepare ... --offline`을
+사용하세요. `run`은 준비되지 않은 자산을 자동 설치하지 않으며, 모델 키가 없으면 명시적으로
+실패합니다. TTY에서는 `agent-opt tui`의 3번으로 같은 선택·준비 흐름을 시작할 수 있습니다.
+다른 Agent의 CVDP만 사용하려면 사용자 `--agent`와 `--dataset cvdp`를 지정하고,
+사용자 `tasks.json`에는 `--evaluator file.py:Symbol`을 따로 지정합니다. 서로 다른
+평가기 점수를 직접 합산하지 않습니다.
 
 ### 모델·Docker 없이 기본 동작 확인
 

@@ -24,6 +24,7 @@ def invoke(cli: Path, project: Path, environment: dict, *args: str) -> dict:
 
 
 def check_tui_menu(cli: Path, project: Path, environment: dict) -> None:
+    declined = project / "declined ace"
     master, slave = pty.openpty()
     try:
         child = subprocess.Popen([str(cli), "tui", "--project-root", str(project)],
@@ -31,7 +32,7 @@ def check_tui_menu(cli: Path, project: Path, environment: dict) -> None:
                                  stdout=subprocess.PIPE, text=True)
         os.close(slave)
         slave = -1
-        os.write(master, b"0\n")
+        os.write(master, f"3\n{declined}\nn\n".encode())
         chunks = []
         while True:
             readable, _, _ = select.select([master], [], [], 30)
@@ -46,7 +47,8 @@ def check_tui_menu(cli: Path, project: Path, environment: dict) -> None:
             chunks.append(part)
         stdout, _ = child.communicate(timeout=30)
         transcript = b"".join(chunks).decode(errors="replace")
-        if child.returncode != 2 or "실험 시작:" not in transcript or stdout:
+        if (child.returncode != 2 or "3. ACE-RTL + CVDP 예제" not in transcript
+                or str(declined) not in transcript or stdout or declined.exists()):
             raise AssertionError(f"설치형 TUI rc={child.returncode}, stdout={stdout!r}, stderr={transcript!r}")
     finally:
         if slave >= 0:

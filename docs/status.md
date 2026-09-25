@@ -1,17 +1,19 @@
 # 현재 구현·검증 상태
 
-**2026-09-24 확장:** 코어 setup/doctor → 명시적 데이터셋 선택/준비 → CLI/TUI 최적화 → HTML 보고서.
+**2026-09-25 확장:** 코어 setup/doctor → 명시적 데이터셋·ACE 프로필 선택/준비 → CLI/TUI 최적화 → HTML 보고서.
 팀 개발의 API-free fixture → 파일 플러그인 경로도 유지한다.
 시작은 [README](../README.md#개발환경-빠른-시작)와 [역할별 템플릿](../experiments/README.md).
 번호 메뉴는 제공하며 1/2는 core, 7은 선택적 ACE 전체 준비, 8은 일반 Agent TUI다.
 옵션 없는 setup/doctor의 전체 ACE 경로와 `--dataset ID`의 선택 데이터셋 경로는 별개다.
-`agent-opt tui`는 기존 실험의 계획 진단·확인·실행과 새 실험 생성·실행을 선택할 수 있고,
+`agent-opt tui`는 기존 실험, 새 실험, ACE-RTL + CVDP 예제의 별도 선택·준비·실행을 지원하고,
 `agent-opt init`은 TTY에서 새 설정만 만들 수 있다. 병렬 scheduler·resume·native ACE는 [보류](FUTURE.md)다.
 고정 `examples/ace-rtl/experiment.toml`을 TUI/`agent-opt run`에서 선택하면 예제 어댑터가
 기존 `live` 준비·실행에 위임한다. 이는 OpenCode 스킬 프로필 + 공식 CVDP 평가이며 native ACE는 아니다.
-wheel 단독 설치의 로컬 Agent·사용자 데이터셋/명시적 evaluator 실험은 소스 저장소 없이
-실행할 수 있다. ACE/CVDP 선택형 연동을 wheel 사용자가 직접 준비하는 경로는 별도
-고정 버전 카탈로그 연결 전까지 완료로 표시하지 않는다.
+wheel 단독 설치에서 로컬 Agent·사용자 데이터셋/명시적 evaluator 실험과
+`init --profile ace-rtl` → `prepare` → `doctor --plan` → `run`을 소스 저장소 없이
+선택할 수 있다. CVDP·Verilog-Eval도 선택 시에만 고정 출처의 코드를 가져온다.
+준비 완료 marker와 자산 해시가 없으면 실행하지 않는다. 개발 checkout의 full ACE
+`setup`/`smoke`/`live`는 같은 예제 lifecycle을 재사용한다.
 
 ## 현재 기능
 
@@ -63,6 +65,7 @@ native `ace_agent_runner.py`/`ace_cvdp_native_runner.py`의 자체 역할·반�
   공식 Docker/SSE-tool fixture, 온보딩 검증을 [날짜별 기록](verification.md)에 유지한다.
   그 당시 9-trial minimal 기록은 당시 결과이며 현재 7-trial 경로로 소급 수정하지 않는다.
 - **이번 실제 연결 검증:** DeepSeek `deepseek-flash` → ACE OpenCode 스킬 프로필 → 공식 CVDP의 두 과제·4 trial이 Mac ARM64에서 실행되었다. 두 validation 후보가 1.0으로 동점이라 시간 기준으로 baseline이 선택되었다. [2026-09-25 기록](verification.md#2026-09-25-ace-rtl-스킬-프로필-실제-모델-e2e).
+- **선택형 wheel의 새 검증:** Mac ARM64에서 소스 밖 wheel 설치·사용자 Agent 합성 실행, 선택형 ACE 고정 Git/driver/이미지 준비와 읽기 전용 계획 진단, Docker 공식 LFSR 정답·오답을 확인했다. 모델 키 없는 `run`은 `blocked_auth`로 차단된다. [같은 날짜의 별도 기록](verification.md#2026-09-25-선택형-wheel-연동-검증).
 - **미검증:** 실제 배포 모델→실 Agent에 세 연구 알고리즘을 적용한 성능 향상, native ACE,
   Verilog-Eval의 전체 과제/Ubuntu x86_64 실행, 전체 sub-agent 사용량. 새 팀 컴포넌트도
   복사/fixture 검증과 실제 환경 실행을 각각 구분한다. plan doctor는 설정/등록·로컬 자산 수준 검사다.
