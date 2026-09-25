@@ -24,6 +24,12 @@ python3.12 -m venv .venv-docs
 
 ## Agent 개발자가 사용하는 경로
 
+설치된 wheel만 사용하는 경우 저장소 clone 없이도 `agent-opt datasets list`와 사용자 로컬/Git
+Agent·명시적 evaluator 실험의 `init` → `doctor --plan` → `run` → `report`가 동작합니다.
+`cvdp`·Verilog-Eval은 선택형 연동 항목으로 표시되며, 이 단계에서는 소스 저장소의 해당
+예제 또는 이후 고정 버전 연동 준비가 있어야 실행할 수 있습니다. 목록 노출은 자산 준비나
+모델 연결 성공을 뜻하지 않습니다.
+
 먼저 `make setup-core`로 CLI를 준비합니다. `.venv/bin/agent-opt tui`에서 **기존 실험 실행**을
 선택하면 `experiment.toml`의 계획 진단·확인 뒤 실행하고, **새 실험 만들고 실행**에서는
 Agent·editable 파일·Optimizer·**직접 선택하는 데이터셋**을 묻습니다. 새 `command` 하네스에서만
