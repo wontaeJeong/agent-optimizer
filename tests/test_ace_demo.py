@@ -1,4 +1,6 @@
 import copy
+import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -46,3 +48,31 @@ class AceDemoTests(unittest.TestCase):
             self.assertIn("candidate-specific-guidance", result.prompt)
             self.assertIn("public-prompt", result.prompt)
             self.assertEqual(request.prompt, "public-prompt")
+
+    def test_lifecycle_prepares_fixed_demo_from_relocated_example(self):
+        with tempfile.TemporaryDirectory(prefix="ace-profile-") as directory:
+            root = Path(directory)
+            example = root / "examples/ace-rtl"
+            (example / "environment").mkdir(parents=True)
+            shutil.copyfile(ROOT / "examples/ace-rtl/environment/demo.py",
+                            example / "environment/demo.py")
+            (example / "environment/setup.py").write_text(
+                'from pathlib import Path\n'
+                'def prepare_environment(*, offline=False, platform=None):\n'
+                '    assert offline and platform == "linux/arm64"\n'
+                '    return Path("public.jsonl"), {"platform": platform}\n')
+            (example / "prepare.py").write_text(
+                'def prepare_dataset(dataset, output, lock):\n'
+                '    assert output.name == "all-tasks.json" and lock["platform"] == "linux/arm64"\n'
+                '    return {"schema_version": 1, "tasks": [\n'
+                '      {"id": "cvdp_copilot_8x3_priority_encoder_0001", "family": "priority", '
+                '"split": "validation", "files": {"rtl/a.v": ""}},\n'
+                '      {"id": "cvdp_copilot_16qam_mapper_0001", "family": "qam", '
+                '"split": "validation", "files": {"rtl/b.v": ""}}]}\n')
+            shutil.copyfile(ROOT / "examples/ace-rtl/environment/lifecycle.py",
+                            example / "environment/lifecycle.py")
+            lifecycle = module("isolated_ace_lifecycle_prepare", example / "environment/lifecycle.py")
+            target = lifecycle.prepare(root, offline=True, platform="linux/arm64")
+            self.assertEqual(target, root.resolve() / "datasets/ace-demo/tasks.json")
+            self.assertEqual([row["split"] for row in json.loads(target.read_text())["tasks"]],
+                             ["train", "validation"])
