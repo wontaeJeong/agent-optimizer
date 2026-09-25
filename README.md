@@ -272,7 +272,8 @@ external/ datasets/ runs/ 다운로드·데이터·결과, Git 제외
   기본 최종 비교는 모든 stage winner, 선택은 lexicographic keep=1·mean/sum입니다.
 - OpenCode 및 Docker 실행 어댑터와 예제 전용 Icarus/CVDP 연결 코드를 포함합니다.
 - GEPA/Meta-Harness/Ecdysis의 독립 검색 루프와 팀 파일 플러그인을 제공합니다.
-  미구현 템플릿은 명시적으로 실패하며 고급 조합/선택은 [FUTURE](docs/FUTURE.md)에 있습니다.
+  GEPA의 validation Pareto 선택은 유지하며, 병합(`merge=true`)은 train 전용 수정 근거를
+  보장할 때까지 명시적으로 실패합니다. 미구현 템플릿과 고급 조합/선택은 [FUTURE](docs/FUTURE.md)에 있습니다.
 - Claude Code / Codex / OpenAgent는 확장 규약만 제공합니다. 별도 구현 완료로 표시하지 않습니다.
 - Mac Docker ARM64와 native Ubuntu x86_64에서 공식 CVDP 정답·오답과 host-Docker toy 평가를 실행했습니다.
   실제 도구 테스트 9개와 전체 smoke가 통과했습니다. 입력 제한은 필수이며 합성만으로 임의 RTL을

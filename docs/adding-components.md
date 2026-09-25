@@ -83,6 +83,8 @@ source clone/데이터 다운로드/설치 스크립트의 실제 실행 결과�
 각 stage의 seed는 같은 그룹 baseline입니다. baseline train cache는 공유하되 다른 stage의 후보 이력은
 공유하지 않습니다. 기본 최종 비교는 모든 stage winner이고 `final_stages`로 명시적 subset을 정할 수 있습니다.
 GEPA·Meta-Harness의 내부 선택은 validation 수치 벡터를 볼 수 있으나 모델 수정 근거는 train에 둡니다.
+GEPA의 `merge=true`는 현재 명시적으로 거부합니다. 병합이 모델 변경에 validation 수치를 사용하지
+않도록 검증한 뒤에만 재활성화합니다.
 Ecdysis 수용은 train 개선만 사용합니다. 전체 최종 선택을 고정한 뒤에만 test를 실행합니다.
 `[[stages]].max_trials`로 독립 stage의 trial 상한을 지정하면 다른 stage 예산을 소진하지 않고
 `budget_exhausted`로 기록합니다. 모든 stage 상한을 지정했을 때 baseline/최종 test 최소 예약을 검사합니다.

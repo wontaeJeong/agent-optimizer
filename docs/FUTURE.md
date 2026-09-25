@@ -18,6 +18,9 @@ stored-result rerank, 설치 entry-point 자동 발견은 보류했다.
 
 - **전체 화면 실행 이력 탐색:** 현재 `agent-opt tui`는 설정 wizard와 실시간 단계/시간 화면이며
   복수 과거 실행을 탐색하는 화면은 제공하지 않는다.
+- **GEPA 병합 재활성화:** `merge=true`는 명시적으로 실패하지만 기존 구현은 보존한다.
+  validation 점수는 내부 후보 선택에만 사용하고, 모델의 수정 제안은 train 근거로만 생성하도록
+  경계를 검증하는 회귀를 확보한 뒤 재활성화한다.
 - **단일 실험 내부 병렬 scheduler / resume:** 데이터셋별 session은 제한된 수의 독립 프로세스로 실행한다.
   같은 실험의 Agent×Harness·stage·과제/반복은 순차 실행하며 checkpoint/결과 보존은 재시작 보장이 아니다.
 - **native ACE:** 현재 OpenCode 스킬 프로필과 별도다. 원본 runner/wrapper·의존성·모델/내부 반복 예산,
