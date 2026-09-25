@@ -123,8 +123,8 @@ class UsageReportTests(unittest.TestCase):
             self.assertIn("-1e+308", markdown)
             self.assertIn("1e+308", markdown)
             self.assertIn("| a | h | unknown | 0 completed | 0 | 0 | score | -1e+308 | 1e+308 | null |", markdown)
-            self.assertIn("unknown", html)
-            self.assertIn("Validation winner", html)
+            self.assertIn("알 수 없음", html)
+            self.assertIn("검증에서 선택된 후보", html)
             self.assertIn("chosen", html)
 
     def test_common_artifacts_compare_two_groups_without_cross_group_ranking(self):
@@ -163,8 +163,10 @@ class UsageReportTests(unittest.TestCase):
             for agent, trend in (("alpha", "improved"), ("beta", "regressed")):
                 for artifact in (markdown, html):
                     self.assertIn(agent, artifact)
-                    self.assertIn(trend, artifact)
-                    self.assertIn("1 completed", artifact)
+                self.assertIn(trend, markdown)
+                self.assertIn({"improved": "개선", "regressed": "악화"}[trend], html)
+                self.assertIn("1 completed", markdown)
+                self.assertIn("완료 1건", html)
             self.assertIn("Reserved trials: 3; completed evaluations: 2", markdown)
 
     def test_markdown_keeps_all_stage_rows_together_before_group_evidence(self):

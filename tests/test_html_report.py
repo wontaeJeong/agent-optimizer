@@ -11,7 +11,7 @@ from agent_optimizer.config import load_experiment
 from agent_optimizer.contracts import Evaluation, UnavailableError
 from agent_optimizer.registry import Registry
 from agent_optimizer.runner import run_experiment
-from agent_optimizer.html_report import write_html_report
+from agent_optimizer.html_report import write_html_report, write_session_index
 from support import test_project
 
 
@@ -21,6 +21,55 @@ class HTMLReportTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.spec = load_experiment(self.root / "examples/minimal/experiment.toml")
         self.spec["_agents"] = self.spec["_agents"][:1]
+
+    def test_run_html_localizes_navigation_status_and_explains_selection(self):
+        run, summary = run_experiment(self.spec, Registry(), self.root / "runs")
+        page = (run / "report.html").read_text(encoding="utf-8")
+        self.assertIn('<html lang="ko">', page)
+        self.assertIn('<span class="pill">완료</span>', page)
+        self.assertIn('href="#held-out-test">최종 테스트</a>', page)
+        self.assertIn('<span><abbr class="help"', page)
+        self.assertIn('title="과제별로 실제 종료되어 기록된 평가 건수입니다."', page)
+        self.assertRegex(page, r'<abbr[^>]+title="[^"]+"[^>]+tabindex="0"[^>]*>검증</abbr>')
+        self.assertIn('.help:focus-visible::after', page)
+        self.assertIn('검증에서 선택된 후보', page)
+        self.assertIn('fixture-validation', page)
+        self.assertIn('summary.json', page)
+
+    def test_session_html_localizes_status_and_explains_dataset_separation(self):
+        root = self.root / "session"
+        root.mkdir()
+        run = root / "dataset-1"
+        run.mkdir()
+        (run / "report.html").write_text("report", encoding="utf-8")
+        page = write_session_index(root, [
+            {"dataset": "<private>", "status": "completed", "report": "dataset-1/report.html"},
+            {"dataset": "other", "status": "error", "error": "<bad>"},
+        ]).read_text(encoding="utf-8")
+        self.assertIn('<html lang="ko">', page)
+        self.assertIn('데이터셋별 독립 평가', page)
+        self.assertIn('상태: 완료', page)
+        self.assertIn('상태: 오류', page)
+        self.assertIn('title="서로 다른 채점기의 점수를 직접 비교하거나 순위를 매기지 않습니다."', page)
+        self.assertIn('&lt;private&gt;', page)
+        self.assertIn('&lt;bad&gt;', page)
+        self.assertIn('href="dataset-1/report.html"', page)
+        self.assertNotIn('<private>', page)
+
+    def test_builtin_iteration_label_is_localized_but_raw_event_is_preserved(self):
+        run = self.root / "iteration"
+        run.mkdir()
+        (run / "events.jsonl").write_text(json.dumps({
+            "event": "optimizer_iteration_started", "agent_id": "solo", "harness_id": "fixture",
+            "stage_id": "search", "iteration": 3, "candidate_id": "c1",
+        }) + "\n", encoding="utf-8")
+        summary = {"groups": [{"agent_id": "solo", "harness_id": "fixture",
+                              "selected": [], "final_test": [], "stages": []}]}
+        page = write_html_report(run, summary).read_text(encoding="utf-8")
+        journey = page.split('<section id="journey">', 1)[1].split('</section>', 1)[0]
+        self.assertIn('<strong>반복 3</strong>', journey)
+        self.assertNotIn('<strong>Iteration 3</strong>', journey)
+        self.assertIn('&quot;iteration&quot;: 3', journey)
 
     def test_completed_report_shows_splits_timeline_usage_and_candidate_links(self):
         run, summary = run_experiment(self.spec, Registry(), self.root / "runs")
@@ -32,8 +81,8 @@ class HTMLReportTests(unittest.TestCase):
         manifest_path.write_text(json.dumps(manifest))
         write_html_report(run, summary)
         page = (run / "report.html").read_text(encoding="utf-8")
-        for detail in ("Agent Optimizer", "Baseline", "validation", "test",
-                       "fixture-validation", "Optimizer usage", "Candidate changes"):
+        for detail in ("Agent Optimizer", "기준 후보", "검증", "최종 테스트",
+                       "fixture-validation", "Optimizer 사용량", "후보 변경 내역"):
             with self.subTest(detail=detail):
                 self.assertIn(detail, page)
         self.assertIn("changes.diff", page)
@@ -61,7 +110,7 @@ class HTMLReportTests(unittest.TestCase):
         page = (run / "report.html").read_text(encoding="utf-8")
         self.assertIn("&lt;script&gt;alert(1)&lt;/script&gt;", page)
         self.assertNotIn("<script>alert(1)</script>", page)
-        self.assertIn("Not evaluated", page)
+        self.assertIn("평가 기록 없음", page)
 
     def test_run_failure_still_writes_inspectable_html(self):
         class FailingOptimizer:
@@ -115,33 +164,35 @@ class HTMLReportTests(unittest.TestCase):
             self.assertGreater(group["counts"]["completed_evaluations"], 0)
             for content in (markdown, html):
                 self.assertIn(group["agent_id"], content)
-                self.assertIn(f'{group["counts"]["completed_evaluations"]} completed', content)
-                self.assertIn(group["comparison_trend"], content)
+            self.assertIn(f'{group["counts"]["completed_evaluations"]} completed', markdown)
+            self.assertIn(f'완료 {group["counts"]["completed_evaluations"]}건', html)
+            self.assertIn(group["comparison_trend"], markdown)
+            self.assertIn({"improved": "개선", "unchanged": "변화 없음"}[group["comparison_trend"]], html)
 
         self.assertIn("multi-agent-demo", html)
         self.assertIn("examples/minimal/tasks.json", html)
-        self.assertIn("maximize", html)
+        self.assertIn("높을수록 좋음", html)
         self.assertIn("max_trials", html)
-        self.assertIn("Synthetic fixture", html)
+        self.assertIn("합성 예제", html)
         self.assertIn('scope="col"', html)
         self.assertIn("<caption", html)
         self.assertNotIn('src="https://', html)
-        self.assertIn('<strong>7</strong><span>Completed evaluations', html)
+        self.assertRegex(html, r'<strong>7</strong><span><abbr[^>]*>완료된 평가</abbr>')
         self.assertEqual(model["counts"]["completed_evaluations"], 7)
         self.assertEqual(model["identity"]["run_wall_time_seconds"],
                          summary["run_wall_time_seconds"])
-        self.assertIn('Observed run wall time', html)
+        self.assertIn('실측 실행 시간', html)
         self.assertEqual(len(re.findall(r'<tr[^>]+id="evaluation-', html)), 7)
         self.assertIn('href="rtl-solo/fixture/candidates/c0002/changes.diff"', html)
         self.assertIn('href="rtl-team/fixture/candidates/c0001/changes.diff"', html)
         self.assertIn('href="rtl-solo/fixture/candidates/c0002/bundle/"', html)
         self.assertIn('href="rtl-team/fixture/candidates/c0001/bundle/"', html)
-        self.assertIn('validation aggregate · 1 trial</span>', html)
-        self.assertNotIn('validation aggregate · 1.000 trials</span>', html)
+        self.assertIn('집계 · 1 건의 평가</span>', html)
+        self.assertNotIn('집계 · 1.000 건의 평가</span>', html)
         self.assertIn("+1.000", html)  # solo 0 -> 1; team 1 -> 1
         self.assertIn("+0.000", html)
         self.assertIn('id="held-out-test"', html)
-        self.assertIn("diff preview", html.lower())
+        self.assertIn("변경 사항 미리보기", html)
 
     def test_long_untrusted_feedback_keeps_full_text_in_details(self):
         class FailingEvaluator:
@@ -176,10 +227,10 @@ class HTMLReportTests(unittest.TestCase):
         }) + "\n", encoding="utf-8")
         page = write_html_report(run, summary).read_text(encoding="utf-8")
         self.assertIn("unknown-plugin", page)
-        self.assertIn("No recorded structure", page)
+        self.assertIn("기록된 탐색 구조가 없습니다", page)
         self.assertIn('id="evaluations"', page)
         self.assertIn("infra-1", page)
-        self.assertIn("infrastructure", page)
+        self.assertIn("실행 환경 오류", page)
         self.assertIn("worker unavailable", page)
         self.assertNotIn("category: timeout", page)
         self.assertIn('scope="row"', page)
@@ -218,7 +269,7 @@ class HTMLReportTests(unittest.TestCase):
         self.assertNotIn('<script>secret-trace</script>', page)
         self.assertNotIn('secret-trace', journey.split('<details', 1)[0])
         self.assertNotIn('other-group-only', page)
-        self.assertIn('Not evaluated', page)
+        self.assertIn('평가 기록 없음', page)
 
     def test_long_unbroken_experiment_name_is_wrappable_without_truncation(self):
         run = self.root / "long-name"
@@ -241,7 +292,7 @@ class HTMLReportTests(unittest.TestCase):
         candidate["changed_files"] = [long_path]
 
         page = write_html_report(run, summary, model).read_text(encoding="utf-8")
-        self.assertIn(f'Changed files: <code>{long_path}</code>', page)
+        self.assertIn(f'변경 파일: <code>{long_path}</code>', page)
         self.assertRegex(page, r'code,pre\{[^}]*overflow-wrap:anywhere')
 
     def test_untrusted_candidate_paths_are_not_links_and_large_durations_are_not_summed(self):
@@ -259,9 +310,9 @@ class HTMLReportTests(unittest.TestCase):
         }) for number in range(2)) + "\n", encoding="utf-8")
         page = write_html_report(run, summary).read_text(encoding="utf-8")
         self.assertNotIn('href="../', page)
-        self.assertNotIn("Summed task wall time", page)
+        self.assertNotIn("과제 시간 합계", page)
         self.assertNotIn("infs", page)
-        self.assertIn("2 completed", page)
+        self.assertIn("완료 2건", page)
 
     def test_invalid_or_nonvalidation_selection_is_recorded_without_winner_claim(self):
         run = self.root / "invalid-selection"
@@ -285,9 +336,9 @@ class HTMLReportTests(unittest.TestCase):
         self.assertIn("bad-validation", page)
         self.assertIn("other-group", page)
         self.assertIn("partial", page)
-        self.assertIn("Recorded selection", page)
-        self.assertNotIn("Validation winner", page)
-        self.assertNotIn("BEST ·", page)
+        self.assertIn("기록된 선택", page)
+        self.assertNotIn("검증에서 선택된 후보:", page)
+        self.assertNotIn("검증에서 선택 ·", page)
 
     def test_small_minimize_delta_keeps_sign_and_distinguishable_scores(self):
         run = self.root / "small-score"
@@ -329,12 +380,12 @@ class HTMLReportTests(unittest.TestCase):
                               "valid": True}], "final_test": [], "stages": []}]}
 
         page = write_html_report(run, summary).read_text(encoding="utf-8")
-        self.assertIn('<details><summary>Recorded candidate · rejected</summary>', page)
+        self.assertIn('<details><summary>기록된 후보 · rejected</summary>', page)
         self.assertIn('href="solo/fixture/candidates/rejected/changes.diff"', page)
         self.assertIn('href="#evaluation-0-0"', page)
         self.assertIn('id="evaluation-0-0"', page)
         self.assertIn("unevaluated", page)
-        self.assertIn("Not evaluated", page)
+        self.assertIn("평가 기록 없음", page)
         self.assertIn("danger&lt;file&gt;.txt", page)
         self.assertIn("+&lt;script&gt;bad&lt;/script&gt;", page)
         self.assertNotIn("+<script>bad</script>", page)
@@ -358,7 +409,7 @@ class HTMLReportTests(unittest.TestCase):
         self.assertIn("g0", journey)
         self.assertIn("optimizer_probe_completed", journey)
         self.assertIn("&lt;unsafe&gt;opaque&lt;/unsafe&gt;", journey)
-        self.assertIn("Raw event", journey)
+        self.assertIn("이벤트 원본", journey)
         self.assertNotIn("<unsafe>", page)
 
     def test_compact_budget_and_measured_wall_time_leave_full_config_in_details(self):
@@ -370,13 +421,13 @@ class HTMLReportTests(unittest.TestCase):
             "budget": budget}}), encoding="utf-8")
         summary = {"status": "completed", "run_wall_time_seconds": 2.125, "groups": []}
         page = write_html_report(run, summary).read_text(encoding="utf-8")
-        self.assertIn("40 trials · 120s wall · 10s/trial", page)
-        self.assertIn("Observed run wall time", page)
+        self.assertIn("40회 · 120초 총 실행 제한 · 10초/평가", page)
+        self.assertIn("실측 실행 시간", page)
         self.assertIn("2.125", page)
         self.assertIn('&quot;extra_limit&quot;', page)
         self.assertNotIn('{&quot;max_trials&quot;: 40', page)
         page = write_html_report(run, {"status": "completed", "groups": []}).read_text(encoding="utf-8")
-        self.assertNotIn("Observed run wall time", page)
+        self.assertNotIn("실측 실행 시간", page)
 
     def test_large_legacy_budget_integer_does_not_prevent_report_generation(self):
         run = self.root / "large-budget"
@@ -385,8 +436,8 @@ class HTMLReportTests(unittest.TestCase):
         (run / "manifest.json").write_text(json.dumps({"experiment": {
             "budget": {"max_trials": huge}}}), encoding="utf-8")
         page = write_html_report(run, {"groups": []}).read_text(encoding="utf-8")
-        self.assertIn(f'{huge} trials', page)
-        self.assertIn('Experiment configuration', page)
+        self.assertIn(f'{huge}회', page)
+        self.assertIn('실험 설정 원본', page)
 
 
 if __name__ == "__main__":
