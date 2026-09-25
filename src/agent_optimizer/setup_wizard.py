@@ -44,6 +44,9 @@ def prepare_selection(project_root: Path, selection: str, *, evaluator: str | No
                       offline: bool = False) -> tuple[dict, dict, dict]:
     registry, _, _ = component_inventory(project_root)
     plugins, dependencies = {}, {}
+    custom_source = Path(selection)
+    if not custom_source.is_absolute():
+        custom_source = project_root / custom_source
     if selection in registry.factories["datasets"]:
         with PreparationStatus(selection), contextlib.redirect_stdout(sys.stderr):
             result = registry.resolve("datasets", selection)().prepare(
@@ -53,7 +56,7 @@ def prepare_selection(project_root: Path, selection: str, *, evaluator: str | No
             raise ConfigurationError("Registered dataset provider must return a registered evaluator ID")
         registry.resolve("evaluators", evaluator_id)
         result = {**result, "evaluator": evaluator_id, "dataset_provider": selection}
-    elif Path(selection).is_file():
+    elif custom_source.is_file():
         if not evaluator:
             raise ConfigurationError("Custom dataset requires an explicit evaluator")
         if ":" in evaluator:
@@ -62,8 +65,8 @@ def prepare_selection(project_root: Path, selection: str, *, evaluator: str | No
         else:
             registry.resolve("evaluators", evaluator)
             result_name = evaluator
-        with PreparationStatus(Path(selection).name):
-            result = CustomDataset(Path(selection), evaluator=result_name).prepare(
+        with PreparationStatus(custom_source.name):
+            result = CustomDataset(custom_source, evaluator=result_name).prepare(
                 project_root / "external" / "datasets" / "custom", offline=offline)
     else:
         raise ConfigurationError(f"Unknown dataset {selection!r}; use datasets list or a local tasks.json")

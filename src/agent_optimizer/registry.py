@@ -108,12 +108,13 @@ class Registry:
             "harnesses": [profile["adapter"] for profile in spec.get("_profiles", [])],
             "optimizers": [stage["optimizer"] for stage in spec.get("stages", [])],
         }
-        for kind, requested in names.items():
-            for name in requested:
-                if name in PROJECT_COMPONENTS[kind]:
-                    selected[kind][name] = PROJECT_COMPONENTS[kind][name]
-                elif kind == "datasets" and name:
-                    raise ConfigurationError(f"Unregistered dataset provider: {name}")
+        if is_source_checkout(root):
+            for kind, requested in names.items():
+                for name in requested:
+                    if name in PROJECT_COMPONENTS[kind]:
+                        selected[kind][name] = PROJECT_COMPONENTS[kind][name]
+                    elif kind == "datasets" and name:
+                        raise ConfigurationError(f"Unregistered dataset provider: {name}")
         dependencies = {key: paths for key, paths in PROJECT_DEPENDENCIES.items()
                         if key.split("/", 1)[1] in selected.get(key.split("/", 1)[0], {})}
         files = plugin_files(root, selected, dependencies)

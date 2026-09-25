@@ -12,7 +12,8 @@ from pathlib import Path
 from agent_optimizer.config import load_experiment, read_toml
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer import models
-from agent_optimizer.registry import PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, Registry, plugin_files
+from agent_optimizer.registry import (PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, Registry,
+                                      is_source_checkout, plugin_files)
 from agent_optimizer.sources import selected
 from agent_optimizer.workspace import safe_path
 
@@ -44,7 +45,8 @@ def _dataset(root: Path, dataset_id: str, registry: Registry) -> list[dict]:
                       "Dataset provider is unavailable", "Use agent-opt datasets list and register the selected provider")]
     registration = None
     try:
-        plugin_files(root, PROJECT_COMPONENTS, PROJECT_DEPENDENCIES)
+        if is_source_checkout(root):
+            plugin_files(root, PROJECT_COMPONENTS, PROJECT_DEPENDENCIES)
     except (ConfigurationError, UnavailableError, OSError, ValueError, TypeError):
         registration = check("dataset.registration", "dataset", False,
                              "Central component inventory is incomplete",
@@ -240,7 +242,8 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
                               "Correct the experiment, Agent, harness, and benchmark declarations"))
         plugins = raw.get("plugins", {})
         try:
-            plugin_files(root, PROJECT_COMPONENTS, PROJECT_DEPENDENCIES)
+            if is_source_checkout(root):
+                plugin_files(root, PROJECT_COMPONENTS, PROJECT_DEPENDENCIES)
             plugin_files(root, plugins, raw.get("plugin_dependencies", {}))
             if spec is not None:
                 registry.selected_files(root, spec)
