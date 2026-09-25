@@ -14,6 +14,7 @@ from pathlib import Path
 
 from agent_optimizer.config import identifier, load_experiment, load_tasks, positive
 from agent_optimizer.contracts import ConfigurationError
+from agent_optimizer.catalog import DATASETS as CATALOG_DATASETS
 from agent_optimizer.datasets import CustomDataset
 from agent_optimizer.harnesses.command import CommandHarness, FixtureHarness
 from agent_optimizer.harnesses.opencode import OpenCodeHarness
@@ -56,6 +57,10 @@ def prepare_selection(project_root: Path, selection: str, *, evaluator: str | No
             raise ConfigurationError("Registered dataset provider must return a registered evaluator ID")
         registry.resolve("evaluators", evaluator_id)
         result = {**result, "evaluator": evaluator_id, "dataset_provider": selection}
+    elif selection in CATALOG_DATASETS:
+        from agent_optimizer.integrations import prepare_catalog_dataset
+        with PreparationStatus(selection), contextlib.redirect_stdout(sys.stderr):
+            result = prepare_catalog_dataset(project_root, selection, offline=offline)
     elif custom_source.is_file():
         if not evaluator:
             raise ConfigurationError("Custom dataset requires an explicit evaluator")

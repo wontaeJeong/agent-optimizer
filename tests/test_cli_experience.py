@@ -585,6 +585,53 @@ class CLIExperienceTests(unittest.TestCase):
                                    "--agent", str(self.agent)]), 2)
         self.assertFalse(workspace.exists())
 
+    def test_bare_cli_prepares_only_explicit_cvdp_dataset(self):
+        from agent_optimizer.catalog import INTEGRATIONS
+
+        workspace = self.root / "bare-cvdp"
+        workspace.mkdir()
+
+        def selected_files(root, integration_id, *, offline=False):
+            self.assertEqual((root, integration_id), (workspace.resolve(), "cvdp"))
+            sources = {
+                "examples/benchmarks/cvdp.py": (
+                    'import json\nfrom pathlib import Path\n'
+                    'class Provider:\n'
+                    '    def describe(self): return {"name": "cvdp", "task_form": "rtl-generation", '
+                    '"evaluator": "cvdp"}\n'
+                    '    def prepare(self, cache, *, offline=False):\n'
+                    '        output = cache / "tasks.json"\n'
+                    '        output.parent.mkdir(parents=True, exist_ok=True)\n'
+                    '        output.write_text(json.dumps({"schema_version": 1, "tasks": [\n'
+                    '          {"id": "one", "split": "validation", "prompt": "task", '
+                    '"files": {"dut.sv": "module dut; endmodule"}, "evaluation": {}}]}))\n'
+                    '        return {"benchmark": str(output), "evaluator": "cvdp"}\n'
+                    '    def doctor(self, cache):\n'
+                    '        return [{"id": "dataset.fixture", "area": "dataset", "status": "ok", '
+                    '"message": "prepared", "remedy": ""}]\n'),
+                "examples/ace-rtl/evaluator.py": "class CVDPEvaluator: pass\n",
+                "examples/ace-rtl/prepare.py": "# public importer fixture\n",
+                "examples/ace-rtl/environment/setup.py": "# fixed environment fixture\n",
+                "examples/ace-rtl/environment/network_driver.py": "# trusted helper fixture\n",
+            }
+            for relative, body in sources.items():
+                target = root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(body)
+            return {"url": INTEGRATIONS["cvdp"]["url"],
+                    "revision": INTEGRATIONS["cvdp"]["revision"], "paths": list(sources)}
+
+        output = io.StringIO()
+        with patch("agent_optimizer.integrations.acquire_integration", side_effect=selected_files), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["datasets", "prepare", "cvdp", "--project-root", str(workspace)]), 0)
+        self.assertEqual(json.loads(output.getvalue())["dataset_provider"], "cvdp")
+        marker = json.loads((workspace / ".agent-opt/integration-ready.json").read_text())
+        self.assertEqual(marker["id"], "cvdp")
+        registry = Registry()
+        registry.load_project(workspace)
+        self.assertEqual(registry.resolve("evaluators", "cvdp").__name__, "CVDPEvaluator")
+
     def test_ace_prepare_marks_workspace_ready_only_after_lifecycle_checks(self):
         from agent_optimizer.catalog import INTEGRATIONS
         from agent_optimizer.contracts import ConfigurationError
