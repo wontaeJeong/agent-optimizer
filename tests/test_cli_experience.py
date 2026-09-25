@@ -18,7 +18,7 @@ from agent_optimizer.registry import PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, R
 from agent_optimizer.readiness import collect_plan
 from agent_optimizer.runner import run_experiment
 from agent_optimizer.setup_wizard import _bounded_tasks, wizard_arguments, write_experiment
-from support import test_project
+from support import ROOT, test_project
 
 
 class CLIExperienceTests(unittest.TestCase):
@@ -36,7 +36,8 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn("Usage:", text)
         self.assertIn("Options", text)
         self.assertNotIn("--install-completion", text)
-        self.assertIn('make setup ARGS="--core"', text)
+        self.assertIn("make setup-core", text)
+        self.assertIn("기존 실험", text)
         self.assertIn("준비된 실험 실행", text)
         self.assertIn("실행 요약 확인 또는 HTML 재생성", text)
         self.assertFalse((self.root / "runs").exists())
@@ -619,10 +620,9 @@ class CLIExperienceTests(unittest.TestCase):
                 return True
 
         terminal, output = Terminal(), io.StringIO()
-        answers = ["wizard-demo", str(self.agent),
-                   "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
-                   "configs/strategy.json", str(self.data),
-                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1", "1", "y"]
+        answers = ["2", "wizard-demo", str(self.agent), "configs/strategy.json", str(self.data),
+                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1", "1",
+                   "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "y"]
         with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", side_effect=answers), \
                 contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(output):
             self.assertEqual(main(["tui", "--project-root", str(self.root)]), 0)
@@ -630,10 +630,156 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertTrue((self.root / "runs/configs/wizard-demo/experiment.toml").is_file())
         self.assertIn("fixture-validation", terminal.getvalue())
 
+    def test_interactive_init_creates_a_config_without_running_agent(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        terminal, output = Terminal(), io.StringIO()
+        answers = ["guided-demo", str(self.agent), "configs/strategy.json", str(self.data),
+                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1", "1",
+                   "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "y"]
+        with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", side_effect=answers), \
+                contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(output):
+            self.assertEqual(main(["init", "--project-root", str(self.root)]), 0)
+        self.assertTrue(Path(json.loads(output.getvalue())["experiment"]).is_file())
+        self.assertIn("doctor --plan", terminal.getvalue())
+        self.assertIn("agent-opt run", terminal.getvalue())
+        self.assertFalse(any(path.name == "summary.json" for path in (self.root / "runs").rglob("summary.json")))
+
+    def test_interactive_init_multiple_datasets_prints_session_run_instructions(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        terminal, output = Terminal(), io.StringIO()
+        answers = ["multi-guided", str(self.agent), "configs/strategy.json",
+                   f"{self.data},{self.data}", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                   "", "", "1", "1", "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "y"]
+        with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", side_effect=answers), \
+                contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(output):
+            self.assertEqual(main(["init", "--project-root", str(self.root)]), 0)
+        result = json.loads(output.getvalue())
+        self.assertTrue(Path(result["session"]).is_file())
+        self.assertIn(f"agent-opt run-session {result['session']}", terminal.getvalue())
+        self.assertNotIn(f"doctor --plan {result['session']}", terminal.getvalue())
+
+    def test_tui_existing_ace_profile_does_not_ask_for_command_or_prepare_dataset(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        terminal = Terminal()
+        with patch("sys.stdin.isatty", return_value=True), \
+                patch("builtins.input", side_effect=["1", "examples/ace-rtl/experiment.toml"]), \
+                patch("agent_optimizer.cli.run_experiment", side_effect=AssertionError("should not run")), \
+                contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
+        self.assertNotIn("Agent execution argv", terminal.getvalue())
+        self.assertFalse((self.root / "runs").exists())
+        self.assertFalse(any(self.root.rglob("__pycache__")))
+
+    def test_ace_example_plan_reuses_registered_cvdp_evaluator(self):
+        benchmark = self.root / "datasets/ace-demo/tasks.json"
+        benchmark.parent.mkdir(parents=True)
+        shutil.copyfile(self.data, benchmark)
+        shutil.copytree(ROOT / "experiments/simple-feedback", self.root / "experiments/simple-feedback")
+        model_module = self.root / "src/agent_optimizer/models.py"
+        model_module.parent.mkdir(parents=True)
+        shutil.copyfile(ROOT / "src/agent_optimizer/models.py", model_module)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["doctor", "--plan", str(self.root / "examples/ace-rtl/experiment.toml"),
+                                   "--json"]), 0)
+        report = json.loads(output.getvalue())
+        self.assertTrue(report["ready"], report["checks"])
+
+    def test_tui_existing_ready_experiment_requires_confirmation_before_run(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        experiment = "examples/minimal/experiment.toml"
+        with patch("sys.stdin.isatty", return_value=True), \
+                patch("builtins.input", side_effect=["1", experiment, "n"]), \
+                contextlib.redirect_stderr(Terminal()), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
+        self.assertFalse((self.root / "runs").exists())
+        output = io.StringIO()
+        with patch("sys.stdin.isatty", return_value=True), \
+                patch("builtins.input", side_effect=["1", experiment, "y"]), \
+                contextlib.redirect_stderr(Terminal()), contextlib.redirect_stdout(output):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "completed")
+
+    def test_tui_existing_experiment_keeps_stdout_as_single_json_result(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        output = io.StringIO()
+        with patch("sys.stdin", Terminal("1\nexamples/minimal/experiment.toml\ny\n")), \
+                contextlib.redirect_stderr(Terminal()), contextlib.redirect_stdout(output):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "completed")
+
+    def test_ace_existing_profile_uses_its_live_bootstrap_for_tui_and_run(self):
+        benchmark = self.root / "datasets/ace-demo/tasks.json"
+        benchmark.parent.mkdir(parents=True)
+        shutil.copyfile(self.data, benchmark)  # Loading only; never passed to the ACE evaluator.
+        scripts = self.root / "scripts"
+        scripts.mkdir()
+        (scripts / "bootstrap.sh").write_text(
+            '#!/bin/sh\nprintf "%s:%s\\n" "$PWD" "$1" >> "$PWD/launch.marker"\n'
+            'exit "${LIVE_STATUS:-0}"\n')
+        experiment = self.root / "examples/ace-rtl/experiment.toml"
+
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        terminal = Terminal()
+        with patch("sys.stdin", Terminal("1\nexamples/ace-rtl/experiment.toml\ny\n")), \
+                patch("agent_optimizer.cli.collect_plan", return_value={"scope": "plan", "ready": True,
+                                                                         "checks": []}), \
+                patch("agent_optimizer.cli.run_experiment", side_effect=AssertionError("generic run")), \
+                contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 0, terminal.getvalue())
+        with patch.dict(os.environ, {"LIVE_STATUS": "3"}), \
+                patch("agent_optimizer.cli.run_experiment", side_effect=AssertionError("generic run")), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["run", str(experiment)]), 3)
+        self.assertEqual((self.root / "launch.marker").read_text().splitlines(),
+                         [f"{self.root.resolve()}:live", f"{self.root.resolve()}:live"])
+
+    def test_ace_launcher_rejects_a_copied_experiment_instead_of_running_the_fixed_demo(self):
+        benchmark = self.root / "datasets/ace-demo/tasks.json"
+        benchmark.parent.mkdir(parents=True)
+        shutil.copyfile(self.data, benchmark)
+        source = self.root / "examples/ace-rtl/experiment.toml"
+        copied = source.with_name("changed-experiment.toml")
+        shutil.copyfile(source, copied)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["run", str(copied)]), 2)
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_ace_run_rejects_output_override_before_launch(self):
+        benchmark = self.root / "datasets/ace-demo/tasks.json"
+        benchmark.parent.mkdir(parents=True)
+        shutil.copyfile(self.data, benchmark)
+        scripts = self.root / "scripts"
+        scripts.mkdir()
+        (scripts / "bootstrap.sh").write_text('#!/bin/sh\ntouch "$PWD/launch.marker"\n')
+        error = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(error):
+            self.assertEqual(main(["run", str(self.root / "examples/ace-rtl/experiment.toml"),
+                                   "--output", str(self.root / "custom-runs")]), 2)
+        self.assertIn("--output", error.getvalue())
+        self.assertFalse((self.root / "launch.marker").exists())
+
     def test_wizard_selects_a_registered_harness_for_the_generated_run(self):
         terminal = io.StringIO()
         answers = iter(["chosen-harness", str(self.agent),
-                        "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                         "configs/strategy.json", str(self.data),
                         "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1", "y"])
 
@@ -645,6 +791,7 @@ class CLIExperienceTests(unittest.TestCase):
         with patch("builtins.input", side_effect=answer), contextlib.redirect_stderr(terminal):
             arguments = wizard_arguments(self.root)
         self.assertEqual(arguments[arguments.index("--harness") + 1], "fixture")
+        self.assertNotIn("--command-json", arguments)
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(arguments), 0)
         spec = load_experiment(self.root / "runs/configs/chosen-harness/experiment.toml")
@@ -667,10 +814,9 @@ class CLIExperienceTests(unittest.TestCase):
 
     def test_wizard_accepts_glob_with_one_real_runtime_harness_file(self):
         # The minimal fixture has one Python runtime scaffold under src/**.
-        answers = ["harness-demo", str(self.agent),
-                   "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
-                   "src/**", str(self.data),
-                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "5", "1", "", "y"]
+        answers = ["harness-demo", str(self.agent), "src/**", str(self.data),
+                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "5", "1",
+                   "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "", "y"]
         with patch("builtins.input", side_effect=answers), contextlib.redirect_stderr(io.StringIO()):
             args = wizard_arguments(self.root)
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -716,6 +862,44 @@ class CLIExperienceTests(unittest.TestCase):
             self.assertEqual(main(args), 0)
         profile = load_experiment(self.root / "runs/configs/flag-demo/experiment.toml")["_profiles"][0]
         self.assertEqual(profile["command"], arguments)
+
+    def test_init_command_text_preserves_quoted_and_dash_prefixed_argv(self):
+        args = ["init", "--project-root", str(self.root), "--name", "text-command",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "baseline", "--editable", "configs/strategy.json",
+                "--command", '{python} "{agent_dir}/src/fixture agent.py" --target {task_dir}', "--yes"]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        profile = load_experiment(self.root / "runs/configs/text-command/experiment.toml")["_profiles"][0]
+        self.assertEqual(profile["command"], ["{python}", "{agent_dir}/src/fixture agent.py",
+                                              "--target", "{task_dir}"])
+
+    def test_init_opencode_does_not_require_or_write_command(self):
+        args = ["init", "--project-root", str(self.root), "--name", "opencode-demo",
+                "--agent", str(self.agent), "--dataset", str(self.data),
+                "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                "--optimizer", "baseline", "--editable", "configs/strategy.json",
+                "--harness", "opencode", "--yes"]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        profile = load_experiment(self.root / "runs/configs/opencode-demo/experiment.toml")["_profiles"][0]
+        self.assertEqual(profile["adapter"], "opencode")
+        self.assertNotIn("command", profile)
+
+    def test_init_rejects_invalid_command_options_before_dataset_preparation(self):
+        prefix = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
+                  "--dataset", str(self.data), "--editable", "configs/strategy.json", "--yes"]
+        for name, options in (("conflict", ["--command", "python agent.py", "--command-json", '["python"]']),
+                              ("unclosed", ["--command", "'python agent.py"]),
+                              ("empty", ["--command", " "]),
+                              ("opencode-input", ["--harness", "opencode", "--command", "python agent.py"])):
+            with self.subTest(name=name):
+                error = io.StringIO()
+                with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(error):
+                    self.assertEqual(main([*prefix, "--name", name, *options]), 2)
+                self.assertTrue(error.getvalue())
+                self.assertFalse((self.root / "runs/configs" / name).exists())
 
     def test_stage_budget_is_sized_for_selected_tasks_not_entire_downloaded_dataset(self):
         source = self.root / "large.json"
@@ -975,7 +1159,7 @@ class CLIExperienceTests(unittest.TestCase):
             self.assertIn("future_opt", json.loads(plugins.getvalue())["optimizers"]["implemented"])
             choices = sorted([*PROJECT_COMPONENTS["datasets"]])
             algorithms = sorted([*Registry().factories["optimizers"], "future_opt"])
-            answers = ["future-wizard", str(self.agent), "{python} {task_dir}",
+            answers = ["future-wizard", str(self.agent),
                        "configs/strategy.json", str(choices.index("future_set") + 1),
                        str(algorithms.index("future_opt") + 1),
                        str(sorted([*Registry().factories["harnesses"], "future_harness"])
@@ -985,11 +1169,11 @@ class CLIExperienceTests(unittest.TestCase):
             self.assertIn("future_set", wizard)
             self.assertIn("future_opt", wizard)
             self.assertEqual(wizard[wizard.index("--harness") + 1], "future_harness")
+            self.assertNotIn("--command-json", wizard)
             self.assertNotIn("--extensions", wizard)
             args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
                     "--name", "future-demo", "--dataset", "future_set", "--harness", "future_harness",
-                    "--optimizer", "future_opt", "--editable", "configs/strategy.json",
-                     "--command-json", '["{python}","{task_dir}"]', "--yes"]
+                    "--optimizer", "future_opt", "--editable", "configs/strategy.json", "--yes"]
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(main(args), 0)
             experiment = self.root / "runs/configs/future-demo/experiment.toml"

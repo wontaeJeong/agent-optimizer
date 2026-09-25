@@ -5,8 +5,8 @@
 ## 1. 코어와 계약
 
 ```bash
-make setup ARGS="--core"
-make doctor ARGS="--core"
+make setup-core
+make doctor-core
 PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_plugin_contracts.py -v
 PYTHONPATH=src .venv/bin/python -m agent_optimizer run examples/minimal/experiment.toml
 ```
@@ -37,3 +37,22 @@ git diff --check
 ```
 
 실제 외부 모델·Harness·평가기를 쓸 때는 별도 자격증명과 평가 환경을 준비하고 작은 실행부터 확인합니다. 실패한 도구 실행을 성공으로 대체하지 말고, 사용한 소스 commit·데이터셋 버전·모델·예산·평가기를 기록하세요. [구조와 경계](overview.md)를 따라 train 피드백과 선택 후 test의 구분도 확인합니다.
+
+## 4. ACE/CVDP 실행환경과 모델 검증
+
+코어 계약 테스트와 별도로 실제 Docker 자산·공식 채점기를 준비합니다. 저장소의 수동
+`official_cvdp=true` CI는 모델 자격증명 없이 공식 정답/오답과 ACE CLI의 인증 실패 경로를
+확인하며, 모델을 사용하는 live 성공은 뜻하지 않습니다.
+
+```bash
+make setup
+make doctor
+make smoke
+# 모델 자격증명과 endpoint를 환경에서 지정한 뒤:
+sh scripts/bootstrap.sh doctor --model
+.venv/bin/agent-opt run examples/ace-rtl/experiment.toml
+```
+
+마지막 명령은 ACE 스킬 프로필을 기존 `live` 경로로 실행합니다. 같은 고정 프로필은
+`.venv/bin/agent-opt tui`의 **기존 실험 실행**에서도 고를 수 있습니다. 공식 raw 결과와
+`runs/dev-live/<run-id>/summary.json`·`report.html`을 확인하고 미실행/차단을 따로 기록하세요.

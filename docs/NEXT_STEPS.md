@@ -2,11 +2,14 @@
 
 ## Agent 개발자: 실제 최적화 실행
 
-1. `make setup ARGS="--core"` 후 `.venv/bin/agent-opt datasets list` 또는 `.venv/bin/agent-opt tui`에서
+1. `make setup-core` 후 `.venv/bin/agent-opt datasets list` 또는 `.venv/bin/agent-opt tui`에서
    CVDP/Verilog-Eval/사용자 JSON 데이터셋을 **직접 선택**한다. 다운로드·고정 해시·평가 도구 준비는
-   선택 이후에 실행된다. 사용자 평가기는 별도 등록/검증이 필요하며 합성 점수로 바꾸지 않는다.
-2. Agent의 고정 Git commit 또는 local 소스, 실제 CLI argv, prompt_file, editable 텍스트 범위를
-   지정한다. 명시적인 harness/scaffold 파일이 없으면 Meta-Harness/Ecdysis를 선택할 수 없다.
+   선택 이후에 실행된다. 단, ACE 고정 실험은 `make setup`으로 전체 자산을 먼저 준비한다.
+   사용자 평가기는 별도 등록/검증이 필요하며 합성 점수로 바꾸지 않는다.
+2. 기존 프로필은 `.venv/bin/agent-opt tui`에서 `experiment.toml`을 선택한다. 새 Agent는
+   `.venv/bin/agent-opt init`에서 고정 Git commit 또는 local 소스, 선택한 하네스에 필요한
+   실제 CLI argv, prompt_file, editable 텍스트 범위를 지정한다. 명시적인 harness/scaffold
+   파일이 없으면 Meta-Harness/Ecdysis를 선택할 수 없다.
    `.venv/bin/agent-opt doctor --plan runs/configs/<name>/experiment.toml --json`으로
    실행 전에 선언/등록·선택 자산을 읽기 전용 진단한다. `plan`은 실제 Agent 성공이 아니다.
 3. 동일 모델/예산에서 GEPA·Meta-Harness·Ecdysis를 독립 stage로 실행하고 task/iteration 소요 시간을
@@ -18,7 +21,7 @@
 
 ## 팀 개발자: 새로운 컴포넌트 추가
 
-1. **코어 준비:** `make setup ARGS="--core"` → `make doctor ARGS="--core"`.
+1. **코어 준비:** `make setup-core` → `make doctor-core`.
    완료 기준: Docker/모델 없이 core ready와 첫 합성 보고서. 번호 메뉴 1/2도 같은 경로다.
 2. **API-free fixture:** [Optimizer 계약 회귀](../experiments/optimizer-template/README.md)를 실행하고
    `make demo`의 두 Agent·한 repair stage·7 trial(solo 4/team 3)을 확인한다.
@@ -32,7 +35,7 @@
    각 stage는 baseline에서 시작하며 이력은 stage-local, 기본 최종 비교는 모든 winner다.
    완료 기준: 소스/평가/모델/예산 조건과 stage별 usage·diff·선택 근거를 보고서로 설명한다.
 5. **선택적 ACE/모델:** [ACE 안내](../examples/ace-rtl/README.md)대로 전체 setup/doctor/smoke 후
-   모델 자격증명을 준비해 `make doctor ARGS="--model"`, `make live ARGS="--iterations 3"`.
+   모델 자격증명을 준비해 `sh scripts/bootstrap.sh doctor --model`, `sh scripts/bootstrap.sh live --iterations 3`.
    완료 기준: 실제 OpenCode 산출물·공식 raw 결과·모델/예산/partial usage 기록. 실패를 다른 모델/fixture로 대체하지 않는다.
 
 추가 연구 구현 채택 시 [고정 출처](SOURCES.md)를 확인한다. 실제 외부 Agent는 팀과 소스/권한/평가를 합의하고

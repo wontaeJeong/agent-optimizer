@@ -5,7 +5,10 @@
 시작은 [README](../README.md#개발환경-빠른-시작)와 [역할별 템플릿](../experiments/README.md).
 번호 메뉴는 제공하며 1/2는 core, 7은 선택적 ACE 전체 준비, 8은 일반 Agent TUI다.
 옵션 없는 setup/doctor의 전체 ACE 경로와 `--dataset ID`의 선택 데이터셋 경로는 별개다.
-`agent-opt tui`의 대화형 설정·진행 화면은 사용 가능하며 병렬 scheduler·resume·native ACE는 [보류](FUTURE.md)다.
+`agent-opt tui`는 기존 실험의 계획 진단·확인·실행과 새 실험 생성·실행을 선택할 수 있고,
+`agent-opt init`은 TTY에서 새 설정만 만들 수 있다. 병렬 scheduler·resume·native ACE는 [보류](FUTURE.md)다.
+고정 `examples/ace-rtl/experiment.toml`을 TUI/`agent-opt run`에서 선택하면 예제 어댑터가
+기존 `live` 준비·실행에 위임한다. 이는 OpenCode 스킬 프로필 + 공식 CVDP 평가이며 native ACE는 아니다.
 
 ## 현재 기능
 

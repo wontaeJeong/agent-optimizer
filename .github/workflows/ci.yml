@@ -78,7 +78,7 @@ jobs:
           "$smoke_dir/venv/bin/agent-opt" --help
 
   official-cvdp:
-    name: Official CVDP Docker (manual)
+    name: ACE/CVDP 실행환경·공식 평가 (수동, 모델 미사용)
     if: github.event_name == 'workflow_dispatch' && inputs.official_cvdp
     runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
     timeout-minutes: 90
@@ -105,6 +105,21 @@ jobs:
         run: make setup ARGS="--offline"
       - name: Real tools, host-Docker and official positive/negative evaluation
         run: make smoke
+      - name: 모델 키 없는 ACE CLI 실행의 명시적 차단 확인
+        run: |
+          .venv/bin/python - <<'PY'
+          import json
+          import os
+          import subprocess
+
+          env = {key: value for key, value in os.environ.items() if key not in {
+              "AGENT_OPT_MODEL_API_KEY", "AGENT_OPT_MODEL_ENDPOINT", "AGENT_OPT_MODEL_BASE_URL"}}
+          result = subprocess.run([".venv/bin/agent-opt", "run", "examples/ace-rtl/experiment.toml"],
+                                  env=env, capture_output=True, text=True, timeout=60, check=False)
+          assert result.returncode == 2, (result.returncode, result.stdout, result.stderr)
+          status = json.loads(result.stdout.splitlines()[-1])
+          assert status["status"] == "blocked" and status["stage"] == "live", status
+          PY
       - name: Check actual image defaults and explicit provider configuration (no inference)
         run: |
           AGENT_OPT_TEST_DOCKER_IMAGE=$(python3 -c 'import json; print(json.load(open("external/environment-lock.json"))["images"]["agent"]["id"])')
