@@ -9,12 +9,9 @@ final_test = false
 final_stages = ["feedback"]
 [plugins.harnesses]
 ace_opencode = "examples/ace-rtl/adapter.py:ACEOpenCode"
-[plugins.evaluators]
-cvdp = "examples/ace-rtl/evaluator.py:CVDPEvaluator"
 [plugins.optimizers]
 simple_feedback = "experiments/simple-feedback/optimizer.py:Optimizer"
 [plugin_dependencies]
-"evaluators/cvdp" = ["examples/ace-rtl/environment/network_driver.py"]
 "optimizers/simple_feedback" = ["src/agent_optimizer/models.py"]
 [budget]
 max_trials = 8

@@ -1,5 +1,7 @@
 """언어 선택은 개발 진입점과 사용자 출력에 동일하게 적용합니다."""
 
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -75,6 +77,23 @@ class TerminalLanguageTests(unittest.TestCase):
                 self.assertIn(expected, result.stdout)
                 self.assertNotIn("여러 Agent의 최적화 실험", result.stdout)
 
+    def test_english_command_harness_option_help(self):
+        result = subprocess.run([str(ROOT / ".venv/bin/agent-opt"), "init", "--help"], cwd=ROOT,
+                                env=dict(os.environ, AGENT_OPT_LANG="en"), capture_output=True,
+                                text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        command_help = result.stdout.split("--command", 1)[1].split("--command-json", 1)[0]
+        self.assertIn("Command harness", command_help)
+        self.assertIn("Agent argv: split", command_help)
+        self.assertNotIn("명령 하네스의 Agent argv", result.stdout)
+
+    def test_english_init_missing_agent_error(self):
+        result = subprocess.run([str(ROOT / ".venv/bin/agent-opt"), "init", "--dataset", "sample_text", "--yes"],
+                                cwd=ROOT, env=dict(os.environ, AGENT_OPT_LANG="en"),
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("Specify --agent and --editable", result.stderr)
+
     def test_invalid_python_language_fails_without_traceback(self):
         result = subprocess.run([str(ROOT / ".venv/bin/agent-opt"), "--help"], cwd=ROOT,
                                 env=dict(os.environ, AGENT_OPT_LANG="ja"), capture_output=True,
@@ -109,6 +128,23 @@ class TerminalLanguageTests(unittest.TestCase):
                                         capture_output=True, text=True, timeout=10)
                 self.assertEqual(result.returncode, 2)
                 self.assertIn(expected, result.stderr)
+
+    def test_english_tui_existing_experiment_prompts(self):
+        from agent_optimizer.cli import main
+
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        for answers, expected in (([EOFError()], "Start an experiment:"),
+                                  (["1", EOFError()], "Existing experiment.toml path:")):
+            with self.subTest(answers=answers), patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}), \
+                    patch("sys.stdin.isatty", return_value=True), \
+                    patch("builtins.input", side_effect=answers):
+                output = Terminal()
+                with contextlib.redirect_stderr(output):
+                    self.assertEqual(main(["tui"]), 2)
+                self.assertIn(expected, output.getvalue())
 
     def test_project_owned_init_error_is_translated_without_changing_option_name(self):
         for language, expected in (("ko", "데이터셋을 --dataset으로 직접 선택하세요"),

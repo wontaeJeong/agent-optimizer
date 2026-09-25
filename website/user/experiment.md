@@ -1,11 +1,18 @@
 # 실험 구성
 
-**직접 지정할 네 가지:** Agent 소스, 실행 명령, 수정 가능한 파일, 데이터셋과 채점 기준. 모두 준비되면 Optimizer를 선택하고 작은 baseline부터 실행하세요. 설정 생성은 저장소 루트에서 수행합니다.
+**직접 지정할 항목:** Agent 소스, 수정 가능한 파일, 데이터셋과 채점 기준, 선택한 하네스의
+실행 방법. 기존 실험은 `.venv/bin/agent-opt tui`에서 설정 파일을 선택하고, 새 설정만
+만들려면 `.venv/bin/agent-opt init`을 TTY에서 실행하세요. 비대화형 설정 생성은 저장소
+루트에서 명시적 옵션과 `--yes`로 수행합니다.
 
 ## Agent와 실행 범위
 
 - 로컬 소스는 `--agent <로컬 Agent 경로>`, 외부 소스는 `--agent <Git URL> --revision <전체 commit SHA>`로 고정합니다. 원본은 수정하지 않고 스냅샷에서 후보를 만듭니다.
-- 실행은 `--command-json '["python3","agent.py","--input","{task_dir}"]'`처럼 **JSON argv 배열**로 전달합니다. 셸 문자열 실행은 지원하지 않습니다.
+- `command` 하네스의 실행은 `--command 'python3 agent.py --input {task_dir}'`처럼 적거나,
+  기존 `--command-json '["python3","agent.py","--input","{task_dir}"]'`을 사용합니다.
+  두 입력은 argv 배열로 저장하며 셸 변수 확장·파이프·리다이렉션을 실행하지 않습니다.
+  OpenCode 등 자체 실행 하네스에는 명령을 전달하지 않습니다. ACE-RTL은 준비된
+  `examples/ace-rtl/experiment.toml`의 하네스 프로필을 재사용합니다.
 - `--editable configs/strategy.json`은 실제로 바꿀 수 있는 파일만 적습니다. 허용 범위 밖 파일, 테스트, 평가 기준은 Optimizer가 수정할 수 없습니다. 지침 파일을 쓰는 경우 `--prompt-file`도 지정할 수 있습니다.
 
 ## 데이터셋과 평가기

@@ -3,8 +3,8 @@
 **코어 준비 → fixture → 팀 플러그인 하나** 순서로 시작합니다. 프로젝트 루트에서:
 
 ```bash
-make setup ARGS="--core"
-make doctor ARGS="--core"
+make setup-core
+make doctor-core
 PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_plugin_contracts.py -v
 make demo
 ```
@@ -21,9 +21,10 @@ Optimizer는 propose/evaluate, Harness는 RunRequest/ExecutionResult, 외부 Age
 
 | 변경 | 필요한 검사 |
 |---|---|
+| 개발 명령·CLI UX | `test_dev_onboarding.py`·`test_cli_experience.py` → `make lint`, `make test`, `make demo`; 합성/명령 전달 성공은 ACE 실행 성공과 구분 |
 | 팀 플러그인·코어 | 관련 계약 회귀 → `.venv/bin/agent-opt datasets list` / `doctor --dataset ID` / `doctor --plan PATH` / 작은 fixture 실행 → `make lint`, `make test`, `make demo`, `git diff --check` |
 | 패키징·의존성·릴리즈 | 위 검사 + `.venv/bin/python -m build`; 별도 venv에 wheel 설치 후 소스 밖에서 `python -I -m agent_optimizer --help`, `agent-opt --help` |
-| ACE·Docker·환경 연결 | 관련 회귀 + `make setup` → `make doctor` → `make setup ARGS="--offline"` → `make smoke`; 실제 모델 연결 변경은 자격증명 준비 후 `make doctor ARGS="--model"`/작은 live |
+| ACE·Docker·환경 연결 | 관련 회귀 + `make setup` → `make doctor` → `sh scripts/bootstrap.sh setup --offline` → `make smoke`; 수동 공식 CI는 모델 없이 평가 경로와 ACE CLI의 인증 실패를 검사. 실제 모델은 자격증명 준비 후 `sh scripts/bootstrap.sh doctor --model`/작은 live·TUI 경로로 별도 확인 |
 
 **작은 팀 플러그인 수정마다 이미지 rebuild나 wheel 설치는 필요 없습니다.** setup 없는 lint/test/demo는
 기존 `.venv`를 사용합니다. 문서 수정에는 링크·명령 대조를 수행하고 문구를 반복 검사하는 테스트를 만들지 않습니다.
@@ -59,7 +60,7 @@ GitHub 제공 러너에서만 수행하고 자체 러너에서는 버전 실행�
 필요하지 않습니다. 선택적 공식 통합 러너는 Docker daemon/Compose, CA 포함 빌드 시
 Buildx, 고정 소스·데이터·이미지의 접근 경로도 별도로 준비해야 합니다.
 
-로컬에서는 `make setup ARGS="--core"` → `make doctor ARGS="--core --json"` →
+로컬에서는 `make setup-core` → `sh scripts/bootstrap.sh doctor --core --json` →
 `make lint` → `make test` → `make demo` → `node --test tests/endpoint-plugin.test.mjs` →
 `.venv/bin/python -m build`로 코어에 가까운 명령을 확인할 수 있습니다.
 이는 해당 러너의 Actions 실행 증거가 아닙니다. 공식 통합 결과의 artifact upload는 현재

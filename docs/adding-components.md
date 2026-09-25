@@ -45,7 +45,7 @@ CLI/doctor/run 경로를 점검할 수 있습니다(실제 팀 ID로 교체하�
 ```bash
 .venv/bin/agent-opt init --name team-wiring \
   --agent examples/minimal/agents/solo \
-  --command-json '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]' \
+  --command '{python} {agent_dir}/src/fixture_agent.py {task_dir}' \
   --editable configs/strategy.json --dataset sample_text \
   --harness sample_command --optimizer sample_baseline --yes
 .venv/bin/agent-opt doctor --dataset sample_text --json
@@ -54,6 +54,9 @@ CLI/doctor/run 경로를 점검할 수 있습니다(실제 팀 ID로 교체하�
 ```
 
 팀 등록 후에는 같은 옵션의 ID를 `team_dataset`/`team_harness`/`team_optimizer`로 바꿉니다.
+실행 명령을 자체 구성하는 Harness라면 `--command`를 붙이지 않고, Docker나 전용 설정·플러그인이
+필요한 경우 해당 팀의 `experiment.toml`을 작성한 뒤 `.venv/bin/agent-opt tui`의 기존 실험
+경로에서 선택하세요. 일반 `init`이 전용 프로필을 자동으로 합성하지는 않습니다.
 provider에서 임의 `file.py:Symbol` evaluator를 반환하지 않습니다.
 사용자가 직접 제공한 tasks.json은 `--evaluator file.py:Symbol`을 명시적으로 선택할 수 있습니다.
 source clone/데이터 다운로드/설치 스크립트의 실제 실행 결과는 별도로 확인하며 stub 성공은 완료 증거가 아닙니다.

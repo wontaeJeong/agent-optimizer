@@ -12,7 +12,24 @@ Mac ARM64 / Python 3.12.12의 독립 워크트리에서 확인했다. 저장소 
 | `env -u AGENT_OPT_MODEL_BASE_URL PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -q`; `make lint`; `git diff --check` | unittest **558개 중 543 통과·15 skip·실패 0**, Ruff·공백 검사 통과. 기존 테스트가 외부 `AGENT_OPT_MODEL_BASE_URL`을 상속해 발생하는 실패는 [별도 PR #28](https://github.com/wontaeJeong/agent-optimizer/pull/28)로 수정했다. 이 PR에서는 그 환경 변수를 제외하고 전체 테스트를 실행했다. |
 | `make setup ARGS="--core --offline"`; `make doctor ARGS="--core --json"`; `make demo` | 캐시 코어 준비·진단 `ready`, 7-trial 합성 데모 `completed`. JSON 키·상태 값과 진단 원문은 영어로 유지했다. |
 | `AGENT_OPT_LANG=en make help`; `AGENT_OPT_LANG=en PYTHONPATH=src .venv/bin/python -m agent_optimizer run examples/minimal/experiment.toml`; `AGENT_OPT_LANG=en .venv/bin/agent-opt report runs/20260925T063337Z-c1bf43dd --html` | 영어 도움말, 7-trial 합성 실행 완료, `report_language=en` 기록과 `report.html` 영어 재생성 확인. 기본 한국어 HTML과 영어 HTML의 1440px 캡처: `docs/superpowers/terminal-language-before-1440.png`, `terminal-language-after-1440.png`. 실제 모델 성능 근거는 아니다. |
+| 최신 `origin/main`과 PR #28 병합 내용 반영 후 `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -q`; `make lint`; `sh -n scripts/bootstrap.sh` | 외부 모델 환경 변수를 유지한 채 **575개 중 560 통과·15 skip·실패 0**, Ruff·셸 문법 통과. 새 CLI/TUI의 기존 실험 선택·하네스별 명령 입력과 영어 도움말 경로를 함께 검증했다. |
 
+## 2026-09-25 개발 명령·CLI 온보딩과 ACE 실행환경 분리
+
+Mac ARM64 / Python 3.12.12 / Docker daemon `linux/arm64`, 작업 워크트리
+`chore/setup-cli-syntax`. 실제 모델 환경변수·자격증명은 설정되지 않았다. 첫 `make setup`은
+이미 존재하는 Docker layer를 재사용했으며 냉간 이미지 빌드 검증은 아니다.
+
+| 단계·실제 명령 | 결과·범위 |
+|---|---|
+| 개발환경: `make setup-core`, `make doctor-core`, `make help`; `PYTHONPATH=src .venv/bin/python -m agent_optimizer run examples/minimal/experiment.toml` | 코어 진단 ready, 간편 Make 별칭의 실제 실행 및 API-free 합성 데모 7 trial completed. ACE 평가·모델 검증과 별개다. |
+| 계약: `make test`; `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_cli_experience.py -q`; `make lint`; `actionlint`; `.venv-docs/bin/mkdocs build --strict`; `git diff --check` | 최신 `origin/main`의 HTML 리포트 변경을 반영한 뒤 전체 **541개 중 526 통과·15 skip·실패 0**, CLI 회귀 **77개 통과**. Ruff·워크플로 문법·가이드 엄격 빌드·공백 검사 통과. skip에는 호스트 Yosys/Icarus 9개와 선택형 Docker 네트워크 검사가 포함된다. TUI/CLI ACE 선택은 임시 bootstrap fixture로 argv·cwd·종료 코드 전달을 검증했다. |
+| ACE 평가 실행환경: `make setup` → `make doctor` → `sh scripts/bootstrap.sh setup --offline` → `make smoke` | 고정 Git/데이터/driver/이미지 확인 후 `evaluation=ready`, `live=not ready`. `runs/dev-smoke-f6448875345d/summary.json`은 `passed`: 이미지 내 실제 도구 9개, host-Docker toy 정답/오답/조기 종료, 공식 CVDP raw test 각 1개에서 정답 `passed=1`·오답 `passed=0`. 모델 호출 없음. |
+| ACE 정적 계획: `.venv/bin/agent-opt doctor --plan examples/ace-rtl/experiment.toml --json` | 기존 실험 파일의 중복 CVDP evaluator 등록을 제거한 뒤 `scope=plan`, `ready=true`. 이는 실모델 호출이나 공식 평가 실행 결과가 아니다. |
+| ACE 실행 진입점: `.venv/bin/agent-opt run examples/ace-rtl/experiment.toml`; pseudo-TTY에서 `.venv/bin/agent-opt tui` → `1` → `examples/ace-rtl/experiment.toml` → `y` | 둘 다 예제 `live` 경로에 도달하여 `status=blocked`, `stage=live`, 종료 코드 2를 유지. 모델 endpoint/키가 없는 환경이라 실제 모델·Agent 후보 최적화는 실행되지 않았다. |
+
+실제 모델→ACE 스킬 프로필→CVDP→후보 선택 결과는 현재 작업에서 새로 생성하지 않았다.
+이전 E2E 기록은 당시 모델·설정의 근거이며 이번 CLI/TUI 변경의 실모델 성공 근거로 재사용하지 않는다.
 
 ## 2026-09-25 장시간 명령 진행 표시 전수 보완
 

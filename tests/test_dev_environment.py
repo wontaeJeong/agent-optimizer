@@ -630,11 +630,12 @@ class PreparedImageTests(unittest.TestCase):
                     patch.object(setup, "validate_driver_lock"), patch.object(setup, "doctor", side_effect=doctor), \
                     patch.object(setup.subprocess, "check_output", side_effect=inspect), \
                     patch("sys.argv", ["dev.py", command, "--platform", "linux/amd64"]), \
-                    patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "test-only", "AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/v1/chat/completion", "AGENT_OPT_CA_BUNDLE": ""}), \
+                    patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "test-only", "AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/v1/chat/completion", "AGENT_OPT_CA_BUNDLE": ""}, clear=True), \
                     redirect_stdout(stdout):
                 code = dev.main()
         return code, observed, stdout.getvalue()
 
+    @patch.dict(os.environ, {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1"})
     def test_smoke_and_live_use_dockerfile_safe_tag_verified_against_locked_id(self):
         for command in ("smoke", "live"):
             with self.subTest(command=command):
@@ -642,6 +643,7 @@ class PreparedImageTests(unittest.TestCase):
                 self.assertEqual(code, 0)
                 self.assertEqual(observed[0][:2], ("agent-optimizer-cvdp:8e894cf-amd64", "linux/amd64"))
 
+    @patch.dict(os.environ, {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1"})
     def test_changed_or_missing_image_blocks_before_smoke_or_live_success(self):
         # Aggregate doctor covers both image identities in test_dev_doctor instead.
         for command in ("smoke", "live"):

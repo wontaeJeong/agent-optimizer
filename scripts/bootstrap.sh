@@ -36,7 +36,7 @@ help() {
     fi
     printf '%s\n' \
         '사전 준비: Mac/Ubuntu, Git. ACE 전체 준비에는 Docker Engine과 Compose도 필요합니다.' \
-        '시작: make setup ARGS="--core" → make doctor ARGS="--core" → make demo.' \
+        '시작: make setup-core → make doctor-core → make demo.' \
         'make가 없다면 sh scripts/bootstrap.sh <명령> [옵션]을 사용하세요.' \
         '--core나 --dataset이 없는 setup/doctor는 ACE 전체 환경을 대상으로 합니다.' \
         'setup: --core, --dataset ID, --offline, --platform linux/amd64|linux/arm64 (ACE 전체 전용)' \

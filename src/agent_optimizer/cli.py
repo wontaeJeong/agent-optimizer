@@ -6,6 +6,7 @@ import io
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -23,7 +24,8 @@ from agent_optimizer.runner import preflight, run_experiment
 from agent_optimizer.registry import Registry
 from agent_optimizer.network import network_environment
 from agent_optimizer.setup_wizard import (component_inventory, prepare_selection,
-                                          _bounded_tasks, choose_editable_file, wizard_arguments,
+                                          _bounded_tasks, choose_editable_file, requires_command,
+                                          supports_generated_profile, wizard_arguments,
                                           write_experiment)
 from agent_optimizer.terminal_report import PreparationStatus, ProgressDisplay
 from agent_optimizer.terminal_style import style
@@ -83,9 +85,9 @@ def main(argv=None):
 
 app = typer.Typer(help="여러 Agent의 최적화 실험을 위한 작업 도구", no_args_is_help=True,
                   add_completion=False,
-                  epilog=('저장소에서 시작: make setup ARGS="--core" 후 agent-opt datasets list로 '
-                          '데이터셋을 확인하세요. 대화형은 agent-opt tui(TTY 필요), 비대화형은 '
-                          'agent-opt init --help를 사용합니다. 모델 없는 합성 예제는 README.md를 참고하세요.'))
+                  epilog=('저장소에서 시작: make setup-core. 기존 실험을 선택하려면 agent-opt tui의 '
+                          '"기존 실험 실행", 새 설정은 agent-opt init(대화형)을 사용하세요. '
+                          '데이터셋은 직접 선택하며 모델 없는 합성 예제는 README.md를 참고하세요.'))
 dataset_app = typer.Typer(help="데이터셋 목록 표시 및 명시적으로 선택한 데이터셋 준비", no_args_is_help=True)
 app.add_typer(dataset_app, name="datasets")
 
@@ -106,6 +108,20 @@ def localize_click_help(command):
 
 def _invoke(command: str, **options) -> int:
     return _dispatch(SimpleNamespace(command=command, **options))
+
+
+def _launch_existing(spec: dict, registry: Registry, *, output: Path | None = None) -> int | None:
+    registry.load_project(spec["_root"])
+    registry.load_plugins(spec["_root"], {"harnesses": spec.get("plugins", {}).get("harnesses", {})})
+    launchers = [getattr(registry.resolve("harnesses", profile["adapter"]), "launch_existing", None)
+                 for profile in spec["_profiles"]]
+    if any(launcher is not None for launcher in launchers):
+        if output is not None:
+            raise ConfigurationError("전용 실행 프로필은 --output을 지원하지 않습니다")
+        if len(spec["_profiles"]) != 1 or len(spec["_agents"]) != 1:
+            raise ConfigurationError("전용 실행 프로필은 단일 Agent·하네스 실험에서만 사용할 수 있습니다")
+        return launchers[0](spec)
+    return None
 
 
 @app.command("plugins")
@@ -146,7 +162,8 @@ def datasets_prepare(name: str | None = typer.Argument(None, help="등록된 데
 def init_command(project_root: Path | None = None,
                  agent: str | None = typer.Option(None, help="로컬 소스 경로 또는 Git URL(Git이면 --revision 지정)"),
                  revision: str | None = None, name: str | None = None,
-                 command_json: str | None = typer.Option(None, "--command-json", help="대시(-)로 시작하는 Agent 옵션도 포함하는 JSON 인수 배열"),
+                 command: str | None = typer.Option(None, "--command", help="명령 하네스의 Agent argv: 인용을 분리하지만 셸 확장·파이프·리다이렉션은 실행하지 않음"),
+                 command_json: str | None = typer.Option(None, "--command-json", help="기존 방식: Agent argv의 JSON 문자열 배열"),
                  editable: list[str] | None = typer.Option(None, "--editable", help="수정 허용 Agent 경로/패턴(반복 가능)"),
                  prompt_file: str = "prompts/system.md",
                  dataset: list[str] | None = typer.Option(None, "--dataset", help="데이터셋 직접 선택: 등록 ID 또는 로컬 tasks.json(반복 가능)"),
@@ -159,8 +176,38 @@ def init_command(project_root: Path | None = None,
                  offline: bool = False,
                  yes: bool = typer.Option(False, help="TTY 없이 준비를 확인하고 진행")) -> int:
     """직접 선택한 데이터셋으로 실험 설정 생성."""
+    if (not any((agent, dataset, editable, command, command_json, name, revision, optimizer))
+            and not yes and sys.stdin.isatty() and sys.stderr.isatty()):
+        try:
+            arguments = wizard_arguments((project_root or Path.cwd()).absolute(), execute=False)
+        except EOFError:
+            print(human("입력이 종료되어 설정을 만들지 않았습니다"), file=sys.stderr)
+            return 2
+        except KeyboardInterrupt:
+            print("\n" + human("설정 만들기가 중단되었습니다"), file=sys.stderr)
+            return 130
+        except ConfigurationError as exc:
+            print(f"{style('error:', 'error', stream=sys.stderr)} {human(str(exc))}", file=sys.stderr)
+            return 2
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            code = main(arguments)
+        if code:
+            return code
+        print(output.getvalue(), end="")
+        prepared = json.loads(output.getvalue())
+        target = prepared.get("experiment") or prepared["session"]
+        if "session" in prepared:
+            checks = "\n".join(f"       agent-opt doctor --plan {item['experiment']}"
+                               for item in prepared["experiments"])
+            print(f"{human('설정 생성')}: {target}\n{human('다음')}: {human('각 데이터셋의 계획 진단')}\n{checks}\n"
+                  f"       agent-opt run-session {target}", file=sys.stderr)
+        else:
+            print(f"{human('설정 생성')}: {target}\n{human('다음')}: agent-opt doctor --plan {target}\n"
+                  f"       agent-opt run {target}", file=sys.stderr)
+        return 0
     return _invoke("init", project_root=project_root or Path.cwd(), agent=agent,
-                   revision=revision, name=name, command_json=command_json,
+                   revision=revision, name=name, command_text=command, command_json=command_json,
                    editable=editable, prompt_file=prompt_file, dataset=dataset,
                    evaluator=evaluator, metric=metric, direction=direction,
                    harness=harness, optimizer=optimizer, optimizer_config=optimizer_config,
@@ -171,7 +218,7 @@ def init_command(project_root: Path | None = None,
 
 @app.command("tui")
 def tui_command(project_root: Path | None = None) -> int:
-    """대화형 설정 및 실행 진행 상황 표시(TTY 필요)."""
+    """기존 실험 선택 또는 새 실험 생성 후 실행(TTY 필요)."""
     return _invoke("tui", project_root=project_root or Path.cwd())
 
 
@@ -235,12 +282,21 @@ def _dispatch(args):
         elif args.command == "init":
             if not args.dataset:
                 raise ConfigurationError("Select a dataset explicitly with --dataset")
-            if not args.agent or not args.command_json or not args.editable:
-                raise ConfigurationError("--agent, --command-json, and --editable are required")
-            command = json.loads(args.command_json)
-            if not isinstance(command, list) or not command or not all(
-                    isinstance(part, str) and part for part in command):
-                raise ConfigurationError("Agent argv must be a nonempty JSON string array")
+            if not args.agent or not args.editable:
+                raise ConfigurationError("--agent와 --editable을 지정하세요")
+            if args.command_text is not None and args.command_json is not None:
+                raise ConfigurationError("--command와 --command-json을 함께 사용할 수 없습니다")
+            command = None
+            if args.command_text is not None:
+                try:
+                    command = shlex.split(args.command_text)
+                except ValueError as exc:
+                    raise ConfigurationError(f"잘못된 Agent 실행 명령: {exc}") from exc
+            elif args.command_json is not None:
+                command = json.loads(args.command_json)
+            if command is not None and (not isinstance(command, list) or not command or not all(
+                    isinstance(part, str) and part for part in command)):
+                raise ConfigurationError("Agent argv must be a nonempty string array")
             if not args.yes:
                 raise ConfigurationError("Inspect the choices then pass --yes to confirm preparation")
             root = args.project_root.absolute()
@@ -252,6 +308,14 @@ def _dispatch(args):
             name = args.name or (agent.name if isinstance(agent, Path) and agent.is_dir() else "agent")
             name = name.lower().replace(" ", "-")
             inventory, _, _ = component_inventory(root)
+            adapter = inventory.resolve("harnesses", args.harness)
+            uses_command = requires_command(adapter)
+            if uses_command and command is None:
+                raise ConfigurationError("이 하네스에는 --command 또는 --command-json이 필요합니다")
+            if not uses_command and command is not None:
+                raise ConfigurationError("선택한 하네스는 Agent 실행 명령을 받지 않습니다")
+            if not supports_generated_profile(adapter):
+                raise ConfigurationError("전용 하네스 프로필이 필요합니다. 기존 experiment.toml을 사용하세요")
             chosen = args.optimizer or ["gepa"]
             custom_configs = json.loads(args.optimizer_config) if args.optimizer_config else {}
             if (not isinstance(custom_configs, dict)
@@ -260,17 +324,16 @@ def _dispatch(args):
                 raise ConfigurationError("--optimizer-config must be a JSON mapping of optimizer names to options")
             for optimizer in chosen:
                 inventory.resolve("optimizers", optimizer)
-            inventory.resolve("harnesses", args.harness)
             target = (choose_editable_file(agent, args.editable, explicit=args.target_file)
                       if "gepa" in chosen else None)
             scaffold = (choose_editable_file(agent, args.editable, suffix=".py",
                                              explicit=args.scaffold_file)
                         if any(o in {"meta_harness", "ecdysis"} for o in chosen) else None)
+            harness = {"adapter": args.harness}
+            if command is not None:
+                harness["command"] = command
             if args.revision:
-                harness = {"adapter": args.harness, "command": command,
-                           "revision": args.revision}
-            else:
-                harness = {"adapter": args.harness, "command": command}
+                harness["revision"] = args.revision
             experiments = []
             multiple = len(args.dataset) > 1
             with contextlib.ExitStack() as rollback:
@@ -353,25 +416,58 @@ def _dispatch(args):
             if not sys.stdin.isatty() or not sys.stderr.isatty():
                 raise ConfigurationError(t("TUI requires a TTY for both input and output"))
             try:
-                init_args = wizard_arguments(args.project_root.absolute())
+                print("\n" + human("실험 시작: 1. 기존 실험 실행  2. 새 실험 만들고 실행"), file=sys.stderr)
+                print(human("선택 [1/2]: "), end="", file=sys.stderr, flush=True)
+                choice = input().strip()
+                if choice == "1":
+                    print(human("기존 experiment.toml 경로: "), end="", file=sys.stderr, flush=True)
+                    selected = input().strip()
+                    if not selected:
+                        raise ConfigurationError(human("실험 설정 경로를 입력하세요"))
+                    experiment = Path(selected).expanduser()
+                    if not experiment.is_absolute():
+                        experiment = args.project_root / experiment
+                    experiment = experiment.resolve()
+                    report = collect_plan(experiment, registry)
+                    print(f"{human('실험 설정')}: {experiment}", file=sys.stderr)
+                    print(f"{human('계획 진단')}: {human('준비됨' if report['ready'] else '준비 부족')}", file=sys.stderr)
+                    if not report["ready"]:
+                        for check in report["checks"]:
+                            if check["status"] != "ok":
+                                message, remedy = render_diagnostic(check)
+                                print(f"  {check['id']}: {message} {remedy}", file=sys.stderr)
+                        return 2
+                    print(human("이 실험을 실행할까요? [y/N]: "), end="", file=sys.stderr, flush=True)
+                    if input().strip().lower() not in {"y", "yes"}:
+                        print(human("실험 실행을 취소했습니다"), file=sys.stderr)
+                        return 2
+                    init_args = None
+                elif choice == "2":
+                    init_args = wizard_arguments(args.project_root.absolute())
+                else:
+                    raise ConfigurationError(human("1 또는 2를 선택하세요"))
             except EOFError:
                 print(style(human("TUI cancelled:"), "warning", stream=sys.stderr) + " " + human("input ended"), file=sys.stderr)
                 return 2
             except KeyboardInterrupt:
                 print("\n" + style(human("TUI interrupted"), "warning", stream=sys.stderr), file=sys.stderr)
                 return 130
-            print("\n  " + style(human("Preparing the selected dataset…"), "warning", stream=sys.stderr),
-                  file=sys.stderr, flush=True)
-            output = io.StringIO()
-            with contextlib.redirect_stdout(output):
-                code = main(init_args)
-            if code:
-                return code
-            prepared = json.loads(output.getvalue())
-            if "session" in prepared:
-                return main(["run-session", prepared["session"]])
-            experiment = Path(prepared["experiment"])
+            if init_args is not None:
+                print("\n  " + style(human("Preparing the selected dataset…"), "warning", stream=sys.stderr),
+                      file=sys.stderr, flush=True)
+                output = io.StringIO()
+                with contextlib.redirect_stdout(output):
+                    code = main(init_args)
+                if code:
+                    return code
+                prepared = json.loads(output.getvalue())
+                if "session" in prepared:
+                    return main(["run-session", prepared["session"]])
+                experiment = Path(prepared["experiment"])
             spec = load_experiment(experiment)
+            launched = _launch_existing(spec, registry)
+            if launched is not None:
+                return launched
             with ProgressDisplay() as progress:
                 progress.configure_budget(spec.get("budget", {}).get("max_trials", 100))
                 root, summary = run_experiment(spec, Registry(), on_event=progress)
@@ -448,6 +544,9 @@ def _dispatch(args):
         elif args.command in {"validate", "plan", "run"}:
             spec = load_experiment(args.experiment.resolve())
             if args.command == "run":
+                launched = _launch_existing(spec, registry, output=args.output)
+                if launched is not None:
+                    return launched
                 with ProgressDisplay() as progress:
                     progress.configure_budget(spec.get("budget", {}).get("max_trials", 100))
                     root, summary = run_experiment(spec, registry, args.output, on_event=progress)
