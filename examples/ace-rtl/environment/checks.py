@@ -11,6 +11,7 @@ from agent_optimizer.process import execute
 from agent_optimizer.registry import Registry
 from agent_optimizer.results import write_json
 from agent_optimizer.runner import run_experiment
+from agent_optimizer.terminal_report import PreparationStatus, ProgressDisplay
 
 ROOT = Path(__file__).resolve().parents[3]
 
@@ -41,12 +42,13 @@ def smoke(lock):
         code = ("import unittest; suite=unittest.defaultTestLoader.loadTestsFromName('test_rtl_evaluation.RealRTLTests'); "
                 "r=unittest.TextTestRunner(verbosity=2).run(suite); "
                 "raise SystemExit(0 if r.testsRun == 9 and r.wasSuccessful() and not r.skipped else 1)")
-        tools = execute(["python3", "-c", code], ROOT, root / "real-tool-tests", 300, runtime,
-                        {"PYTHONPATH": "/work/src:/work/tests", "PYTHONDONTWRITEBYTECODE": "1"})
-        report["checks"].append({"name": "T4-real-tools", **asdict(tools)})
-        tool_gate_failed = tools.status != "completed"
-        if tools.status not in {"completed", "process_error"}:
-            raise UnavailableError(f"T4 tool gate failed; see {root / 'real-tool-tests'}")
+        with PreparationStatus("T4-real-tools", action="smoke", subject="check"):
+            tools = execute(["python3", "-c", code], ROOT, root / "real-tool-tests", 300, runtime,
+                            {"PYTHONPATH": "/work/src:/work/tests", "PYTHONDONTWRITEBYTECODE": "1"})
+            report["checks"].append({"name": "T4-real-tools", **asdict(tools)})
+            tool_gate_failed = tools.status != "completed"
+            if tools.status not in {"completed", "process_error"}:
+                raise UnavailableError(f"T4 tool gate failed; see {root / 'real-tool-tests'}")
         task = Task(**json.loads((ROOT / "examples/rtl-debugger/tasks.json").read_text())["tasks"][0])
         evaluator = registry.resolve("evaluators", "toy")(runtime)
         wrong = task.files["dut.sv"]
@@ -54,13 +56,14 @@ def smoke(lock):
                  ("negative", wrong, "failed"),
                  ("early-exit", wrong.replace("endmodule", 'initial begin $display("TEST_PASS"); $finish; end endmodule'), "failed")]
         for name, source, expected in cases:
-            out = root / ("toy-" + name) / "output"
-            out.mkdir(parents=True)
-            (out / "dut.sv").write_text(source)
-            result = evaluator.evaluate(task, out, 60)
-            report["checks"].append({"name": "host-docker-" + name, **asdict(result)})
-            write_json(out.parent / "result.json", asdict(result))
-            require_verdict(result, expected)
+            with PreparationStatus("host-docker-" + name, action="smoke", subject="check"):
+                out = root / ("toy-" + name) / "output"
+                out.mkdir(parents=True)
+                (out / "dut.sv").write_text(source)
+                result = evaluator.evaluate(task, out, 60)
+                report["checks"].append({"name": "host-docker-" + name, **asdict(result)})
+                write_json(out.parent / "result.json", asdict(result))
+                require_verdict(result, expected)
         # Only this trusted smoke reads a reference submission; it never enters an Agent trial.
         source = ROOT / "external/cvdp_benchmark/example_dataset/cvdp_v1.1.0_example_nonagentic_code_generation_no_commercial_with_solutions.jsonl"
         reference = next(r for r in map(json.loads, source.read_text().splitlines()) if r["id"] == "cvdp_copilot_lfsr_0001")
@@ -74,17 +77,18 @@ def smoke(lock):
         official = registry.resolve("evaluators", "official")()
         official.validate_benchmark([task], {"synthetic": False})
         for name, expected in [("positive", "passed"), ("negative", "failed")]:
-            out = root / ("cvdp-" + name) / "output"
-            for target, text in reference["output"]["context"].items():
-                file = out / target
-                file.parent.mkdir(parents=True, exist_ok=True)
-                file.write_text(text if name == "positive" else
-                                "module lfsr_8bit(input clock, reset, input [7:0] lfsr_seed, "
-                                "output [7:0] lfsr_out); assign lfsr_out = 8'hff; endmodule\n")
-            result = official.evaluate(task, out, 180)
-            report["checks"].append({"name": "official-" + name, **asdict(result)})
-            write_json(out.parent / "result.json", asdict(result))
-            require_verdict(result, expected, official=True)
+            with PreparationStatus("official-" + name, action="smoke", subject="check"):
+                out = root / ("cvdp-" + name) / "output"
+                for target, text in reference["output"]["context"].items():
+                    file = out / target
+                    file.parent.mkdir(parents=True, exist_ok=True)
+                    file.write_text(text if name == "positive" else
+                                    "module lfsr_8bit(input clock, reset, input [7:0] lfsr_seed, "
+                                    "output [7:0] lfsr_out); assign lfsr_out = 8'hff; endmodule\n")
+                result = official.evaluate(task, out, 180)
+                report["checks"].append({"name": "official-" + name, **asdict(result)})
+                write_json(out.parent / "result.json", asdict(result))
+                require_verdict(result, expected, official=True)
         if tool_gate_failed:
             raise UnavailableError(f"T4 tool gate failed; independent checks retained in {root}")
         report["status"] = "passed"
@@ -110,6 +114,8 @@ def live(lock, iterations=None):
     spec["budget"]["max_wall_time_seconds"] = 2 * (count + 1) * spec["budget"]["trial_timeout_seconds"] + count * 60 + 180
     for profile in spec["_profiles"]:
         profile["runtime"]["image"] = lock["images"]["agent"]["id"]
-    root, summary = run_experiment(spec, Registry(), ROOT / "runs/dev-live")
+    with ProgressDisplay() as progress:
+        progress.configure_budget(spec["budget"]["max_trials"])
+        root, summary = run_experiment(spec, Registry(), ROOT / "runs/dev-live", on_event=progress)
     print(json.dumps({"status": summary["status"], "results": str(root)}))
     return 0 if summary["status"] == "completed" else 3

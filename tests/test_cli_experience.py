@@ -71,13 +71,14 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual(set(json.loads(output.getvalue())), {"python3", "git", "docker", "opencode"})
 
     def test_plan_doctor_api_free_minimal_needs_no_model_credentials(self):
-        output = io.StringIO()
+        output, progress = io.StringIO(), io.StringIO()
         with patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "", "AGENT_OPT_MODEL_ENDPOINT": "", "AGENT_OPT_MODEL_BASE_URL": ""}), \
                 patch("agent_optimizer.models.probe_model", side_effect=AssertionError("model call")), \
-                contextlib.redirect_stdout(output):
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(progress):
             code = main(["doctor", "--plan", str(self.root / "examples/minimal/experiment.toml"), "--json"])
         report = json.loads(output.getvalue())
         self.assertEqual(code, 0)
+        self.assertEqual(progress.getvalue(), "")
         self.assertTrue(report["ready"], report)
         self.assertNotIn("model.configuration", {row["id"] for row in report["checks"]})
 
@@ -125,6 +126,22 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual({row["id"] for row in report["checks"] if row["area"] == "model"},
                          {"model.probe"})
         probe.assert_called_once()
+
+    def test_model_doctor_and_html_report_keep_json_stdout_separate_from_progress(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        output, progress = io.StringIO(), io.StringIO()
+        with patch("agent_optimizer.models.probe_model", return_value={"status": "passed"}), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(progress):
+            self.assertEqual(main(["doctor", "--plan", str(plan), "--model", "--json"]), 0)
+        self.assertEqual(json.loads(output.getvalue())["scope"], "plan")
+        self.assertIn("[doctor] check=plan-model starting", progress.getvalue())
+
+        run, _ = run_experiment(load_experiment(plan), Registry(), self.root / "runs")
+        output, progress = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(progress):
+            self.assertEqual(main(["report", str(run), "--html"]), 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "completed")
+        self.assertIn("[report] check=html starting", progress.getvalue())
 
     def test_doctor_json_emits_one_remedial_object_for_unprepared_dataset_and_bad_plan(self):
         missing = io.StringIO()

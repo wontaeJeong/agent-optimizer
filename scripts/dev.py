@@ -17,6 +17,7 @@ from agent_optimizer.results import write_json
 from agent_optimizer.network import network_environment, ca_fingerprint, demo_environment
 from agent_optimizer.registry import Registry
 from agent_optimizer import readiness
+from agent_optimizer.terminal_report import PreparationStatus
 from agent_optimizer.terminal_style import ColorArgumentParser, style
 
 
@@ -120,10 +121,11 @@ def main(argv=None):
     try:
         if args.command == "doctor":
             doctor = load("dev_doctor", Path(__file__).resolve().with_name("dev_doctor.py"))
-            if dataset_id is not None:
-                report = doctor.collect_report(ROOT, dataset=dataset_id)
-            else:
-                report = doctor.collect_report(ROOT, args.platform, core_only=True) if core_only else doctor.collect_report(ROOT, args.platform)
+            with PreparationStatus("environment", action="doctor", subject="check"):
+                if dataset_id is not None:
+                    report = doctor.collect_report(ROOT, dataset=dataset_id)
+                else:
+                    report = doctor.collect_report(ROOT, args.platform, core_only=True) if core_only else doctor.collect_report(ROOT, args.platform)
             if args.model:
                 checks = load("ace_model_checks", "examples/ace-rtl/environment/model_checks.py")
                 checks.check_models(ROOT, report)
@@ -150,21 +152,23 @@ def main(argv=None):
                                          "or register it in src/agent_optimizer/registry.py")
             provider = registry.resolve("datasets", dataset_id)()
             stage = "dataset preparation"
-            prepared = provider.prepare(ROOT / "external/datasets" / dataset_id, offline=args.offline)
-            evaluator_id = prepared.get("evaluator")
-            if not isinstance(evaluator_id, str) or ":" in evaluator_id:
-                raise ConfigurationError("Registered dataset provider must return a registered evaluator ID")
-            try:
-                registry.resolve("evaluators", evaluator_id)
-            except UnavailableError:
-                raise ConfigurationError(f"Dataset provider returned unregistered evaluator ID {evaluator_id!r}; "
-                                         "register it in src/agent_optimizer/registry.py") from None
+            with PreparationStatus(dataset_id, action="setup", subject="dataset"):
+                prepared = provider.prepare(ROOT / "external/datasets" / dataset_id, offline=args.offline)
+                evaluator_id = prepared.get("evaluator")
+                if not isinstance(evaluator_id, str) or ":" in evaluator_id:
+                    raise ConfigurationError("Registered dataset provider must return a registered evaluator ID")
+                try:
+                    registry.resolve("evaluators", evaluator_id)
+                except UnavailableError:
+                    raise ConfigurationError(f"Dataset provider returned unregistered evaluator ID {evaluator_id!r}; "
+                                             "register it in src/agent_optimizer/registry.py") from None
             stage = "final doctor"
             doctor = load("dev_doctor", Path(__file__).resolve().with_name("dev_doctor.py"))
-            report = doctor.collect_report(ROOT, dataset=dataset_id)
+            with PreparationStatus("dataset", action="doctor", subject="check"):
+                report = doctor.collect_report(ROOT, dataset=dataset_id)
+                if not report["ready"]:
+                    raise UnavailableError("Selected dataset doctor failed; follow the diagnostic repair instructions")
             doctor.render_report(report)
-            if not report["ready"]:
-                raise UnavailableError("Selected dataset doctor failed; follow the diagnostic repair instructions")
             print(json.dumps({"status": "ready", "scope": "dataset", "dataset": dataset_id,
                               "next": f'make doctor ARGS="--dataset {dataset_id} --json"'}))
             return 0
@@ -219,15 +223,16 @@ def main(argv=None):
             raise ConfigurationError("Prepared platform differs; use matching --platform")
         if lock.get("ca_bundle_sha256") != ca_fingerprint():
             raise ConfigurationError("CA bundle differs from prepared images; rerun setup")
-        setup.prepare_sources(ROOT / "external", offline=True)
-        setup.prepare_data(ROOT / "external", offline=True)
-        setup.validate_driver_lock(ROOT / "external", lock)
-        sim_image = setup.verified_sim_image(lock)
-        capability = setup.doctor(ROOT / "external", args.platform,
-                                  lock["images"]["evaluation"]["id"], lock["images"]["agent"]["id"])
-        write_json(ROOT / "external/setup-logs/doctor.json", capability)
-        if not capability["ready"]:
-            raise UnavailableError("blocked_environment: execution doctor failed; inspect external/setup-logs/doctor.json")
+        with PreparationStatus("environment", action=args.command, subject="check"):
+            setup.prepare_sources(ROOT / "external", offline=True)
+            setup.prepare_data(ROOT / "external", offline=True)
+            setup.validate_driver_lock(ROOT / "external", lock)
+            sim_image = setup.verified_sim_image(lock)
+            capability = setup.doctor(ROOT / "external", args.platform,
+                                      lock["images"]["evaluation"]["id"], lock["images"]["agent"]["id"])
+            write_json(ROOT / "external/setup-logs/doctor.json", capability)
+            if not capability["ready"]:
+                raise UnavailableError("blocked_environment: execution doctor failed; inspect external/setup-logs/doctor.json")
         os.environ["DOCKER_DEFAULT_PLATFORM"] = args.platform
         os.environ["OSS_SIM_IMAGE"] = sim_image
         example = load("ace_dev_checks", "examples/ace-rtl/environment/checks.py")

@@ -2,6 +2,8 @@
 import io
 import json
 import os
+import pty
+import select
 import shutil
 import subprocess
 import sys
@@ -30,7 +32,7 @@ class BootstrapTests(unittest.TestCase):
                 shutil.copyfile(ROOT / name, self.root / name)
         self.bin = self.outside / "bin"
         self.bin.mkdir()
-        for name in ("sh", "dirname", "uname", "mkdir", "mktemp", "rm", "chmod", "cp", "sleep", "ps", "awk"):
+        for name in ("sh", "dirname", "uname", "mkdir", "mktemp", "rm", "chmod", "cp", "sleep", "date", "ps", "awk"):
             (self.bin / name).symlink_to(shutil.which(name))
         self.trace = self.outside / "trace"
         self.environment = {
@@ -147,6 +149,36 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
         self.assertIn(f"uv:{self.root}/.venv:never", self.trace_text())
         self.assertIn("arg:--offline\narg:sync\narg:--frozen\n", self.trace_text())
         self.assertNotIn("download", self.trace_text())
+
+    def test_setup_sync_reports_elapsed_while_child_is_still_running_on_tty(self):
+        self.tool("git")
+        template = self.outside / "uv-template"
+        template.write_text(template.read_text() + "sleep 2\n")
+        self.uv()
+        master, slave = pty.openpty()
+        process = subprocess.Popen(["sh", str(self.root / "scripts/bootstrap.sh"), "setup", "--core"],
+                                   cwd=self.outside, env=self.environment, stdout=subprocess.PIPE,
+                                   stderr=slave, text=True)
+        os.close(slave)
+        observed = ""
+        try:
+            started = time.monotonic()
+            while "elapsed=" not in observed and time.monotonic() - started < 6:
+                readable, _, _ = select.select([master], [], [], 0.5)
+                if readable:
+                    try:
+                        observed += os.read(master, 4096).decode(errors="replace")
+                    except OSError:
+                        break
+            self.assertIn("elapsed=", observed)
+            self.assertIsNone(process.poll(), "status arrived only after uv finished")
+            process.communicate(timeout=10)
+            self.assertEqual(process.returncode, 0)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=10)
+            os.close(master)
 
     def test_core_still_requires_git_and_offline_uv(self):
         result = self.invoke("setup", "--core")
@@ -580,6 +612,26 @@ class DeveloperCommandsTests(unittest.TestCase):
         self.assertIn("옵션:", self.output.getvalue())
         self.assertIn("demo", self.output.getvalue())
 
+    def test_doctor_json_keeps_stdout_separate_from_running_status(self):
+        report = {"scope": "core", "ready": True, "areas": {"core": True}, "checks": []}
+        doctor = SimpleNamespace(collect_report=lambda *args, **kwargs: report,
+                                 render_report=lambda row, json_output=False: print(json.dumps(row)))
+        output, progress = io.StringIO(), io.StringIO()
+        with patch.object(self.dev, "load", return_value=doctor), \
+                redirect_stdout(output), redirect_stderr(progress):
+            self.assertEqual(self.dev.main(["doctor", "--core", "--json"]), 0)
+        self.assertEqual(json.loads(output.getvalue()), report)
+        self.assertIn("[doctor] check=environment starting", progress.getvalue())
+        self.assertIn("[doctor] check=environment complete", progress.getvalue())
+
+    def test_direct_core_doctor_progress_does_not_require_rich_before_setup(self):
+        result = subprocess.run([str(ROOT / ".venv/bin/python"), "-S", "scripts/dev.py", "doctor", "--core", "--json"],
+                                cwd=ROOT, capture_output=True, text=True, timeout=60)
+        report = json.loads(result.stdout)
+        self.assertEqual(report["scope"], "core")
+        self.assertEqual(result.returncode, 0 if report["ready"] else 2, result.stderr)
+        self.assertIn("[doctor] check=environment starting", result.stderr)
+
     def test_network_is_loaded_before_core_and_shell_setup(self):
         def inspect(*args, **kwargs):
             self.assertEqual(os.environ.get("https_proxy"), "http://user:secret@proxy")
@@ -735,18 +787,22 @@ class DeveloperCommandsTests(unittest.TestCase):
         for self.ready in (True, False):
             events.clear()
             self.output = io.StringIO()
+            progress = io.StringIO()
             with patch.dict(os.environ, {"AGENT_OPT_BOOTSTRAPPED": str(ROOT)}), \
                     patch.object(Registry, "load_project", load_project), \
                     patch.object(readiness, "collect_dataset", collect), \
                     patch.object(doctor, "core_checks", return_value=[]), \
                     patch.object(self.dev, "load", side_effect=lambda name, path: doctor if name == "dev_doctor" else self.fail("ACE path loaded")), \
-                    patch.object(self.dev, "run_core", side_effect=AssertionError("demo run")):
-                self.assertEqual(self.main(["setup", "--dataset", "sample_text", "--offline"]),
+                    patch.object(self.dev, "run_core", side_effect=AssertionError("demo run")), \
+                    redirect_stdout(self.output), redirect_stderr(progress):
+                self.assertEqual(self.dev.main(["setup", "--dataset", "sample_text", "--offline"]),
                                  0 if self.ready else 2)
             self.assertEqual(events, [("registry", ROOT),
                                       ("prepare", ROOT / "external/datasets/sample_text", True),
                                       ("doctor", "sample_text")])
             self.assertEqual('"status": "ready"' in self.output.getvalue(), self.ready)
+            self.assertIn("[setup] dataset=sample_text starting", progress.getvalue())
+            self.assertIn("[doctor] check=dataset starting", progress.getvalue())
 
     def test_selected_setup_rejects_provider_evaluator_file_reference_before_ready(self):
         from agent_optimizer.registry import Registry
@@ -807,11 +863,14 @@ class DeveloperCommandsTests(unittest.TestCase):
             uv.parent.mkdir(parents=True)
             uv.write_text("#!/bin/sh\nprintf 'uv 0.10.7\\n'\n")
             uv.chmod(0o755)
+            output, progress = io.StringIO(), io.StringIO()
             with patch.object(self.dev, "ROOT", root), patch.object(self.dev, "load", return_value=doctor), \
-                    patch.dict(os.environ, {"PATH": str(root / "missing")}, clear=True):
-                self.assertEqual(self.main(["doctor", "--json"]), 2)
-            checks = {c["id"]: c for c in json.loads(self.output.getvalue())["checks"]}
+                    patch.dict(os.environ, {"PATH": str(root / "missing")}, clear=True), \
+                    redirect_stdout(output), redirect_stderr(progress):
+                self.assertEqual(self.dev.main(["doctor", "--json"]), 2)
+            checks = {c["id"]: c for c in json.loads(output.getvalue())["checks"]}
             self.assertEqual(checks["core.uv"]["status"], "ok")
+            self.assertIn("[doctor] check=environment starting", progress.getvalue())
             self.assertFalse((root / ".venv").exists())
 
     def setup_flow(self, failure=None, ready=True, demo_code=0):
