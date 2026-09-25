@@ -544,6 +544,20 @@ class CLIExperienceTests(unittest.TestCase):
             self.assertTrue(all(row["requires_preparation"] for row in rows))
             self.assertEqual(list(Path(directory).iterdir()), [])
 
+    def test_optional_integration_catalog_is_pinned_and_read_only(self):
+        from agent_optimizer.catalog import INTEGRATIONS
+
+        self.assertEqual(INTEGRATIONS["ace-rtl"]["revision"],
+                         "ae0874fb94d94284a07a17d84ef60058ed9a97b6")
+        self.assertEqual(INTEGRATIONS["ace-rtl"]["contract"], 1)
+        with tempfile.TemporaryDirectory(prefix="catalog-only-") as directory:
+            output = io.StringIO()
+            with patch("subprocess.run", side_effect=AssertionError("조회 중 외부 도구 실행")), \
+                    contextlib.redirect_stdout(output):
+                self.assertEqual(main(["datasets", "list", "--project-root", directory]), 0)
+            self.assertFalse((Path(directory) / "examples").exists())
+            self.assertIn("cvdp", {row["name"] for row in json.loads(output.getvalue())})
+
     def test_unrelated_project_with_same_package_name_is_not_treated_as_source_checkout(self):
         with tempfile.TemporaryDirectory(prefix="user-project-") as directory:
             root = Path(directory)

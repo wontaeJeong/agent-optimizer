@@ -12,3 +12,12 @@ DATASETS = {
                            "revision": "c498220d0a52248f8e3fdffe279075215bde2da6",
                            "requires_preparation": True},
 }
+
+_FIRST_PARTY_SOURCE = {
+    "url": "https://github.com/wontaeJeong/agent-optimizer.git",
+    "revision": "ae0874fb94d94284a07a17d84ef60058ed9a97b6",
+    "contract": 1,
+}
+
+INTEGRATIONS = {name: dict(_FIRST_PARTY_SOURCE) for name in
+                ("ace-rtl", "cvdp", "verilog-spec", "verilog-completion")}
