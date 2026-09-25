@@ -812,15 +812,16 @@ class CLIExperienceTests(unittest.TestCase):
             self.assertEqual(main(["tui", "--project-root", str(self.root)]), 0)
         self.assertEqual(json.loads(output.getvalue())["status"], "completed")
 
-    def test_ace_existing_profile_uses_its_live_bootstrap_for_tui_and_run(self):
+    def test_ace_existing_profile_uses_direct_lifecycle_for_tui_and_run(self):
         benchmark = self.root / "datasets/ace-demo/tasks.json"
         benchmark.parent.mkdir(parents=True)
         shutil.copyfile(self.data, benchmark)  # Loading only; never passed to the ACE evaluator.
-        scripts = self.root / "scripts"
-        scripts.mkdir()
-        (scripts / "bootstrap.sh").write_text(
-            '#!/bin/sh\nprintf "%s:%s\\n" "$PWD" "$1" >> "$PWD/launch.marker"\n'
-            'exit "${LIVE_STATUS:-0}"\n')
+        (self.root / "examples/ace-rtl/environment/lifecycle.py").write_text(
+            'import os\n'
+            'def run(root, *, iterations=None, platform=None):\n'
+            '    with (root / "launch.marker").open("a") as stream:\n'
+            '        stream.write(str(root) + ":direct\\n")\n'
+            '    return int(os.environ.get("LIVE_STATUS", "0"))\n')
         experiment = self.root / "examples/ace-rtl/experiment.toml"
 
         class Terminal(io.StringIO):
@@ -839,7 +840,8 @@ class CLIExperienceTests(unittest.TestCase):
                 contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(["run", str(experiment)]), 3)
         self.assertEqual((self.root / "launch.marker").read_text().splitlines(),
-                         [f"{self.root.resolve()}:live", f"{self.root.resolve()}:live"])
+                         [f"{self.root.resolve()}:direct", f"{self.root.resolve()}:direct"])
+        self.assertFalse((self.root / "scripts/bootstrap.sh").exists())
 
     def test_ace_launcher_rejects_a_copied_experiment_instead_of_running_the_fixed_demo(self):
         benchmark = self.root / "datasets/ace-demo/tasks.json"
@@ -856,9 +858,10 @@ class CLIExperienceTests(unittest.TestCase):
         benchmark = self.root / "datasets/ace-demo/tasks.json"
         benchmark.parent.mkdir(parents=True)
         shutil.copyfile(self.data, benchmark)
-        scripts = self.root / "scripts"
-        scripts.mkdir()
-        (scripts / "bootstrap.sh").write_text('#!/bin/sh\ntouch "$PWD/launch.marker"\n')
+        (self.root / "examples/ace-rtl/environment/lifecycle.py").write_text(
+            'def run(root, *, iterations=None, platform=None):\n'
+            '    (root / "launch.marker").write_text("launched")\n'
+            '    return 0\n')
         error = io.StringIO()
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(error):
             self.assertEqual(main(["run", str(self.root / "examples/ace-rtl/experiment.toml"),
