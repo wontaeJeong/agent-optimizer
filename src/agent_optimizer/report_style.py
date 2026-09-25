@@ -17,6 +17,11 @@ font-weight:750;color:var(--accent)}.lede,.subtle,.tag{color:var(--muted)}.subtl
 code,pre{font-size:.85rem;overflow-wrap:anywhere;word-break:break-word}pre{white-space:pre-wrap;margin:.6rem 0;max-height:28rem;overflow:auto}
 a{color:var(--accent);text-underline-offset:.18em}a:hover{text-decoration-thickness:2px}
 :focus-visible{outline:3px solid var(--accent);outline-offset:3px;border-radius:2px}
+abbr.help{position:relative;text-decoration:underline dotted;text-underline-offset:.2em;cursor:help}
+.help:focus-visible::after{content:attr(title);position:absolute;top:calc(100% + .4rem);left:0;
+z-index:10;width:min(18rem,75vw);padding:.5rem .7rem;border:1px solid var(--border);
+border-radius:4px;background:var(--surface);color:var(--text);font:normal .85rem/1.5 system-ui,sans-serif;
+text-align:left;text-transform:none;letter-spacing:normal;white-space:normal;box-shadow:0 3px 12px #0003}
 nav{display:flex;flex-wrap:wrap;gap:.35rem 1.1rem;margin:1.5rem 0 0;font-size:.9rem}
 .pill{display:inline-block;border:1px solid var(--border);border-radius:4px;padding:.18rem .6rem;
 margin:.5rem .4rem 0 0;font-weight:650;font-size:.85rem}

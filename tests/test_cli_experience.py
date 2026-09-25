@@ -1046,7 +1046,7 @@ class CLIExperienceTests(unittest.TestCase):
         index = Path(report["index_html"]).read_text()
         self.assertIn("first", index)
         self.assertIn("second", index)
-        self.assertIn("different evaluators", index)
+        self.assertIn("서로 다른 채점기의 점수를 직접 비교하거나 순위를 매기지 않습니다.", index)
         self.assertTrue(all(Path(path).is_file() for path in report["reports"]))
 
     def test_dataset_preparation_progress_never_corrupts_json_stdout(self):
