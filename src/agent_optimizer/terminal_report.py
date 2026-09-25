@@ -129,28 +129,29 @@ class ProgressDisplay:
 
 
 class PreparationStatus:
-    """Keep the selected dataset and elapsed time visible during blocking setup."""
+    """Keep an operation and its elapsed time visible during blocking work."""
 
-    def __init__(self, name: str, stream=None):
+    def __init__(self, name: str, stream=None, *, action="prepare", subject="dataset"):
         self.name = name
         self.stream = sys.stderr if stream is None else stream
         self.progress = None
+        self.label = f"[{action}] {subject}={name}"
 
     def __enter__(self):
         self.started = time.monotonic()
         if self.stream.isatty():
             self.progress = _terminal_progress(self.stream)
-            self.task_id = self.progress.add_task(f"[prepare] dataset={self.name} starting",
+            self.task_id = self.progress.add_task(f"{self.label} starting",
                                                   total=None, tone="yellow")
             self.progress.start()
         else:
-            self.stream.write(f"[prepare] dataset={self.name} starting\n")
+            self.stream.write(f"{self.label} starting\n")
             self.stream.flush()
         return self
 
     def __exit__(self, error_type, *_):
         status = "failed" if error_type else "complete"
-        message = (f"[prepare] dataset={self.name} {status} "
+        message = (f"{self.label} {status} "
                    f"elapsed={time.monotonic()-self.started:.1f}s")
         if self.progress is not None:
             self.progress.update(self.task_id, description=message,

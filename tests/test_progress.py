@@ -81,6 +81,16 @@ class ProgressTests(unittest.TestCase):
         self.assertIn("failed", terminal.getvalue())
         self.assertRegex(terminal.getvalue(), r"\x1b\[[0-9;]+m")
 
+    def test_named_operation_keeps_stdout_clean_and_marks_failure(self):
+        output, status = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output):
+            with self.assertRaisesRegex(ValueError, "fixture failure"):
+                with PreparationStatus("host-api", stream=status, action="doctor", subject="check"):
+                    raise ValueError("fixture failure")
+        self.assertEqual(output.getvalue(), "")
+        self.assertIn("[doctor] check=host-api starting", status.getvalue())
+        self.assertIn("[doctor] check=host-api failed", status.getvalue())
+
     def test_configured_max_trial_budget_is_not_a_planned_total(self):
         output = io.StringIO()
         display = ProgressDisplay(stream=output)
