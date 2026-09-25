@@ -10,7 +10,7 @@ make doctor-core
 .venv/bin/agent-opt --help
 ```
 
-`setup --core`는 필요한 Python·개발 환경을 준비하고 **7 trial 합성 데모**를 실행합니다. 처음에는 의존성 다운로드가 필요할 수 있습니다. `doctor`의 `Core development environment: ready`를 확인하세요. 코어 준비는 모델·공식 평가 데이터·Docker 이미지 준비 완료를 뜻하지 않습니다.
+`setup --core`는 필요한 Python·개발 환경을 준비하고 **7 trial 합성 데모**를 실행합니다. 처음에는 의존성 다운로드가 필요할 수 있습니다. `make doctor-core`의 `코어 개발 환경: 준비됨`을 확인하세요(`AGENT_OPT_LANG=en`이면 `Core development environment: ready`). 코어 준비는 모델·공식 평가 데이터·Docker 이미지 준비 완료를 뜻하지 않습니다.
 
 !!! tip "설치가 막히면"
     프록시·사내 CA가 필요한 환경은 저장소의 [네트워크 안내](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/network.md)를 확인하세요. `make doctor-core`로 부족한 코어 도구를 다시 진단할 수 있습니다.

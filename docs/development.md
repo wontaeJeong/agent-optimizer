@@ -36,7 +36,8 @@ ACE 고정 프로필을 앱에서 실행하면 기존 예제 `live`가 lock·플
 준비하며, 특히 CVDP 선택 준비는 ACE OpenCode Agent 이미지와 별도 lock을 사용합니다.
 `sh scripts/bootstrap.sh doctor --dataset verilog-spec --json`은 선택 자산을 읽기 전용으로 점검합니다.
 `--core`와 `--dataset`을 함께 쓰거나 `--dataset`에 `--platform`/`--model`을 붙일 수 없습니다.
-제품 모델 호출은 `make live` 또는 명시적 `sh scripts/bootstrap.sh doctor --model`에서 수행합니다.
+모델 호출은 자격증명을 준비한 뒤 `make live`, ACE 프로필의 `agent-opt run`, 명시적
+`sh scripts/bootstrap.sh doctor --model` 또는 `agent-opt doctor --plan PATH --model`에서 수행합니다.
 
 ## 번호 메뉴
 
@@ -167,8 +168,9 @@ smoke는 공식 이미지에서 실제 도구 및 host-Docker·공식 CVDP 정�
 Agent argv/output/editable 선언, 등록 ID, dataset/evaluator, 예산 및 모델 사용 stage의
 설정 존재 여부를 읽기 전용 점검합니다. 바이너리 목록은 인수 없는 `agent-opt doctor`의 호환 동작입니다.
 두 정적 검사는 다운로드·설치·컨테이너 실행·Agent/evaluator 실행·모델 호출을 하지 않습니다.
-실제 모델 연결은 명시적 `agent-opt doctor --plan PATH --model` 또는 ACE 전체
-`sh scripts/bootstrap.sh doctor --model`을 사용하며, 사전 설정 및 해당 환경의 자산이 필요합니다.
+실제 모델 연결은 명시적 `agent-opt doctor --plan PATH --model`(모델 API 도구 호출 검사) 또는
+ACE 전체 `sh scripts/bootstrap.sh doctor --model`(호스트 API와 컨테이너 OpenCode 도구 호출 검사)을
+사용하며, 사전 설정 및 해당 환경의 자산이 필요합니다.
 정적 doctor가 ready여도 실제 Agent 산출물·실모델 성능은 미검증입니다.
 
 `make doctor-core`는 network/core collector만 실행하며 Docker·ACE loader·모델을

@@ -78,9 +78,10 @@ PYTHONPATH=src:tests python3 -m unittest test_rtl_evaluation test_adapters -v
 private mismatch/비정상 종료가 유지됨을 확인하고,
 `$finish`의 실제 거부 동작을 확인합니다. Mock 계약 테스트만으로 이 도구 동작을 입증하지 않습니다.
 
-Task 4 개발 호스트(macOS arm64)에는 세 도구가 없어 호스트 실도구 테스트는 skip입니다.
-Task 5에서 공식 CVDP ARM64 이미지로 실제 도구 테스트 9개 및 host-Docker 정답/오답/조기 종료
-검사를 모두 통과했습니다. 정확한 명령과 결과는 [검증 기록](../../docs/verification.md)을 확인하세요.
-Ubuntu x86_64 및 실제 OpenCode/모델 통합 결과는 아직 없습니다.
+Mac ARM64 개발 호스트에 세 도구가 없으면 호스트 실도구 테스트는 skip입니다.
+공식 CVDP ARM64 이미지에서 실제 도구 테스트 9개 및 host-Docker 정답/오답/조기 종료 검사를
+통과했고, native Ubuntu x86_64의 공식 Docker smoke에서도 실제 도구 9개와 정답/오답을 확인했습니다.
+정확한 명령과 결과는 [검증 기록](../../docs/verification.md)을 확인하세요.
+이 **작은 RTL Agent 프로필**의 실제 OpenCode/모델 호출은 아직 검증하지 않았습니다.
 코어 CI는 Ubuntu native Yosys/Icarus를 설치하고 세 실행 파일을 필수 확인하여 이 9개 검사를
 전체 suite에서 실행합니다. 공식 이미지 기반 검사는 수동 `official_cvdp` job으로 구분합니다.
