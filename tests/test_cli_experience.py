@@ -619,7 +619,7 @@ class CLIExperienceTests(unittest.TestCase):
                 return True
 
         terminal, output = Terminal(), io.StringIO()
-        answers = ["wizard-demo", str(self.agent), "configs/strategy.json", str(self.data),
+        answers = ["2", "wizard-demo", str(self.agent), "configs/strategy.json", str(self.data),
                    "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1", "1",
                    "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "y"]
         with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", side_effect=answers), \
@@ -628,6 +628,84 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["status"], "completed")
         self.assertTrue((self.root / "runs/configs/wizard-demo/experiment.toml").is_file())
         self.assertIn("fixture-validation", terminal.getvalue())
+
+    def test_interactive_init_creates_a_config_without_running_agent(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        terminal, output = Terminal(), io.StringIO()
+        answers = ["guided-demo", str(self.agent), "configs/strategy.json", str(self.data),
+                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1", "1",
+                   "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "y"]
+        with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", side_effect=answers), \
+                contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(output):
+            self.assertEqual(main(["init", "--project-root", str(self.root)]), 0)
+        self.assertTrue(Path(json.loads(output.getvalue())["experiment"]).is_file())
+        self.assertIn("doctor --plan", terminal.getvalue())
+        self.assertIn("agent-opt run", terminal.getvalue())
+        self.assertFalse(any(path.name == "summary.json" for path in (self.root / "runs").rglob("summary.json")))
+
+    def test_interactive_init_multiple_datasets_prints_session_run_instructions(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        terminal, output = Terminal(), io.StringIO()
+        answers = ["multi-guided", str(self.agent), "configs/strategy.json",
+                   f"{self.data},{self.data}", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                   "", "", "1", "1", "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "y"]
+        with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", side_effect=answers), \
+                contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(output):
+            self.assertEqual(main(["init", "--project-root", str(self.root)]), 0)
+        result = json.loads(output.getvalue())
+        self.assertTrue(Path(result["session"]).is_file())
+        self.assertIn(f"agent-opt run-session {result['session']}", terminal.getvalue())
+        self.assertNotIn(f"doctor --plan {result['session']}", terminal.getvalue())
+
+    def test_tui_existing_ace_profile_does_not_ask_for_command_or_prepare_dataset(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        terminal = Terminal()
+        with patch("sys.stdin.isatty", return_value=True), \
+                patch("builtins.input", side_effect=["1", "examples/ace-rtl/experiment.toml"]), \
+                patch("agent_optimizer.cli.run_experiment", side_effect=AssertionError("should not run")), \
+                contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
+        self.assertNotIn("Agent execution argv", terminal.getvalue())
+        self.assertFalse((self.root / "runs").exists())
+        self.assertFalse(any(self.root.rglob("__pycache__")))
+
+    def test_tui_existing_ready_experiment_requires_confirmation_before_run(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        experiment = "examples/minimal/experiment.toml"
+        with patch("sys.stdin.isatty", return_value=True), \
+                patch("builtins.input", side_effect=["1", experiment, "n"]), \
+                contextlib.redirect_stderr(Terminal()), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
+        self.assertFalse((self.root / "runs").exists())
+        output = io.StringIO()
+        with patch("sys.stdin.isatty", return_value=True), \
+                patch("builtins.input", side_effect=["1", experiment, "y"]), \
+                contextlib.redirect_stderr(Terminal()), contextlib.redirect_stdout(output):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "completed")
+
+    def test_tui_existing_experiment_keeps_stdout_as_single_json_result(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        output = io.StringIO()
+        with patch("sys.stdin", Terminal("1\nexamples/minimal/experiment.toml\ny\n")), \
+                contextlib.redirect_stderr(Terminal()), contextlib.redirect_stdout(output):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "completed")
 
     def test_wizard_selects_a_registered_harness_for_the_generated_run(self):
         terminal = io.StringIO()

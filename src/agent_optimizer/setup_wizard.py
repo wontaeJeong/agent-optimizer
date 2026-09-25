@@ -237,7 +237,7 @@ def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dat
         raise
 
 
-def wizard_arguments(project_root: Path) -> list[str]:
+def wizard_arguments(project_root: Path, *, execute: bool = True) -> list[str]:
     """Interactive choices, rendered from the live catalog rather than a fixed menu."""
     registry, _, _ = component_inventory(project_root)
 
@@ -308,7 +308,9 @@ def wizard_arguments(project_root: Path) -> list[str]:
     print(f"\n  Agent: {agent}\n  Datasets: {', '.join(selected_datasets)}\n  Harness: {harness}"
           f"\n  Optimizers: {', '.join(selected)}",
           file=sys.stderr)
-    if ask("Prepare dataset and run? [y/N]").lower() not in {"y", "yes"}:
+    question = ("데이터셋을 준비하고 실행할까요? [y/N]" if execute else
+                "데이터셋을 준비하고 설정을 만들까요? [y/N]")
+    if ask(question).lower() not in {"y", "yes"}:
         raise ConfigurationError("Experiment cancelled without preparing data")
     arguments = ["init", "--project-root", str(project_root), "--name", name,
                  "--agent", agent, *[part for dataset in selected_datasets
