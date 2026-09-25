@@ -833,6 +833,76 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn("TTY", errors.getvalue())
         self.assertFalse((self.root / "runs").exists())
 
+    def test_tui_optional_ace_decline_creates_no_workspace_or_cache(self):
+        workspace, cache = self.root / "declined-ace", self.root / "unused-cache"
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        terminal = Terminal()
+        with patch("sys.stdin.isatty", return_value=True), \
+                patch("builtins.input", side_effect=["3", str(workspace), "n"]), \
+                patch.dict(os.environ, {"XDG_CACHE_HOME": str(cache)}), \
+                contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
+        self.assertIn("ACE-RTL", terminal.getvalue())
+        self.assertIn(str(workspace), terminal.getvalue())
+        self.assertFalse(workspace.exists())
+        self.assertFalse(cache.exists())
+
+    def test_tui_optional_ace_prepares_then_requires_separate_run_confirmation(self):
+        from agent_optimizer.catalog import INTEGRATIONS
+        from agent_optimizer.integrations import selected_files
+
+        workspace = self.root / "selected-ace"
+        target = workspace / "experiment.toml"
+        source = self.data.read_text(encoding="utf-8")
+
+        def pinned_files(root, integration_id, *, offline=False):
+            self.assertEqual((root, integration_id, offline), (workspace.resolve(), "ace-rtl", False))
+            originals = selected_files(ROOT, "ace-rtl")
+            paths = [path.relative_to(ROOT).as_posix() for path in originals]
+            for path, relative in zip(originals, paths):
+                destination = root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(path, destination)
+            (root / "examples/ace-rtl/environment/lifecycle.py").write_text(
+                'from agent_optimizer.contracts import UnavailableError\n'
+                'def prepare(root, *, offline=False, platform=None):\n'
+                '    output = root / "datasets/ace-demo/tasks.json"\n'
+                '    output.parent.mkdir(parents=True, exist_ok=True)\n'
+                f'    output.write_text({source!r}, encoding="utf-8")\n'
+                '    return output\n'
+                'def inspect(root, *, platform=None):\n'
+                '    return {"ready": True, "checks": [], "lock": {"platform": "linux/amd64"}}\n'
+                'def run(root, *, iterations=None, platform=None):\n'
+                '    (root / "executed.marker").write_text("executed")\n'
+                '    return 0\n', encoding="utf-8")
+            return {"url": INTEGRATIONS["ace-rtl"]["url"],
+                    "revision": INTEGRATIONS["ace-rtl"]["revision"], "paths": paths}
+
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        for answers, expected in ((["3", str(workspace), "y", "n"], 2),
+                                  (["1", str(target), "y"], 0)):
+            terminal = Terminal()
+            with patch("sys.stdin.isatty", return_value=True), \
+                    patch("builtins.input", side_effect=answers), \
+                    patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "fixture",
+                                            "AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/v1/chat/completions",
+                                            "AGENT_OPT_MODEL": "fixture"}), \
+                    patch("agent_optimizer.integrations.acquire_integration", side_effect=pinned_files), \
+                    patch("agent_optimizer.readiness.shutil.which", return_value="/fixture/docker"), \
+                    contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(main(["tui", "--project-root", str(self.root)]), expected,
+                                 terminal.getvalue())
+            self.assertTrue(target.is_file())
+            self.assertTrue((workspace / ".agent-opt/integration-ready.json").is_file())
+            self.assertEqual((workspace / "executed.marker").exists(), expected == 0)
+            self.assertIn("계획 진단: 준비됨", terminal.getvalue())
+
     def test_tui_wizard_prepares_explicit_user_choice_and_runs(self):
         class Terminal(io.StringIO):
             def isatty(self):

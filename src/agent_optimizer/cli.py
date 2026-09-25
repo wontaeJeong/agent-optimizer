@@ -454,18 +454,46 @@ def _dispatch(args):
             if not sys.stdin.isatty() or not sys.stderr.isatty():
                 raise ConfigurationError(t("TUI requires a TTY for both input and output"))
             try:
-                print("\n" + human("실험 시작: 1. 기존 실험 실행  2. 새 실험 만들고 실행"), file=sys.stderr)
-                print(human("선택 [1/2]: "), end="", file=sys.stderr, flush=True)
+                print("\n" + human("실험 시작: 1. 기존 실험 실행  2. 새 실험 만들고 실행  3. ACE-RTL + CVDP 예제"), file=sys.stderr)
+                print(human("선택 [1/2/3]: "), end="", file=sys.stderr, flush=True)
                 choice = input().strip()
-                if choice == "1":
-                    print(human("기존 experiment.toml 경로: "), end="", file=sys.stderr, flush=True)
-                    selected = input().strip()
-                    if not selected:
-                        raise ConfigurationError(human("실험 설정 경로를 입력하세요"))
-                    experiment = Path(selected).expanduser()
-                    if not experiment.is_absolute():
-                        experiment = args.project_root / experiment
-                    experiment = experiment.resolve()
+                if choice in {"1", "3"}:
+                    if choice == "3":
+                        print(human("ACE-RTL 작업공간 경로: "), end="", file=sys.stderr, flush=True)
+                        selected = input().strip()
+                        if not selected:
+                            raise ConfigurationError(human("ACE-RTL 작업공간 경로를 입력하세요"))
+                        workspace = Path(selected).expanduser()
+                        if not workspace.is_absolute():
+                            workspace = args.project_root.absolute() / workspace
+                        print(f"{human('선택한 작업공간')}: {workspace}\n"
+                              + human("준비 작업: 고정 Git 소스·CVDP 데이터·driver·Docker 이미지"),
+                              file=sys.stderr)
+                        print(human("ACE-RTL 연동을 준비할까요? [y/N]: "), end="", file=sys.stderr, flush=True)
+                        if input().strip().lower() not in {"y", "yes"}:
+                            print(human("실험 준비를 취소했습니다"), file=sys.stderr)
+                            return 2
+                        output = io.StringIO()
+                        with contextlib.redirect_stdout(output):
+                            code = main(["init", "--profile", "ace-rtl", "--workspace", str(workspace)])
+                        if code:
+                            return code
+                        experiment = Path(json.loads(output.getvalue())["experiment"])
+                        output = io.StringIO()
+                        with contextlib.redirect_stdout(output):
+                            code = main(["prepare", str(experiment)])
+                        if code:
+                            return code
+                        prepared = json.loads(output.getvalue())
+                    else:
+                        print(human("기존 experiment.toml 경로: "), end="", file=sys.stderr, flush=True)
+                        selected = input().strip()
+                        if not selected:
+                            raise ConfigurationError(human("실험 설정 경로를 입력하세요"))
+                        experiment = Path(selected).expanduser()
+                        if not experiment.is_absolute():
+                            experiment = args.project_root / experiment
+                        experiment = experiment.resolve()
                     report = collect_plan(experiment, registry)
                     print(f"{human('실험 설정')}: {experiment}", file=sys.stderr)
                     print(f"{human('계획 진단')}: {human('준비됨' if report['ready'] else '준비 부족')}", file=sys.stderr)
@@ -475,6 +503,9 @@ def _dispatch(args):
                                 message, remedy = render_diagnostic(check)
                                 print(f"  {check['id']}: {message} {remedy}", file=sys.stderr)
                         return 2
+                    if choice == "3":
+                        print(f"{human('실도구 진단')}: {human('준비됨' if prepared['ready'] else '준비 부족')}",
+                              file=sys.stderr)
                     print(human("이 실험을 실행할까요? [y/N]: "), end="", file=sys.stderr, flush=True)
                     if input().strip().lower() not in {"y", "yes"}:
                         print(human("실험 실행을 취소했습니다"), file=sys.stderr)
@@ -483,7 +514,7 @@ def _dispatch(args):
                 elif choice == "2":
                     init_args = wizard_arguments(args.project_root.absolute())
                 else:
-                    raise ConfigurationError(human("1 또는 2를 선택하세요"))
+                    raise ConfigurationError(human("1, 2 또는 3을 선택하세요"))
             except EOFError:
                 print(style(human("TUI cancelled:"), "warning", stream=sys.stderr) + " " + human("input ended"), file=sys.stderr)
                 return 2
