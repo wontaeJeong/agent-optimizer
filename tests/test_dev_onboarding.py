@@ -949,6 +949,7 @@ class DeveloperCommandsTests(unittest.TestCase):
             self.assertEqual(self.main(["live"]), 2)
         self.assertIn("blocked_auth", self.output.getvalue())
 
+    @patch.dict(os.environ, {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1"})
     def test_corrupted_lock_is_preserved_and_reported_before_later_setup_smoke_live_stages(self):
         setup = module("onboarding_corrupt_lock", ROOT / "examples/ace-rtl/environment/setup.py")
         valid = {"platform": "linux/amd64", "images": {
@@ -974,7 +975,7 @@ class DeveloperCommandsTests(unittest.TestCase):
                                 patch.object(setup, "driver_requirements", return_value={}), \
                                 patch.object(setup, "prepare_data", side_effect=AssertionError("later data work")), \
                                 patch.dict(os.environ, {"AGENT_OPT_BOOTSTRAPPED": str(root),
-                                            "AGENT_OPT_MODEL_API_KEY": "test", "AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/chat/completion"}):
+                                            "AGENT_OPT_MODEL_API_KEY": "test", "AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/chat/completion"}, clear=True):
                             code = self.main([command, "--platform", "linux/amd64", *(["--offline"] if offline else [])])
                         self.assertEqual(code, 2)
                         blocked = json.loads(self.output.getvalue().splitlines()[-1])
