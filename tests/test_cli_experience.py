@@ -533,6 +533,17 @@ class CLIExperienceTests(unittest.TestCase):
         names = {row["name"] for row in json.loads(output.getvalue())}
         self.assertEqual(names, {"cvdp", "verilog-spec", "verilog-completion", "sample_text"})
 
+    def test_wheel_catalog_without_repository(self):
+        with tempfile.TemporaryDirectory(prefix="standalone-agent-opt-") as directory:
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(main(["datasets", "list", "--project-root", directory]), 0)
+            rows = json.loads(output.getvalue())
+            self.assertEqual({row["name"] for row in rows},
+                             {"cvdp", "verilog-spec", "verilog-completion"})
+            self.assertTrue(all(row["requires_preparation"] for row in rows))
+            self.assertEqual(list(Path(directory).iterdir()), [])
+
     def test_dataset_inventory_works_from_outside_project_import_path(self):
         package_root = Path(__file__).resolve().parents[1]
         command = [sys.executable, "-c", "import sys; from agent_optimizer.cli import main; "

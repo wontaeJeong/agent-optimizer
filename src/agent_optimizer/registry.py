@@ -3,6 +3,7 @@ import hashlib
 import importlib.util
 import sys
 from pathlib import Path
+from agent_optimizer.config import read_toml
 from agent_optimizer.contracts import ConfigurationError, UnavailableError, BUILTIN_HARNESSES
 from agent_optimizer.workspace import safe_path
 from agent_optimizer.harnesses.command import CommandHarness, FixtureHarness
@@ -33,6 +34,14 @@ PROJECT_DEPENDENCIES: dict[str, list[str]] = {
     "evaluators/cvdp": ["examples/ace-rtl/environment/network_driver.py"],
     "evaluators/verilog_eval": ["examples/benchmarks/verilog_eval.py"],
 }
+
+
+def is_source_checkout(root: Path) -> bool:
+    marker = root / "pyproject.toml"
+    try:
+        return marker.is_file() and read_toml(marker).get("project", {}).get("name") == "agent-optimizer"
+    except (OSError, ValueError, TypeError, AttributeError):
+        return False
 
 
 def plugin_files(root, plugins, dependencies):
@@ -85,6 +94,8 @@ class Registry:
         self.loaded = {}
 
     def load_project(self, root: Path) -> None:
+        if not is_source_checkout(root):
+            return
         plugin_files(root, PROJECT_COMPONENTS, PROJECT_DEPENDENCIES)
         self.load_plugins(root, PROJECT_COMPONENTS)
 
