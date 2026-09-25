@@ -872,6 +872,7 @@ class CLIExperienceTests(unittest.TestCase):
                 '    output = root / "datasets/ace-demo/tasks.json"\n'
                 '    output.parent.mkdir(parents=True, exist_ok=True)\n'
                 f'    output.write_text({source!r}, encoding="utf-8")\n'
+                '    print("[setup] 검증된 데이터셋 준비 완료")\n'
                 '    return output\n'
                 'def inspect(root, *, platform=None):\n'
                 '    return {"ready": True, "checks": [], "lock": {"platform": "linux/amd64"}}\n'
