@@ -13,6 +13,7 @@ from agent_optimizer.results import write_json
 from agent_optimizer.network import host_environment, configured_build, ca_bundle, ca_fingerprint
 from agent_optimizer.models import ModelSettings
 from agent_optimizer.readiness import check
+from agent_optimizer.terminal_report import PreparationStatus
 ROOT = Path(__file__).resolve().parents[3]
 REPOS = {
     "ACE-RTL": ("https://github.com/NVlabs/ACE-RTL.git", "fead921f18bb57345b5a41ef93ba625be208e99c"),
@@ -106,21 +107,21 @@ def run(args, cwd=ROOT, log=None):
 def _run(args, cwd, log, environment):
     label = log.name if log else " ".join(args[:2])
     print(f"[setup] {label}: starting; log: {log or 'terminal'}", flush=True)
-    try:
-        if log is None:
-            subprocess.run(args, cwd=cwd, check=True, shell=False, env=environment)
-            print(f"[setup] {label}: complete", flush=True)
-            return
-        log.parent.mkdir(parents=True, exist_ok=True)
-        with log.open("w") as stream:
-            stream.write(json.dumps(args) + "\n")
-            stream.flush()
-            result = subprocess.run(args, cwd=cwd, stdout=stream, stderr=subprocess.STDOUT, shell=False, env=environment)
-    except (OSError, subprocess.CalledProcessError) as exc:
-        raise UnavailableError(f"Setup {label} unavailable/failed: {args[0]} ({type(exc).__name__}); "
-                               f"see {log or 'terminal output'}; repair and rerun setup") from exc
-    if result.returncode:
-        raise UnavailableError(f"Command failed ({result.returncode}); see {log}")
+    with PreparationStatus(log.name if log else args[0], action="setup", subject="check"):
+        try:
+            if log is None:
+                subprocess.run(args, cwd=cwd, check=True, shell=False, env=environment)
+            else:
+                log.parent.mkdir(parents=True, exist_ok=True)
+                with log.open("w") as stream:
+                    stream.write(json.dumps(args) + "\n")
+                    stream.flush()
+                    result = subprocess.run(args, cwd=cwd, stdout=stream, stderr=subprocess.STDOUT, shell=False, env=environment)
+                if result.returncode:
+                    raise UnavailableError(f"Command failed ({result.returncode}); see {log}")
+        except (OSError, subprocess.CalledProcessError) as exc:
+            raise UnavailableError(f"Setup {label} unavailable/failed: {args[0]} ({type(exc).__name__}); "
+                                   f"see {log or 'terminal output'}; repair and rerun setup") from exc
     print(f"[setup] {label}: complete", flush=True)
 
 
@@ -457,7 +458,8 @@ def prepare_environment(*, offline=False, platform=None):
     if offline:
         validate_driver_lock(external, previous)
     print(f"[setup] verified dataset: starting; cache: {external / 'cvdp-data'}", flush=True)
-    dataset, data_lock = prepare_data(external, offline=offline)
+    with PreparationStatus("verified-data", action="setup", subject="check"):
+        dataset, data_lock = prepare_data(external, offline=offline)
     print("[setup] verified dataset: complete", flush=True)
     if not venv.exists():
         run([*uv, "venv", "--python", "3.12", str(venv)], log=logs / "driver-venv.log")
@@ -491,10 +493,11 @@ def prepare_environment(*, offline=False, platform=None):
             raise ConfigurationError(f"Offline image identity differs: {image}")
         print(f"[setup] {name} image: complete", flush=True)
     print(f"[setup] example tool checks: starting; log: {logs / 'doctor.json'}", flush=True)
-    capability = doctor(external, platform, images["evaluation"], images["agent"])
-    write_json(logs / "doctor.json", capability)
-    if not capability["ready"]:
-        raise UnavailableError(f"Environment doctor failed; see {logs / 'doctor.json'}")
+    with PreparationStatus("example-tools", action="setup", subject="check"):
+        capability = doctor(external, platform, images["evaluation"], images["agent"])
+        write_json(logs / "doctor.json", capability)
+        if not capability["ready"]:
+            raise UnavailableError(f"Environment doctor failed; see {logs / 'doctor.json'}")
     print("[setup] example tool checks: complete", flush=True)
     freeze = driver_packages(external)
     lock = {"repos": REPOS, "dataset": data_lock, "platform": platform, "ca_bundle_sha256": fingerprint,

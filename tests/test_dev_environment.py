@@ -4,6 +4,7 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 import venv
@@ -845,6 +846,20 @@ class SmokeEvidenceTests(unittest.TestCase):
             checks.require_verdict(result, "passed", official=True)
             with self.assertRaises(UnavailableError):
                 checks.require_verdict(result, "failed", official=True)
+
+
+class SetupProgressTests(unittest.TestCase):
+    def test_logged_command_reports_elapsed_without_changing_its_output_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log = root / "driver-uv.log"
+            output, progress = io.StringIO(), io.StringIO()
+            with redirect_stdout(output), redirect_stderr(progress):
+                setup.run([sys.executable, "-c", "import time; time.sleep(1.1)"], cwd=root, log=log)
+            self.assertIn("[setup] check=driver-uv.log starting", progress.getvalue())
+            self.assertIn("[setup] check=driver-uv.log complete elapsed=", progress.getvalue())
+            self.assertEqual(json.loads(log.read_text().splitlines()[0])[0], sys.executable)
+            self.assertIn("driver-uv.log: complete", output.getvalue())
 
 
 class ShippedRTLProfileTests(unittest.TestCase):
