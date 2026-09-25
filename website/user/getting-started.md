@@ -1,6 +1,6 @@
 # 첫 실행
 
-**목표:** 외부 모델·Docker 없이 설치, 코어 진단, 보고서 생성까지 확인합니다. Mac 또는 Ubuntu에서 Git과 `make`를 준비하고 저장소 루트에서 실행하세요. `make`가 없으면 `sh scripts/bootstrap.sh setup --core`로 시작할 수 있습니다.
+**목표:** 외부 모델·Docker 없이 설치, 코어 진단, 보고서 생성까지 확인합니다. 저장소에서 개발할 때는 Mac 또는 Ubuntu에서 Git과 `make`를 준비하고 저장소 루트에서 실행하세요. `make`가 없으면 `sh scripts/bootstrap.sh setup --core`로 시작할 수 있습니다. wheel만 설치한 사용자는 아래 대화형 경로의 선택형 예제를 별도로 준비할 수 있습니다.
 
 ## 1. 코어 준비
 
@@ -44,9 +44,24 @@ make doctor-core
 
 터미널에서 기존 `experiment.toml`을 선택하면 정적 계획 진단과 확인 뒤 실행합니다. 새 실험을
 선택하면 Agent·editable 범위·Optimizer·**데이터셋**을 차례로 고르며, 실행 명령은
-`command` 하네스에서만 입력합니다. TUI는 데이터셋을 자동 추천하지 않습니다. ACE-RTL은
-전체 `make setup`으로 준비하고 모델 자격증명을 지정한 후
-`examples/ace-rtl/experiment.toml`을 선택하는 기존 OpenCode 스킬 프로필입니다.
-이 경로는 ACE 예제 `live`의 실제 준비·공식 CVDP 평가를 실행합니다(native ACE 실행은
-아닙니다). [실험 구성](experiment.md)과
+`command` 하네스에서만 입력합니다. TUI는 데이터셋을 자동 추천하지 않습니다.
+**3번 ACE-RTL + CVDP 예제**를 직접 선택하면 Git 소스·driver·Docker 준비 내용을 보여주고
+승인을 받은 뒤 작업공간에 고정 버전 자산을 준비합니다. 정적 계획·실도구 진단 뒤에는
+실제 모델 실행을 다시 확인합니다. 저장소 없는 wheel 사용자도 같은 경로를 사용합니다.
+
+```bash
+agent-opt init --profile ace-rtl --workspace "$HOME/agent-opt-ace"
+agent-opt doctor --plan "$HOME/agent-opt-ace/experiment.toml" --json  # 준비 전 blocked
+agent-opt prepare "$HOME/agent-opt-ace/experiment.toml"
+agent-opt doctor --plan "$HOME/agent-opt-ace/experiment.toml" --json  # 정적 준비 확인
+# 모델 설정/키를 환경에서 제공한 경우에만:
+agent-opt run "$HOME/agent-opt-ace/experiment.toml"
+```
+
+Python 3.11+, Git, uv, Docker Engine/Compose가 필요하고, macOS에서는 작업공간을
+Docker Desktop에 공유할 수 있는 경로에 둡니다. `prepare --offline`은 검증된 캐시만
+재사용하며 `run`은 자산을 자동 설치하지 않습니다. 사용자 Agent와 자체 과제는
+`--agent`·`--dataset <tasks.json>`·`--evaluator <file.py:Symbol>`로 연결합니다.
+ACE 선택형 경로는 OpenCode 스킬 프로필의 실제 준비·공식 CVDP 평가이며 native ACE 실행은
+아닙니다. [실험 구성](experiment.md)과
 [결과 읽기](results.md)를 참고하세요.

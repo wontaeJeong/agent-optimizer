@@ -15,6 +15,12 @@
 아래 고정 URL의 본문은 같은 SHA의 raw 파일 및 실제 checkout과 대조했다.
 Task 5/6에서 실제 setup/평가를 실행한 범위는 [verification.md](verification.md)에 별도로 기록한다.
 
+wheel의 선택형 예제 코드는 별도의 **첫-party** 고정 commit
+`ae0874fb94d94284a07a17d84ef60058ed9a97b6`에서만 가져온다.
+`src/agent_optimizer/catalog.py`의 URL/SHA를 `integrations.py`가 확인하고,
+선택한 예제/평가기/Optimizer 파일만 작업공간에 복사한다. 이 commit은 위 upstream
+ACE·CVDP SHA나 아래 Hugging Face 데이터 revision을 대체하거나 갱신하지 않는다.
+
 ## 판단별 1차 출처
 
 로컬 파일은 프로젝트 루트 기준이다.
