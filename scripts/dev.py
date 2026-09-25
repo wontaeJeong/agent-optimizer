@@ -13,8 +13,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
-from agent_optimizer.results import write_json
-from agent_optimizer.network import network_environment, ca_fingerprint, demo_environment
+from agent_optimizer.network import network_environment, demo_environment
 from agent_optimizer.registry import Registry
 from agent_optimizer import readiness
 from agent_optimizer.terminal_report import PreparationStatus
@@ -183,21 +182,25 @@ def main(argv=None):
             if args.command == "live":
                 setup.validate_live()  # Before image probes, data reads, or any model execution.
             args.platform = setup.validate_platform(args.platform)
+        if args.command == "live":
+            lifecycle = load("ace_lifecycle", "examples/ace-rtl/environment/lifecycle.py")
+            return lifecycle.run(ROOT, iterations=args.iterations, platform=args.platform)
+        if args.command == "smoke":
+            lifecycle = load("ace_lifecycle", "examples/ace-rtl/environment/lifecycle.py")
+            with PreparationStatus("environment", action="smoke", subject="check"):
+                report = lifecycle.inspect(ROOT, platform=args.platform)
+                if not report["ready"]:
+                    raise UnavailableError("ACE 평가 실행환경이 준비되지 않았습니다")
+            os.environ["DOCKER_DEFAULT_PLATFORM"] = report["platform"]
+            os.environ["OSS_SIM_IMAGE"] = report["sim_image"]
+            return load("ace_dev_checks", "examples/ace-rtl/environment/checks.py").smoke(report["lock"])
         if args.command == "setup":
             if not core_only:
                 stage = "example environment"
                 print(style(f"[setup] {human(stage)}: {human('starting')}", "warning")
                       + f"; {human('logs')}: {ROOT / 'external/setup-logs'}", flush=True)
-                dataset, lock = setup.prepare_environment(offline=args.offline, platform=args.platform)
-                print(style(f"[setup] {human(stage)}: {human('complete')}", "success"), flush=True)
-                stage = "dataset preparation"
-                print(style(f"[setup] {human(stage)}: {human('starting')}", "warning")
-                      + f"; {human('output')}: {ROOT / 'datasets/ace-demo'}", flush=True)
-                prepare = load("ace_prepare", "examples/ace-rtl/prepare.py")
-                manifest = prepare.prepare_dataset(dataset, ROOT / "datasets/ace-demo/all-tasks.json", lock)
-                demo = load("ace_demo", "examples/ace-rtl/environment/demo.py")
-                manifest = demo.select_tasks(manifest)
-                write_json(ROOT / "datasets/ace-demo/tasks.json", manifest)
+                lifecycle = load("ace_lifecycle", "examples/ace-rtl/environment/lifecycle.py")
+                lifecycle.prepare(ROOT, offline=args.offline, platform=args.platform)
                 print(style(f"[setup] {human(stage)}: {human('complete')}", "success"), flush=True)
             stage = "final doctor"
             print(style(f"[setup] {human(stage)}: {human('starting')}", "warning") + f" ({human('read-only')})", flush=True)
@@ -221,30 +224,6 @@ def main(argv=None):
                 print(json.dumps({"status": "ready", "environment_lock": "external/environment-lock.json",
                                   "results": "runs/", "next": "make doctor; make test; make smoke"}))
             return 0
-        lock_path = ROOT / "external/environment-lock.json"
-        if not lock_path.is_file():
-            raise UnavailableError("blocked_environment: run python scripts/dev.py setup first")
-        lock = setup.read_environment_lock(lock_path)
-        if lock["platform"] != args.platform:
-            raise ConfigurationError("Prepared platform differs; use matching --platform")
-        if lock.get("ca_bundle_sha256") != ca_fingerprint():
-            raise ConfigurationError("CA bundle differs from prepared images; rerun setup")
-        with PreparationStatus("environment", action=args.command, subject="check"):
-            setup.prepare_sources(ROOT / "external", offline=True)
-            setup.prepare_data(ROOT / "external", offline=True)
-            setup.validate_driver_lock(ROOT / "external", lock)
-            sim_image = setup.verified_sim_image(lock)
-            capability = setup.doctor(ROOT / "external", args.platform,
-                                      lock["images"]["evaluation"]["id"], lock["images"]["agent"]["id"])
-            write_json(ROOT / "external/setup-logs/doctor.json", capability)
-            if not capability["ready"]:
-                raise UnavailableError("blocked_environment: execution doctor failed; inspect external/setup-logs/doctor.json")
-        os.environ["DOCKER_DEFAULT_PLATFORM"] = args.platform
-        os.environ["OSS_SIM_IMAGE"] = sim_image
-        example = load("ace_dev_checks", "examples/ace-rtl/environment/checks.py")
-        if args.command == "smoke":
-            return example.smoke(lock)
-        return example.live(lock, iterations=args.iterations) if args.iterations is not None else example.live(lock)
     except (ConfigurationError, UnavailableError, OSError, subprocess.SubprocessError) as exc:
         print(json.dumps({"status": "blocked", "stage": stage, "reason": str(exc),
                           "repair": repair}))
