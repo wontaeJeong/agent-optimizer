@@ -90,7 +90,7 @@ def _candidate_ids(root: Path, key: str, group: dict, events: list[dict]) -> lis
         rows.extend(stage.get("selected", []))
         rows.extend(stage.get("evaluated", []))
     rows.extend(event for event in events if event.get("event") in (
-        "trial_completed", "candidate_created", "optimizer_merge_completed"))
+        "trial_completed", "candidate_evaluated", "candidate_created", "optimizer_merge_completed"))
     for row in rows:
         if isinstance(row, dict) and isinstance(row.get("candidate_id"), str):
             ids.add(row["candidate_id"])
@@ -342,6 +342,101 @@ def _structure(key: str, candidates: list[dict], evaluations: list[dict], events
     return {"kind": kind, "label": None, "units": units, "edges": edges}
 
 
+def _objective_vector(metrics, objective):
+    if not isinstance(metrics, dict):
+        return None
+    specs = objective.get("metrics", []) if isinstance(objective, dict) else []
+    if not specs:
+        return None
+    vector = []
+    for metric in specs:
+        if not isinstance(metric, dict) or metric.get("direction") not in ("maximize", "minimize"):
+            return None
+        number = metrics.get(metric.get("name"))
+        if not _finite_number(number):
+            return None
+        vector.append(number if metric["direction"] == "maximize" else -number)
+    return tuple(vector)
+
+
+def _visualization(group: dict, events: list[dict], evaluations: list[dict], objective: dict) -> dict:
+    key = f'{group["agent_id"]}/{group["harness_id"]}'
+    selected = {row["candidate_id"] for row in group.get("selected", [])
+                if isinstance(row, dict) and isinstance(row.get("candidate_id"), str)
+                and row.get("split") == "validation" and row.get("valid") is True
+                and not row.get("partial", False)
+                and row.get("agent_id") == group["agent_id"]
+                and row.get("harness_id") == group["harness_id"]}
+    baseline = group.get("baseline") if isinstance(group.get("baseline"), dict) else {}
+    progress, best_vector, best_metrics = [], None, None
+    for event in events:
+        if event.get("event") != "candidate_evaluated" or event.get("split") != "validation":
+            continue
+        candidate_id = event.get("candidate_id")
+        if not isinstance(candidate_id, str):
+            continue
+        vector = (_objective_vector(event.get("metrics"), objective)
+                  if event.get("valid") is True and not event.get("partial", False) else None)
+        if vector is None:
+            improvement = "invalid"
+        elif best_vector is None or vector > best_vector:
+            improvement = (("baseline" if candidate_id == baseline.get("candidate_id") else "first")
+                           if best_vector is None else "improved")
+            best_vector, best_metrics = vector, event["metrics"]
+        else:
+            improvement = "equal" if vector == best_vector else "regressed"
+        progress.append({"candidate_id": candidate_id, "stage_id": event.get("stage_id"),
+                         "metrics": event.get("metrics"), "best_metrics": best_metrics,
+                         "improvement": improvement, "selected": candidate_id in selected,
+                         "source": "candidate_evaluated", "timestamp": event.get("timestamp"),
+                         "trial_refs": [_qualified(key, trial) for trial in event.get("trial_ids", [])
+                                        if isinstance(trial, str)]
+                         if isinstance(event.get("trial_ids"), list) else []})
+
+    timeline = []
+    outcomes = {}
+    for row in evaluations:
+        metrics = row.get("metrics") if isinstance(row.get("metrics"), dict) else {}
+        duration = metrics.get("task_wall_time_seconds")
+        category = (row["failure"]["category"] if row.get("failure") else row.get("status") or "unknown")
+        outcomes[category] = outcomes.get(category, 0) + 1
+        timeline.append({"trial_id": row["trial_id"], "candidate_id": row["candidate_id"],
+                         "stage_id": row["stage_id"], "task_id": row["task_id"],
+                         "split": row["split"], "status": row["status"], "category": category,
+                         "duration_seconds": duration if _finite_number(duration) and duration >= 0 else None,
+                         "evaluation_ref": row["id"]})
+
+    tasks = []
+    specs = objective.get("metrics", []) if isinstance(objective, dict) else []
+    if (selected and baseline.get("valid") is True and
+            any(metric.get("source") == "passed" and metric.get("aggregate", "mean") == "mean"
+                for metric in specs if isinstance(metric, dict))):
+        winner = next(iter(selected))
+        grouped = {}
+        for row in evaluations:
+            if row.get("split") == "validation" and row.get("candidate_id") in (baseline.get("candidate_id"), winner):
+                grouped.setdefault((row.get("task_id"), row["candidate_id"]), []).append(row)
+
+        def task_state(rows):
+            if not rows or any(row.get("valid") is not True for row in rows):
+                return "unknown"
+            values = [(row.get("metrics") or {}).get("passed") for row in rows]
+            if any(not _finite_number(number) or number not in (0, 1) for number in values):
+                return "unknown"
+            return "passed" if all(number == 1 for number in values) else "failed" if all(number == 0 for number in values) else "mixed"
+
+        for task_id in sorted({name for name, candidate in grouped if candidate == baseline.get("candidate_id")
+                               and (name, winner) in grouped if isinstance(name, str)}):
+            before = grouped[(task_id, baseline["candidate_id"])]
+            after = grouped[(task_id, winner)]
+            if len(before) != len(after) or {r["repeat"] for r in before} != {r["repeat"] for r in after}:
+                continue
+            tasks.append({"task_id": task_id, "baseline": task_state(before),
+                          "selected": task_state(after)})
+    return {"progress": progress, "trial_timeline": timeline, "task_comparison": tasks,
+            "outcomes": outcomes}
+
+
 def _group(root: Path, group: dict, events: list[dict], objective: dict) -> dict:
     agent_id, harness_id = group["agent_id"], group["harness_id"]
     key = f"{agent_id}/{harness_id}"
@@ -362,8 +457,9 @@ def _group(root: Path, group: dict, events: list[dict], objective: dict) -> dict
             "optimizer_usage": group.get("optimizer_usage", []), "status": group.get("status"),
             "agent_usage": _agent_usage(group, group_events),
             "candidates": candidates, "evaluations": evaluations, "failures": failures,
-            "structure": structure,
-            "comparison": comparison, "comparison_trend": overall,
+             "structure": structure,
+             "visualization": _visualization(group, group_events, evaluations, objective),
+             "comparison": comparison, "comparison_trend": overall,
             "counts": {"candidates": len(candidates), "trials_used": group.get("trials_used"),
                        **_evaluation_counts(evaluations)}}
 
@@ -391,7 +487,7 @@ def build_report(root: Path, summary: dict) -> dict:
                            error=summary.get("error"))
     if run_failure is not None:
         identity["failure"] = run_failure
-    return {"report_schema_version": 1,
+    return {"report_schema_version": 2,
             "identity": identity,
             "configuration": experiment, "provenance": manifest,
             "objective": objective,

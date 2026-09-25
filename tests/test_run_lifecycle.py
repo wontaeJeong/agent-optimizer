@@ -104,6 +104,25 @@ class LifecycleTests(unittest.TestCase):
                          ["generation-1"])
         self.assertEqual(len(report_group["candidates"]), 3)
 
+    def test_candidate_aggregate_event_records_actual_trials_once_on_cache_hit(self):
+        def optimize(context, seeds, config):
+            candidate = context.propose(seeds[0], {"prompts/system.md": "chosen"}, "search")
+            context.evaluate_validation(candidate)
+            context.evaluate_validation(candidate)
+            return OptimizationResult([candidate])
+
+        self.optimizer(optimize)
+        _, summary = self.run_experiment()
+        events = self.persisted()[2]
+        aggregates = [event for event in events if event["event"] == "candidate_evaluated"
+                      and event["split"] == "validation"]
+        self.assertEqual([(event["candidate_id"], event["stage_id"]) for event in aggregates],
+                         [("c0001", "baseline"), ("c0002", "search")])
+        self.assertEqual(aggregates[1]["metrics"], summary["groups"][0]["selected"][0]["metrics"])
+        completed = [event for event in events if event["event"] == "trial_completed"]
+        self.assertEqual(aggregates[1]["trial_ids"], [completed[-1]["trial_id"]])
+        self.assertLess(events.index(completed[-1]), events.index(aggregates[1]))
+
     def test_stage_failure_has_actual_completed_boundary_and_run_wall_time(self):
         def optimize(context, seeds, config):
             context.propose(seeds[0], {"prompts/system.md": "unused"}, "search")

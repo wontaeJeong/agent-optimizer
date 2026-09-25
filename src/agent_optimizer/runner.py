@@ -262,9 +262,12 @@ class GroupRunner:
         if not valid:
             metrics = {name: None for name in metrics}
         row = {"candidate_id": candidate.id, "agent_id": self.agent.id,
-               "harness_id": self.profile["id"], "split": split,
-               "trial_count": len(records), "valid": valid, "metrics": metrics}
+                "harness_id": self.profile["id"], "split": split,
+                "trial_count": len(records), "valid": valid, "metrics": metrics}
         self.cache[key] = row
+        self.events.append({"event": "candidate_evaluated",
+                            "stage_id": self.current_stage["id"] if self.current_stage else "baseline",
+                            "trial_ids": [record["trial_id"] for record in records], **row})
         return row
 
     def run(self):
