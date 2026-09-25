@@ -185,7 +185,7 @@ def init_command(project_root: Path | None = None,
                  dataset: list[str] | None = typer.Option(None, "--dataset", help="데이터셋 직접 선택: 등록 ID 또는 로컬 tasks.json(반복 가능)"),
                  evaluator: str | None = None, metric: str = "passed",
                  direction: Literal["maximize", "minimize"] = typer.Option("maximize", "--direction"),
-                 harness: str = "command", optimizer: list[str] | None = typer.Option(None, "--optimizer", help="등록된 Optimizer ID(반복 가능; 기본값: gepa)"),
+                 harness: str = "command", optimizer: list[str] | None = typer.Option(None, "--optimizer", help="명시적으로 선택할 Optimizer ID(필수, 반복 가능; 예: baseline)"),
                  optimizer_config: str | None = None, scaffold_file: str | None = None,
                  target_file: str | None = None, max_tasks: int = 9, max_trials: int | None = None,
                  max_wall_time_seconds: float = 3600, trial_timeout_seconds: float = 120,
@@ -340,6 +340,8 @@ def _dispatch(args):
                 raise ConfigurationError("Agent argv must be a nonempty string array")
             if not args.yes:
                 raise ConfigurationError("Inspect the choices then pass --yes to confirm preparation")
+            if not args.optimizer:
+                raise ConfigurationError("Optimizer를 --optimizer ID로 명시하세요 (예: --optimizer baseline)")
             root = args.project_root.absolute()
             agent = args.agent if args.revision else Path(args.agent)
             if isinstance(agent, Path) and not agent.is_absolute():
@@ -357,7 +359,7 @@ def _dispatch(args):
                 raise ConfigurationError("선택한 하네스는 Agent 실행 명령을 받지 않습니다")
             if not supports_generated_profile(adapter):
                 raise ConfigurationError("전용 하네스 프로필이 필요합니다. 기존 experiment.toml을 사용하세요")
-            chosen = args.optimizer or ["gepa"]
+            chosen = args.optimizer
             custom_configs = json.loads(args.optimizer_config) if args.optimizer_config else {}
             if (not isinstance(custom_configs, dict)
                     or not all(isinstance(name, str) and isinstance(options, dict)
