@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from agent_optimizer.config import load_experiment
 from agent_optimizer.cli import main
-from agent_optimizer.contracts import ConfigurationError, Evaluation
+from agent_optimizer.contracts import ConfigurationError, Evaluation, OptimizationResult
 from agent_optimizer.registry import Registry
 from agent_optimizer.runner import run_experiment
 from agent_optimizer.terminal_report import PreparationStatus, ProgressDisplay, SessionProgress
@@ -311,6 +311,48 @@ class ProgressTests(unittest.TestCase):
         self.assertTrue(checkpoint["denied"])
         self.assertEqual(checkpoint["ids"], ["fixture-train"])
         self.assertEqual(checkpoint["row"]["split"], "train")
+
+    def test_cross_stage_candidate_cannot_be_evaluated_or_proposed(self):
+        shared = {}
+
+        class First:
+            def optimize(self, context, seeds, config):
+                child = context.propose(seeds[0], {"configs/strategy.json": '{"repair": true}'}, "first")
+                shared["child"] = child
+                return OptimizationResult([child])
+
+        class Second:
+            def optimize(self, context, seeds, config):
+                denied = {}
+                for action in ("evaluate", "propose"):
+                    try:
+                        if action == "evaluate":
+                            context.evaluate(shared["child"])
+                        else:
+                            context.propose(shared["child"],
+                                            {"configs/strategy.json": '{"repair": false}'}, "second")
+                    except ConfigurationError:
+                        denied[action] = True
+                    else:
+                        denied[action] = False
+                baseline = context.evaluate(seeds[0])
+                child = context.propose(seeds[0],
+                                        {"configs/strategy.json": '{"repair": true}'}, "second")
+                own = context.evaluate(child)
+                return OptimizationResult([child], {**denied, "baseline": baseline["valid"],
+                                                    "own": own["valid"]})
+
+        registry = Registry()
+        registry.factories["optimizers"].update(first=First, second=Second)
+        self.spec.update(stages=[{"id": "first", "optimizer": "first", "max_trials": 5},
+                                 {"id": "second", "optimizer": "second", "max_trials": 5}],
+                         final_stages=["second"])
+        self.spec["budget"]["max_trials"] = 20
+        _, summary = run_experiment(self.spec, registry, self.root / "runs")
+        stage = summary["groups"][0]["stages"][1]
+        self.assertEqual(stage["status"], "completed")
+        self.assertEqual(stage["checkpoint"], {"evaluate": True, "propose": True,
+                                               "baseline": True, "own": True})
 
     def test_evaluator_receives_provider_options_without_changing_runtime_contract(self):
         options = []
