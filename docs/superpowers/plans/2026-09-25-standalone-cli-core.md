@@ -36,7 +36,7 @@
 
 **입력:** `Registry.load_project(root: Path)`와 `agent-opt datasets list --project-root PATH`. **출력:** 빈 프로젝트에서 저장소 파일 조회 없이 내장 하네스/Optimizer와 준비 전 선택형 데이터셋 목록. 실제 source checkout에서는 `PROJECT_COMPONENTS` 등록을 유지.
 
-- [ ] **1. RED:** 일반 임시 디렉터리에서 `main(["datasets", "list", "--project-root", path])`가 ACE/CVDP·Verilog-Eval 선택형 ID를 출력하고 디렉터리에 파일을 만들지 않는 회귀를 작성한다. 기존 `test_project()` fixture는 실제 소스 checkout을 표시하도록 `pyproject.toml`을 복사한다. 누락된 선택형 구현은 목록 출력만 허용한다.
+- [ ] **1. RED:** 일반 임시 디렉터리에서 `main(["datasets", "list", "--project-root", path])`가 ACE/CVDP·Verilog-Eval 선택형 ID를 출력하고 디렉터리에 파일을 만들지 않는 회귀를 작성한다. 기존 `test_project()` fixture는 실제 소스 checkout을 표시하도록 `pyproject.toml`과 `.agent-opt-source`를 복사한다. 누락된 선택형 구현은 목록 출력만 허용한다.
   ```python
   with tempfile.TemporaryDirectory() as directory:
       output = io.StringIO()
@@ -47,12 +47,13 @@
       self.assertEqual(list(Path(directory).iterdir()), [])
   ```
 - [ ] **2. RED 확인:** `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_cli_experience.py -k test_wheel_catalog_without_repository -v`; 현재 `plugin_files`가 `examples/` 누락으로 실패해야 한다.
-- [ ] **3. 최소 구현:** `catalog.py`의 `DATASETS`는 선택형 이름과 `task_form`·`evaluator`·`requires_preparation=True`만 가진다. `registry.py`에 `is_source_checkout(root: Path) -> bool`을 두어 `pyproject.toml`의 `[project].name == "agent-optimizer"`일 때만 `PROJECT_COMPONENTS` 파일을 로드한다. `cli.py`의 목록은 실제 provider 결과와 카탈로그를 ID 기준으로 합치되 중복을 조용히 덮지 않는다.
+- [ ] **3. 최소 구현:** `catalog.py`의 `DATASETS`는 선택형 이름과 `task_form`·`evaluator`·`requires_preparation=True`만 가진다. `registry.py`에 `is_source_checkout(root: Path) -> bool`을 두어 `.agent-opt-source`와 `pyproject.toml`의 `[project].name == "agent-optimizer"`가 모두 있을 때만 `PROJECT_COMPONENTS` 파일을 로드한다. `cli.py`의 목록은 실제 provider 결과와 카탈로그를 ID 기준으로 합치되 중복을 조용히 덮지 않는다.
   ```python
   def is_source_checkout(root: Path) -> bool:
       marker = root / "pyproject.toml"
       try:
-          return marker.is_file() and read_toml(marker).get("project", {}).get("name") == "agent-optimizer"
+          return ((root / ".agent-opt-source").is_file() and marker.is_file()
+                  and read_toml(marker).get("project", {}).get("name") == "agent-optimizer")
       except (OSError, ValueError, TypeError, AttributeError):
           return False
 

@@ -544,6 +544,16 @@ class CLIExperienceTests(unittest.TestCase):
             self.assertTrue(all(row["requires_preparation"] for row in rows))
             self.assertEqual(list(Path(directory).iterdir()), [])
 
+    def test_unrelated_project_with_same_package_name_is_not_treated_as_source_checkout(self):
+        with tempfile.TemporaryDirectory(prefix="user-project-") as directory:
+            root = Path(directory)
+            (root / "pyproject.toml").write_text('[project]\nname = "agent-optimizer"\n')
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(main(["datasets", "list", "--project-root", directory]), 0)
+            self.assertEqual({row["name"] for row in json.loads(output.getvalue())},
+                             {"cvdp", "verilog-spec", "verilog-completion"})
+
     def test_bare_workspace_custom_agent_and_evaluator(self):
         temporary = tempfile.TemporaryDirectory(prefix="agent-opt-bare-")
         self.addCleanup(temporary.cleanup)

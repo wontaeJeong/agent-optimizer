@@ -22,6 +22,7 @@ def test_project():
     shutil.copytree(ROOT / "experiments/sample-team", project / "experiments/sample-team",
                     ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copyfile(ROOT / "pyproject.toml", project / "pyproject.toml")
+    shutil.copyfile(ROOT / ".agent-opt-source", project / ".agent-opt-source")
     return temporary, project
 
 def resolved_agent(path, snapshot):
