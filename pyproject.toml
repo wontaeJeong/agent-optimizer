@@ -10,11 +10,11 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["pydantic-settings>=2,<3", "typer>=0.27,<0.28", "rich>=14,<15"]
 
+[project.scripts]
+agent-opt = "agent_optimizer.entrypoint:main"
+
 [project.optional-dependencies]
 dev = ["build==1.2.2.post1", "ruff==0.11.13"]
-
-[tool.setuptools]
-script-files = ["scripts/agent-opt"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

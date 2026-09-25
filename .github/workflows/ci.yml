@@ -67,15 +67,8 @@ jobs:
         run: make demo
       - name: Build sdist and wheel
         run: .venv/bin/python -m build
-      - name: Verify installed wheel outside source tree
-        run: |
-          smoke_dir=$(mktemp -d)
-          trap 'rm -rf "$smoke_dir"' EXIT
-          python -m venv "$smoke_dir/venv"
-          "$smoke_dir/venv/bin/python" -m pip install dist/*.whl
-          cd "$smoke_dir"
-          "$smoke_dir/venv/bin/python" -I -m agent_optimizer --help
-          "$smoke_dir/venv/bin/agent-opt" --help
+      - name: 격리된 wheel CLI의 목록·사용자 실험 기능 확인
+        run: python tests/test_installed_cli.py dist/agent_optimizer-0.3.0-py3-none-any.whl
 
   official-cvdp:
     name: ACE/CVDP 실행환경·공식 평가 (수동, 모델 미사용)
