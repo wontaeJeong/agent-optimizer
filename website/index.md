@@ -25,14 +25,12 @@
 ## 실험은 이렇게 진행됩니다 {#workflow}
 
 ```mermaid
-flowchart LR
-  A[Agent 소스<br/>로컬 또는 고정 Git commit] --> S[원본 보존 스냅샷]
-  D[사용자가 선택한 데이터셋] --> R[실험 실행]
-  H[Harness: Agent 실행] --> R
-  S --> R
-  O[Optimizer: 허용 파일의 후보 생성] --> R
-  R --> E[Evaluator: Agent 밖에서 채점]
-  E --> P[validation 선택 · 선택 고정 후 test]
+flowchart TB
+  A[Agent 소스 · 고정 commit] --> S[원본 보존 스냅샷]
+  S --> H[선택한 데이터셋 · Harness 실행]
+  H --> E[Evaluator 채점]
+  E --> O[Optimizer: editable 후보 탐색]
+  O --> P[validation 선택 · 고정 후 test]
   P --> F[실험별 report.html]
 ```
 

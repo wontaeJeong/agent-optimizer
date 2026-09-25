@@ -18,7 +18,7 @@
 ## 선택과 정보 경계
 
 ```mermaid
-flowchart LR
+flowchart TB
   B[공통 baseline] --> T1[stage A: train 후보 탐색]
   B --> T2[stage B: train 후보 탐색]
   T1 --> V[각 stage validation 평가]

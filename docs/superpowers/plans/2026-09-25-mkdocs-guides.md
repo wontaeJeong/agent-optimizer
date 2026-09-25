@@ -1,6 +1,6 @@
 # 사람용 MkDocs 가이드 사이트 구현 계획
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. 이 작업은 위임 지시가 없어 현재 세션에서 직접 구현한다.
+> **에이전트 작업자:** 이 계획은 `superpowers:executing-plans`로 각 작업의 검사 결과를 확인하며 실행한다. 체크박스로 진행을 기록한다. 이 작업은 위임 지시가 없어 현재 세션에서 직접 구현한다.
 
 **목표:** 사람용 사용자·팀 개발자 가이드를 Material 기반 GitHub Pages에 자동 게시한다.
 
