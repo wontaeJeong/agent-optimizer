@@ -600,13 +600,14 @@ class PreparedImageTests(unittest.TestCase):
     def run_dev(self, command, *, actual_id=None, missing=False, tag="agent-optimizer-cvdp:8e894cf-amd64",
                 architecture="amd64"):
         dev = module("dev_image_test", ROOT / "scripts/dev.py")
+        lifecycle = module("dev_image_lifecycle", ROOT / "examples/ace-rtl/environment/lifecycle.py")
         identity = "sha256:" + "a" * 64
         lock = {"platform": "linux/amd64", "images": {
             "evaluation": {"tag": tag, "id": identity},
             "agent": {"tag": "agent-optimizer-opencode:test", "id": "sha256:" + "b" * 64},
         }}
         observed = []
-        def dispatch(prepared):
+        def dispatch(prepared, **kwargs):
             observed.append((os.environ["OSS_SIM_IMAGE"], os.environ["DOCKER_DEFAULT_PLATFORM"], prepared))
             return 0
         def inspect(argv, **kwargs):
@@ -614,9 +615,17 @@ class PreparedImageTests(unittest.TestCase):
             if missing:
                 raise subprocess.CalledProcessError(1, argv)
             return json.dumps([{"Id": actual_id or identity, "Os": "linux", "Architecture": architecture}])
-        def doctor(external, platform, eval_image, agent_image):
-            self.assertEqual((eval_image, agent_image), (identity, lock["images"]["agent"]["id"]))
-            return {"ready": True, "checks": {}}
+        checks = SimpleNamespace(smoke=dispatch, live=dispatch)
+        diagnostics = SimpleNamespace(collect_checks=lambda *a, **kw: [{"area": "evaluation", "status": "ok"}])
+
+        def load_selected(name, path):
+            return {"ace_environment": setup, "ace_lifecycle": lifecycle, "ace_dev_checks": checks}[name]
+
+        def lifecycle_file(root, relative, name):
+            return {"examples/ace-rtl/environment/setup.py": setup,
+                    "examples/ace-rtl/environment/diagnostics.py": diagnostics,
+                    "examples/ace-rtl/environment/checks.py": checks}[relative]
+
         with tempfile.TemporaryDirectory() as d:
             root = Path(d)
             (root / "external").mkdir()
@@ -625,9 +634,8 @@ class PreparedImageTests(unittest.TestCase):
             with patch.object(dev, "ROOT", root), patch.object(dev.os, "chdir"), \
                     patch.object(setup, "ROOT", root), \
                     patch.object(dev, "demo_environment", side_effect=lambda: dict(os.environ)), \
-                    patch.object(dev, "load", side_effect=[setup, SimpleNamespace(smoke=dispatch, live=dispatch)]), \
-                    patch.object(setup, "prepare_sources"), patch.object(setup, "prepare_data"), \
-                    patch.object(setup, "validate_driver_lock"), patch.object(setup, "doctor", side_effect=doctor), \
+                    patch.object(dev, "load", side_effect=load_selected), \
+                    patch.object(lifecycle, "load_example", side_effect=lifecycle_file), \
                     patch.object(setup.subprocess, "check_output", side_effect=inspect), \
                     patch("sys.argv", ["dev.py", command, "--platform", "linux/amd64"]), \
                     patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "test-only", "AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/v1/chat/completion", "AGENT_OPT_CA_BUNDLE": ""}, clear=True), \

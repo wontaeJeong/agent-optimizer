@@ -895,7 +895,7 @@ class DeveloperCommandsTests(unittest.TestCase):
             if failure:
                 raise failure
             return ROOT / "dataset", {}
-        setup = SimpleNamespace(validate_platform=lambda value: value, prepare_environment=environment)
+        setup = SimpleNamespace(validate_platform=lambda value: value)
         def dataset(*args):
             events.append("dataset")
             return {"tasks": [{"id": "cvdp_copilot_16qam_mapper_0001", "family": "qam"},
@@ -907,10 +907,13 @@ class DeveloperCommandsTests(unittest.TestCase):
         def execute(command):
             events.append(command)
             return demo_code
+        def prepare_selected(root, *, offline=False, platform=None):
+            source, lock = environment(offline=offline, platform=platform)
+            dataset(source, root / "datasets/ace-demo/all-tasks.json", lock)
+            return root / "datasets/ace-demo/tasks.json"
         with patch.dict(os.environ, {"AGENT_OPT_BOOTSTRAPPED": str(ROOT)}), \
-                patch.object(self.dev, "load", side_effect=[setup, SimpleNamespace(prepare_dataset=dataset),
-                    module("onboarding_demo_selector", ROOT / "examples/ace-rtl/environment/demo.py"), doctor]), \
-                patch.object(self.dev, "write_json"), \
+                patch.object(self.dev, "load", side_effect=[setup, SimpleNamespace(prepare=prepare_selected),
+                    doctor]), \
                 patch.object(self.dev, "run_core", side_effect=execute, create=True):
             code = self.main(["setup", "--offline", "--platform", "linux/amd64"])
         return code, events
@@ -921,6 +924,60 @@ class DeveloperCommandsTests(unittest.TestCase):
         self.assertEqual(events, ["environment", "dataset", "doctor", "demo"])
         self.assertIn("setup-logs", self.output.getvalue())
         self.assertIn("ready", self.output.getvalue())
+
+    def test_dev_full_setup_uses_shared_ace_lifecycle(self):
+        setup = SimpleNamespace(validate_platform=lambda value: value)
+        lifecycle = SimpleNamespace(prepare=unittest.mock.Mock(return_value=ROOT / "datasets/ace-demo/tasks.json"))
+        doctor = SimpleNamespace(collect_report=lambda *a, **k: {"ready": True},
+                                 render_report=lambda *a, **k: None)
+
+        def selected(name, path):
+            if name == "ace_environment":
+                return setup
+            if name == "ace_lifecycle":
+                return lifecycle
+            if name == "dev_doctor":
+                return doctor
+            raise AssertionError(f"중복된 ACE 준비 경로: {name}")
+
+        with patch.dict(os.environ, {"AGENT_OPT_BOOTSTRAPPED": str(ROOT)}), \
+                patch.object(self.dev, "load", side_effect=selected), \
+                patch.object(self.dev, "run_core", return_value=0):
+            self.assertEqual(self.main(["setup", "--offline", "--platform", "linux/amd64"]), 0)
+        lifecycle.prepare.assert_called_once_with(ROOT, offline=True, platform="linux/amd64")
+
+    def test_dev_live_uses_shared_ace_lifecycle_without_reloading_lock(self):
+        setup = SimpleNamespace(validate_platform=lambda value: value,
+                                validate_live=lambda: "compatible/fixture")
+        lifecycle = SimpleNamespace(run=unittest.mock.Mock(return_value=3))
+
+        def selected(name, path):
+            if name == "ace_environment":
+                return setup
+            if name == "ace_lifecycle":
+                return lifecycle
+            raise AssertionError(f"중복된 ACE 실행 경로: {name}")
+
+        with patch.object(self.dev, "load", side_effect=selected):
+            self.assertEqual(self.main(["live", "--iterations", "1", "--platform", "linux/amd64"]), 3)
+        lifecycle.run.assert_called_once_with(ROOT, iterations=1, platform="linux/amd64")
+
+    def test_dev_smoke_uses_shared_read_only_lifecycle_check(self):
+        setup = SimpleNamespace(validate_platform=lambda value: value)
+        lock = {"platform": "linux/amd64"}
+        lifecycle = SimpleNamespace(inspect=unittest.mock.Mock(return_value={
+            "ready": True, "lock": lock, "platform": "linux/amd64", "sim_image": "verified-eval"}))
+        checks = SimpleNamespace(smoke=unittest.mock.Mock(return_value=0))
+
+        def selected(name, path):
+            return {"ace_environment": setup, "ace_lifecycle": lifecycle,
+                    "ace_dev_checks": checks}[name]
+
+        with patch.object(self.dev, "load", side_effect=selected):
+            self.assertEqual(self.main(["smoke", "--platform", "linux/amd64"]), 0)
+        self.assertIn("[smoke] check=environment starting", self.output.getvalue())
+        lifecycle.inspect.assert_called_once_with(ROOT, platform="linux/amd64")
+        checks.smoke.assert_called_once_with(lock)
 
     def test_setup_stages_follow_display_language_without_changing_json(self):
         for language, expected in (("ko", "[setup] 최종 진단: 시작"),
@@ -966,6 +1023,7 @@ class DeveloperCommandsTests(unittest.TestCase):
     @patch.dict(os.environ, {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1"})
     def test_corrupted_lock_is_preserved_and_reported_before_later_setup_smoke_live_stages(self):
         setup = module("onboarding_corrupt_lock", ROOT / "examples/ace-rtl/environment/setup.py")
+        lifecycle = module("onboarding_corrupt_lifecycle", ROOT / "examples/ace-rtl/environment/lifecycle.py")
         valid = {"platform": "linux/amd64", "images": {
             "evaluation": {"tag": "eval", "id": "sha256:eval"},
             "agent": {"tag": "agent", "id": "sha256:agent"},
@@ -983,8 +1041,24 @@ class DeveloperCommandsTests(unittest.TestCase):
                         lock.parent.mkdir()
                         lock.write_text(contents)
                         self.output = io.StringIO()
+
+                        def selected(name, path):
+                            if name == "ace_environment":
+                                return setup
+                            if name == "ace_lifecycle":
+                                return lifecycle
+                            raise AssertionError(f"후속 단계가 실행됐습니다: {name}")
+
+                        def lifecycle_file(root_path, relative, name):
+                            if relative.endswith("/setup.py"):
+                                return setup
+                            return SimpleNamespace(prepare_dataset=lambda *a: self.fail("후속 데이터 작업"),
+                                                   select_tasks=lambda *a: self.fail("후속 데이터 작업"))
+
                         with patch.object(self.dev, "ROOT", root), patch.object(setup, "ROOT", root), \
-                                patch.object(self.dev, "load", side_effect=[setup]), \
+                                patch.object(self.dev, "load", side_effect=selected), \
+                                patch.object(lifecycle, "load_example", side_effect=lifecycle_file), \
+                                patch.object(lifecycle, "inspect", side_effect=lambda *a, **k: setup.read_environment_lock(lock)), \
                                 patch.object(setup, "prepare_sources"), \
                                 patch.object(setup, "driver_requirements", return_value={}), \
                                 patch.object(setup, "prepare_data", side_effect=AssertionError("later data work")), \
