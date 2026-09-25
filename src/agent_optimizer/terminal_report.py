@@ -131,6 +131,78 @@ class ProgressDisplay:
                 self.stream.flush()
 
 
+class SessionProgress:
+    """Render independently running datasets without mixing their event streams."""
+
+    def __init__(self, datasets: list[str], stream=None):
+        self.datasets = datasets
+        self.stream = sys.stderr if stream is None else stream
+        self.tty = self.stream.isatty()
+        self.progress = None
+        self.task_ids = []
+
+    def _label(self, index: int, status: str, detail: str = "") -> str:
+        name = self.datasets[index]
+        label = f"[{index + 1}/{len(self.datasets)}] {name} · {human(status)}"
+        return label + (f" · {detail}" if detail else "")
+
+    def __enter__(self):
+        if self.tty:
+            self.progress = _terminal_progress(self.stream)
+            self.task_ids = [self.progress.add_task(self._label(index, "세션 대기"),
+                                                    start=False, total=None, tone="yellow")
+                             for index in range(len(self.datasets))]
+            self.progress.start()
+        return self
+
+    def __exit__(self, *_):
+        if self.progress is not None:
+            self.progress.stop()
+            self.progress = None
+
+    def _write(self, message: str):
+        self.stream.write(message + "\n")
+        self.stream.flush()
+
+    def start(self, index: int) -> None:
+        label = self._label(index, "세션 실행 중")
+        if self.progress is not None:
+            self.progress.start_task(self.task_ids[index])
+            self.progress.update(self.task_ids[index], description=label, tone="yellow")
+        else:
+            self._write(label)
+
+    def event(self, index: int, record: dict) -> None:
+        if record.get("event") not in {"trial_started", "agent_started", "evaluation_started",
+                                        "trial_completed", "optimizer_iteration_started",
+                                        "optimizer_iteration_completed", "optimizer_review_started",
+                                        "optimizer_merge_started", "stage_budget_exhausted",
+                                        "budget_exhausted", "error", "interrupted"}:
+            return
+        detail = " ".join(f"{key}={record[key]}" for key in ("stage_id", "task_id", "phase")
+                          if record.get(key) is not None)
+        if record.get("iteration") is not None:
+            detail += f" iteration={record['iteration']}"
+            if record.get("total") is not None:
+                detail += f"/{record['total']}"
+        label = self._label(index, "세션 실행 중", detail.strip())
+        if self.progress is not None:
+            self.progress.update(self.task_ids[index], description=label, tone="yellow")
+        else:
+            self._write(label)
+
+    def finish(self, index: int, status: str, elapsed: float) -> None:
+        key = ("세션 완료" if status == "completed" else
+               "세션 중단" if status == "interrupted" else "세션 실패")
+        label = self._label(index, key, f"{elapsed:.1f}s")
+        if self.progress is not None:
+            self.progress.update(self.task_ids[index], description=label,
+                                 tone="green" if status == "completed" else "red")
+            self.progress.stop_task(self.task_ids[index])
+        else:
+            self._write(label)
+
+
 class PreparationStatus:
     """Keep an operation and its elapsed time visible during blocking work."""
 
