@@ -6,18 +6,16 @@ import threading
 import time
 import os
 
-from rich.console import Console
-from rich.progress import Progress, ProgressColumn, SpinnerColumn, TimeElapsedColumn
-from rich.table import Column
-from rich.text import Text
-
-
-class _StatusColumn(ProgressColumn):
-    def render(self, task):
-        return Text(task.description, style=task.fields.get("tone", "yellow"))
-
-
 def _terminal_progress(stream):
+    from rich.console import Console
+    from rich.progress import Progress, ProgressColumn, SpinnerColumn, TimeElapsedColumn
+    from rich.table import Column
+    from rich.text import Text
+
+    class _StatusColumn(ProgressColumn):
+        def render(self, task):
+            return Text(task.description, style=task.fields.get("tone", "yellow"))
+
     return Progress(SpinnerColumn(), _StatusColumn(table_column=Column(overflow="fold")),
                     TimeElapsedColumn(),
                     console=Console(file=stream, force_terminal=True, color_system="standard",
@@ -140,11 +138,16 @@ class PreparationStatus:
     def __enter__(self):
         self.started = time.monotonic()
         if self.stream.isatty():
-            self.progress = _terminal_progress(self.stream)
-            self.task_id = self.progress.add_task(f"{self.label} starting",
-                                                  total=None, tone="yellow")
-            self.progress.start()
-        else:
+            try:
+                self.progress = _terminal_progress(self.stream)
+            except ModuleNotFoundError as exc:
+                if exc.name != "rich" and not exc.name.startswith("rich."):
+                    raise
+            if self.progress is not None:
+                self.task_id = self.progress.add_task(f"{self.label} starting",
+                                                      total=None, tone="yellow")
+                self.progress.start()
+        if self.progress is None:
             self.stream.write(f"{self.label} starting\n")
             self.stream.flush()
         return self
