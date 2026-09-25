@@ -67,7 +67,7 @@ class TerminalLanguageTests(unittest.TestCase):
             self.assertIn("{task_dir}", human("Agent execution argv (e.g. python agent.py {task_dir})"))
 
     def test_english_user_help_and_subcommand_explanation(self):
-        env = dict(os.environ, AGENT_OPT_LANG="en")
+        env = dict(os.environ, AGENT_OPT_LANG="en", COLUMNS="160")
         for args, expected in ((["--help"], "Optimization experiments for multiple Agents"),
                                (["init", "--help"], "Create an experiment")):
             with self.subTest(args=args):
@@ -76,10 +76,13 @@ class TerminalLanguageTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(expected, result.stdout)
                 self.assertNotIn("여러 Agent의 최적화 실험", result.stdout)
+                if args == ["--help"]:
+                    self.assertIn("Select an existing experiment", result.stdout)
+                    self.assertIn("Start in the repository: make setup-core", result.stdout)
 
     def test_english_command_harness_option_help(self):
         result = subprocess.run([str(ROOT / ".venv/bin/agent-opt"), "init", "--help"], cwd=ROOT,
-                                env=dict(os.environ, AGENT_OPT_LANG="en"), capture_output=True,
+                                env=dict(os.environ, AGENT_OPT_LANG="en", COLUMNS="120"), capture_output=True,
                                 text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         command_help = result.stdout.split("--command", 1)[1].split("--command-json", 1)[0]
@@ -104,7 +107,7 @@ class TerminalLanguageTests(unittest.TestCase):
 
     def test_english_developer_python_help(self):
         result = subprocess.run([str(ROOT / ".venv/bin/python"), "scripts/dev.py", "--help"],
-                                cwd=ROOT, env=dict(os.environ, AGENT_OPT_LANG="en"),
+                                cwd=ROOT, env=dict(os.environ, AGENT_OPT_LANG="en", COLUMNS="120"),
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Development commands:", result.stdout)
@@ -113,7 +116,7 @@ class TerminalLanguageTests(unittest.TestCase):
 
     def test_english_developer_setup_option_help(self):
         result = subprocess.run([str(ROOT / ".venv/bin/python"), "scripts/dev.py", "setup", "--help"],
-                                cwd=ROOT, env=dict(os.environ, AGENT_OPT_LANG="en"),
+                                cwd=ROOT, env=dict(os.environ, AGENT_OPT_LANG="en", COLUMNS="120"),
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Prepare or diagnose core tools only", result.stdout)

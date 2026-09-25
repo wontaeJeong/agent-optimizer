@@ -186,6 +186,12 @@ MESSAGES = {
     "example environment": ("예제 환경", "example environment"),
     "dataset preparation": ("데이터셋 준비", "dataset preparation"),
     "실험 시작: 1. 기존 실험 실행  2. 새 실험 만들고 실행": ("실험 시작: 1. 기존 실험 실행  2. 새 실험 만들고 실행", "Start an experiment: 1. Run an existing experiment  2. Create and run a new experiment"),
+    "기존 실험 선택 또는 새 실험 생성 후 실행(TTY 필요).": (
+        "기존 실험 선택 또는 새 실험 생성 후 실행(TTY 필요).",
+        "Select an existing experiment or create and run a new one (TTY required)."),
+    '저장소에서 시작: make setup-core. 기존 실험을 선택하려면 agent-opt tui의 "기존 실험 실행", 새 설정은 agent-opt init(대화형)을 사용하세요. 데이터셋은 직접 선택하며 모델 없는 합성 예제는 README.md를 참고하세요.': (
+        '저장소에서 시작: make setup-core. 기존 실험을 선택하려면 agent-opt tui의 "기존 실험 실행", 새 설정은 agent-opt init(대화형)을 사용하세요. 데이터셋은 직접 선택하며 모델 없는 합성 예제는 README.md를 참고하세요.',
+        'Start in the repository: make setup-core. Select an existing experiment with agent-opt tui or create a configuration with interactive agent-opt init. Choose datasets explicitly; see README.md for a synthetic example without a model.'),
     "선택 [1/2]: ": ("선택 [1/2]: ", "Choice [1/2]: "),
     "기존 experiment.toml 경로: ": ("기존 experiment.toml 경로: ", "Existing experiment.toml path: "),
     "실험 설정 경로를 입력하세요": ("실험 설정 경로를 입력하세요", "Enter an experiment configuration path"),
