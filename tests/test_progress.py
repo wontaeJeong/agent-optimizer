@@ -95,6 +95,19 @@ class ProgressTests(unittest.TestCase):
         self.assertIn("[doctor] check=host-api starting", status.getvalue())
         self.assertIn("[doctor] check=host-api failed", status.getvalue())
 
+    def test_doctor_status_stays_readable_on_tty_without_optional_rich(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        terminal = Terminal()
+        with patch("agent_optimizer.terminal_report._terminal_progress",
+                   side_effect=ModuleNotFoundError("No module named 'rich'", name="rich")):
+            with PreparationStatus("environment", stream=terminal, action="doctor", subject="check"):
+                pass
+        self.assertIn("[doctor] check=environment starting", terminal.getvalue())
+        self.assertIn("[doctor] check=environment complete", terminal.getvalue())
+
     def test_configured_max_trial_budget_is_not_a_planned_total(self):
         output = io.StringIO()
         display = ProgressDisplay(stream=output)
