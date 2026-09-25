@@ -1,12 +1,13 @@
 import copy
 import json
 import os
+import shutil
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
-from agent_optimizer.contracts import AgentSpec, SourceSpec, ExecutionResult, UnavailableError
+from agent_optimizer.contracts import AgentSpec, SourceSpec, ExecutionResult, UnavailableError, ConfigurationError
 from agent_optimizer.sources import materialize_agent
 from support import ROOT, module
 
@@ -92,6 +93,98 @@ class SourceTests(unittest.TestCase):
             resolved, _ = materialize_agent(agent, root / "snapshot")
             self.assertFalse((resolved.bundle / ".env").exists())
             self.assertFalse((resolved.bundle / ".codex").exists())
+
+
+class OptionalIntegrationTests(unittest.TestCase):
+    def pinned_fixture(self, root):
+        repo = root / "first-party"
+        for relative in ("examples/ace-rtl/adapter.py", "examples/ace-rtl/environment/lifecycle.py",
+                         "examples/rtl-debugger/Dockerfile", "examples/benchmarks/cvdp.py",
+                         "experiments/simple-feedback/optimizer.py", "src/agent_optimizer/models.py"):
+            target = repo / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(relative)
+        subprocess.run(["git", "init", "-q", str(repo)], check=True)
+        subprocess.run(["git", "-C", str(repo), "add", "."], check=True)
+        subprocess.run(["git", "-C", str(repo), "-c", "user.name=Fixture",
+                        "-c", "user.email=test@example.invalid", "commit", "-qm", "pinned"], check=True)
+        revision = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                                           text=True).strip()
+        return repo, revision
+
+    def test_acquire_optional_integration_is_pinned_and_reusable_offline(self):
+        from agent_optimizer.integrations import acquire_integration
+
+        with tempfile.TemporaryDirectory(prefix="pinned-integration-") as directory:
+            root = Path(directory)
+            repo, revision = self.pinned_fixture(root)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            cache = root / "cache"
+            result = acquire_integration(workspace, "ace-rtl", source_url=str(repo),
+                                         revision=revision, cache_dir=cache)
+            self.assertEqual(result["revision"], revision)
+            self.assertEqual((workspace / "examples/ace-rtl/adapter.py").read_text(),
+                             "examples/ace-rtl/adapter.py")
+            self.assertFalse((workspace / ".agent-opt/integration-ready.json").exists())
+            reused = acquire_integration(workspace, "ace-rtl", source_url=str(repo),
+                                         revision=revision, cache_dir=cache, offline=True)
+            self.assertEqual(reused["revision"], revision)
+
+    def test_acquire_optional_integration_rejects_conflicts_and_missing_offline_cache(self):
+        from agent_optimizer.integrations import acquire_integration
+
+        with tempfile.TemporaryDirectory(prefix="pinned-integration-") as directory:
+            root = Path(directory)
+            repo, revision = self.pinned_fixture(root)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            with self.assertRaises(UnavailableError):
+                acquire_integration(workspace, "ace-rtl", source_url=str(repo), revision=revision,
+                                    cache_dir=root / "cache", offline=True)
+            conflict = workspace / "examples/ace-rtl/adapter.py"
+            conflict.parent.mkdir(parents=True)
+            conflict.write_text("user-owned")
+            with self.assertRaises(ConfigurationError):
+                acquire_integration(workspace, "ace-rtl", source_url=str(repo), revision=revision,
+                                    cache_dir=root / "cache")
+            self.assertEqual(conflict.read_text(), "user-owned")
+            self.assertFalse((workspace / ".agent-opt/integration-ready.json").exists())
+
+    def test_acquire_optional_integration_rejects_metadata_symlink(self):
+        from agent_optimizer.integrations import acquire_integration
+
+        with tempfile.TemporaryDirectory(prefix="pinned-symlink-") as directory:
+            root = Path(directory)
+            repo, revision = self.pinned_fixture(root)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            outside = root / "outside"
+            outside.mkdir()
+            (workspace / ".agent-opt").symlink_to(outside, target_is_directory=True)
+            with self.assertRaises(ConfigurationError):
+                acquire_integration(workspace, "ace-rtl", source_url=str(repo), revision=revision,
+                                    cache_dir=root / "cache")
+            self.assertEqual(list(outside.iterdir()), [])
+
+    def test_acquire_optional_integration_requires_each_reviewed_directory(self):
+        from agent_optimizer.integrations import acquire_integration
+
+        with tempfile.TemporaryDirectory(prefix="pinned-missing-") as directory:
+            root = Path(directory)
+            repo, _ = self.pinned_fixture(root)
+            shutil.rmtree(repo / "examples/benchmarks")
+            subprocess.run(["git", "-C", str(repo), "add", "-A"], check=True)
+            subprocess.run(["git", "-C", str(repo), "-c", "user.name=Fixture",
+                            "-c", "user.email=test@example.invalid", "commit", "-qm", "missing"], check=True)
+            revision = subprocess.check_output(["git", "-C", str(repo), "rev-parse", "HEAD"],
+                                               text=True).strip()
+            workspace = root / "workspace"
+            workspace.mkdir()
+            with self.assertRaises(ConfigurationError):
+                acquire_integration(workspace, "ace-rtl", source_url=str(repo), revision=revision,
+                                    cache_dir=root / "cache")
+            self.assertFalse((workspace / "examples/ace-rtl/adapter.py").exists())
 
 class CVDPTests(unittest.TestCase):
     def test_public_inputs_never_contain_solution_or_harness(self):
