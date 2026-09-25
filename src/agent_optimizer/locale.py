@@ -16,6 +16,9 @@ MESSAGES = {
     "세션 집계 실행": ("실행", "running"),
     "세션 집계 대기": ("대기", "queued"),
     "세션 집계 실패": ("실패", "failed"),
+    "선택한 데이터셋마다 독립 평가기로 병렬 실행(기본 2개).": (
+        "선택한 데이터셋마다 독립 평가기로 병렬 실행(기본 2개).",
+        "Run selected datasets in parallel with independent evaluators (2 workers by default)."),
     "remedy": ("해결", "Remedy"),
     "readiness": ("준비 상태", "readiness"),
     "Synthetic fixture tasks are valid": ("합성 예제 과제를 사용할 수 있습니다", "Synthetic fixture tasks are valid"),
