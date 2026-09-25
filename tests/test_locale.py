@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import subprocess
 import unittest
 from pathlib import Path
@@ -85,7 +86,8 @@ class TerminalLanguageTests(unittest.TestCase):
                                 env=dict(os.environ, AGENT_OPT_LANG="en", COLUMNS="40"), capture_output=True,
                                 text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
-        rendered = " ".join(result.stdout.replace("│", " ").split())
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+        rendered = " ".join(plain.replace("│", " ").split())
         self.assertIn("Command harness Agent argv", rendered)
         self.assertIn("Legacy JSON string array", rendered)
         self.assertNotIn("명령 하네스의 Agent argv", result.stdout)
