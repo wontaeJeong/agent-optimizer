@@ -97,9 +97,10 @@ class TerminalLanguageTests(unittest.TestCase):
                                 env=dict(os.environ, AGENT_OPT_LANG="en", COLUMNS="160"),
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("Run selected datasets in parallel", result.stdout)
-        self.assertIn("--jobs", result.stdout)
-        self.assertNotIn("병렬 실행", result.stdout)
+        plain = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+        self.assertIn("Run selected datasets in parallel", plain)
+        self.assertIn("--jobs", plain)
+        self.assertNotIn("병렬 실행", plain)
 
     def test_english_init_missing_agent_error(self):
         result = subprocess.run([str(ROOT / ".venv/bin/agent-opt"), "init", "--dataset", "sample_text", "--yes"],
