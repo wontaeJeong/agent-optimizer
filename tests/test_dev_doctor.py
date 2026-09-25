@@ -81,7 +81,7 @@ class DoctorTests(unittest.TestCase):
                 def execute(argv, **kwargs):
                     seen.append(kwargs["env"])
                     return self.execute(argv, **kwargs)
-                with patch.object(self.doctor.subprocess, "run", side_effect=execute):
+                with patch.object(self.doctor.readiness.subprocess, "run", side_effect=execute):
                     report = self.doctor.collect_report(self.root)
                 checks = self.checks(report)
                 self.assertEqual(report["ready"], valid)
@@ -169,7 +169,7 @@ class DoctorTests(unittest.TestCase):
         }
         self.write_lock()
         patch.object(self.doctor.shutil, "which", side_effect=lambda name, **kw: "/bin/" + name).start()
-        patch.object(self.doctor.subprocess, "run", side_effect=self.execute).start()
+        patch.object(self.doctor.readiness.subprocess, "run", side_effect=self.execute).start()
 
     def write_lock(self):
         (self.root / "external/environment-lock.json").write_text(json.dumps(self.lock))
@@ -231,7 +231,7 @@ class DoctorTests(unittest.TestCase):
     def test_core_report_never_loads_example_or_probes_docker_and_is_read_only(self):
         with patch.object(self.doctor, "example_adapter", side_effect=AssertionError("example loader")), \
                 patch.object(self.doctor.shutil, "which", return_value=None), \
-                patch.object(self.doctor.subprocess, "run", side_effect=AssertionError("unexpected probe")):
+                patch.object(self.doctor.readiness.subprocess, "run", side_effect=AssertionError("unexpected probe")):
             report = self.doctor.collect_report(self.root, core_only=True)
         self.assertEqual(report["scope"], "core")
         self.assertEqual(report["areas"], {"core": False})
@@ -251,7 +251,7 @@ class DoctorTests(unittest.TestCase):
         before = dict(os.environ)
         with patch.object(self.doctor, "example_adapter", side_effect=AssertionError("example loader")), \
                 patch.object(self.doctor.shutil, "which", side_effect=lambda name, **k: "/bin/" + name), \
-                patch.object(self.doctor.subprocess, "run", side_effect=self.execute):
+                patch.object(self.doctor.readiness.subprocess, "run", side_effect=self.execute):
             report = self.doctor.collect_report(self.root, core_only=True)
             self.assertEqual(report["areas"], {"core": True})
             self.assertTrue(report["ready"])
@@ -390,7 +390,7 @@ class DoctorTests(unittest.TestCase):
             if argv[:2] == ["docker", "version"]:
                 raise subprocess.TimeoutExpired(argv, 15, output="SECRET_TIMEOUT")
             return self.execute(argv, **kwargs)
-        with patch.object(self.doctor.subprocess, "run", side_effect=execute):
+        with patch.object(self.doctor.readiness.subprocess, "run", side_effect=execute):
             report = self.doctor.collect_report(self.root)
         checks = self.checks(report)
         self.assertEqual(checks["docker.daemon"]["status"], "error")
@@ -405,7 +405,7 @@ class DoctorTests(unittest.TestCase):
                 if argv[:2] == ["git", command]:
                     return subprocess.CompletedProcess(argv, 0, stdout, "")
                 return self.execute(argv, **kwargs)
-            with self.subTest(command=command), patch.object(self.doctor.subprocess, "run", side_effect=execute):
+            with self.subTest(command=command), patch.object(self.doctor.readiness.subprocess, "run", side_effect=execute):
                 checks = self.checks(self.doctor.collect_report(self.root))
                 self.assertEqual(checks["source.ACE-RTL"]["status"], "error")
 
@@ -431,7 +431,7 @@ class DoctorTests(unittest.TestCase):
                 if target == "python" and "cvdp-venv" in argv[0] and "version_info" in argv[-1]:
                     return subprocess.CompletedProcess(argv, 0, "3.11", "")
                 return self.execute(argv, **kwargs)
-            with self.subTest(target=target), patch.object(self.doctor.subprocess, "run", side_effect=execute):
+            with self.subTest(target=target), patch.object(self.doctor.readiness.subprocess, "run", side_effect=execute):
                 checks = self.checks(self.doctor.collect_report(self.root))
                 self.assertEqual(checks[f"driver.{target}"]["status"], "error")
 
@@ -444,7 +444,7 @@ class DoctorTests(unittest.TestCase):
                     if argv[:3] == ["docker", "image", "inspect"] and argv[-1] == self.lock["images"][name]["tag"]:
                         return subprocess.CompletedProcess(argv, 0, json.dumps(info), "")
                     return self.execute(argv, **kwargs)
-                with self.subTest(name=name, info=info), patch.object(self.doctor.subprocess, "run", side_effect=execute):
+                with self.subTest(name=name, info=info), patch.object(self.doctor.readiness.subprocess, "run", side_effect=execute):
                     report = self.doctor.collect_report(self.root)
                     checks = self.checks(report)
                     self.assertEqual(checks[f"image.{name}"]["status"], "error")
@@ -462,7 +462,7 @@ class DoctorTests(unittest.TestCase):
             if argv[:2] == ["docker", "run"]:
                 return subprocess.CompletedProcess(argv, 1, "SECRET", "SECRET")
             return self.execute(argv, **kwargs)
-        with patch.object(self.doctor.subprocess, "run", side_effect=execute):
+        with patch.object(self.doctor.readiness.subprocess, "run", side_effect=execute):
             report = self.doctor.collect_report(self.root)
         checks = self.checks(report)
         self.assertEqual(checks["image.evaluation"]["status"], "ok")
@@ -585,7 +585,7 @@ class DoctorTests(unittest.TestCase):
                 return subprocess.CompletedProcess(argv, 0 if existed else 1, "", "SECRET_CLEANUP")
             return self.execute(argv, **kwargs)
 
-        with patch.object(self.doctor.subprocess, "run", side_effect=execute):
+        with patch.object(self.doctor.readiness.subprocess, "run", side_effect=execute):
             if outcome == "interrupt":
                 with self.assertRaises(KeyboardInterrupt):
                     self.doctor.collect_report(self.root)
