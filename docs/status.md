@@ -27,7 +27,7 @@
 | 사용자 CLI/TUI | 데이터셋 명시적 선택·자동 준비, argv/editable 검증, 중앙 Python 등록 팀 목록, 읽기 전용 `doctor --dataset/--plan`, 과제·iteration 실시간 경과 |
 | Dataset | CVDP reviewed no-commercial importer/공식 평가기, 고정 Verilog-Eval v2 + 별도 Icarus v12 private 평가기, 사용자 tasks.json + 지정 evaluator |
 | GEPA/Meta-Harness/Ecdysis | 원본을 복제하지 않은 자체 메서드 구현: train 반성·Pareto/merge, scaffold 탐색, 반복 실패/협업 검토/strict train 개선. 실제 배포 모델 검증과 분리 |
-| 결과 UX | 항상 `report.html`/summary/events/Markdown, dataset session별 독립 보고서 연결. 실패/중단 결과·slow task/usage 표시 |
+| 결과 UX | 항상 `report.html`/summary/events/Markdown, dataset session별 독립 보고서 연결. `report.json` v2는 기록된 validation 집계·trial·과제 비교를 시각화용으로 정규화하며, HTML은 그룹별 개선 추이·기준 대비 선택·탐색 계보·과제·시간/실패를 독립 SVG/CSS로 표시. 없는 비용/집계는 추정하지 않음 |
 
 코어/연구 구현 근거는 [2026-09-24 검증](verification.md#2026-09-24-cli-tui-and-research-method-integration), 후속 작업은
 [NEXT_STEPS](NEXT_STEPS.md). 보류한 chaining/gates/공통 objective의 weighted/Pareto/constraints/rerank/설치 entry point는

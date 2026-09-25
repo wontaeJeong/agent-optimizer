@@ -368,10 +368,18 @@ def _visualization(group: dict, events: list[dict], evaluations: list[dict], obj
                 and row.get("agent_id") == group["agent_id"]
                 and row.get("harness_id") == group["harness_id"]}
     baseline = group.get("baseline") if isinstance(group.get("baseline"), dict) else {}
+    expected = [baseline, *(row for row in group.get("selected", [])
+                            if isinstance(row, dict) and row.get("candidate_id") in selected)]
+    validation_events = [event for event in events if event.get("event") == "candidate_evaluated"
+                         and event.get("split") == "validation"]
+    conflicting = any(
+        event.get("candidate_id") == row.get("candidate_id") and
+        (event.get("valid") != row.get("valid") or
+         _objective_vector(event.get("metrics"), objective) !=
+         _objective_vector(row.get("metrics"), objective))
+        for event in validation_events for row in expected if row.get("candidate_id") is not None)
     progress, best_vector, best_metrics = [], None, None
-    for event in events:
-        if event.get("event") != "candidate_evaluated" or event.get("split") != "validation":
-            continue
+    for event in ([] if conflicting else validation_events):
         candidate_id = event.get("candidate_id")
         if not isinstance(candidate_id, str):
             continue

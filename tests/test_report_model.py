@@ -67,6 +67,17 @@ class ReportModelTests(unittest.TestCase):
         self.assertEqual(points[2]["trial_refs"], ["agent-a/harness/c"])
         self.assertEqual(report["report_schema_version"], 2)
 
+    def test_conflicting_summary_and_aggregate_events_do_not_claim_a_progress_curve(self):
+        self.manifest_objective([{"name": "score", "direction": "maximize"}])
+        base = self.row({"score": 0.4}, candidate_id="base")
+        chosen = self.row({"score": 0.8}, candidate_id="chosen")
+        self.events([{"event": "candidate_evaluated", "agent_id": "agent-a", "harness_id": "harness",
+                      "split": "validation", "candidate_id": name, "valid": True,
+                      "metrics": {"score": score}} for name, score in (("base", 0.5), ("chosen", 0.9))])
+        group = build_report(self.root, {"groups": [self.group(base, [chosen])]})["groups"][0]
+        self.assertEqual(group["visualization"]["progress"], [])
+        self.assertEqual(group["comparison"][0]["delta"], 0.4)
+
     def test_trial_timeline_and_task_comparison_keep_real_split_and_duration(self):
         self.manifest_objective([{"name": "solve_rate", "source": "passed",
                                  "direction": "maximize", "aggregate": "mean"}])
