@@ -39,7 +39,9 @@ PROJECT_DEPENDENCIES: dict[str, list[str]] = {
 def is_source_checkout(root: Path) -> bool:
     marker = root / "pyproject.toml"
     try:
-        return marker.is_file() and read_toml(marker).get("project", {}).get("name") == "agent-optimizer"
+        return ((root / ".agent-opt-source").is_file()
+                and marker.is_file()
+                and read_toml(marker).get("project", {}).get("name") == "agent-optimizer")
     except (OSError, ValueError, TypeError, AttributeError):
         return False
 
