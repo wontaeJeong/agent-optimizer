@@ -107,6 +107,8 @@ OpenCode·ACE처럼 실행을 하네스가 정의한 경우 명령을 지정하�
 프로필은 `examples/ace-rtl/experiment.toml`에서 재사용합니다. 이 고정 프로필은 TUI와
 `agent-opt run`에서 예제의 `live` 준비·검사를 거쳐 공식 CVDP 평가까지 실행합니다.
 `--optimizer gepa --optimizer meta_harness --optimizer ecdysis`처럼 반복해 독립 stage를 지정할 수 있습니다.
+비대화형 `init`에는 `--optimizer`를 명시해야 합니다. 모델 없는 연결 검사에는
+`--optimizer baseline`을, 연구 탐색에는 사용할 Optimizer를 직접 선택하세요.
 코드 하네스 방식은 실제 실행되는 `.py` 파일이 필요하고, 여러 파일이 일치하면
 `--scaffold-file`(GEPA는 `--target-file`)을 지정합니다. 모델 제안에는 `AGENT_OPT_MODEL_BASE_URL`
 **또는** `AGENT_OPT_MODEL_ENDPOINT` 중 하나와 `AGENT_OPT_MODEL_API_KEY`를 환경에 설정합니다.

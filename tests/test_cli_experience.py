@@ -776,7 +776,7 @@ class CLIExperienceTests(unittest.TestCase):
                                          '"evaluator": "examples/minimal/evaluator.py:TextFixtureEvaluator"'))
         args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
                 "--dataset", "sample_text", "--name", "invalid-provider",
-                 "--editable", "configs/strategy.json", "--command-json",
+                "--editable", "configs/strategy.json", "--optimizer", "baseline", "--command-json",
                  '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]', "--yes"]
         errors = io.StringIO()
         with contextlib.redirect_stderr(errors), contextlib.redirect_stdout(io.StringIO()):
@@ -791,6 +791,19 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual(result, 2)
         self.assertIn("dataset", error.getvalue().lower())
         self.assertFalse((self.root / "runs").exists())
+
+    def test_init_no_optimizer_fails_before_dataset_preparation(self):
+        args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
+                "--name", "no-optimizer", "--dataset", "sample_text",
+                "--editable", "configs/strategy.json", "--command-json",
+                '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]', "--yes"]
+        errors = io.StringIO()
+        with contextlib.redirect_stderr(errors), contextlib.redirect_stdout(io.StringIO()):
+            code = main(args)
+        self.assertEqual(code, 2)
+        self.assertIn("--optimizer", errors.getvalue())
+        self.assertFalse((self.root / "external/datasets/sample_text").exists())
+        self.assertFalse((self.root / "runs/configs/no-optimizer").exists())
 
     def test_init_rejects_removed_argv_without_preparing_dataset(self):
         errors = io.StringIO()
