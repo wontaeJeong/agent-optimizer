@@ -15,7 +15,7 @@ Mac ARM64 / Python 3.12.12의 독립 워크트리에서 확인했다. 저장소 
 | 최신 `origin/main`과 PR #28 병합 내용 반영 후 `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -q`; `make lint`; `sh -n scripts/bootstrap.sh` | 외부 모델 환경 변수를 유지한 채 **575개 중 560 통과·15 skip·실패 0**, Ruff·셸 문법 통과. 새 CLI/TUI의 기존 실험 선택·하네스별 명령 입력과 영어 도움말 경로를 함께 검증했다. |
 
 CI의 좁은 터미널에서는 Rich가 `--command`를 `--comm…`으로 줄여 출력했다. `COLUMNS=40`으로
-재현했고, 영어 도움말 테스트의 자식 프로세스에 `COLUMNS=120`을 지정해 문구와 옵션을 검증했다.
+재현했고, 영어 도움말 테스트는 줄바꿈·표 경계를 정규화해 설명 문구를 검증한다.
 이 변경은 CLI 옵션 이름이나 기계 출력 형식을 바꾸지 않는다.
 
 ## 2026-09-25 개발 명령·CLI 온보딩과 ACE 실행환경 분리

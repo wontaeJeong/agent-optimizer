@@ -82,12 +82,12 @@ class TerminalLanguageTests(unittest.TestCase):
 
     def test_english_command_harness_option_help(self):
         result = subprocess.run([str(ROOT / ".venv/bin/agent-opt"), "init", "--help"], cwd=ROOT,
-                                env=dict(os.environ, AGENT_OPT_LANG="en", COLUMNS="120"), capture_output=True,
+                                env=dict(os.environ, AGENT_OPT_LANG="en", COLUMNS="40"), capture_output=True,
                                 text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
-        command_help = result.stdout.split("--command", 1)[1].split("--command-json", 1)[0]
-        self.assertIn("Command harness", command_help)
-        self.assertIn("Agent argv: split", command_help)
+        rendered = " ".join(result.stdout.replace("│", " ").split())
+        self.assertIn("Command harness Agent argv", rendered)
+        self.assertIn("Legacy JSON string array", rendered)
         self.assertNotIn("명령 하네스의 Agent argv", result.stdout)
 
     def test_english_init_missing_agent_error(self):
