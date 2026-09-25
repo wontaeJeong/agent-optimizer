@@ -2,6 +2,8 @@
 import io
 import json
 import os
+import pty
+import select
 import shutil
 import subprocess
 import sys
@@ -30,7 +32,7 @@ class BootstrapTests(unittest.TestCase):
                 shutil.copyfile(ROOT / name, self.root / name)
         self.bin = self.outside / "bin"
         self.bin.mkdir()
-        for name in ("sh", "dirname", "uname", "mkdir", "mktemp", "rm", "chmod", "cp", "sleep", "ps", "awk"):
+        for name in ("sh", "dirname", "uname", "mkdir", "mktemp", "rm", "chmod", "cp", "sleep", "date", "ps", "awk"):
             (self.bin / name).symlink_to(shutil.which(name))
         self.trace = self.outside / "trace"
         self.environment = {
@@ -147,6 +149,36 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
         self.assertIn(f"uv:{self.root}/.venv:never", self.trace_text())
         self.assertIn("arg:--offline\narg:sync\narg:--frozen\n", self.trace_text())
         self.assertNotIn("download", self.trace_text())
+
+    def test_setup_sync_reports_elapsed_while_child_is_still_running_on_tty(self):
+        self.tool("git")
+        template = self.outside / "uv-template"
+        template.write_text(template.read_text() + "sleep 2\n")
+        self.uv()
+        master, slave = pty.openpty()
+        process = subprocess.Popen(["sh", str(self.root / "scripts/bootstrap.sh"), "setup", "--core"],
+                                   cwd=self.outside, env=self.environment, stdout=subprocess.PIPE,
+                                   stderr=slave, text=True)
+        os.close(slave)
+        observed = ""
+        try:
+            started = time.monotonic()
+            while "elapsed=" not in observed and time.monotonic() - started < 6:
+                readable, _, _ = select.select([master], [], [], 0.5)
+                if readable:
+                    try:
+                        observed += os.read(master, 4096).decode(errors="replace")
+                    except OSError:
+                        break
+            self.assertIn("elapsed=", observed)
+            self.assertIsNone(process.poll(), "status arrived only after uv finished")
+            process.communicate(timeout=10)
+            self.assertEqual(process.returncode, 0)
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=10)
+            os.close(master)
 
     def test_core_still_requires_git_and_offline_uv(self):
         result = self.invoke("setup", "--core")

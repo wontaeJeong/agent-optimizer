@@ -39,6 +39,28 @@ setup_status() {
     fi
 }
 
+progress_pid=
+start_setup_progress() {
+    [ -t 2 ] || return 0
+    label=$1
+    (
+        started=$(date +%s)
+        while sleep 1; do
+            now=$(date +%s)
+            printf '\r[setup] %s elapsed=%ss' "$label" "$((now-started))" >&2
+        done
+    ) &
+    progress_pid=$!
+}
+
+stop_setup_progress() {
+    [ -n "$progress_pid" ] || return 0
+    kill "$progress_pid" 2>/dev/null || :
+    wait "$progress_pid" 2>/dev/null || :
+    progress_pid=
+    if [ -z "${NO_COLOR:-}" ]; then printf '\r\033[K' >&2; else printf '\n' >&2; fi
+}
+
 command=${1:-help}
 [ "$#" -eq 0 ] || shift
 json_output=false
@@ -276,7 +298,8 @@ setup_status 32 '[setup] prerequisites: complete'
 
 stage='uv preparation'
 logs="$ROOT/external/setup-logs"
-trap 'printf "setup interrupted during %s; inspect %s and rerun %s.\n" "$stage" "$logs" "$setup_command" >&2; exit 130' HUP INT TERM
+trap 'stop_setup_progress; printf "setup interrupted during %s; inspect %s and rerun %s.\n" "$stage" "$logs" "$setup_command" >&2; exit 130' HUP INT TERM
+trap 'stop_setup_progress' EXIT
 if ! command -v uv >/dev/null 2>&1; then
     [ "$offline" = false ] || fail "setup offline: uv missing; provision uv with online $setup_command first."
     downloader=
@@ -289,7 +312,7 @@ if ! command -v uv >/dev/null 2>&1; then
     installer=$(mktemp "${TMPDIR:-/tmp}/agent-opt-uv.XXXXXXXX") ||
         fail "setup $stage: cannot allocate installer in ${TMPDIR:-/tmp}; set TMPDIR to a writable directory and rerun $setup_command."
     wget_config=
-    trap 'rm -f "$installer"; [ -z "$wget_config" ] || rm -f "$wget_config"' EXIT
+    trap 'stop_setup_progress; rm -f "$installer"; [ -z "$wget_config" ] || rm -f "$wget_config"' EXIT
     if [ "$downloader" = wget ] && [ -n "${AGENT_OPT_CA_BUNDLE:-}" ]; then
         # The pinned installer invokes wget again for the archive; CLI flags on
         # only the first download would lose trust. Preserve user configuration.
@@ -306,6 +329,7 @@ if ! command -v uv >/dev/null 2>&1; then
         # Subshell scopes WGETRC to both downloads without changing later tools.
     fi
     url=https://astral.sh/uv/0.10.7/install.sh
+    start_setup_progress 'uv installer'
     (
         if [ -n "$wget_config" ]; then export WGETRC="$wget_config"; fi
         if [ "$downloader" = curl ]; then
@@ -316,12 +340,14 @@ if ! command -v uv >/dev/null 2>&1; then
         UV_INSTALL_DIR="$ROOT/.cache/uv/bin" UV_NO_MODIFY_PATH=1 sh "$installer" >"$logs/bootstrap-uv.log" 2>&1 ||
             fail "setup uv installer failed; see $logs/bootstrap-uv.log; repair and rerun $setup_command."
     ) || exit 2
+    stop_setup_progress
     rm -f "$installer"
     [ -z "$wget_config" ] || rm -f "$wget_config"
     trap - EXIT
     command -v uv >/dev/null 2>&1 || fail "setup uv installation missing at $ROOT/.cache/uv/bin; see $logs/bootstrap-uv.log; repair and rerun $setup_command."
 fi
 
+trap 'stop_setup_progress' EXIT
 stage='project Python and frozen dependencies'
 python_request=3.12
 if [ -e "$ROOT/.venv" ] || [ -L "$ROOT/.venv" ]; then
@@ -335,6 +361,7 @@ setup_status 33 "[setup] $stage; log: $logs/project-uv.log"
 export UV_PROJECT_ENVIRONMENT="$ROOT/.venv"
 if [ "$offline" = true ]; then export UV_PYTHON_DOWNLOADS=never; fi
 cd "$ROOT"
+start_setup_progress "$stage"
 if [ "$offline" = true ]; then
     uv --offline sync --frozen --python "$python_request" --extra dev >"$logs/project-uv.log" 2>&1 ||
         fail "setup offline project sync failed; see $logs/project-uv.log. Provision missing cache/Python online with $setup_command, then rerun $setup_command --offline."
@@ -342,6 +369,7 @@ else
     uv sync --frozen --python "$python_request" --extra dev >"$logs/project-uv.log" 2>&1 ||
         fail "setup project sync failed; see $logs/project-uv.log; repair and rerun $setup_command."
 fi
+stop_setup_progress
 setup_status 32 "[setup] $stage: complete"
 stage='Python dispatch'
 compatible_python "$ROOT/.venv/bin/python" ||
