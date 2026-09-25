@@ -19,6 +19,7 @@ from typer._click import ClickException
 from typer._click.core import Abort, Exit
 
 from agent_optimizer.config import load_agent, load_experiment
+from agent_optimizer.catalog import DATASETS as CATALOG_DATASETS
 from agent_optimizer.contracts import ConfigurationError, UnavailableError, jsonable
 from agent_optimizer.runner import preflight, run_experiment
 from agent_optimizer.registry import Registry
@@ -271,8 +272,16 @@ def _dispatch(args):
             root = args.project_root.absolute()
             inventory, _, _ = component_inventory(root)
             if args.dataset_action == "list":
-                show([{**factory().describe(), "name": name}
-                      for name, factory in sorted(inventory.factories["datasets"].items())])
+                rows = {name: {**factory().describe(), "name": name}
+                        for name, factory in inventory.factories["datasets"].items()}
+                for name, description in CATALOG_DATASETS.items():
+                    if name in rows:
+                        if any(rows[name].get(field) != description[field]
+                               for field in ("task_form", "evaluator", "revision")):
+                            raise ConfigurationError(f"등록된 데이터셋 설명이 카탈로그와 다릅니다: {name}")
+                    else:
+                        rows[name] = dict(description)
+                show([rows[name] for name in sorted(rows)])
             else:
                 if not args.name:
                     raise ConfigurationError("Choose a dataset name or a local tasks.json")
