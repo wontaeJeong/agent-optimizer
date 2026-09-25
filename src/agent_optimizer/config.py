@@ -143,6 +143,9 @@ def validate_stages(data: dict) -> None:
 
 def load_experiment(path: Path) -> dict:
     data = read_toml(path)
+    if "integration" in data:
+        from agent_optimizer.integrations import resolve_pointer
+        return load_experiment(resolve_pointer(path))
     only_keys(data, {"schema_version", "name", "project_root", "agents", "harnesses", "benchmark",
                     "evaluator", "evaluation_runtime", "objective", "budget", "stages",
                     "repetitions", "seed", "final_test", "final_stages", "output_dir", "plugins",

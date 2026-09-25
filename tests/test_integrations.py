@@ -1,4 +1,5 @@
 import copy
+import hashlib
 import json
 import os
 import shutil
@@ -185,6 +186,52 @@ class OptionalIntegrationTests(unittest.TestCase):
                 acquire_integration(workspace, "ace-rtl", source_url=str(repo), revision=revision,
                                     cache_dir=root / "cache")
             self.assertFalse((workspace / "examples/ace-rtl/adapter.py").exists())
+
+    def test_acquire_optional_integration_uses_selected_cache_directory(self):
+        from agent_optimizer.integrations import acquire_integration
+
+        with tempfile.TemporaryDirectory(prefix="selected-cache-") as directory:
+            root = Path(directory)
+            workspace = root / "workspace"
+            workspace.mkdir()
+            revision = "a" * 40
+
+            def selected_cache(target, url, commit, *, offline=False):
+                self.assertEqual(target, root / "cache/agent-optimizer/integrations" / revision)
+                raise UnavailableError("cache path observed")
+
+            with patch.dict(os.environ, {"XDG_CACHE_HOME": str(root / "cache")}), \
+                    patch("agent_optimizer.integrations.acquire_pinned_git", side_effect=selected_cache):
+                with self.assertRaisesRegex(UnavailableError, "cache path observed"):
+                    acquire_integration(workspace, "ace-rtl", source_url=str(root / "repo"),
+                                        revision=revision)
+
+    def test_ready_ace_workspace_registers_only_pinned_integration_components(self):
+        from agent_optimizer.catalog import INTEGRATIONS
+        from agent_optimizer.registry import Registry
+
+        with tempfile.TemporaryDirectory(prefix="ace-components-") as directory:
+            root = Path(directory)
+            files = {}
+            for relative in ("examples/ace-rtl/evaluator.py",
+                             "examples/ace-rtl/environment/network_driver.py",
+                             "examples/ace-rtl/prepare.py",
+                             "examples/ace-rtl/environment/setup.py",
+                             "examples/benchmarks/cvdp.py"):
+                target = root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(ROOT / relative, target)
+                files[relative] = hashlib.sha256(target.read_bytes()).hexdigest()
+            marker = root / ".agent-opt/integration-ready.json"
+            marker.parent.mkdir()
+            revision = INTEGRATIONS["ace-rtl"]["revision"]
+            marker.write_text(json.dumps({"ready": True, "id": "ace-rtl", "revision": revision,
+                                          "contract": 1, "url": INTEGRATIONS["ace-rtl"]["url"],
+                                          "files": files}))
+            registry = Registry()
+            registry.load_project(root)
+            self.assertEqual(registry.resolve("evaluators", "cvdp").__name__, "CVDPEvaluator")
+            self.assertNotIn("sample_eval", registry.factories["evaluators"])
 
 class CVDPTests(unittest.TestCase):
     def test_public_inputs_never_contain_solution_or_harness(self):
