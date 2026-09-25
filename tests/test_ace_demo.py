@@ -1,15 +1,18 @@
 import copy
 import json
+import os
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from agent_optimizer.contracts import ConfigurationError, RunRequest
+from agent_optimizer.contracts import ConfigurationError, RunRequest, UnavailableError
 from support import ROOT, module
 
 demo = module("ace_demo_selection", ROOT / "examples/ace-rtl/environment/demo.py")
 adapter = module("ace_demo_adapter", ROOT / "examples/ace-rtl/adapter.py")
+lifecycle = module("ace_lifecycle_contract", ROOT / "examples/ace-rtl/environment/lifecycle.py")
 
 
 class AceDemoTests(unittest.TestCase):
@@ -90,3 +93,24 @@ class AceDemoTests(unittest.TestCase):
             self.assertEqual(checks["environment.lock"], "error")
             self.assertEqual(checks["source.ACE-RTL"], "error")
             self.assertFalse((root / "external").exists())
+
+    def test_lifecycle_inspects_missing_lock_without_writing(self):
+        with tempfile.TemporaryDirectory(prefix="ace-readiness-") as directory:
+            root = Path(directory)
+            environment = root / "examples/ace-rtl/environment"
+            environment.mkdir(parents=True)
+            for filename in ("diagnostics.py", "setup.py"):
+                shutil.copyfile(ROOT / "examples/ace-rtl/environment" / filename,
+                                environment / filename)
+            report = lifecycle.inspect(root, platform="linux/arm64", environment={"PATH": ""})
+            self.assertFalse(report["ready"])
+            self.assertEqual({row["id"]: row["status"] for row in report["checks"]}["environment.lock"],
+                             "error")
+            self.assertFalse((root / "external").exists())
+
+    def test_lifecycle_requires_model_auth_before_environment_probes(self):
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/chat/completion",
+                                  "AGENT_OPT_MODEL_API_KEY": "", "AGENT_OPT_MODEL_BASE_URL": ""}, clear=True), \
+                patch.object(lifecycle, "inspect", side_effect=AssertionError("probed Docker before key")):
+            with self.assertRaisesRegex(UnavailableError, "blocked_auth"):
+                lifecycle.run(ROOT)
