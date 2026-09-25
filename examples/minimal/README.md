@@ -1,6 +1,6 @@
 # 최소 데모
 
-`make setup ARGS="--core"`로 준비한 뒤 프로젝트 루트에서:
+`make setup-core`로 준비한 뒤 프로젝트 루트에서:
 ```bash
 PYTHONPATH=src .venv/bin/python -m agent_optimizer run examples/minimal/experiment.toml
 ```

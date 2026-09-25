@@ -170,7 +170,7 @@ def main(argv=None):
                     raise UnavailableError("Selected dataset doctor failed; follow the diagnostic repair instructions")
             doctor.render_report(report)
             print(json.dumps({"status": "ready", "scope": "dataset", "dataset": dataset_id,
-                              "next": f'make doctor ARGS="--dataset {dataset_id} --json"'}))
+                              "next": f'sh scripts/bootstrap.sh doctor --dataset {dataset_id} --json'}))
             return 0
         if not core_only:
             setup = load("ace_environment", "examples/ace-rtl/environment/setup.py")
@@ -210,7 +210,7 @@ def main(argv=None):
             print(style(f"[setup] {stage}: complete", "success"), flush=True)
             if core_only:
                 print(json.dumps({"status": "ready", "scope": "core", "results": "runs/",
-                                  "next": 'make doctor ARGS="--core"; make menu; make demo'}))
+                                  "next": 'make doctor-core; make menu; make demo'}))
             else:
                 print(json.dumps({"status": "ready", "environment_lock": "external/environment-lock.json",
                                   "results": "runs/", "next": "make doctor; make test; make smoke"}))

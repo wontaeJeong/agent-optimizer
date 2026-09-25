@@ -54,7 +54,7 @@ PYTHONPATH=src .venv/bin/python -m agent_optimizer run examples/minimal/experime
 make lint
 ```
 
-첫 준비는 `make setup ARGS="--core"`, 진단은 `make doctor ARGS="--core"`.
+첫 준비는 `make setup-core`, 진단은 `make doctor-core`.
 패키징/ACE 환경 변경의 추가 검사는 `CONTRIBUTING.md`를 따른다.
 핵심 계약·소스/데이터 격리·실행 오류 처리 변경은 관련 테스트를 추가한다.
 단순 문서/가역적 저영향 변경에 구현을 그대로 반복하는 테스트를 추가하지 않는다.

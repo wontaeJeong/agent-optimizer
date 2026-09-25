@@ -24,8 +24,10 @@ python3.12 -m venv .venv-docs
 
 ## Agent 개발자가 사용하는 경로
 
-먼저 `make setup ARGS="--core"`로 CLI를 준비합니다. `.venv/bin/agent-opt tui`는 Agent·실행 argv·
-editable 파일·Optimizer·**직접 선택하는 데이터셋**을 차례로 묻고 실시간 실행 화면을 보여줍니다.
+먼저 `make setup-core`로 CLI를 준비합니다. `.venv/bin/agent-opt tui`에서 **기존 실험 실행**을
+선택하면 `experiment.toml`의 계획 진단·확인 뒤 실행하고, **새 실험 만들고 실행**에서는
+Agent·editable 파일·Optimizer·**직접 선택하는 데이터셋**을 묻습니다. 새 `command` 하네스에서만
+Agent 실행 명령을 묻고, 설정만 만들려면 `.venv/bin/agent-opt init`을 대화형으로 실행합니다.
 데이터셋을 자동 추천하지 않으며, 선택한 CVDP/Verilog-Eval은 고정 버전 소스·데이터·OSS 평가 환경을
 자동 준비합니다(첫 실행에는 다운로드·Docker 빌드가 걸릴 수 있습니다). 사용자 데이터셋도 별도의
 채점기를 지정해 사용할 수 있습니다.
@@ -36,13 +38,13 @@ editable 파일·Optimizer·**직접 선택하는 데이터셋**을 차례로 �
 첫 `setup --core`는 자체적으로 코어 doctor와 7-trial 최소 데모도 실행합니다.
 
 ```bash
-make setup ARGS="--core"
+make setup-core
 make help                         # 개발환경 명령
 .venv/bin/agent-opt --help        # 실제 사용자 명령
 .venv/bin/agent-opt datasets list
 .venv/bin/agent-opt init --name my-fixture \
   --agent examples/minimal/agents/solo \
-  --command-json '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]' \
+  --command '{python} {agent_dir}/src/fixture_agent.py {task_dir}' \
   --editable configs/strategy.json \
   --dataset examples/minimal/tasks.json \
   --evaluator examples/minimal/evaluator.py:TextFixtureEvaluator \
@@ -60,18 +62,23 @@ make help                         # 개발환경 명령
 실행합니다. 이 결과는 코어 경로의 연결 검사이며 모델 최적화 성능을 뜻하지 않습니다.
 같은 절차를 다시 따라 할 때는 `--name`과 이후의 `runs/configs/<name>/experiment.toml`을
 새 이름으로 바꾸세요. 이미 생성된 설정은 덮어쓰지 않습니다.
-대화형 경로는 TTY에서 `.venv/bin/agent-opt tui`로 열 수 있습니다.
+대화형 경로는 TTY에서 `.venv/bin/agent-opt tui`(기존 실험 또는 새 실험)나
+`.venv/bin/agent-opt init`(새 설정만 생성)으로 열 수 있습니다.
 
 실제 Agent는 `--agent <로컬 소스>` 또는 `--agent <Git URL> --revision <전체 commit>`과
-실제 실행 argv, 사용 중인 `--prompt-file`, 수정 허용 `--editable` 범위를 연결합니다.
-Agent 명령에 `--input` 같은 옵션이 있으면 `--command-json '["python3","agent.py","--input","{task_dir}"]'`
-형태로 argv 배열을 지정합니다(셸 실행이 아님).
+선택한 하네스의 실행 방법, 사용 중인 `--prompt-file`, 수정 허용 `--editable` 범위를 연결합니다.
+`command` 하네스에만 실행 argv가 필요합니다. Agent 명령에 `--input` 옵션이 있으면
+`--command 'python3 agent.py --input {task_dir}'`를 사용할 수 있습니다. 인용은 argv로 분리하되
+셸 확장·파이프·리다이렉션을 실행하지 않습니다. 기존 `--command-json`도 계속 지원합니다.
+OpenCode·ACE처럼 실행을 하네스가 정의한 경우 명령을 지정하지 않으며, ACE의 Docker·플러그인
+프로필은 `examples/ace-rtl/experiment.toml`에서 재사용합니다. 이 고정 프로필은 TUI와
+`agent-opt run`에서 예제의 `live` 준비·검사를 거쳐 공식 CVDP 평가까지 실행합니다.
 `--optimizer gepa --optimizer meta_harness --optimizer ecdysis`처럼 반복해 독립 stage를 지정할 수 있습니다.
 코드 하네스 방식은 실제 실행되는 `.py` 파일이 필요하고, 여러 파일이 일치하면
 `--scaffold-file`(GEPA는 `--target-file`)을 지정합니다. 모델 제안에는 `AGENT_OPT_MODEL_BASE_URL`
 **또는** `AGENT_OPT_MODEL_ENDPOINT`, `AGENT_OPT_MODEL_ID`, `AGENT_OPT_MODEL_API_KEY`를 환경에 설정합니다.
 기존 `MODEL_*` 변수와 `init --argv`는 더 이상 사용하지 않습니다. Agent 명령은
-`--command-json`에 JSON argv 배열로 입력합니다.
+`--command`에 인용 가능한 명령 문자열 또는 `--command-json`에 JSON argv 배열로 입력합니다.
 자격증명은 생성 설정에 저장하지 않습니다.
 
 `--dataset cvdp`, `--dataset verilog-spec`, `--dataset verilog-completion`이나
@@ -96,8 +103,8 @@ Mac/Ubuntu와 **Git**부터 준비하고 프로젝트 루트에서 실행하세�
 
 ```bash
 make help                         # 설치 없이 개발 명령 확인
-make setup ARGS="--core"          # frozen 개발 도구 + 코어 진단 + 첫 최소 데모
-make doctor ARGS="--core"         # 코어만 읽기 전용 진단
+make setup-core                   # frozen 개발 도구 + 코어 진단 + 첫 최소 데모
+make doctor-core                  # 코어만 읽기 전용 진단
 make menu                        # 1/2번: 코어 설치/진단, 3번: fixture 테스트
 make demo                        # 비대화형 최소 데모
 # make/Python이 없으면 시작 명령 대신:
@@ -108,16 +115,16 @@ CLI·TUI·`make`의 안내/진단은 터미널에서 상태별 색상으로 강�
 `NO_COLOR=1`을 설정하면 색상이 꺼지며, JSON 출력에는 색상 코드를 넣지 않습니다.
 
 `setup --core` 출력의 `"status": "ready", "scope": "core"`와
-`make doctor ARGS="--core"`의 `Core development environment: ready`를 확인합니다.
+`make doctor-core`의 `Core development environment: ready`를 확인합니다.
 `make demo` 출력의 `"status": "completed", "trials_used": 7`과 `run_dir`을 확인하고
 해당 `run_dir/report.html`을 열면 기본 실행까지 검증할 수 있습니다.
 `setup --core`는 기존 uv 설치 경로를 사용해, uv가 없으면 0.10.7을 로컬에 설치하고
 Python 3.12·frozen 개발 의존성을 `.venv`에 준비합니다. **최초 준비에는 의존성 다운로드가 필요할 수 있지만,
 최소 데모와 로컬 HTTP fixture 실행은 외부 모델·Docker를 사용하지 않습니다.**
 코어 준비는 ACE/CVDP 소스·데이터·이미지를 준비하지 않으며 모델/평가 환경의 준비 완료를 뜻하지 않습니다.
-데이터셋은 직접 선택하여 `make setup ARGS="--dataset verilog-spec"` 또는
+데이터셋은 직접 선택하여 `sh scripts/bootstrap.sh setup --dataset verilog-spec` 또는
 `.venv/bin/agent-opt datasets prepare verilog-spec`으로 별도 준비하고
-`make doctor ARGS="--dataset verilog-spec --json"`으로 진단합니다.
+`sh scripts/bootstrap.sh doctor --dataset verilog-spec --json`으로 진단합니다.
 `agent-opt doctor --dataset ID --json`도 같은 선택 자산을 읽기 전용으로 점검합니다.
 `--core`와 `--dataset`은 함께 쓸 수 없습니다. 아무 옵션 없는 setup/doctor는 기존 **ACE 전체** 경로입니다.
 설치 로그는 `external/setup-logs/`에 보존합니다. 완료 시 출력된
@@ -126,21 +133,21 @@ Python 3.12·frozen 개발 의존성을 `.venv`에 준비합니다. **최초 준
 
 메뉴는 Python 3.11+와 TTY가 필요하며 모델 토큰은 숨김 입력, 설정은 세션에만 유지됩니다.
 **7번은 선택적 ACE 전체 환경 준비**이며 4/5번의 실제 모델·평가 실행 전에 사용합니다.
-**8번은 일반 Agent 최적화 TUI**로 `.venv/bin/agent-opt tui`를 엽니다.
+**8번은 일반 Agent 최적화 TUI**로 `.venv/bin/agent-opt tui`를 열고 기존 실험과 새 실험 중 선택합니다.
 [메뉴·OS별 설치 안내](docs/development.md#번호-메뉴)
 
 | 명령 | 용도 |
 |---|---|
 | `make` / `make help` | 설치·Docker 조회 없는 도움말 |
-| `make setup ARGS="--core"` | 코어 준비·진단·합성 데모 |
-| `make doctor ARGS="--core"` / `make doctor ARGS="--core --json"` | 코어만 읽기 전용 진단 / `scope=core` 단일 JSON |
-| `make setup ARGS="--core --offline"` | 준비한 uv/Python/패키지 cache만 재사용 |
-| `make setup ARGS="--dataset cvdp --offline"` | 검증된 선택 CVDP 평가 자산만 재사용; ACE Agent 이미지 준비는 별개 |
-| `make doctor ARGS="--dataset verilog-spec --json"` | 선택 데이터셋 준비 상태 읽기 전용 진단; Docker/고정 이미지 누락도 실패로 보고 |
+| `make setup-core` | 코어 준비·진단·합성 데모 |
+| `make doctor-core` / `sh scripts/bootstrap.sh doctor --core --json` | 코어만 읽기 전용 진단 / `scope=core` 단일 JSON |
+| `sh scripts/bootstrap.sh setup --core --offline` | 준비한 uv/Python/패키지 cache만 재사용 |
+| `sh scripts/bootstrap.sh setup --dataset cvdp --offline` | 검증된 선택 CVDP 평가 자산만 재사용; ACE Agent 이미지 준비는 별개 |
+| `sh scripts/bootstrap.sh doctor --dataset verilog-spec --json` | 선택 데이터셋 준비 상태 읽기 전용 진단; Docker/고정 이미지 누락도 실패로 보고 |
 | `.venv/bin/agent-opt doctor --plan PATH --json` | Agent/컴포넌트 선언·선택 자산·예산·필요한 모델 설정의 정적 점검 |
 | `make setup` / `make doctor` | 선택적 ACE 전체 준비 / 전체 진단 (`--json` 지원) |
 | `make lint` / `make test` / `make demo` | `.venv`에서 일상 개발 검사·데모 |
-| `make setup ARGS="--offline"` | ACE 전체 자산·캐시 검증 및 재사용 |
+| `sh scripts/bootstrap.sh setup --offline` | ACE 전체 자산·캐시 검증 및 재사용 |
 | `make smoke` | 모델 호출 없는 실제 RTL/CVDP 정답·오답 검사 |
 | `make live` | 설정한 OpenAI 호환 모델로 ACE 지침 최적화 반복 |
 
@@ -172,8 +179,8 @@ Python 3.11+ / Mac·Linux 기준, 프로젝트 루트에서 실행합니다.
 설정하지 않으면 기존 직접 연결 방식을 사용합니다.
 
 ```bash
-make setup ARGS="--core"
-make doctor ARGS="--core"
+make setup-core
+make doctor-core
 make demo
 ```
 
@@ -240,10 +247,19 @@ export AGENT_OPT_MODEL_ID=glm5.3-flash
 # AGENT_OPT_MODEL_API_KEY도 export. 표준 API는 AGENT_OPT_MODEL_ENDPOINT 대신 AGENT_OPT_MODEL_BASE_URL 사용.
 make setup                         # Python 환경·소스·데이터·두 이미지 일괄 준비
 make doctor                        # 준비 상태와 실패 조치; 모델 호출 없음
-make doctor ARGS="--model"          # 실제 호스트 API + 컨테이너 OpenCode 도구 호출
+sh scripts/bootstrap.sh doctor --model  # 실제 호스트 API + 컨테이너 OpenCode 도구 호출
 make smoke                         # 모델 키 없이 실제 RTL/CVDP 정답·오답 검증
-make live ARGS="--iterations 3"     # 기본 8 trial: 후보 4개 × train/validation
+sh scripts/bootstrap.sh live --iterations 3  # 기본 8 trial: 후보 4개 × train/validation
+# 같은 ACE 고정 프로필을 앱에서 선택하려면(설정/모델 자격증명 준비 후):
+.venv/bin/agent-opt tui            # 1. 기존 실험 실행 → examples/ace-rtl/experiment.toml
+.venv/bin/agent-opt run examples/ace-rtl/experiment.toml
 ```
+
+ACE 프로필을 선택한 두 `agent-opt` 경로는 예제의 `live` 진단·환경 연결·공식 평가를 그대로
+실행합니다. `doctor --plan`은 정적 검사이므로 모델 연결이나 공식 평가 성공을 보증하지 않습니다.
+`make setup-core`·`make demo`는 개발환경/합성 검사, `make setup`·`make doctor`·`make smoke`는
+모델 없는 ACE 평가 실행환경 검사, `doctor --model`과 ACE `live`는 실제 모델을 사용하는
+단계입니다. 자격증명·고정 자산이 없으면 실행은 실패하며 다른 경로의 성공으로 대체하지 않습니다.
 
 Ubuntu에서는 기존 proxy 환경과 `/etc/ssl/certs/ca-certificates.crt`를 사용합니다.
 명시적 `AGENT_OPT_CA_BUNDLE`이 우선합니다. [proxy/CA 안내](docs/network.md)를 확인하세요.
@@ -255,8 +271,8 @@ uv/Python이 없으면 `sh scripts/bootstrap.sh setup`이 프로젝트 전용 �
 
 `--platform`을 생략하면 빌드 전에 Docker daemon의 native `linux/amd64` 또는 `linux/arm64`를
 선택해 기록합니다. 명시적 `--platform`은 그대로 사용하며 미지원 architecture는 오류입니다.
-빌드 실패 후 다른 architecture로 자동 재시도하지 않습니다. 예: `make setup ARGS="--platform linux/arm64"`.
-`make setup ARGS="--offline"`은 검증된 cache만 재사용합니다.
+빌드 실패 후 다른 architecture로 자동 재시도하지 않습니다. 예: `sh scripts/bootstrap.sh setup --platform linux/arm64`.
+`sh scripts/bootstrap.sh setup --offline`은 검증된 cache만 재사용합니다.
 Python 3.12 CVDP driver는 예제의 [전이 의존성 lock](examples/ace-rtl/environment/requirements-cvdp-py312.txt)으로
 동기화하며 lock hash와 실제 설치 목록을 기록합니다. 이전 환경은 한 번 online setup으로 갱신하세요.
 상용 EDA 도구·라이선스 설정은 제공하지 않습니다. 플랫폼별 검증/차단 결과는 [검증 기록](docs/verification.md)을 따릅니다.
