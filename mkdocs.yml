@@ -1,0 +1,71 @@
+site_name: Agent Optimizer 가이드
+site_description: Agent 최적화 실험을 시작하고 팀 컴포넌트를 연결하는 가이드
+site_url: https://wontaeJeong.github.io/agent-optimizer/
+repo_url: https://github.com/wontaeJeong/agent-optimizer
+repo_name: wontaeJeong/agent-optimizer
+docs_dir: website
+site_dir: site
+
+nav:
+  - 시작: index.md
+  - 사용자 가이드:
+      - 첫 실행: user/getting-started.md
+      - 실험 구성: user/experiment.md
+      - 결과 읽기: user/results.md
+  - 개발자 가이드:
+      - 구조와 경계: developer/overview.md
+      - 컴포넌트 연결: developer/components.md
+      - 검증 순서: developer/validation.md
+
+theme:
+  name: material
+  language: ko
+  icon:
+    logo: material/robot
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/brightness-7
+        name: 어두운 화면으로 전환
+    - scheme: slate
+      primary: indigo
+      accent: teal
+      toggle:
+        icon: material/brightness-4
+        name: 밝은 화면으로 전환
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - toc.follow
+    - content.code.copy
+    - search.suggest
+    - search.highlight
+
+plugins:
+  - search:
+      lang: ko
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+validation:
+  nav:
+    not_found: warn
+  links:
+    not_found: warn
+    anchors: warn
+    unrecognized_links: warn

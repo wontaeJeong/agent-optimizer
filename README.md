@@ -5,6 +5,23 @@
 실제 Agent는 별도 repo, 작은 개발용 Agent는 `examples/`에 포함합니다.
 대상에 따라 실행·평가 어댑터 개발이 필요하며, 모든 Agent를 설정만으로 자동 지원하지는 않습니다.
 
+## 사람용 가이드 사이트
+
+[사용자·팀 개발자 가이드](https://wontaeJeong.github.io/agent-optimizer/)는 `website/` 원고를
+Material for MkDocs로 빌드합니다. 로컬 미리보기와 링크 검사는 앱 환경과 분리해 실행합니다:
+
+```bash
+python3.12 -m venv .venv-docs
+.venv-docs/bin/python -m pip install -r requirements-docs.txt
+.venv-docs/bin/mkdocs serve
+# 별도 터미널에서 배포 전 검사: .venv-docs/bin/mkdocs build --strict
+```
+
+로컬 주소는 `http://127.0.0.1:8000/agent-optimizer/`입니다. PR에서는 엄격한 문서 빌드를 검사하고
+`main`에 반영되면 GitHub Actions가 게시합니다. 이 저장소는 Pages 게시 소스를 **GitHub Actions**로
+설정했습니다. 다른 저장소에 옮길 때는 **Settings → Pages → Build and deployment**에서 선택하세요.
+실제 공개 여부는 배포 작업과 접속 주소로 확인하세요.
+
 ## Agent 개발자가 사용하는 경로
 
 먼저 `make setup ARGS="--core"`로 CLI를 준비합니다. `.venv/bin/agent-opt tui`는 Agent·실행 argv·
