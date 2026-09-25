@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import html
 import math
+from contextvars import ContextVar
+
+from agent_optimizer.locale import human
 
 
 LABELS = {"passed": "통과", "failed": "미해결", "mixed": "반복 결과 혼합",
@@ -13,6 +16,23 @@ LABELS = {"passed": "통과", "failed": "미해결", "mixed": "반복 결과 혼
           "regressed": "최고점 미달", "unchanged": "변화 없음",
           "baseline": "기준", "first": "첫 관측"}
 SPLITS = {"train": "학습", "validation": "검증", "test": "테스트"}
+_language = ContextVar("visualization_language", default="ko")
+
+
+def _s(label):
+    return human(label, lang=_language.get())
+
+
+def render_group(group, objective, index, language):
+    """하나의 그룹을 보고서 언어로 렌더링한다."""
+    token = _language.set(language)
+    try:
+        return (render_progress(group, objective, index) + render_comparison(group, objective, index)
+                + render_landscape(group, objective, index) + render_units(group, objective, index)
+                + render_trail(group, index) + render_tasks(group, index)
+                + render_timeline(group, index) + render_outcomes(group, index))
+    finally:
+        _language.reset(token)
 
 
 def _text(value):
@@ -45,10 +65,6 @@ def _scale(value, minimum, maximum, low, high):
     return low + (value - minimum) / (maximum - minimum or 1) * (high - low)
 
 
-def _metric(group, name):
-    return next((item for item in group.get("comparison", []) if item.get("name") == name), None)
-
-
 def render_progress(group, objective, index=0):
     specs = objective.get("metrics") or []
     if not specs or not isinstance(specs[0], dict):
@@ -64,8 +80,12 @@ def render_progress(group, objective, index=0):
         return ""
     scores = [number for _, _, score, best in valid for number in (score, best)]
     low, high = min(scores), max(scores)
+    if not math.isfinite(high - low):
+        return ""
     padding = (high - low) * .13 or max(abs(high) * .1, .1)
     low, high = low - padding, high + padding
+    if not math.isfinite(low) or not math.isfinite(high) or low >= high:
+        return ""
     if (specs[0].get("source") == "passed" and specs[0].get("aggregate", "mean") == "mean"
             and all(0 <= score <= 1 for score in scores)):
         low, high = max(0, low), min(1, high)
@@ -82,6 +102,7 @@ def render_progress(group, objective, index=0):
             path.append(f"H{x(position):.2f} V{y(best):.2f}")
     dots = []
     boundaries = []
+    tick_stride = max(1, math.ceil(len(points) / 8))
     for position, point, score, _ in valid:
         chosen = point.get("selected")
         if position and point.get("stage_id") != points[position - 1].get("stage_id"):
@@ -89,14 +110,15 @@ def render_progress(group, objective, index=0):
             boundaries.append(f'<line class="stage-boundary" x1="{boundary:.2f}" y1="24" '
                               f'x2="{boundary:.2f}" y2="155"/>')
         dots.append(f'<circle class="trial-point{" chosen-point" if chosen else ""}" '
-                    f'cx="{x(position):.2f}" cy="{y(score):.2f}" r="{7 if chosen else 5}"/>'
-                    f'<text class="axis-label" x="{x(position):.2f}" y="185" text-anchor="middle">'
-                    f'{position + 1}</text>')
+                    f'cx="{x(position):.2f}" cy="{y(score):.2f}" r="{7 if chosen else 5}"/>')
+        if position == 0 or position == len(points) - 1 or position % tick_stride == 0:
+            dots.append(f'<text class="axis-label" x="{x(position):.2f}" y="185" '
+                        f'text-anchor="middle">{position + 1}</text>')
     rows = []
     for position, point in enumerate(points):
         metrics = point.get("metrics") or {}
-        state = LABELS.get(point.get("improvement"), "미확인")
-        selected = " · 최종 선택" if point.get("selected") else ""
+        state = _text(_s(LABELS.get(point.get("improvement"), "미확인")))
+        selected = " · " + _text(_s("최종 선택")) if point.get("selected") else ""
         rows.append(f'<li class="progress-item"><span class="trail-index">{position + 1:02d}</span>'
                     f'<code title="{_text(point.get("candidate_id"))}">{_text(point.get("candidate_id"))}</code>'
                     f'<span class="trail-score">{_text(point.get("stage_id"))} · '
@@ -106,31 +128,41 @@ def render_progress(group, objective, index=0):
                     f'<span class="trail-state">{state}{selected}</span></li>')
     best_at = next((i + 1 for i in range(len(points) - 1, -1, -1)
                     if points[i].get("improvement") == "improved"), None)
-    insight = (f'<p class="insight">마지막 최고점 갱신: 후보 평가 {best_at}/{len(points)}. '
-               f'이후 {len(points) - best_at}건의 후보 평가에서 갱신 없음.</p>'
+    insight = (f'<p class="insight">{_text(_s("마지막 최고점 갱신: 후보 평가"))} {best_at}/{len(points)}. '
+               f'{_text(_s("이후"))} {len(points) - best_at}{_text(_s("건의 후보 평가에서 갱신 없음."))}</p>'
                if best_at is not None and len(points) > best_at else "")
+    if not insight and best_at is None and len(valid) > 1:
+        insight = (f'<p class="insight">{_text(_s("첫 후보 평가 이후 {count}건에서 최고점 갱신 없음.").format(count=len(points) - 1))}</p>')
+    visible = (set(range(min(6, len(points)))) | set(range(max(0, len(points) - 6), len(points))) |
+               {position for position, point in enumerate(points) if point.get("selected")}
+               if len(points) > 12 else set(range(len(points))))
+    remaining = len(points) - len(visible)
+    trail = '<ol class="progress-list">' + ''.join(rows[position] for position in sorted(visible)) + '</ol>'
+    if remaining:
+        trail += (f'<details><summary>{_text(_s("나머지 후보 평가"))} {remaining}{_text(_s("건"))}'
+                  '</summary><ol class="progress-list">' + ''.join(
+                      row for position, row in enumerate(rows) if position not in visible) + '</ol></details>')
     return (f'<section class="visual-section" id="progress-{index}"><div class="section-heading">'
-            '<span class="eyebrow">01 / 검증 집계</span><h3>최적화 개선 추이</h3></div>'
-            '<p class="subtle">동일 그룹의 후보별 검증 집계만 비교합니다. 점은 후보 점수, 계단선은 '
-            '지금까지의 최고점입니다. 최종 선택은 별도로 표시합니다.</p>'
+            f'<span class="eyebrow">{_text(_s("검증 집계"))}</span><h3>{_text(_s("최적화 개선 추이"))}</h3></div>'
+            f'<p class="subtle">{_text(_s("동일 그룹의 후보별 검증 집계만 비교합니다. 점은 후보 점수, 계단선은 지금까지의 최고점입니다. 최종 선택은 별도로 표시합니다."))}</p>'
             f'<svg class="chart progress-chart" viewBox="0 0 760 207" role="img" '
             f'aria-labelledby="progress-title-{index} progress-desc-{index}">'
-            f'<title id="progress-title-{index}">검증 점수 추이</title>'
-            f'<desc id="progress-desc-{index}">{_text(metric)} 후보 점수와 누적 최고점; '
-            '아래 목록에 각 후보의 실제 값과 선택 상태가 있습니다.</desc>'
+            f'<title id="progress-title-{index}">{_text(_s("검증 점수 추이"))}</title>'
+            f'<desc id="progress-desc-{index}">{_text(metric)} '
+            f'{_text(_s("후보 점수와 누적 최고점; 아래 목록에 각 후보의 실제 값과 선택 상태가 있습니다."))}</desc>'
             f'<line class="chart-grid" x1="80" y1="24" x2="714" y2="24"/>'
             f'<line class="chart-grid" x1="80" y1="155" x2="714" y2="155"/>'
             f'<text class="axis-label" x="63" y="28" text-anchor="end">{_number(high)}</text>'
             f'<text class="axis-label" x="63" y="159" text-anchor="end">{_number(low)}</text>'
             + baseline + ''.join(boundaries) + f'<path class="best-curve" d="{" ".join(path)}"/>'
-            + ''.join(dots) + '<text class="axis-label" x="714" y="203" text-anchor="end">'
-            '후보 평가 순서 →</text></svg>'
-            '<div class="legend"><span><i class="legend-dot"></i> 후보 점수</span>'
-            '<span><i class="legend-line"></i> 최고점</span>'
-            '<span><i class="legend-dash"></i> 기준 점수</span>'
-            '<span><i class="legend-dash"></i> 단계 경계</span>'
-            '<span><i class="legend-ring"></i> 최종 선택</span></div>'
-            + insight + '<ol class="progress-list">' + ''.join(rows) + '</ol></section>')
+            + ''.join(dots) + f'<text class="axis-label" x="714" y="203" text-anchor="end">'
+            f'{_text(_s("후보 평가 순서 →"))}</text></svg>'
+            f'<div class="legend"><span><i class="legend-dot"></i> {_text(_s("후보 점수"))}</span>'
+            f'<span><i class="legend-line"></i> {_text(_s("최고점"))}</span>'
+            f'<span><i class="legend-dash"></i> {_text(_s("기준 점수"))}</span>'
+            f'<span><i class="legend-dash"></i> {_text(_s("단계 경계"))}</span>'
+            f'<span><i class="legend-ring"></i> {_text(_s("최종 선택"))}</span></div>'
+            + insight + trail + '</section>')
 
 
 def render_comparison(group, objective, index=0):
@@ -147,19 +179,21 @@ def render_comparison(group, objective, index=0):
         bars = ""
         if before is not None and after is not None and before >= 0 and after >= 0:
             maximum = max(before, after, 0.000001)
-            bars = (f'<div class="comparison-bars"><span>기준 후보</span>'
+            bars = (f'<div class="comparison-bars"><span>{_text(_s("기준 후보"))}</span>'
                     f'<div class="bar-track"><i class="bar baseline-bar" style="width:{before / maximum * 100:.2f}%"></i></div>'
-                    f'<strong>{_number(before)}</strong><span>최종 선택</span>'
+                    f'<strong>{_number(before)}</strong><span>{_text(_s("최종 선택"))}</span>'
                     f'<div class="bar-track"><i class="bar selected-bar" style="width:{after / maximum * 100:.2f}%"></i></div>'
                     f'<strong>{_number(after)}</strong></div>')
         lines.append(f'<div class="metric-comparison"><div class="metric-heading"><strong>{_text(item["name"])}</strong>'
-                     f'<span>{"↑ 높을수록 좋음" if item["direction"] == "maximize" else "↓ 낮을수록 좋음"}'
-                     f' · {LABELS.get(item.get("trend"), item.get("trend", "미확인"))}</span>'
-                     f'<b>{_text(delta_label)}</b></div>{bars or "<p>비교 막대에 필요한 유효한 비음수 값이 없습니다.</p>"}</div>')
+                     f'<span>{_text(_s("↑ 높을수록 좋음" if item["direction"] == "maximize" else "↓ 낮을수록 좋음"))}'
+                     f' · {_text(_s(LABELS.get(item.get("trend"), item.get("trend", "미확인"))))}</span>'
+                     f'<b>{_text(delta_label)}</b></div>'
+                     f'{bars or "<p>" + _text(_s("비교 막대에 필요한 유효한 비음수 값이 없습니다.")) + "</p>"}</div>')
     return (f'<section class="visual-section" id="comparison-{index}"><div class="section-heading">'
-            '<span class="eyebrow">02 / 확정된 선택</span><h3>기준 후보와 최종 선택</h3></div>'
-            '<p class="subtle">동일 그룹의 기준 후보와 검증에서 최종 선택된 후보입니다. '
-            '막대는 각 지표 내에서만 비교합니다.</p>' + ''.join(lines) + '</section>')
+            f'<span class="eyebrow">{_text(_s("확정된 선택"))}</span>'
+            f'<h3>{_text(_s("기준 후보와 최종 선택"))}</h3></div>'
+            f'<p class="subtle">{_text(_s("동일 그룹의 기준 후보와 검증에서 최종 선택된 후보입니다. 막대는 각 지표 내에서만 비교합니다."))}</p>'
+            + ''.join(lines) + '</section>')
 
 
 def render_landscape(group, objective, index=0):
@@ -177,6 +211,8 @@ def render_landscape(group, objective, index=0):
         return ""
     xmin, xmax = min(x for _, x, _ in points), max(x for _, x, _ in points)
     ymin, ymax = min(y for _, _, y in points), max(y for _, _, y in points)
+    if not math.isfinite(xmax - xmin) or not math.isfinite(ymax - ymin):
+        return ""
     circles = []
     for item, x, y in points:
         state = " selected" if item.get("selected") else " baseline" if item.get("improvement") == "baseline" else ""
@@ -186,12 +222,13 @@ def render_landscape(group, objective, index=0):
                        f'<title>{_text(item.get("candidate_id"))}: {_text(xname)} {_number(x)}, '
                        f'{_text(yname)} {_number(y)}</title></circle>')
     return (f'<section class="visual-section" id="landscape-{index}"><div class="section-heading">'
-            '<span class="eyebrow">03 / 다중 지표</span><h3>목적 지표 관계</h3></div>'
-            '<p class="subtle">후보별 검증 값입니다. 두 지표는 우선순위 순서로 선택하며, '
-            '두 축의 교환 관계만 표시합니다.</p>'
+            f'<span class="eyebrow">{_text(_s("다중 지표"))}</span><h3>{_text(_s("목적 지표 관계"))}</h3></div>'
+            f'<p class="subtle">{_text(_s("후보별 검증 값입니다. 두 지표는 우선순위 순서로 선택하며, 두 축의 교환 관계만 표시합니다."))}</p>'
             f'<svg class="chart landscape-chart" viewBox="0 0 760 205" role="img" '
-            f'aria-label="{_text(xname)}와 {_text(yname)} 후보 관계; 기준은 빈 원, 선택은 강조 원">'
-            f'<title>후보별 목적 지표 관계</title><desc>점의 실제 수치는 아래 후보 점수 목록에서 확인합니다.</desc>'
+            f'aria-label="{_text(xname)} {_text(_s("와"))} {_text(yname)} '
+            f'{_text(_s("후보 관계; 기준은 빈 원, 선택은 강조 원"))}">'
+            f'<title>{_text(_s("후보별 목적 지표 관계"))}</title>'
+            f'<desc>{_text(_s("점의 실제 수치는 아래 후보 점수 목록에서 확인합니다."))}</desc>'
             '<path class="chart-grid" d="M65 25 V150 H708"/>' + ''.join(circles) +
             f'<text class="axis-label" x="68" y="179">{_number(xmin)}</text>'
             f'<text class="axis-label" x="708" y="179" text-anchor="end">{_number(xmax)}</text>'
@@ -199,15 +236,18 @@ def render_landscape(group, objective, index=0):
             f'{"↑" if specs[1].get("direction") == "maximize" else "↓"}</text>'
             f'<text class="axis-label" x="57" y="29" text-anchor="end">{_number(ymax)}</text>'
             f'<text class="axis-label" x="57" y="153" text-anchor="end">{_number(ymin)}</text></svg>'
-            f'<p class="subtle">세로축: {_text(yname)} '
+            f'<p class="subtle">{_text(_s("세로축:"))} {_text(yname)} '
             f'{"↑" if specs[0].get("direction") == "maximize" else "↓"} · '
-            '진한 원: 최종 선택 · 빈 원: 기준 후보</p></section>')
+            f'{_text(_s("진한 원: 최종 선택 · 빈 원: 기준 후보"))}</p></section>')
 
 
 def render_trail(group, index=0):
     candidates = {item["candidate_id"]: item for item in group.get("candidates", [])}
     selected = [item.get("candidate_id") for item in group.get("selected", [])
-                if isinstance(item, dict) and item.get("split") == "validation" and item.get("valid") is True]
+                if isinstance(item, dict) and item.get("split") == "validation"
+                and item.get("valid") is True and not item.get("partial", False)
+                and item.get("agent_id") == group.get("agent_id")
+                and item.get("harness_id") == group.get("harness_id")]
     if not candidates or not selected:
         return ""
     path = []
@@ -225,17 +265,17 @@ def render_trail(group, index=0):
     steps = []
     for position, identifier in enumerate(path):
         point = scores.get(identifier) or {}
-        state = LABELS.get(point.get("improvement"), "평가 없음")
+        state = _text(_s(LABELS.get(point.get("improvement"), "평가 없음")))
         steps.append(f'<li class="trail-node"><span class="trail-index">{position + 1:02d}</span>'
                      f'<code title="{_text(identifier)}">{_text(identifier)}</code>'
-                     f'<span>{"최종 선택" if identifier == selected[0] else state}</span></li>')
+                     f'<span>{_text(_s("최종 선택")) if identifier == selected[0] else state}</span></li>')
     extras = len(candidates) - len(path)
     return (f'<section class="visual-section" id="trail-{index}"><div class="section-heading">'
-            '<span class="eyebrow">04 / 후보 계보</span><h3>선택 후보까지의 경로</h3></div>'
-            '<p class="subtle">기록된 부모 관계의 한 경로만 표시합니다. 병합·다른 후보의 '
-            '관계는 아래 최적화 과정과 후보 변경 내역에서 확인할 수 있습니다.</p>'
+            f'<span class="eyebrow">{_text(_s("후보 계보"))}</span>'
+            f'<h3>{_text(_s("선택 후보까지의 경로"))}</h3></div>'
+            f'<p class="subtle">{_text(_s("기록된 부모 관계의 한 경로만 표시합니다. 병합·다른 후보의 관계는 아래 최적화 과정과 후보 변경 내역에서 확인할 수 있습니다."))}</p>'
             '<ol class="trail-path">' + ''.join(steps) + '</ol>'
-            + (f'<p class="subtle">이 경로 외 기록된 후보 {extras}개</p>' if extras > 0 else '')
+            + (f'<p class="subtle">{_text(_s("이 경로 외 기록된 후보"))} {extras}{_text(_s("개"))}</p>' if extras > 0 else '')
             + '</section>')
 
 
@@ -252,29 +292,28 @@ def render_units(group, objective, index=0):
         label = unit.get("label") or unit.get("unit_id")
         if (unit.get("unit_type") == "iteration" and isinstance(label, str)
                 and label.startswith("Iteration ") and label[10:].isdigit()):
-            label = "반복 " + label[10:]
+            label = _s("반복 ") + label[10:]
         members = []
         ids = unit.get("candidate_ids") or []
         for identifier in ids[:3]:
             point = scores.get(identifier) or {}
             measured = (point.get("metrics") or {}).get(primary) if primary else None
-            state = LABELS.get(point.get("improvement"), "점수 미기록")
+            state = _text(_s(LABELS.get(point.get("improvement"), "점수 미기록")))
             members.append(f'<span><code title="{_text(identifier)}">{_text(identifier)}</code> '
                            f'{_number(measured)} · {state}</span>')
         if len(ids) > 3:
-            members.append(f'<span>외 {len(ids) - 3}개 후보</span>')
+            members.append(f'<span>{_text(_s("외"))} {len(ids) - 3}{_text(_s("개 후보"))}</span>')
         return (f'<li class="unit"><span class="eyebrow">{_text(unit.get("stage_id"))} / '
                 f'{_text(unit.get("unit_type"))}</span><strong>{_text(label)}</strong>'
                 + ('<div class="unit-members">' + ' · '.join(members) + '</div>' if members else
-                   '<span class="subtle">연결된 후보 미기록</span>') + '</li>')
+                   f'<span class="subtle">{_text(_s("연결된 후보 미기록"))}</span>') + '</li>')
 
-    more = ('<details><summary>나머지 탐색 단위 ' + str(len(units) - 8) + '개</summary>'
+    more = (f'<details><summary>{_text(_s("나머지 탐색 단위"))} ' + str(len(units) - 8) + _text(_s('개')) + '</summary>'
             '<ol class="unit-flow">' + ''.join(render_unit(unit) for unit in units[8:])
             + '</ol></details>' if len(units) > 8 else '')
     return (f'<section class="visual-section" id="units-{index}"><div class="section-heading">'
-            '<span class="eyebrow">04 / 탐색 단위</span><h3>탐색 흐름</h3></div>'
-            '<p class="subtle">Optimizer가 명시적으로 기록한 반복·세대·단계의 순서입니다. '
-            '후보 점수는 기록된 검증 집계가 있을 때만 표시합니다.</p><ol class="unit-flow">'
+            f'<span class="eyebrow">{_text(_s("탐색 단위"))}</span><h3>{_text(_s("탐색 흐름"))}</h3></div>'
+            f'<p class="subtle">{_text(_s("Optimizer가 명시적으로 기록한 반복·세대·단계의 순서입니다. 후보 점수는 기록된 검증 집계가 있을 때만 표시합니다."))}</p><ol class="unit-flow">'
             + ''.join(render_unit(unit) for unit in units[:8]) + '</ol>' + more + '</section>')
 
 
@@ -285,16 +324,16 @@ def render_tasks(group, index=0):
     fixed = sum(row["baseline"] == "failed" and row["selected"] == "passed" for row in tasks)
     lost = sum(row["baseline"] == "passed" and row["selected"] == "failed" for row in tasks)
     cells = ''.join(f'<tr><th scope="row"><code>{_text(item["task_id"])}</code></th>'
-                    f'<td><span class="task-state {item["baseline"]}">{LABELS[item["baseline"]]}</span></td>'
-                    f'<td><span class="task-state {item["selected"]}">{LABELS[item["selected"]]}</span></td>'
-                    f'<td>{"새로 해결" if item["baseline"] == "failed" and item["selected"] == "passed" else "해결 후 미해결" if item["baseline"] == "passed" and item["selected"] == "failed" else "—"}</td></tr>'
+                    f'<td><span class="task-state {item["baseline"]}">{_text(_s(LABELS[item["baseline"]]))}</span></td>'
+                    f'<td><span class="task-state {item["selected"]}">{_text(_s(LABELS[item["selected"]]))}</span></td>'
+                    f'<td>{_text(_s("새로 해결" if item["baseline"] == "failed" and item["selected"] == "passed" else "해결 후 미해결" if item["baseline"] == "passed" and item["selected"] == "failed" else "—"))}</td></tr>'
                     for item in tasks)
     return (f'<section class="visual-section" id="tasks-{index}"><div class="section-heading">'
-            '<span class="eyebrow">05 / 과제별 변화</span><h3>과제별 전후 비교</h3></div>'
-            f'<p class="insight">같은 검증 과제 {len(tasks)}개 중 새로 해결 {fixed}개, 해결 후 미해결 {lost}개.</p>'
-            '<div class="table-scroll"><table class="task-matrix"><caption>검증 과제 · 기준 후보 → 최종 선택</caption>'
-            '<thead><tr><th scope="col">과제</th><th scope="col">기준 후보</th>'
-            '<th scope="col">최종 선택</th><th scope="col">변화</th></tr></thead><tbody>'
+            f'<span class="eyebrow">{_text(_s("과제별 변화"))}</span><h3>{_text(_s("과제별 전후 비교"))}</h3></div>'
+            f'<p class="insight">{_text(_s("같은 검증 과제 {tasks}개 중 새로 해결 {fixed}개, 해결 후 미해결 {lost}개.").format(tasks=len(tasks), fixed=fixed, lost=lost))}</p>'
+            f'<div class="table-scroll"><table class="task-matrix"><caption>{_text(_s("검증 과제 · 기준 후보 → 최종 선택"))}</caption>'
+            f'<thead><tr><th scope="col">{_text(_s("과제"))}</th><th scope="col">{_text(_s("기준 후보"))}</th>'
+            f'<th scope="col">{_text(_s("최종 선택"))}</th><th scope="col">{_text(_s("변화"))}</th></tr></thead><tbody>'
             + cells + '</tbody></table></div></section>')
 
 
@@ -310,20 +349,20 @@ def render_timeline(group, index=0):
                if duration is not None and maximum and math.isfinite(duration / maximum) else "")
         return (f'<li class="timeline-row"><span class="timeline-id"><code title="{_text(row["trial_id"])}">'
                 f'{_text(row["trial_id"])}</code><small>{_text(row["candidate_id"])} · '
-                f'{_text(row["task_id"])} · {_text(SPLITS.get(row["split"], row["split"]))} · '
+                f'{_text(row["task_id"])} · {_text(_s(SPLITS.get(row["split"], row["split"])))} · '
                 f'{_text(row["stage_id"])}</small></span>'
                 f'<span class="duration-track">{bar}</span>'
-                f'<strong class="duration-value">{_number(duration)}초</strong>'
+                f'<strong class="duration-value">{_number(duration)}{_text(_s("초"))}</strong>'
                 f'<a class="outcome {_text(row["category"])}" href="#evaluation-{index}-{position}">'
-                f'{LABELS.get(row["category"], _text(row["status"]))}</a></li>')
+                f'{_text(_s(LABELS.get(row["category"], row["status"] or "미확인")))}</a></li>')
     visible = ''.join(render_row(position, row) for position, row in enumerate(rows[:12]))
-    more = ('<details><summary>나머지 평가 ' + str(len(rows) - 12) + '건</summary><ol class="timeline">'
+    more = ('<details><summary>' + _text(_s('나머지 평가')) + ' ' + str(len(rows) - 12)
+            + _text(_s('건')) + '</summary><ol class="timeline">'
             + ''.join(render_row(position, row) for position, row in enumerate(rows[12:], 12))
             + '</ol></details>' if len(rows) > 12 else '')
     return (f'<section class="visual-section" id="timeline-{index}"><div class="section-heading">'
-            '<span class="eyebrow">06 / 실행 진단</span><h3>평가 실행 시간</h3></div>'
-            '<p class="subtle">막대는 실제 과제 실행 시간이며 후보 점수와 별개입니다. '
-            '미측정 시간은 빈 막대로 표시합니다.</p><ol class="timeline">'
+            f'<span class="eyebrow">{_text(_s("실행 진단"))}</span><h3>{_text(_s("평가 실행 시간"))}</h3></div>'
+            f'<p class="subtle">{_text(_s("막대는 실제 과제 실행 시간이며 후보 점수와 별개입니다. 미측정 시간은 빈 막대로 표시합니다."))}</p><ol class="timeline">'
             + visible + '</ol>' + more + '</section>')
 
 
@@ -332,11 +371,11 @@ def render_outcomes(group, index=0):
     total = sum(outcomes.values())
     if total < 4 or len(outcomes) < 2:
         return ""
-    rows = ''.join(f'<li><span>{LABELS.get(name, _text(name))}</span>'
+    rows = ''.join(f'<li><span>{_text(_s(LABELS.get(name, name)))}</span>'
                    f'<span class="bar-track"><i class="bar {"selected-bar" if name == "passed" else "baseline-bar"}" '
                    f'style="width:{count / total * 100:.2f}%"></i></span><strong>{count}</strong></li>'
                    for name, count in sorted(outcomes.items(), key=lambda item: (-item[1], item[0])))
     return (f'<section class="visual-section" id="outcomes-{index}"><div class="section-heading">'
-            '<span class="eyebrow">07 / 결과 분포</span><h3>평가 결과 분포</h3></div>'
-            '<p class="subtle">과제별 평가 기록의 상태 분류입니다. 후보 단위 개선 건수와 다릅니다.</p>'
+            f'<span class="eyebrow">{_text(_s("결과 분포"))}</span><h3>{_text(_s("평가 결과 분포"))}</h3></div>'
+            f'<p class="subtle">{_text(_s("과제별 평가 기록의 상태 분류입니다. 후보 단위 개선 건수와 다릅니다."))}</p>'
             '<ul class="outcome-bars">' + rows + '</ul></section>')

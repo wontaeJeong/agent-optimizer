@@ -11,10 +11,7 @@ from urllib.parse import quote
 from agent_optimizer.contracts import ConfigurationError
 from agent_optimizer.locale import current_language, human
 from agent_optimizer.report_style import STYLE
-from agent_optimizer.report_visualizations import (
-    render_comparison, render_landscape, render_outcomes, render_progress,
-    render_tasks, render_timeline, render_trail, render_units,
-)
+from agent_optimizer.report_visualizations import render_group
 from agent_optimizer.workspace import safe_path
 
 
@@ -235,7 +232,7 @@ def _quick_config(report):
     configuration = report.get('configuration') or {}
     benchmark = (report.get('provenance') or {}).get('benchmark') or {}
     metrics = (report.get('objective') or {}).get('metrics') or []
-    objectives = ''.join(f'<li>{"↑" if item.get("direction") == "maximize" else "↓"} '
+    objectives = ''.join(f'<li>{ {"maximize": "↑ ", "minimize": "↓ "}.get(item.get("direction"), "")}'
                          f'{text(item.get("name"))}</li>' for item in metrics if isinstance(item, dict))
     return (f'<div class="quick-config"><div><span class="eyebrow">{text(_s("벤치마크"))}</span><strong>'
             f'{text(benchmark.get("id") or configuration.get("benchmark"))}</strong></div>'
@@ -270,12 +267,7 @@ def _comparison(group, number, objective):
                 f'{_term("예산 사용 횟수")} {_count(counts.get("trials_used"))}{text(_s("회")) if _language.get() == "ko" else ""}</p>'
                 f'<p>{_term("기준 후보")}: <code>{text(baseline.get("candidate_id"))}</code> → '
                 f'{" · ".join(selection)}</p>')
-    visuals = (render_progress(group, objective, number)
-               + render_comparison(group, objective, number)
-               + render_landscape(group, objective, number)
-               + render_units(group, objective, number) + render_trail(group, number)
-               + render_tasks(group, number)
-               + render_timeline(group, number) + render_outcomes(group, number))
+    visuals = render_group(group, objective, number, _language.get())
     rows = []
     for metric in group['comparison']:
         difference = _signed(metric.get('delta'))
@@ -353,9 +345,8 @@ def _journey(report):
             sections.append(_details(_s('그룹 이벤트 기록 · 원본 근거'),
                                      _recorded_events(report, group, structured=True)))
         else:
-            sections.append('<p class="subtle">기록된 탐색 구조가 없습니다. '
-                            '이벤트 순서와 원본은 아래에서 확인하세요.</p>')
-            sections.append(_details('그룹 이벤트 기록 · 원본 근거',
+            sections.append(f'<p class="subtle">{text(_s("기록된 탐색 구조가 없습니다. 이벤트 순서와 원본은 아래에서 확인하세요."))}</p>')
+            sections.append(_details(_s('그룹 이벤트 기록 · 원본 근거'),
                                      _recorded_events(report, group)))
         if edges:
             sections.append(f'<p class="tag">{text(_s("기록된 후보 부모 관계"))}</p><ul class="lineage">')
@@ -554,7 +545,7 @@ def _hero(report):
         winner = next((row for row in group.get('selected', [])
                        if _valid_selection(row, group)), None)
         if not metric or winner is None or metric.get('selected') is None:
-            result = '<strong>비교 가능한 검증 선택 없음</strong>'
+            result = f'<strong>{text(_s("비교 가능한 검증 선택 없음"))}</strong>'
         else:
             delta = (f'{metric["delta_pp"]:+.1f} pp' if metric.get('delta_pp') is not None
                      else _signed(metric.get('delta')))
@@ -562,15 +553,15 @@ def _hero(report):
             measured = (f'{metric["selected"] * 100:.0f}%' if percent else value(metric['selected']))
             baseline = (f'{metric["baseline"] * 100:.0f}%' if percent else value(metric.get('baseline')))
             result = (f'<strong>{measured} <small>{text(metric["name"])}</small></strong>'
-                      f'<span>{delta} · 기준 {baseline} · '
+                      f'<span>{delta} · {text(_s("기준"))} {baseline} · '
                       f'{_display(group["comparison_trend"], STATES)}</span>')
         groups.append(f'<div class="headline-group"><span class="eyebrow">{text(group["key"])}</span>'
-                      f'{result}<a href="#group-{index}">검증 경로 보기 →</a></div>')
+                      f'{result}<a href="#group-{index}">{text(_s("검증 경로 보기 →"))}</a></div>')
     counts = report['counts']
     wall = report['identity'].get('run_wall_time_seconds')
-    facts = (f'완료된 평가 {_count(counts.get("completed_evaluations"))}건 · '
-             f'예약된 평가 {_count(counts.get("trials_used"))}회'
-             + (f' · 실측 벽시계 {value(wall)}초' if wall is not None else ''))
+    facts = (f'{text(_s("완료된 평가"))} {_count(counts.get("completed_evaluations"))}{text(_s("건 · "))}'
+             f'{text(_s("예약된 평가"))} {_count(counts.get("trials_used"))}{text(_s("회"))}'
+             + (f' · {text(_s("실측 벽시계"))} {value(wall)}{text(_s("초"))}' if wall is not None else ''))
     return (f'<section id="scores" class="summary-section"><span class="eyebrow">{text(_s("실험 요약"))}</span>'
             f'<h2>{text(_s("최적화 결과"))}</h2><p class="subtle">'
             f'{text(_s("그룹별 검증 선택을 독립적으로 표시합니다. 점수가 없는 경우 0으로 간주하지 않습니다."))}</p>'
@@ -600,7 +591,7 @@ def _render_report(root: Path, report: dict) -> str:
               f'<header><div class="eyebrow">Agent Optimizer / {text(_s("실험 분석"))}</div>',
               f'<h1>{text(title)}</h1><span class="pill">{_display(identity.get("status"), STATES)}</span>{synthetic}',
                _quick_config(report),
-               f'<nav aria-label="{text(_s("리포트 목차"))}"><a href="#scores">{text(_s("결과와 개선 경로"))}</a>'
+               f'<nav aria-label="{text(_s("리포트 목차"))}"><a href="#scores">{text(_s("점수 비교"))}</a>'
               f'<a href="#held-out-test">{text(_s("최종 테스트"))}</a><a href="#journey">{text(_s("최적화 과정"))}</a>'
               f'<a href="#evaluations">{text(_s("평가 근거"))}</a><a href="#candidates">{text(_s("후보 변경"))}</a>'
               f'<a href="#failures">{text(_s("실패 근거"))}</a><a href="#stages">{text(_s("단계와 사용량"))}</a>'

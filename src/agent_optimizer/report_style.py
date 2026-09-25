@@ -144,10 +144,12 @@ footer{border-top:1px solid var(--border);color:var(--muted);font-size:.85rem;pa
 .chart{min-height:130px}.timeline-row{grid-template-columns:minmax(7rem,2fr) minmax(3rem,1fr) 4rem;
 gap:.3rem}.timeline-row .outcome{grid-column:1/-1;text-align:left}.headlines{grid-template-columns:1fr}
 .headline-group{border-right:0;border-bottom:1px solid var(--border)}}
-@media(max-width:650px){.quick-config{grid-template-columns:1fr 1fr}.quick-config>div:last-child{grid-column:1/-1}}
+@media(max-width:650px){.quick-config{grid-template-columns:1fr 1fr}.quick-config>div:last-child{grid-column:1/-1}
+.chart .axis-label{display:none}}
 @media print{ :root{color-scheme:light;--bg:#fff;--surface:#fff;--text:#151a20;
 --muted:#47515e;--border:#aab2ba;--accent:#155d70;--good:#12573d;--bad:#922536}
-body{background:#fff}nav,footer,#evaluations{display:none}details:not([open]){display:none}
+body{background:#fff}nav,footer,#evaluations,#journey,#candidates,#stages,.cards{display:none}
+details:not([open]){display:none}
 .visual-section,.metric-comparison{break-inside:avoid}.chart{max-height:240px}
 .bar,.duration-fill,.task-state,.insight{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
 """

@@ -162,7 +162,8 @@ class HTMLReportTests(unittest.TestCase):
         self.assertEqual(Path(json.loads(output.getvalue())["html"]), run / "report.html")
 
     def test_real_run_shows_visual_progress_comparison_and_trial_trail_offline(self):
-        run, _ = run_experiment(self.spec, Registry(), self.root / "runs")
+        spec = load_experiment(self.root / "examples/minimal/experiment.toml")
+        run, _ = run_experiment(spec, Registry(), self.root / "runs")
         page = (run / "report.html").read_text(encoding="utf-8")
         self.assertIn('id="progress-0"', page)
         self.assertIn('class="best-curve"', page)
@@ -179,6 +180,7 @@ class HTMLReportTests(unittest.TestCase):
         self.assertIn('href="#evaluation-0-', page)
         self.assertIn('기준 후보', page)
         self.assertIn('최종 선택', page)
+        self.assertIn('첫 후보 평가 이후 1건에서 최고점 갱신 없음', page)
         self.assertIn('실패 상세 2건', page)
         self.assertLess(page.index('id="progress-0"'), page.index('<dl class="meta">'))
         self.assertLess(page.index('id="progress-0"'), page.index('<div class="cards"'))
@@ -215,6 +217,10 @@ class HTMLReportTests(unittest.TestCase):
         self.assertIn('search', progress)
         self.assertNotIn('Pareto', page)
         self.assertIn('long-' + 'X' * 240, page)
+        english = write_html_report(run, summary, language="en").read_text(encoding="utf-8")
+        self.assertIn('id="landscape-0"', english)
+        self.assertIn('Objective trade-off', english)
+        self.assertNotRegex(english.split('<main>', 1)[1].split('</main>', 1)[0], '[가-힣]')
 
     def test_empty_and_one_trial_do_not_draw_invented_curve(self):
         run = self.root / "single"
@@ -262,6 +268,53 @@ class HTMLReportTests(unittest.TestCase):
         page = write_html_report(run, summary).read_text(encoding="utf-8")
         self.assertIn('class="best-curve"', page)
         self.assertIn('overflow', page)
+
+    def test_unknown_legacy_objective_direction_is_not_shown_as_minimize(self):
+        run = self.root / "unknown-direction"
+        run.mkdir()
+        (run / "manifest.json").write_text(json.dumps({"experiment": {"objective": {
+            "metrics": [{"name": "custom", "direction": "sideways"}]}}}))
+        page = write_html_report(run, {"groups": []}).read_text(encoding="utf-8")
+        glance = page.split('class="quick-config"', 1)[1].split('</div></div>', 1)[0]
+        self.assertIn('custom', glance)
+        self.assertNotIn('↓ custom', glance)
+
+    def test_unrepresentable_chart_range_omits_curve_without_nonfinite_svg_coordinates(self):
+        run = self.root / "extreme-scores"
+        run.mkdir()
+        (run / "manifest.json").write_text(json.dumps({"experiment": {"objective": {
+            "metrics": [{"name": "score", "direction": "maximize"}]}}}))
+        (run / "events.jsonl").write_text("\n".join(json.dumps({
+            "event": "candidate_evaluated", "agent_id": "solo", "harness_id": "fixture",
+            "candidate_id": candidate, "split": "validation", "stage_id": "search",
+            "valid": True, "metrics": {"score": score}}) for candidate, score in (
+                ("minimum", -1e308), ("maximum", 1e308))) + "\n")
+        summary = {"groups": [{"agent_id": "solo", "harness_id": "fixture",
+                              "baseline": None, "selected": [], "stages": []}]}
+        page = write_html_report(run, summary).read_text(encoding="utf-8")
+        self.assertNotIn('class="best-curve"', page)
+        self.assertIn('minimum', page)
+        self.assertIn('maximum', page)
+
+    def test_many_candidates_keep_selected_visible_and_fold_the_remaining_trail(self):
+        run = self.root / "many-candidates"
+        run.mkdir()
+        (run / "manifest.json").write_text(json.dumps({"experiment": {"objective": {
+            "metrics": [{"name": "score", "direction": "maximize"}]}}}))
+        common = {"agent_id": "solo", "harness_id": "fixture", "split": "validation", "valid": True}
+        (run / "events.jsonl").write_text("\n".join(json.dumps({
+            "event": "candidate_evaluated", **common, "candidate_id": f"c{number:03d}",
+            "stage_id": "search", "metrics": {"score": number / 10}})
+            for number in range(15)) + "\n")
+        summary = {"groups": [{"agent_id": "solo", "harness_id": "fixture",
+                              "baseline": {**common, "candidate_id": "c000", "metrics": {"score": 0}},
+                              "selected": [{**common, "candidate_id": "c008", "metrics": {"score": 0.8}}],
+                              "stages": []}]}
+        page = write_html_report(run, summary).read_text(encoding="utf-8")
+        progress = page.split('id="progress-0"', 1)[1].split('</section>', 1)[0]
+        self.assertIn('나머지 후보 평가', progress)
+        self.assertIn('c008</code>', progress.split('<details', 1)[0])
+        self.assertEqual(progress.count('class="trial-point'), 15)
 
     def test_untrusted_feedback_is_escaped_in_incomplete_report(self):
         class FailingEvaluator:
@@ -508,6 +561,19 @@ class HTMLReportTests(unittest.TestCase):
         self.assertIn("기록된 선택", page)
         self.assertNotIn("검증에서 선택된 후보:", page)
         self.assertNotIn("검증에서 선택 ·", page)
+
+    def test_partial_selection_with_parent_is_not_a_visual_winner(self):
+        run = self.root / "partial-parent"
+        for identifier, parents in (("base", []), ("partial", ["base"])):
+            folder = run / "solo" / "fixture" / "candidates" / identifier
+            folder.mkdir(parents=True)
+            (folder / "candidate.json").write_text(json.dumps({"id": identifier, "parents": parents}))
+        row = {"candidate_id": "partial", "agent_id": "solo", "harness_id": "fixture",
+               "split": "validation", "valid": True, "partial": True, "metrics": {"score": 1}}
+        summary = {"groups": [{"agent_id": "solo", "harness_id": "fixture",
+                              "baseline": None, "selected": [row], "stages": []}]}
+        page = write_html_report(run, summary).read_text(encoding="utf-8")
+        self.assertNotIn('id="trail-0"', page)
 
     def test_small_minimize_delta_keeps_sign_and_distinguishable_scores(self):
         run = self.root / "small-score"
