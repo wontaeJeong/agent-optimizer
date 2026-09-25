@@ -2,6 +2,7 @@
 import contextlib
 import io
 import json
+import multiprocessing
 import os
 import re
 import shutil
@@ -17,7 +18,9 @@ from agent_optimizer.config import load_experiment
 from agent_optimizer.registry import PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, Registry
 from agent_optimizer.readiness import collect_plan
 from agent_optimizer.runner import run_experiment
+from agent_optimizer.session import SessionInterrupted, _project_event, run_session
 from agent_optimizer.setup_wizard import _bounded_tasks, wizard_arguments, write_experiment
+from agent_optimizer.terminal_report import SessionProgress
 from support import ROOT, test_project
 
 
@@ -1630,6 +1633,81 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual(len(summary["reports"]), 1)
         self.assertTrue(Path(summary["reports"][0]).is_file())
         self.assertIn("broken-a", Path(summary["index_html"]).read_text())
+
+    def test_session_workers_overlap_but_jobs_one_runs_sequentially(self):
+        timing_dir = self.root / "timings"
+        timing_dir.mkdir()
+        evaluator = self.root / "examples/minimal/slow_evaluator.py"
+        evaluator.write_text(
+            "import json\nimport os\nimport time\nfrom pathlib import Path\n"
+            "from agent_optimizer.contracts import Evaluation\n"
+            f"DIRECTORY = Path({str(timing_dir)!r})\n"
+            "class SlowEvaluator:\n"
+            "    def __init__(self, settings):\n        pass\n"
+            "    def evaluate(self, task, output_dir, timeout_seconds):\n"
+            "        marker = DIRECTORY / f'{os.getpid()}.json'\n"
+            "        if not marker.exists():\n"
+            "            started = time.monotonic()\n"
+            "            time.sleep(0.25)\n"
+            "            marker.write_text(json.dumps({'start': started, 'end': time.monotonic()}))\n"
+            "        return Evaluation('passed', {'passed': 1.0})\n", encoding="utf-8")
+        experiment = self.root / "examples/minimal/slow-experiment.toml"
+        experiment.write_text((self.root / "examples/minimal/experiment.toml").read_text()
+                              .replace('evaluator = "text_fixture"', 'evaluator = "slow_fixture"')
+                              .replace('text_fixture = "examples/minimal/evaluator.py:TextFixtureEvaluator"',
+                                       'slow_fixture = "examples/minimal/slow_evaluator.py:SlowEvaluator"'),
+                              encoding="utf-8")
+        items = [{"dataset": "same", "experiment": str(experiment)} for _ in range(2)]
+
+        for jobs, overlap in ((2, True), (1, False)):
+            with self.subTest(jobs=jobs):
+                with SessionProgress(["same", "same"], stream=io.StringIO()) as progress:
+                    entries = run_session(items, self.root / f"session-{jobs}", jobs=jobs, progress=progress)
+                self.assertEqual([entry["status"] for entry in entries], ["completed", "completed"], entries)
+                self.assertEqual(len({entry["report"] for entry in entries}), 2)
+                self.assertTrue(all((self.root / f"session-{jobs}" / entry["report"]).is_file()
+                                    for entry in entries))
+                spans = sorted([json.loads(path.read_text()) for path in timing_dir.glob("*.json")],
+                               key=lambda row: row["start"])
+                self.assertEqual(len(spans), 2)
+                self.assertEqual(spans[1]["start"] < spans[0]["end"], overlap)
+                for marker in timing_dir.glob("*.json"):
+                    marker.unlink()
+
+    def test_session_event_projection_drops_private_feedback_and_artifacts(self):
+        public = _project_event({"event": "trial_completed", "task_id": "known", "phase": "evaluation",
+                                 "feedback": "private-answer", "artifacts": {"secret": "private-answer"},
+                                 "metrics": {"task_wall_time_seconds": 2.0, "answer": "private-answer"}})
+        self.assertEqual(public, {"event": "trial_completed", "task_id": "known", "phase": "evaluation",
+                                  "metrics": {"task_wall_time_seconds": 2.0}})
+
+    def test_session_worker_failure_keeps_other_report_and_input_order(self):
+        valid = self.root / "examples/minimal/experiment.toml"
+        broken = self.root / "examples/minimal/broken.toml"
+        broken.write_text(valid.read_text().replace("schema_version = 1", "schema_version = 999", 1))
+        items = [{"dataset": "broken", "experiment": str(broken)},
+                 {"dataset": "working", "experiment": str(valid)}]
+        session_root = self.root / "session-failure"
+        with SessionProgress(["broken", "working"], stream=io.StringIO()) as progress:
+            entries = run_session(items, session_root, jobs=2, progress=progress)
+        self.assertEqual([(row["dataset"], row["status"]) for row in entries],
+                         [("broken", "error"), ("working", "completed")])
+        self.assertIsNone(entries[0]["report"])
+        self.assertTrue((session_root / entries[1]["report"]).is_file())
+
+    def test_session_interrupt_stops_running_workers_and_marks_pending(self):
+        experiment = self.root / "examples/minimal/experiment.toml"
+        items = [{"dataset": str(i), "experiment": str(experiment)} for i in range(3)]
+        session_root = self.root / "session-interrupted"
+        existing = {process.pid for process in multiprocessing.active_children()}
+        progress = SessionProgress([item["dataset"] for item in items], stream=io.StringIO())
+        with progress, patch.object(progress, "event", side_effect=KeyboardInterrupt):
+            with self.assertRaises(SessionInterrupted) as raised:
+                run_session(items, session_root, jobs=2, progress=progress)
+        self.assertEqual([entry["status"] for entry in raised.exception.entries],
+                         ["interrupted", "interrupted", "interrupted"])
+        self.assertFalse((session_root / "runs/03").exists())
+        self.assertEqual({process.pid for process in multiprocessing.active_children()}, existing)
 
 
 if __name__ == "__main__":
