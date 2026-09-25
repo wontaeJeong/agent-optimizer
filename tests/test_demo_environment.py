@@ -38,7 +38,7 @@ class DemoEnvironmentTests(unittest.TestCase):
 
     def test_corrupt_checkout_probe_is_safe_and_does_not_echo_subprocess_errors(self):
         runner = doctor.Runner(ROOT, "evaluation", {})
-        with patch.object(doctor.subprocess, "run", side_effect=subprocess.CalledProcessError(
+        with patch.object(doctor.readiness.subprocess, "run", side_effect=subprocess.CalledProcessError(
                 128, ["git"], stderr="fixture-secret")):
             runner.probe("source", ["git", "status"], "Inspect source", "Preserve changes and rerun setup")
         self.assertEqual(runner.checks[0]["status"], "error")
