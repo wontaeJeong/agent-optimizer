@@ -19,6 +19,7 @@ from agent_optimizer.registry import Registry
 from agent_optimizer import readiness
 from agent_optimizer.terminal_report import PreparationStatus
 from agent_optimizer.terminal_style import ColorArgumentParser, style
+from agent_optimizer.locale import current_language, human
 
 
 def load(name, path):
@@ -50,18 +51,23 @@ def run_core(command):
     code = subprocess.run([str(python), "-m", *commands[command]], cwd=ROOT,
                           env=environment, shell=False).returncode
     if code:
-        print(style(f"{command} failed (exit {code})", "error") + "; inspect the command output above. "
-              "If dependencies are missing, run sh scripts/bootstrap.sh setup --core.", flush=True)
+        print(style(f"{command} {human('failed')} (exit {code})", "error") + "; " + human(
+            "inspect the command output above. If dependencies are missing, run sh scripts/bootstrap.sh setup --core."), flush=True)
     return code
 
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    parser = ColorArgumentParser(description=__doc__, epilog=(
+    try:
+        current_language()
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    parser = ColorArgumentParser(description=human(__doc__), epilog=human((
         "코어 사전 준비: Git. ACE 전체 준비에는 Docker Engine/Compose도 필요합니다. "
         "Python이나 make가 없다면 sh scripts/bootstrap.sh setup --core를 사용하세요. "
         "make <명령> ARGS='...'에는 일반 셸 인수를 전달합니다."
-    ))
+    )))
     commands = parser.add_subparsers(dest="command")
     descriptions = {
         "setup": "--core/--dataset 없이: ACE 전체 준비; --core: 코어와 합성 fixture; "
@@ -77,22 +83,22 @@ def main(argv=None):
         "help": "도구 조회나 설치 없이 이 도움말 표시",
     }
     for name, description in descriptions.items():
-        command = commands.add_parser(name, help=description, description=description, allow_abbrev=False)
+        command = commands.add_parser(name, help=human(description), description=human(description), allow_abbrev=False)
         if name in {"setup", "doctor"}:
-            command.add_argument("--core", action="store_true", help="코어 도구만 준비·진단; Docker/ACE 제외(--dataset/--platform/--model과 함께 사용 불가)")
-            command.add_argument("--dataset", metavar="ID", help=(
+            command.add_argument("--core", action="store_true", help=human("코어 도구만 준비·진단; Docker/ACE 제외(--dataset/--platform/--model과 함께 사용 불가)"))
+            command.add_argument("--dataset", metavar="ID", help=human(
                 "등록 데이터셋 하나 준비(--core/--platform/--model과 함께 사용 불가)" if name == "setup"
                 else "등록 데이터셋 하나 진단, 읽기 전용(--core/--platform/--model과 함께 사용 불가)"))
         if name in {"setup", "doctor", "smoke", "live"}:
             command.add_argument("--platform",
-                                 help="기본값: Docker daemon의 기본 플랫폼")
+                                 help=human("기본값: Docker daemon의 기본 플랫폼"))
         if name == "setup":
-            command.add_argument("--offline", action="store_true", help="검증된 캐시 자산만 재사용; 다운로드·빌드 없음")
+            command.add_argument("--offline", action="store_true", help=human("검증된 캐시 자산만 재사용; 다운로드·빌드 없음"))
         if name == "doctor":
-            command.add_argument("--json", action="store_true", help="단일 JSON 진단 결과 출력")
-            command.add_argument("--model", action="store_true", help="호스트 API와 컨테이너 OpenCode 도구를 명시적으로 호출")
+            command.add_argument("--json", action="store_true", help=human("단일 JSON 진단 결과 출력"))
+            command.add_argument("--model", action="store_true", help=human("호스트 API와 컨테이너 OpenCode 도구를 명시적으로 호출"))
         if name == "live":
-            command.add_argument("--iterations", type=int, help="최적화 반복 횟수 지정(1..20, 기본값 3)")
+            command.add_argument("--iterations", type=int, help=human("최적화 반복 횟수 지정(1..20, 기본값 3)"))
     args = parser.parse_args(argv)
     if args.command in {None, "help"}:
         parser.print_help()
@@ -180,34 +186,34 @@ def main(argv=None):
         if args.command == "setup":
             if not core_only:
                 stage = "example environment"
-                print(style(f"[setup] {stage}: starting", "warning")
-                      + f"; logs: {ROOT / 'external/setup-logs'}", flush=True)
+                print(style(f"[setup] {human(stage)}: {human('starting')}", "warning")
+                      + f"; {human('logs')}: {ROOT / 'external/setup-logs'}", flush=True)
                 dataset, lock = setup.prepare_environment(offline=args.offline, platform=args.platform)
-                print(style(f"[setup] {stage}: complete", "success"), flush=True)
+                print(style(f"[setup] {human(stage)}: {human('complete')}", "success"), flush=True)
                 stage = "dataset preparation"
-                print(style(f"[setup] {stage}: starting", "warning")
-                      + f"; output: {ROOT / 'datasets/ace-demo'}", flush=True)
+                print(style(f"[setup] {human(stage)}: {human('starting')}", "warning")
+                      + f"; {human('output')}: {ROOT / 'datasets/ace-demo'}", flush=True)
                 prepare = load("ace_prepare", "examples/ace-rtl/prepare.py")
                 manifest = prepare.prepare_dataset(dataset, ROOT / "datasets/ace-demo/all-tasks.json", lock)
                 demo = load("ace_demo", "examples/ace-rtl/environment/demo.py")
                 manifest = demo.select_tasks(manifest)
                 write_json(ROOT / "datasets/ace-demo/tasks.json", manifest)
-                print(style(f"[setup] {stage}: complete", "success"), flush=True)
+                print(style(f"[setup] {human(stage)}: {human('complete')}", "success"), flush=True)
             stage = "final doctor"
-            print(style(f"[setup] {stage}: starting", "warning") + " (read-only)", flush=True)
+            print(style(f"[setup] {human(stage)}: {human('starting')}", "warning") + f" ({human('read-only')})", flush=True)
             doctor = load("dev_doctor", Path(__file__).resolve().with_name("dev_doctor.py"))
             report = doctor.collect_report(ROOT, args.platform, core_only=True) if core_only else doctor.collect_report(ROOT, args.platform)
             doctor.render_report(report)
             if not report["ready"]:
                 raise UnavailableError("Final doctor failed; follow the diagnostic repair instructions")
-            print(style(f"[setup] {stage}: complete", "success"), flush=True)
+            print(style(f"[setup] {human(stage)}: {human('complete')}", "success"), flush=True)
             stage = "minimal demo"
-            print(style(f"[setup] {stage}: starting", "warning")
-                  + f"; results: {ROOT / 'runs'}", flush=True)
+            print(style(f"[setup] {human(stage)}: {human('starting')}", "warning")
+                  + f"; {human('results')}: {ROOT / 'runs'}", flush=True)
             code = run_core("demo")
             if code:
                 raise UnavailableError(f"Minimal demo failed (exit {code}); inspect runs/")
-            print(style(f"[setup] {stage}: complete", "success"), flush=True)
+            print(style(f"[setup] {human(stage)}: {human('complete')}", "success"), flush=True)
             if core_only:
                 print(json.dumps({"status": "ready", "scope": "core", "results": "runs/",
                                   "next": 'make doctor-core; make menu; make demo'}))

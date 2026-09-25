@@ -76,7 +76,7 @@ class TerminalColorsTests(unittest.TestCase):
                 contextlib.redirect_stdout(output):
             self.assertEqual(dev.run_core("lint"), 7)
         self.assertIn("\x1b[31m", output.getvalue())
-        self.assertIn("lint failed (exit 7)", re.sub(r"\x1b\[[0-9;]*m", "", output.getvalue()))
+        self.assertIn("lint 실패 (exit 7)", re.sub(r"\x1b\[[0-9;]*m", "", output.getvalue()))
 
     def test_interactive_menu_highlights_title_and_invalid_choice(self):
         menu = module("color_menu", ROOT / "scripts/menu.py")
@@ -166,9 +166,9 @@ class TerminalColorsTests(unittest.TestCase):
                                          "AGENT_OPT_CA_BUNDLE": ""})
         self.assertEqual(code, 2, output)
         self.assertEqual(plain_code, 2, plain)
-        self.assertIn("\x1b[33m[setup] core prerequisites", output)
-        self.assertIn("\x1b[32m[setup] prerequisites: complete", output)
-        self.assertIn("\x1b[33m[setup] project Python", output)
+        self.assertIn("\x1b[33m[setup] 코어 사전 준비", output)
+        self.assertIn("\x1b[32m[setup] 사전 준비: 완료", output)
+        self.assertIn("\x1b[33m[setup] 프로젝트 Python", output)
         self.assertNotIn("\x1b[", plain)
 
     def test_make_respects_no_color_and_json_output(self):
@@ -189,7 +189,7 @@ class TerminalColorsTests(unittest.TestCase):
             self.assertEqual(main(["doctor", "--dataset", "sample_text",
                                    "--project-root", str(root)]), 0)
         self.assertIn("\x1b[32m", output.getvalue())
-        self.assertIn("readiness: ready", re.sub(r"\x1b\[[0-9;]*m", "", output.getvalue()))
+        self.assertIn("준비 상태: ready", re.sub(r"\x1b\[[0-9;]*m", "", output.getvalue()))
         error = TTYOutput()
         with patch.dict(os.environ, {"NO_COLOR": ""}), contextlib.redirect_stderr(error):
             self.assertEqual(main(["rerank"]), 2)

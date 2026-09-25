@@ -114,8 +114,15 @@ sh scripts/bootstrap.sh setup --core
 CLI·TUI·`make`의 안내/진단은 터미널에서 상태별 색상으로 강조합니다. 출력을 리다이렉트하거나
 `NO_COLOR=1`을 설정하면 색상이 꺼지며, JSON 출력에는 색상 코드를 넣지 않습니다.
 
+개발 명령(`make`)과 사용자 CLI/TUI·리포트는 **한국어가 기본**입니다. 영어 문구가 필요하면
+`AGENT_OPT_LANG=en make help`, `AGENT_OPT_LANG=en .venv/bin/agent-opt tui`처럼 실행하세요.
+실행 언어는 `summary.json`의 `report_language`에 기록되어 `report.md`·`report.html`을 재생성해도
+유지됩니다. 기존 실행을 포함해 한 번만 다른 언어로 다시 만들 때는
+`AGENT_OPT_LANG=en .venv/bin/agent-opt report "runs/<run-id>" --html`을 사용합니다.
+명령·옵션·컴포넌트 ID와 `--json` 필드·상태 값, 외부 도구/Agent 원본 로그는 영어로 유지합니다.
+
 `setup --core` 출력의 `"status": "ready", "scope": "core"`와
-`make doctor-core`의 `Core development environment: ready`를 확인합니다.
+`make doctor-core`의 `코어 개발 환경: 준비됨`을 확인합니다.
 `make demo` 출력의 `"status": "completed", "trials_used": 7`과 `run_dir`을 확인하고
 해당 `run_dir/report.html`을 열면 기본 실행까지 검증할 수 있습니다.
 `setup --core`는 기존 uv 설치 경로를 사용해, uv가 없으면 0.10.7을 로컬에 설치하고

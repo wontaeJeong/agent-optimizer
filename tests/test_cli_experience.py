@@ -58,6 +58,35 @@ class CLIExperienceTests(unittest.TestCase):
                 self.assertIn(phrase, text)
         self.assertFalse((self.root / "runs").exists())
 
+    def test_doctor_human_status_changes_language_but_json_does_not(self):
+        rendered, machine = {}, {}
+        for language in ("ko", "en"):
+            with patch.dict(os.environ, {"AGENT_OPT_LANG": language}):
+                with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(["doctor", "--dataset", "sample_text", "--project-root", str(self.root)]), 0)
+                rendered[language] = output.getvalue()
+                with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(["doctor", "--dataset", "sample_text", "--project-root", str(self.root), "--json"]), 0)
+                machine[language] = json.loads(output.getvalue())
+        self.assertIn("준비 상태:", rendered["ko"])
+        self.assertIn("readiness:", rendered["en"])
+        self.assertEqual(machine["ko"], machine["en"])
+
+    def test_plan_budget_diagnostic_localizes_number_without_changing_json(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        plan.write_text(plan.read_text().replace("max_trials = 40", "max_trials = 1"))
+        with patch.dict(os.environ, {"AGENT_OPT_LANG": "ko"}):
+            human_output = io.StringIO()
+            with contextlib.redirect_stdout(human_output), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(main(["doctor", "--plan", str(plan)]), 2)
+            machine_output = io.StringIO()
+            with contextlib.redirect_stdout(machine_output), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(main(["doctor", "--plan", str(plan), "--json"]), 2)
+        self.assertIn("평가 예산은 최소", human_output.getvalue())
+        budget = next(row for row in json.loads(machine_output.getvalue())["checks"]
+                      if row["id"] == "budget.trials")
+        self.assertIn("Trial budget must reserve at least", budget["message"])
+
     def test_datasets_list_rejects_ignored_positional_filters(self):
         output, error = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
@@ -629,6 +658,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["status"], "completed")
         self.assertTrue((self.root / "runs/configs/wizard-demo/experiment.toml").is_file())
         self.assertIn("fixture-validation", terminal.getvalue())
+        self.assertIn("데이터셋:", terminal.getvalue().split("선택한 데이터셋 준비 중", 1)[0][-500:])
 
     def test_interactive_init_creates_a_config_without_running_agent(self):
         class Terminal(io.StringIO):
@@ -646,6 +676,24 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn("doctor --plan", terminal.getvalue())
         self.assertIn("agent-opt run", terminal.getvalue())
         self.assertFalse(any(path.name == "summary.json" for path in (self.root / "runs").rglob("summary.json")))
+
+    def test_english_interactive_init_explains_next_commands(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        terminal, output = Terminal(), io.StringIO()
+        answers = ["english-guide", str(self.agent), "configs/strategy.json", str(self.data),
+                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1", "1",
+                   "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "y"]
+        with patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}), \
+                patch("sys.stdin.isatty", return_value=True), \
+                patch("builtins.input", side_effect=answers), \
+                contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(output):
+            self.assertEqual(main(["init", "--project-root", str(self.root)]), 0)
+        self.assertTrue(Path(json.loads(output.getvalue())["experiment"]).is_file())
+        self.assertIn("Configuration created:", terminal.getvalue())
+        self.assertIn("Next: agent-opt doctor --plan", terminal.getvalue())
 
     def test_interactive_init_multiple_datasets_prints_session_run_instructions(self):
         class Terminal(io.StringIO):
@@ -784,7 +832,7 @@ class CLIExperienceTests(unittest.TestCase):
                         "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1", "y"])
 
         def answer():
-            if "Harness number" in terminal.getvalue().splitlines()[-1]:
+            if "하네스 번호" in terminal.getvalue().splitlines()[-1]:
                 return str(sorted(Registry().factories["harnesses"]).index("fixture") + 1)
             return next(answers)
 
@@ -799,6 +847,16 @@ class CLIExperienceTests(unittest.TestCase):
         run, summary = run_experiment(spec, Registry(), self.root / "runs")
         self.assertEqual(summary["status"], "completed")
         self.assertTrue((run / "manifest.json").is_file())
+
+    def test_wizard_prompts_follow_language_without_changing_options(self):
+        for language, expected in (("ko", "실험 이름:"), ("en", "Experiment name:")):
+            with self.subTest(language=language):
+                output = io.StringIO()
+                with patch.dict(os.environ, {"AGENT_OPT_LANG": language}), \
+                        patch("builtins.input", side_effect=EOFError), contextlib.redirect_stderr(output):
+                    with self.assertRaises(EOFError):
+                        wizard_arguments(self.root)
+                self.assertIn(expected, output.getvalue())
 
     def test_tui_eof_leaves_sources_and_configuration_untouched(self):
         class Terminal(io.StringIO):

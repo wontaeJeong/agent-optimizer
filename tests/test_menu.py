@@ -33,7 +33,7 @@ class MenuFlows(unittest.TestCase):
         self.env = {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/chat/completion",
                     "AGENT_OPT_MODEL_API_KEY": "inherited-secret"}
 
-    def flow(self, inputs, *, env=None, token="", codes=()):
+    def flow(self, inputs, *, env=None, token="", codes=(), print_prompts=False):
         calls = []
         codes = iter(codes)
 
@@ -45,10 +45,20 @@ class MenuFlows(unittest.TestCase):
 
         output = TerminalOutput()
         before = dict(os.environ)
+        answers = iter(inputs)
+
+        def answer(prompt=""):
+            if print_prompts:
+                print(prompt, end="")
+            response = next(answers)
+            if isinstance(response, BaseException):
+                raise response
+            return response
+
         with patch.object(self.menu, "ROOT", self.root), patch.object(
             self.menu.sys.stdin, "isatty", return_value=True
         ), patch(
-            "builtins.input", side_effect=inputs
+            "builtins.input", side_effect=answer
         ), patch.object(self.menu.getpass, "getpass", return_value=token), patch.object(
             self.menu.subprocess, "run", side_effect=execute
         ), contextlib.redirect_stdout(output):
@@ -62,6 +72,29 @@ class MenuFlows(unittest.TestCase):
             self.assertEqual(code, 0)
             self.assertEqual(calls, [])
             self.assertEqual(list(self.root.iterdir()), [])
+
+    def test_english_menu_titles_with_same_numbered_commands(self):
+        with patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}):
+            code, output, calls = self.flow(["0"])
+        self.assertEqual(code, 0)
+        self.assertIn("1. Set up core development environment", output)
+        self.assertIn("8. General Agent optimization TUI", output)
+        self.assertEqual(calls, [])
+
+    def test_english_model_prompt_is_selected_without_running_doctor(self):
+        with patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}):
+            code, output, calls = self.flow(["4", EOFError()], print_prompts=True)
+        self.assertEqual(code, 0)
+        self.assertIn("URL mode:", output)
+        self.assertNotIn("URL 방식:", output)
+        self.assertEqual(calls, [])
+
+    def test_english_menu_invalid_choice_guidance(self):
+        with patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}):
+            code, output, calls = self.flow(["9", "0"])
+        self.assertEqual(code, 0)
+        self.assertIn("Choose a number from 0 to 8.", output)
+        self.assertEqual(calls, [])
 
     def test_interrupt_exits_130(self):
         code, _, calls = self.flow([KeyboardInterrupt()])

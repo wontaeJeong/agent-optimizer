@@ -2,18 +2,23 @@
 
 import argparse
 
+from agent_optimizer.locale import current_language
+
 
 class KoreanArgumentParser(argparse.ArgumentParser):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._positionals.title = "위치 인수"
-        self._optionals.title = "옵션"
-        for action in self._actions:
-            if action.dest == "help":
-                action.help = "도움말 표시 후 종료"
+        if current_language() == "ko":
+            self._positionals.title = "위치 인수"
+            self._optionals.title = "옵션"
+            for action in self._actions:
+                if action.dest == "help":
+                    action.help = "도움말 표시 후 종료"
 
     def format_help(self):
-        return super().format_help().replace("usage: ", "사용법: ", 1)
+        output = super().format_help()
+        return output.replace("usage: ", "사용법: ", 1) if current_language() == "ko" else output
 
     def format_usage(self):
-        return super().format_usage().replace("usage: ", "사용법: ", 1)
+        output = super().format_usage()
+        return output.replace("usage: ", "사용법: ", 1) if current_language() == "ko" else output
