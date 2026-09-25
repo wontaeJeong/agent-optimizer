@@ -13,6 +13,7 @@ from agent_optimizer.network import CA_VARIABLES, demo_environment, network_envi
 from agent_optimizer.registry import Registry
 from agent_optimizer import readiness
 from agent_optimizer.terminal_style import style
+from agent_optimizer.locale import human, render_diagnostic
 
 SETUP = "Run sh scripts/bootstrap.sh setup (or python3 scripts/dev.py setup)."
 
@@ -158,21 +159,22 @@ def render_report(report: dict, *, json_output: bool = False) -> None:
         return
     title = ("Core development environment: " if report.get("scope") == "core" else
              "Selected dataset environment: " if report.get("scope") == "dataset" else "Development environment: ")
-    print(title + style("ready" if report["ready"] else "not ready",
+    print(human(title) + style(human("ready" if report["ready"] else "not ready"),
                         "success" if report["ready"] else "error"))
     for area, ready in report["areas"].items():
-        print(f"  {area}: " + style("ready" if ready else "not ready", "success" if ready else "error"))
+        print(f"  {area}: " + style(human("ready" if ready else "not ready"), "success" if ready else "error"))
     for check in report["checks"]:
+        message, remedy = render_diagnostic(check)
         tone = {"ok": "success", "error": "error", "blocked": "warning"}.get(
             check["status"], "warning")
-        print(f"[{style(check['status'], tone)}] {check['id']}: {check['message']}")
-        if check["remedy"]:
-            print(f"  {style('Fix:', 'warning')} {check['remedy']}")
+        print(f"[{style(check['status'], tone)}] {check['id']}: {message}")
+        if remedy:
+            print(f"  {style(human('Fix:'), 'warning')} {remedy}")
     if report.get("scope") == "core":
-        print("ACE evaluation and model readiness not checked; use full setup/doctor (menu option 7 prepares ACE).")
+        print(human("ACE evaluation and model readiness not checked; use full setup/doctor (menu option 7 prepares ACE)."))
     elif report.get("scope") == "dataset":
-        print("Selected dataset checks are read-only; no ACE Agent image or model was checked.")
+        print(human("Selected dataset checks are read-only; no ACE Agent image or model was checked."))
     elif "model_status" in report:
-        print("Explicit model probes: " + report["model_status"])
+        print(human("Explicit model probes: ") + report["model_status"])
     else:
-        print("Live checks validate configuration only; no model endpoint or smoke was exercised. Use doctor --model for actual calls.")
+        print(human("Live checks validate configuration only; no model endpoint or smoke was exercised. Use doctor --model for actual calls."))

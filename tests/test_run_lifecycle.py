@@ -461,7 +461,7 @@ class LifecycleTests(unittest.TestCase):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):
             self.assertEqual(main(["rerank", str(run), str(goal)]), 2)
-        self.assertIn("deferred", stderr.getvalue())
+        self.assertIn("보류", stderr.getvalue())
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(main(["report", str(run), "--csv", str(self.output / "trials.csv")]), 0)
         self.assertIn("interrupted", (self.output / "trials.csv").read_text())

@@ -97,6 +97,7 @@ make가 없어도 아래 shell 진입점은 동작합니다. uv가 없을 때 in
 
 ```bash
 make help
+AGENT_OPT_LANG=en make help  # 영어 안내가 필요한 경우
 make setup
 # make/Python이 없으면 대신:
 sh scripts/bootstrap.sh setup
@@ -120,6 +121,10 @@ uv 신규 설치 로그는 `bootstrap-uv.log`입니다. 실패하면 해당 단�
 setup을 재실행합니다. 기존 checkout/venv를 강제로 초기화하지 않습니다.
 
 완료 시 표시한 `runs/<run-id>/report.html`, `report.md`, `summary.json`, `events.jsonl`이 첫 결과입니다.
+터미널과 리포트는 한국어를 기본으로 하며 `AGENT_OPT_LANG=en make setup ARGS="--core"`처럼
+환경 변수를 설정하면 영어로 표시합니다. 보고서는 실행 당시 언어를 기억하고, 재생성 명령에
+`AGENT_OPT_LANG=ko` 또는 `AGENT_OPT_LANG=en`을 명시하면 해당 재생성에만 그 언어를 적용합니다. `--json`의 키·상태 코드는
+언어와 무관하며, Git/Docker/uv·외부 Agent 출력은 원문 그대로 남습니다.
 최소 데모는 두 합성 Agent·7 trial(solo 4/team 3)의 연결 검사입니다. 실제 RTL/모델 성능 개선 근거는 아닙니다.
 환경 기록은 `external/environment-lock.json`, 생성 데이터는 `datasets/ace-demo/`에 있습니다.
 이들 로그·자산은 Git 제외이며 다른 checkout의 writable venv/외부 소스를 공유하지 마세요.

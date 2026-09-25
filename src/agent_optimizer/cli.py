@@ -29,6 +29,7 @@ from agent_optimizer.setup_wizard import (component_inventory, prepare_selection
                                           write_experiment)
 from agent_optimizer.terminal_report import PreparationStatus, ProgressDisplay
 from agent_optimizer.terminal_style import style
+from agent_optimizer.locale import MESSAGES, current_language, human, render_diagnostic, report_language, t
 from agent_optimizer.results import write_json
 from agent_optimizer.readiness import collect_dataset, collect_plan
 
@@ -54,16 +55,23 @@ def doctor():
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    try:
+        language = current_language()
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     if argv and argv[0] == "rerank":
-        print(style("error:", "error", stream=sys.stderr) + " rerank is deferred; configure the objective for a new run. "
-              "Stored reports and frozen selections remain available; see deferred/README.md", file=sys.stderr)
+        print(style("error:", "error", stream=sys.stderr) + " " + human(
+            "rerank is deferred; configure the objective for a new run. Stored reports and frozen selections remain available; see deferred/README.md"), file=sys.stderr)
         return 2
     previous = sys.dont_write_bytecode
     if argv and argv[0] == "doctor":
         sys.dont_write_bytecode = True
     try:
-        return typer.main.get_command(app).main(args=argv, prog_name="agent-opt",
-                                                standalone_mode=False) or 0
+        command = typer.main.get_command(app)
+        if language == "en":
+            localize_click_help(command)
+        return command.main(args=argv, prog_name="agent-opt", standalone_mode=False) or 0
     except ClickException as exc:
         print(f"{style('error:', 'error', stream=sys.stderr)} {exc.format_message()}", file=sys.stderr)
         return exc.exit_code
@@ -82,6 +90,20 @@ app = typer.Typer(help="여러 Agent의 최적화 실험을 위한 작업 도구
                           '데이터셋은 직접 선택하며 모델 없는 합성 예제는 README.md를 참고하세요.'))
 dataset_app = typer.Typer(help="데이터셋 목록 표시 및 명시적으로 선택한 데이터셋 준비", no_args_is_help=True)
 app.add_typer(dataset_app, name="datasets")
+
+
+def localize_click_help(command):
+    """Translate static help on this invocation's Click command tree."""
+    for attribute in ("help", "short_help", "epilog"):
+        value = getattr(command, attribute, None)
+        if value in MESSAGES:
+            setattr(command, attribute, t(value, lang="en"))
+    for parameter in command.params:
+        value = getattr(parameter, "help", None)
+        if value in MESSAGES:
+            parameter.help = t(value, lang="en")
+    for child in getattr(command, "commands", {}).values():
+        localize_click_help(child)
 
 
 def _invoke(command: str, **options) -> int:
@@ -159,13 +181,13 @@ def init_command(project_root: Path | None = None,
         try:
             arguments = wizard_arguments((project_root or Path.cwd()).absolute(), execute=False)
         except EOFError:
-            print("입력이 종료되어 설정을 만들지 않았습니다", file=sys.stderr)
+            print(human("입력이 종료되어 설정을 만들지 않았습니다"), file=sys.stderr)
             return 2
         except KeyboardInterrupt:
-            print("\n설정 만들기가 중단되었습니다", file=sys.stderr)
+            print("\n" + human("설정 만들기가 중단되었습니다"), file=sys.stderr)
             return 130
         except ConfigurationError as exc:
-            print(f"{style('error:', 'error', stream=sys.stderr)} {exc}", file=sys.stderr)
+            print(f"{style('error:', 'error', stream=sys.stderr)} {human(str(exc))}", file=sys.stderr)
             return 2
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
@@ -178,10 +200,10 @@ def init_command(project_root: Path | None = None,
         if "session" in prepared:
             checks = "\n".join(f"       agent-opt doctor --plan {item['experiment']}"
                                for item in prepared["experiments"])
-            print(f"설정 생성: {target}\n다음: 각 데이터셋의 계획 진단\n{checks}\n"
+            print(f"{human('설정 생성')}: {target}\n{human('다음')}: {human('각 데이터셋의 계획 진단')}\n{checks}\n"
                   f"       agent-opt run-session {target}", file=sys.stderr)
         else:
-            print(f"설정 생성: {target}\n다음: agent-opt doctor --plan {target}\n"
+            print(f"{human('설정 생성')}: {target}\n{human('다음')}: agent-opt doctor --plan {target}\n"
                   f"       agent-opt run {target}", file=sys.stderr)
         return 0
     return _invoke("init", project_root=project_root or Path.cwd(), agent=agent,
@@ -392,45 +414,46 @@ def _dispatch(args):
                 rollback.pop_all()
         elif args.command == "tui":
             if not sys.stdin.isatty() or not sys.stderr.isatty():
-                raise ConfigurationError("TUI requires a TTY for both input and output")
+                raise ConfigurationError(t("TUI requires a TTY for both input and output"))
             try:
-                print("\n실험 시작: 1. 기존 실험 실행  2. 새 실험 만들고 실행", file=sys.stderr)
-                print("선택 [1/2]: ", end="", file=sys.stderr, flush=True)
+                print("\n" + human("실험 시작: 1. 기존 실험 실행  2. 새 실험 만들고 실행"), file=sys.stderr)
+                print(human("선택 [1/2]: "), end="", file=sys.stderr, flush=True)
                 choice = input().strip()
                 if choice == "1":
-                    print("기존 experiment.toml 경로: ", end="", file=sys.stderr, flush=True)
+                    print(human("기존 experiment.toml 경로: "), end="", file=sys.stderr, flush=True)
                     selected = input().strip()
                     if not selected:
-                        raise ConfigurationError("실험 설정 경로를 입력하세요")
+                        raise ConfigurationError(human("실험 설정 경로를 입력하세요"))
                     experiment = Path(selected).expanduser()
                     if not experiment.is_absolute():
                         experiment = args.project_root / experiment
                     experiment = experiment.resolve()
                     report = collect_plan(experiment, registry)
-                    print(f"실험 설정: {experiment}", file=sys.stderr)
-                    print(f"계획 진단: {'준비됨' if report['ready'] else '준비 부족'}", file=sys.stderr)
+                    print(f"{human('실험 설정')}: {experiment}", file=sys.stderr)
+                    print(f"{human('계획 진단')}: {human('준비됨' if report['ready'] else '준비 부족')}", file=sys.stderr)
                     if not report["ready"]:
                         for check in report["checks"]:
                             if check["status"] != "ok":
-                                print(f"  {check['id']}: {check['message']} {check['remedy']}", file=sys.stderr)
+                                message, remedy = render_diagnostic(check)
+                                print(f"  {check['id']}: {message} {remedy}", file=sys.stderr)
                         return 2
-                    print("이 실험을 실행할까요? [y/N]: ", end="", file=sys.stderr, flush=True)
+                    print(human("이 실험을 실행할까요? [y/N]: "), end="", file=sys.stderr, flush=True)
                     if input().strip().lower() not in {"y", "yes"}:
-                        print("실험 실행을 취소했습니다", file=sys.stderr)
+                        print(human("실험 실행을 취소했습니다"), file=sys.stderr)
                         return 2
                     init_args = None
                 elif choice == "2":
                     init_args = wizard_arguments(args.project_root.absolute())
                 else:
-                    raise ConfigurationError("1 또는 2를 선택하세요")
+                    raise ConfigurationError(human("1 또는 2를 선택하세요"))
             except EOFError:
-                print(style("TUI cancelled:", "warning", stream=sys.stderr) + " input ended", file=sys.stderr)
+                print(style(human("TUI cancelled:"), "warning", stream=sys.stderr) + " " + human("input ended"), file=sys.stderr)
                 return 2
             except KeyboardInterrupt:
-                print("\n" + style("TUI interrupted", "warning", stream=sys.stderr), file=sys.stderr)
+                print("\n" + style(human("TUI interrupted"), "warning", stream=sys.stderr), file=sys.stderr)
                 return 130
             if init_args is not None:
-                print("\n  " + style("Preparing the selected dataset…", "warning", stream=sys.stderr),
+                print("\n  " + style(human("Preparing the selected dataset…"), "warning", stream=sys.stderr),
                       file=sys.stderr, flush=True)
                 output = io.StringIO()
                 with contextlib.redirect_stdout(output):
@@ -483,9 +506,10 @@ def _dispatch(args):
                         entries.append({"dataset": item["dataset"], "status": "error",
                                         "error": str(exc), "report": report})
             from agent_optimizer.html_report import write_session_index
-            index = write_session_index(session_root, entries)
+            index = write_session_index(session_root, entries, language=current_language())
             status = "completed" if all(e["status"] == "completed" for e in entries) else "partial"
-            write_json(session_root / "summary.json", {"status": status, "experiments": entries})
+            write_json(session_root / "summary.json", {"status": status, "experiments": entries,
+                                                      "report_language": current_language()})
             show({"session_dir": session_root, "status": status, "index_html": index,
                   "reports": [session_root / e["report"] for e in entries if e["report"]]})
             return 0 if status == "completed" else 3
@@ -504,14 +528,15 @@ def _dispatch(args):
                     show(report)
                 else:
                     status = "ready" if report["ready"] else "not ready"
-                    print(f"{report['scope']} readiness: "
+                    print(f"{report['scope']} {human('readiness')}: "
                           + style(status, "success" if report["ready"] else "error"))
                     for row in report["checks"]:
+                        message, remedy = render_diagnostic(row)
                         tone = {"ok": "success", "error": "error", "blocked": "warning"}.get(
                             row["status"], "warning")
-                        print(f"[{style(row['status'], tone)}] {row['id']}: {row['message']}")
-                        if row["remedy"]:
-                            print(f"  {style('Remedy:', 'warning')} {row['remedy']}")
+                        print(f"[{style(row['status'], tone)}] {row['id']}: {message}")
+                        if remedy:
+                            print(f"  {style(t('remedy') + ':', 'warning')} {remedy}")
                 return 0 if report["ready"] else 2
             show(doctor())
         elif args.command == "agents":
@@ -543,7 +568,9 @@ def _dispatch(args):
             if args.html:
                 from agent_optimizer.results import write_report_artifacts
                 with PreparationStatus("html", action="report", subject="check"):
-                    target = write_report_artifacts(args.run_dir, data)
+                    language = report_language(data, args.run_dir,
+                                               override=os.environ.get("AGENT_OPT_LANG") or None)
+                    target = write_report_artifacts(args.run_dir, data, language=language)
                 show({"html": target, "status": data["status"]})
                 return 0
             if args.csv:
@@ -560,6 +587,6 @@ def _dispatch(args):
                             writer.writerow({**{k: r[k] for k in fixed}, **r["metrics"]})
             show(data)
     except (ConfigurationError, UnavailableError, KeyError, TypeError, ValueError, OSError) as exc:
-        print(f"{style('error:', 'error', stream=sys.stderr)} {exc}", file=sys.stderr)
+        print(f"{style('error:', 'error', stream=sys.stderr)} {human(str(exc))}", file=sys.stderr)
         return 2
     return 0

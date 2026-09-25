@@ -14,6 +14,7 @@ from agent_optimizer.network import host_environment, configured_build, ca_bundl
 from agent_optimizer.models import ModelSettings
 from agent_optimizer.readiness import check
 from agent_optimizer.terminal_report import PreparationStatus
+from agent_optimizer.locale import human
 ROOT = Path(__file__).resolve().parents[3]
 REPOS = {
     "ACE-RTL": ("https://github.com/NVlabs/ACE-RTL.git", "fead921f18bb57345b5a41ef93ba625be208e99c"),
@@ -106,7 +107,7 @@ def run(args, cwd=ROOT, log=None):
 
 def _run(args, cwd, log, environment):
     label = log.name if log else " ".join(args[:2])
-    print(f"[setup] {label}: starting; log: {log or 'terminal'}", flush=True)
+    print(f"[setup] {label}: {human('starting')}; {human('log')}: {log or human('terminal')}", flush=True)
     with PreparationStatus(log.name if log else args[0], action="setup", subject="check"):
         try:
             if log is None:
@@ -122,7 +123,7 @@ def _run(args, cwd, log, environment):
         except (OSError, subprocess.CalledProcessError) as exc:
             raise UnavailableError(f"Setup {label} unavailable/failed: {args[0]} ({type(exc).__name__}); "
                                    f"see {log or 'terminal output'}; repair and rerun setup") from exc
-    print(f"[setup] {label}: complete", flush=True)
+    print(f"[setup] {label}: {human('complete')}", flush=True)
 
 
 def prepare_sources(external, *, offline=False, names=None):
@@ -451,16 +452,16 @@ def prepare_environment(*, offline=False, platform=None):
     logs.mkdir(parents=True, exist_ok=True)
     uv = ["uv", *(["--offline"] if offline else [])]
     # The shell bootstrap owns core sync and preserves the project's Python version.
-    print(f"[setup] pinned sources: starting; checkout: {external}", flush=True)
+    print(f"[setup] {human('pinned sources')}: {human('starting')}; {human('checkout')}: {external}", flush=True)
     prepare_sources(external, offline=offline)
-    print("[setup] pinned sources: complete", flush=True)
+    print(f"[setup] {human('pinned sources')}: {human('complete')}", flush=True)
     requirements = driver_requirements(external)
     if offline:
         validate_driver_lock(external, previous)
-    print(f"[setup] verified dataset: starting; cache: {external / 'cvdp-data'}", flush=True)
+    print(f"[setup] {human('verified dataset')}: {human('starting')}; {human('cache')}: {external / 'cvdp-data'}", flush=True)
     with PreparationStatus("verified-data", action="setup", subject="check"):
         dataset, data_lock = prepare_data(external, offline=offline)
-    print("[setup] verified dataset: complete", flush=True)
+    print(f"[setup] {human('verified dataset')}: {human('complete')}", flush=True)
     if not venv.exists():
         run([*uv, "venv", "--python", "3.12", str(venv)], log=logs / "driver-venv.log")
         validate_driver_python(venv / "bin/python")
@@ -478,8 +479,8 @@ def prepare_environment(*, offline=False, platform=None):
     }
     image_locks = {}
     for name, image in images.items():
-        print(f"[setup] {name} image: {'verify cached' if offline else 'build'}; "
-              f"log: {logs / (name + '-build.log')}", flush=True)
+        print(f"[setup] {human(name + ' image')}: {human('verify cached' if offline else 'build')}; "
+              f"{human('log')}: {logs / (name + '-build.log')}", flush=True)
         if not offline:
             run(builds[name], cvdp if name == "evaluation" else ROOT / "examples/rtl-debugger", logs / f"{name}-build.log")
         try:
@@ -491,14 +492,14 @@ def prepare_environment(*, offline=False, platform=None):
         image_locks[name] = {"tag": image, "id": info["Id"]}
         if offline and previous.get("images", {}).get(name) != image_locks[name]:
             raise ConfigurationError(f"Offline image identity differs: {image}")
-        print(f"[setup] {name} image: complete", flush=True)
-    print(f"[setup] example tool checks: starting; log: {logs / 'doctor.json'}", flush=True)
+        print(f"[setup] {human(name + ' image')}: {human('complete')}", flush=True)
+    print(f"[setup] {human('example tool checks')}: {human('starting')}; {human('log')}: {logs / 'doctor.json'}", flush=True)
     with PreparationStatus("example-tools", action="setup", subject="check"):
         capability = doctor(external, platform, images["evaluation"], images["agent"])
         write_json(logs / "doctor.json", capability)
         if not capability["ready"]:
             raise UnavailableError(f"Environment doctor failed; see {logs / 'doctor.json'}")
-    print("[setup] example tool checks: complete", flush=True)
+    print(f"[setup] {human('example tool checks')}: {human('complete')}", flush=True)
     freeze = driver_packages(external)
     lock = {"repos": REPOS, "dataset": data_lock, "platform": platform, "ca_bundle_sha256": fingerprint,
             "images": image_locks, "opencode_version": OPENCODE_VERSION, "driver_packages": freeze,
