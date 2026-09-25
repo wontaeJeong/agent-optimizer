@@ -6,6 +6,7 @@ import fnmatch
 import os
 import re
 import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -16,6 +17,49 @@ from agent_optimizer.registry import (PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, 
                                       is_source_checkout, plugin_files)
 from agent_optimizer.sources import selected
 from agent_optimizer.workspace import safe_path
+
+
+class Runner:
+    """Read-only checks with explicit prerequisites and bounded, captured probes."""
+
+    def __init__(self, root, area, environment=None):
+        self.root = root
+        self.area = area
+        self.checks = []
+        self.environment = dict(os.environ if environment is None else environment)
+
+    def add(self, name, ok, message, remedy, *, requires=()):
+        failed = [dependency for dependency in requires if not self.ok(dependency)]
+        status = "blocked" if failed else "ok" if ok else "error"
+        self.checks.append({
+            "id": name, "area": self.area, "status": status,
+            "message": ("Requires: " + ", ".join(failed)) if failed else message,
+            "remedy": ("Resolve " + ", ".join(failed) + " first. " + remedy)
+            if failed else "" if ok else remedy,
+        })
+        return status == "ok"
+
+    def ok(self, name):
+        return any(c["id"] == name and c["status"] == "ok" for c in self.checks)
+
+    def run(self, argv, *, cwd=None, timeout=15):
+        environment = {k: v for k, v in self.environment.items()
+                       if k not in {"PYTHONPATH", "PYTHONHOME"}}
+        environment.update(PYTHONDONTWRITEBYTECODE="1", GIT_OPTIONAL_LOCKS="0")
+        try:
+            result = subprocess.run(
+                argv, cwd=cwd or self.root, env=environment, capture_output=True,
+                text=True, timeout=timeout, shell=False,
+            )
+            return result.stdout.strip() if result.returncode == 0 else None
+        except (OSError, subprocess.SubprocessError, UnicodeError):
+            return None
+
+    def probe(self, name, argv, message, remedy, *, requires=(), expected=None, timeout=15):
+        output = self.run(argv, timeout=timeout) if all(self.ok(d) for d in requires) else None
+        self.add(name, output is not None and (expected is None or output == expected),
+                 message, remedy, requires=requires)
+        return output
 
 
 def check(identifier: str, area: str, ok: bool, message: str, remedy: str) -> dict:

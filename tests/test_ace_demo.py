@@ -76,3 +76,17 @@ class AceDemoTests(unittest.TestCase):
             self.assertEqual(target, root.resolve() / "datasets/ace-demo/tasks.json")
             self.assertEqual([row["split"] for row in json.loads(target.read_text())["tasks"]],
                              ["train", "validation"])
+
+    def test_ace_diagnostics_without_developer_scripts(self):
+        with tempfile.TemporaryDirectory(prefix="ace-doctor-") as directory:
+            root = Path(directory)
+            environment = root / "examples/ace-rtl/environment"
+            environment.mkdir(parents=True)
+            for name in ("diagnostics.py", "setup.py"):
+                shutil.copyfile(ROOT / "examples/ace-rtl/environment" / name, environment / name)
+            diagnostics = module("isolated_ace_doctor", environment / "diagnostics.py")
+            rows = diagnostics.collect_checks(root, environment={"PATH": ""})
+            checks = {row["id"]: row["status"] for row in rows}
+            self.assertEqual(checks["environment.lock"], "error")
+            self.assertEqual(checks["source.ACE-RTL"], "error")
+            self.assertFalse((root / "external").exists())
