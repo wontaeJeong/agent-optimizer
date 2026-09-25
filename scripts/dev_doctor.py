@@ -2,7 +2,6 @@
 import json
 import os
 import shutil
-import subprocess
 import sys
 from functools import lru_cache
 from pathlib import Path
@@ -12,6 +11,7 @@ from agent_optimizer.contracts import ConfigurationError
 from agent_optimizer.network import CA_VARIABLES, demo_environment, network_environment
 from agent_optimizer.registry import Registry
 from agent_optimizer import readiness
+from agent_optimizer.readiness import Runner
 from agent_optimizer.terminal_style import style
 from agent_optimizer.locale import human, render_diagnostic
 
@@ -25,49 +25,6 @@ def load_module(name, path):
     module.__file__ = str(path)
     exec(compile(path.read_bytes(), str(path), "exec"), module.__dict__)
     return module
-
-
-class Runner:
-    """Small collector with explicit prerequisites and bounded, captured probes."""
-
-    def __init__(self, root, area, environment=None):
-        self.root = root
-        self.area = area
-        self.checks = []
-        self.environment = dict(os.environ if environment is None else environment)
-
-    def add(self, name, ok, message, remedy, *, requires=()):
-        failed = [dependency for dependency in requires if not self.ok(dependency)]
-        status = "blocked" if failed else "ok" if ok else "error"
-        self.checks.append({
-            "id": name, "area": self.area, "status": status,
-            "message": ("Requires: " + ", ".join(failed)) if failed else message,
-            "remedy": ("Resolve " + ", ".join(failed) + " first. " + remedy)
-            if failed else "" if ok else remedy,
-        })
-        return status == "ok"
-
-    def ok(self, name):
-        return any(c["id"] == name and c["status"] == "ok" for c in self.checks)
-
-    def run(self, argv, *, cwd=None, timeout=15):
-        environment = {k: v for k, v in self.environment.items()
-                       if k not in {"PYTHONPATH", "PYTHONHOME"}}
-        environment.update(PYTHONDONTWRITEBYTECODE="1", GIT_OPTIONAL_LOCKS="0")
-        try:
-            result = subprocess.run(
-                argv, cwd=cwd or self.root, env=environment, capture_output=True,
-                text=True, timeout=timeout, shell=False,
-            )
-            return result.stdout.strip() if result.returncode == 0 else None
-        except (OSError, subprocess.SubprocessError, UnicodeError):
-            return None
-
-    def probe(self, name, argv, message, remedy, *, requires=(), expected=None, timeout=15):
-        output = self.run(argv, timeout=timeout) if all(self.ok(d) for d in requires) else None
-        self.add(name, output is not None and (expected is None or output == expected),
-                 message, remedy, requires=requires)
-        return output
 
 
 def core_checks(root, environment=None):

@@ -11,15 +11,14 @@ import json
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.models import ModelSettings
 from agent_optimizer.network import ca_fingerprint
+from agent_optimizer.readiness import Runner
 
-# This adapter also works when loaded by file path, from any working directory.
-_helper_path = Path(__file__).resolve().parents[3] / "scripts/dev_doctor.py"
-_helper = ModuleType("diagnostic_runner")
-_helper.__file__ = str(_helper_path)
-exec(compile(_helper_path.read_bytes(), str(_helper_path), "exec"), _helper.__dict__)
-setup = _helper.load_module("ace_diagnostic_inputs", Path(__file__).with_name("setup.py"))
-Runner = _helper.Runner
-SETUP = _helper.SETUP
+# This adapter also works when loaded by file path, without developer scripts.
+_setup_path = Path(__file__).with_name("setup.py")
+setup = ModuleType("ace_diagnostic_inputs")
+setup.__file__ = str(_setup_path)
+exec(compile(_setup_path.read_bytes(), str(_setup_path), "exec"), setup.__dict__)
+SETUP = "Run sh scripts/bootstrap.sh setup (or python3 scripts/dev.py setup)."
 PLATFORMS = {"linux/amd64", "linux/arm64"}
 DOCKER_REMEDY = ("Mac: install/start Docker Desktop or Colima with Compose. "
                  "Ubuntu: install Docker Engine and docker-compose-plugin; start the daemon "
