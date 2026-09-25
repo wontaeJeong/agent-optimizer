@@ -976,6 +976,22 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn(f"agent-opt run-session {result['session']}", terminal.getvalue())
         self.assertNotIn(f"doctor --plan {result['session']}", terminal.getvalue())
 
+    def test_tui_multi_dataset_run_shows_independent_rows_and_one_json(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        terminal, output = Terminal(), io.StringIO()
+        answers = ["2", "multi-wizard", str(self.agent), "configs/strategy.json",
+                   f"{self.data},{self.data}", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                   "", "", "1", "1", "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "y"]
+        with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", side_effect=answers), \
+                contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(output):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "completed")
+        self.assertIn("[1/2]", terminal.getvalue())
+        self.assertIn("[2/2]", terminal.getvalue())
+
     def test_tui_existing_ace_profile_does_not_ask_for_command_or_prepare_dataset(self):
         class Terminal(io.StringIO):
             def isatty(self):
@@ -1576,6 +1592,36 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn("second", index)
         self.assertIn("서로 다른 채점기의 점수를 직접 비교하거나 순위를 매기지 않습니다.", index)
         self.assertTrue(all(Path(path).is_file() for path in report["reports"]))
+
+    def test_run_session_cli_limits_workers_and_preserves_json_and_reports(self):
+        experiment = self.root / "examples/minimal/experiment.toml"
+        session = self.root / "session.json"
+        session.write_text(json.dumps({"schema_version": 1, "experiments": [
+            {"dataset": "same", "experiment": str(experiment)},
+            {"dataset": "same", "experiment": str(experiment)}]}))
+        output_dir = self.root / "custom-sessions"
+        output, progress = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(progress):
+            self.assertEqual(main(["run-session", str(session), "--jobs", "2",
+                                   "--output", str(output_dir)]), 0)
+        summary = json.loads(output.getvalue())
+        self.assertEqual(summary["status"], "completed")
+        self.assertEqual(len(summary["reports"]), 2)
+        self.assertIn("[1/2] same", progress.getvalue())
+        self.assertIn("[2/2] same", progress.getvalue())
+        self.assertTrue(all(Path(report).is_file() for report in summary["reports"]))
+        stored = json.loads((Path(summary["session_dir"]) / "summary.json").read_text())
+        self.assertGreater(stored["session_wall_time_seconds"], 0)
+
+    def test_run_session_rejects_zero_jobs_without_creating_output(self):
+        session = self.root / "session.json"
+        session.write_text(json.dumps({"schema_version": 1, "experiments": [
+            {"dataset": str(index), "experiment": "unused.toml"} for index in range(2)]}))
+        output = self.root / "should-not-exist"
+        with contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["run-session", str(session), "--jobs", "0",
+                                   "--output", str(output)]), 2)
+        self.assertFalse(output.exists())
 
     def test_dataset_preparation_progress_never_corrupts_json_stdout(self):
         team = self.root / "experiments" / "loader"

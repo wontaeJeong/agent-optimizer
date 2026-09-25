@@ -136,10 +136,24 @@ class SessionProgress:
 
     def __init__(self, datasets: list[str], stream=None):
         self.datasets = datasets
+        self.states = ["queued"] * len(datasets)
         self.stream = sys.stderr if stream is None else stream
         self.tty = self.stream.isatty()
         self.progress = None
         self.task_ids = []
+        self.summary_id = None
+
+    def _summary(self) -> str:
+        counts = {status: self.states.count(status) for status in
+                  ("completed", "running", "queued", "error", "interrupted")}
+        return (f"{human('세션 전체')} · {human('세션 집계 완료')}={counts['completed']} "
+                f"{human('세션 집계 실행')}={counts['running']} "
+                f"{human('세션 집계 대기')}={counts['queued']} "
+                f"{human('세션 집계 실패')}={counts['error'] + counts['interrupted']}")
+
+    def _update_summary(self):
+        if self.progress is not None:
+            self.progress.update(self.summary_id, description=self._summary(), tone="cyan")
 
     def _label(self, index: int, status: str, detail: str = "") -> str:
         name = self.datasets[index]
@@ -149,6 +163,7 @@ class SessionProgress:
     def __enter__(self):
         if self.tty:
             self.progress = _terminal_progress(self.stream)
+            self.summary_id = self.progress.add_task(self._summary(), total=None, tone="cyan")
             self.task_ids = [self.progress.add_task(self._label(index, "세션 대기"),
                                                     start=False, total=None, tone="yellow")
                              for index in range(len(self.datasets))]
@@ -165,12 +180,14 @@ class SessionProgress:
         self.stream.flush()
 
     def start(self, index: int) -> None:
+        self.states[index] = "running"
         label = self._label(index, "세션 실행 중")
         if self.progress is not None:
             self.progress.start_task(self.task_ids[index])
             self.progress.update(self.task_ids[index], description=label, tone="yellow")
+            self._update_summary()
         else:
-            self._write(label)
+            self._write(label + " · " + self._summary())
 
     def event(self, index: int, record: dict) -> None:
         if record.get("event") not in {"trial_started", "agent_started", "evaluation_started",
@@ -192,6 +209,7 @@ class SessionProgress:
             self._write(label)
 
     def finish(self, index: int, status: str, elapsed: float) -> None:
+        self.states[index] = status if status == "completed" or status == "interrupted" else "error"
         key = ("세션 완료" if status == "completed" else
                "세션 중단" if status == "interrupted" else "세션 실패")
         label = self._label(index, key, f"{elapsed:.1f}s")
@@ -199,8 +217,9 @@ class SessionProgress:
             self.progress.update(self.task_ids[index], description=label,
                                  tone="green" if status == "completed" else "red")
             self.progress.stop_task(self.task_ids[index])
+            self._update_summary()
         else:
-            self._write(label)
+            self._write(label + " · " + self._summary())
 
 
 class PreparationStatus:
