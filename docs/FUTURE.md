@@ -18,7 +18,8 @@ stored-result rerank, 설치 entry-point 자동 발견은 보류했다.
 
 - **전체 화면 실행 이력 탐색:** 현재 `agent-opt tui`는 설정 wizard와 실시간 단계/시간 화면이며
   복수 과거 실행을 탐색하는 화면은 제공하지 않는다.
-- **병렬 scheduler / resume:** 현재 순차 실행. checkpoint/결과 보존은 재시작이나 동시 실행 보장이 아니다.
+- **단일 실험 내부 병렬 scheduler / resume:** 데이터셋별 session은 제한된 수의 독립 프로세스로 실행한다.
+  같은 실험의 Agent×Harness·stage·과제/반복은 순차 실행하며 checkpoint/결과 보존은 재시작 보장이 아니다.
 - **native ACE:** 현재 OpenCode 스킬 프로필과 별도다. 원본 runner/wrapper·의존성·모델/내부 반복 예산,
   private 평가와 피드백 책임, timeout/정리/사용량 및 실제 역할 호출 증거가 필요하다.
 - **새 전용 Harness / 연구 알고리즘:** 정확한 대상·고정 버전·공통 계약·실환경 증거를 확보한 팀이 구현한다.

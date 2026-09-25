@@ -98,6 +98,9 @@ class ProgressTests(unittest.TestCase):
         self.assertIn("[2/2] second", rendered)
         self.assertIn("t2", rendered)
         self.assertIn("완료", rendered)
+        self.assertIn("완료=1", rendered)
+        self.assertIn("실행=1", rendered)
+        self.assertIn("대기=0", rendered)
         self.assertRegex(rendered, r"\x1b\[[0-9;]+m")
 
     def test_session_redirected_progress_identifies_duplicate_names_without_stdout(self):

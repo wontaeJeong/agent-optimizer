@@ -29,6 +29,8 @@ from agent_optimizer.setup_wizard import (component_inventory, prepare_selection
                                           supports_generated_profile, wizard_arguments,
                                           write_experiment)
 from agent_optimizer.terminal_report import PreparationStatus, ProgressDisplay
+from agent_optimizer.terminal_report import SessionProgress
+from agent_optimizer.session import SessionInterrupted, run_session
 from agent_optimizer.terminal_style import style
 from agent_optimizer.locale import MESSAGES, current_language, human, render_diagnostic, report_language, t
 from agent_optimizer.results import write_json
@@ -241,9 +243,10 @@ def tui_command(project_root: Path | None = None) -> int:
 
 
 @app.command("run-session")
-def run_session_command(session: Path, output: Path | None = None) -> int:
-    """선택한 데이터셋마다 독립 평가기로 실행."""
-    return _invoke("run-session", session=session, output=output)
+def run_session_command(session: Path, output: Path | None = None,
+                        jobs: int = typer.Option(2, "--jobs", min=1)) -> int:
+    """선택한 데이터셋마다 독립 평가기로 병렬 실행(기본 2개)."""
+    return _invoke("run-session", session=session, output=output, jobs=jobs)
 
 
 @app.command("agents")
@@ -549,37 +552,28 @@ def _dispatch(args):
             base = args.output or args.session.parent.parents[1] / "sessions"
             import time
             import uuid
+            session_started = time.monotonic()
             session_root = base / (time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
                                    + "-" + uuid.uuid4().hex[:8])
             session_root.mkdir(parents=True, exist_ok=False)
-            entries = []
-            with ProgressDisplay() as progress:
-                for item in data["experiments"]:
-                    previous = set((session_root / "runs").iterdir()) if (session_root / "runs").exists() else set()
-                    try:
-                        spec = load_experiment(Path(item["experiment"]))
-                        progress.configure_budget(spec.get("budget", {}).get("max_trials", 100))
-                        run, result = run_experiment(spec, Registry(), session_root / "runs",
-                                                     on_event=progress)
-                        entries.append({"dataset": item["dataset"], "status": result["status"],
-                                        "report": "runs/" + run.name + "/report.html",
-                                        "trials_used": result["trials_used"]})
-                    except (ConfigurationError, UnavailableError, OSError, ValueError) as exc:
-                        current = set((session_root / "runs").iterdir()) if (session_root / "runs").exists() else set()
-                        new_runs = current - previous
-                        candidate = next(iter(new_runs)) if len(new_runs) == 1 else None
-                        report = ("runs/" + candidate.name + "/report.html" if candidate is not None
-                                  and (candidate / "report.html").is_file() else None)
-                        entries.append({"dataset": item["dataset"], "status": "error",
-                                        "error": str(exc), "report": report})
+            interrupted = False
+            with SessionProgress([item["dataset"] for item in data["experiments"]]) as progress:
+                try:
+                    entries = run_session(data["experiments"], session_root, jobs=args.jobs,
+                                          progress=progress)
+                except SessionInterrupted as exc:
+                    entries = exc.entries
+                    interrupted = True
             from agent_optimizer.html_report import write_session_index
             index = write_session_index(session_root, entries, language=current_language())
-            status = "completed" if all(e["status"] == "completed" for e in entries) else "partial"
+            status = ("interrupted" if interrupted else "completed" if all(
+                e["status"] == "completed" for e in entries) else "partial")
             write_json(session_root / "summary.json", {"status": status, "experiments": entries,
-                                                      "report_language": current_language()})
+                                                       "session_wall_time_seconds": time.monotonic() - session_started,
+                                                       "report_language": current_language()})
             show({"session_dir": session_root, "status": status, "index_html": index,
-                  "reports": [session_root / e["report"] for e in entries if e["report"]]})
-            return 0 if status == "completed" else 3
+                   "reports": [session_root / e["report"] for e in entries if e["report"]]})
+            return 130 if interrupted else 0 if status == "completed" else 3
         elif args.command == "doctor":
             if args.model and not args.plan:
                 raise ConfigurationError("--model requires --plan")

@@ -124,7 +124,11 @@ OpenCode·ACE처럼 실행을 하네스가 정의한 경우 명령을 지정하�
 `--trial-timeout-seconds`로 범위를 조절할 수 있습니다.
 여러 `--dataset`이면 각 데이터셋의 독립 실험을 만들어
 `agent-opt run-session "runs/configs/<name>/session.json"`으로 실행합니다.
-데이터셋별 시간·과제·iteration 진행 상황과 완료 후 `runs/<run-id>/report.html`을 볼 수 있고,
+데이터셋별 독립 프로세스가 기본 최대 2개까지 동시에 실행되고, `run-session --jobs 1`은 순차 실행,
+`--jobs N`은 동시 실행 상한을 조절합니다. TUI의 복수 데이터셋 실행도 기본 2개를 사용합니다.
+TTY에서는 데이터셋마다 대기·실행·완료 상태와 현재 과제·경과 시간을 한 화면에 표시하고,
+리다이렉트 시에는 데이터셋 번호가 붙은 진행 기록을 stderr에 남깁니다. 완료 후 각 데이터셋의
+독립 `report.html`이 세션 index에 연결되며,
 서로 다른 채점기의 점수를 직접 한 순위로 합치지 않습니다. 팀의 새 데이터셋/하네스/Optimizer는
 `experiments/<team>/`에서 구현하고 `src/agent_optimizer/registry.py`에 ID→구현 파일을 등록합니다.
 CLI 선택지·설치 entry point 변경은 필요 없습니다.

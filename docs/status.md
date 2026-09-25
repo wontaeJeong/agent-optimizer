@@ -6,7 +6,8 @@
 번호 메뉴는 제공하며 1/2는 core, 7은 선택적 ACE 전체 준비, 8은 일반 Agent TUI다.
 옵션 없는 setup/doctor의 전체 ACE 경로와 `--dataset ID`의 선택 데이터셋 경로는 별개다.
 `agent-opt tui`는 기존 실험, 새 실험, ACE-RTL + CVDP 예제의 별도 선택·준비·실행을 지원하고,
-`agent-opt init`은 TTY에서 새 설정만 만들 수 있다. 병렬 scheduler·resume·native ACE는 [보류](FUTURE.md)다.
+`agent-opt init`은 TTY에서 새 설정만 만들 수 있다. 복수 데이터셋 session은 독립 프로세스로
+기본 2개를 병렬 실행하며 `--jobs`로 동시 실행 수를 제한한다. 단일 실험 내부 병렬화·resume·native ACE는 [보류](FUTURE.md)다.
 고정 `examples/ace-rtl/experiment.toml`을 TUI/`agent-opt run`에서 선택하면 예제 어댑터가
 기존 `live` 준비·실행에 위임한다. 이는 OpenCode 스킬 프로필 + 공식 CVDP 평가이며 native ACE는 아니다.
 wheel 단독 설치에서 로컬 Agent·사용자 데이터셋/명시적 evaluator 실험과
@@ -29,7 +30,7 @@ wheel 단독 설치에서 로컬 Agent·사용자 데이터셋/명시적 evaluat
 | 단순 LLM 피드백 | 파일 플러그인, 기본 3회 train 수정/재평가. 로컬 fixture 회귀와 실제 배포 모델 실행은 별개 |
 | command/OpenCode/Docker | argv·timeout·오류/이벤트 계약. 실환경 통합 근거는 아래 날짜별 기록을 따름 |
 | core 준비/진단 | Docker/ACE/모델 없이 준비·진단·fixture. 첫 의존성 준비에는 다운로드가 필요할 수 있음 |
-| 사용자 CLI/TUI | 데이터셋 명시적 선택·자동 준비, argv/editable 검증, 중앙 Python 등록 팀 목록, 읽기 전용 `doctor --dataset/--plan`, 과제·iteration 실시간 경과 |
+| 사용자 CLI/TUI | 데이터셋 명시적 선택·자동 준비, argv/editable 검증, 중앙 Python 등록 팀 목록, 읽기 전용 `doctor --dataset/--plan`, 과제·iteration 실시간 경과, 복수 데이터셋 병렬 session 상태 행 |
 | Dataset | CVDP reviewed no-commercial importer/공식 평가기, 고정 Verilog-Eval v2 + 별도 Icarus v12 private 평가기, 사용자 tasks.json + 지정 evaluator |
 | GEPA/Meta-Harness/Ecdysis | 원본을 복제하지 않은 자체 메서드 구현: train 반성·Pareto/merge, scaffold 탐색, 반복 실패/협업 검토/strict train 개선. 실제 배포 모델 검증과 분리 |
 | 결과 UX | 항상 `report.html`/summary/events/Markdown, dataset session별 독립 보고서 연결. `report.json` v2는 기록된 validation 집계·trial·과제 비교를 시각화용으로 정규화하며, HTML은 그룹별 개선 추이·기준 대비 선택·탐색 계보·과제·시간/실패를 독립 SVG/CSS로 표시. 없는 비용/집계는 추정하지 않음 |
