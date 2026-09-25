@@ -109,7 +109,9 @@ OpenCode·ACE처럼 실행을 하네스가 정의한 경우 명령을 지정하�
 `--optimizer gepa --optimizer meta_harness --optimizer ecdysis`처럼 반복해 독립 stage를 지정할 수 있습니다.
 코드 하네스 방식은 실제 실행되는 `.py` 파일이 필요하고, 여러 파일이 일치하면
 `--scaffold-file`(GEPA는 `--target-file`)을 지정합니다. 모델 제안에는 `AGENT_OPT_MODEL_BASE_URL`
-**또는** `AGENT_OPT_MODEL_ENDPOINT`, `AGENT_OPT_MODEL_ID`, `AGENT_OPT_MODEL_API_KEY`를 환경에 설정합니다.
+**또는** `AGENT_OPT_MODEL_ENDPOINT` 중 하나와 `AGENT_OPT_MODEL_API_KEY`를 환경에 설정합니다.
+`AGENT_OPT_MODEL_ID`는 선택 사항이며 생략하면 `glm5.3-flash`를 사용합니다. OpenCode 하네스의
+`AGENT_OPT_MODEL` 선택자는 이 모델 API 설정과 별도입니다.
 기존 `MODEL_*` 변수와 `init --argv`는 더 이상 사용하지 않습니다. Agent 명령은
 `--command`에 인용 가능한 명령 문자열 또는 `--command-json`에 JSON argv 배열로 입력합니다.
 자격증명은 생성 설정에 저장하지 않습니다.
@@ -345,5 +347,6 @@ sub-agent까지 합산된 Agent 전체 사용량으로 표시하지 않습니다
 병렬 스케줄링은 아직 없습니다. 비용 상한은 사용하는 provider/proxy에서도 설정하세요.
 
 코어 플러그인은 신뢰한 팀 코드로 실행합니다. local 모드는 OS 격리가 없으며 개발용입니다.
-Docker Agent는 해당 trial workspace만 마운트하고 Docker socket을 전달받지 않습니다.
+Docker Agent는 해당 trial workspace와 설정한 경우 읽기 전용 CA bundle만 마운트하고,
+평가 데이터나 Docker socket을 전달받지 않습니다.
 평가 데이터는 Agent workspace와 분리합니다. 공식 Docker 평가기는 호스트가 실행합니다.

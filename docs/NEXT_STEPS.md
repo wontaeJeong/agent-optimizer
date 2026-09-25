@@ -4,7 +4,9 @@
 
 1. `make setup-core` 후 `.venv/bin/agent-opt datasets list` 또는 `.venv/bin/agent-opt tui`에서
    CVDP/Verilog-Eval/사용자 JSON 데이터셋을 **직접 선택**한다. 다운로드·고정 해시·평가 도구 준비는
-   선택 이후에 실행된다. 단, ACE 고정 실험은 `make setup`으로 전체 자산을 먼저 준비한다.
+   선택 이후에 실행된다. 개발 checkout의 ACE 고정 실험은 `make setup`으로 전체 자산을 먼저 준비하고,
+   wheel의 선택형 ACE 프로필은 `agent-opt init --profile ace-rtl --workspace PATH` 뒤
+   `agent-opt prepare PATH/experiment.toml`로 준비한다.
    사용자 평가기는 별도 등록/검증이 필요하며 합성 점수로 바꾸지 않는다.
 2. 기존 프로필은 `.venv/bin/agent-opt tui`에서 `experiment.toml`을 선택한다. 새 Agent는
    `.venv/bin/agent-opt init`에서 고정 Git commit 또는 local 소스, 선택한 하네스에 필요한

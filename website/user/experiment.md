@@ -31,7 +31,7 @@
 
 `--optimizer baseline`으로 연결을 확인한 다음 필요하면 `--optimizer gepa --optimizer meta_harness`처럼 여러 독립 stage를 지정합니다. GEPA·Meta-Harness·Ecdysis는 저장소의 **자체 구현**이며 논문 실험을 그대로 재현한 것은 아닙니다. 각 stage는 공통 baseline에서 출발합니다.
 
-모델을 사용하는 구성에는 `AGENT_OPT_MODEL_BASE_URL` **또는** `AGENT_OPT_MODEL_ENDPOINT`와 `AGENT_OPT_MODEL_ID`, `AGENT_OPT_MODEL_API_KEY`를 환경 또는 credential store에 설정합니다. 키를 실험 설정이나 Git에 저장하지 마세요. 모델 없는 합성 예제에는 필요하지 않습니다.
+모델을 사용하는 구성에는 `AGENT_OPT_MODEL_BASE_URL` **또는** `AGENT_OPT_MODEL_ENDPOINT` 중 하나와 `AGENT_OPT_MODEL_API_KEY`를 환경 또는 credential store에 설정합니다. `AGENT_OPT_MODEL_ID`를 생략하면 `glm5.3-flash`가 사용됩니다. OpenCode 하네스의 `AGENT_OPT_MODEL` 선택자는 별도 설정입니다. 키를 실험 설정이나 Git에 저장하지 마세요. 모델 없는 합성 예제에는 필요하지 않습니다.
 
 ## 실행 전에 확인
 
