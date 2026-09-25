@@ -2,7 +2,33 @@
 # POSIX entry point: only setup may install anything. Never eval user arguments.
 set -eu
 
+language=${AGENT_OPT_LANG:-ko}
+case "$language" in
+    ko|en) ;;
+    *) printf '%s\n' 'AGENT_OPT_LANG must be ko or en' >&2; exit 2 ;;
+esac
+
 help() {
+    if [ "$language" = en ]; then
+        if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
+            printf '\033[36m%s\033[0m\n' 'Development commands: setup doctor test lint demo smoke live menu help'
+        else
+            printf '%s\n' 'Development commands: setup doctor test lint demo smoke live menu help'
+        fi
+        printf '%s\n' \
+            'Requirements: Mac/Ubuntu, Git. Full ACE setup also needs Docker Engine and Compose.' \
+            'Start: make setup ARGS="--core" → make doctor ARGS="--core" → make demo.' \
+            'Without make, use sh scripts/bootstrap.sh <command> [options].' \
+            'setup/doctor without --core or --dataset target the full ACE environment.' \
+            'setup: --core, --dataset ID, --offline, --platform linux/amd64|linux/arm64 (full ACE only)' \
+            'doctor: --core, --dataset ID, --json, --platform, --model (calls the real API). --core cannot be combined with --dataset/--platform/--model.' \
+            'smoke/live: --platform; live: --iterations 1..20' \
+            'menu: interactive numbered menu (TTY required). After setup, run .venv/bin/agent-opt --help for user commands.' \
+            'test/lint/demo use the existing .venv without installation or Docker.' \
+            'make doctor ARGS="--json" (ARGS accepts normal shell argument syntax).' \
+            'All options: python3 scripts/dev.py --help or python3 scripts/dev.py <command> --help.'
+        return
+    fi
     if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
         printf '\033[36m%s\033[0m\n' '개발 명령: setup doctor test lint demo smoke live menu help'
     else
