@@ -139,6 +139,7 @@ def write_pending_experiment(workspace: Path, integration_id: str) -> Path:
 
 
 def read_pointer(path: Path) -> tuple[Path, dict]:
+    safe_path(path.parent, path.name)
     path = path.resolve()
     data = read_toml(path)
     if set(data) != {"schema_version", "integration"} or data["schema_version"] != 1:

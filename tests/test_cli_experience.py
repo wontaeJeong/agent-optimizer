@@ -585,6 +585,19 @@ class CLIExperienceTests(unittest.TestCase):
                                    "--agent", str(self.agent)]), 2)
         self.assertFalse(workspace.exists())
 
+    def test_ace_pointer_rejects_symlink_before_preparation(self):
+        from agent_optimizer.contracts import ConfigurationError
+        from agent_optimizer.integrations import read_pointer
+
+        workspace = self.root / "source-pointer"
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["init", "--profile", "ace-rtl",
+                                   "--workspace", str(workspace)]), 0)
+        alias = self.root / "pointer-alias.toml"
+        alias.symlink_to(workspace / "experiment.toml")
+        with self.assertRaises(ConfigurationError):
+            read_pointer(alias)
+
     def test_bare_cli_prepares_only_explicit_cvdp_dataset(self):
         from agent_optimizer.catalog import INTEGRATIONS
 
