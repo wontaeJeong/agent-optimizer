@@ -127,6 +127,12 @@ Python 3.12·frozen 개발 의존성을 `.venv`에 준비합니다. **최초 준
 | `make smoke` | 모델 호출 없는 실제 RTL/CVDP 정답·오답 검사 |
 | `make live` | 설정한 OpenAI 호환 모델로 ACE 지침 최적화 반복 |
 
+`live`는 실행 중인 데이터셋·단계·과제·경과 시간을, `smoke`는 실제 도구·toy·공식 평가의
+검사별 경과 시간을 stderr에 표시합니다. `setup`·선택 데이터셋 준비·모델 진단과 보고서 재생성도
+오래 걸리는 단계의 상태를 표시합니다. TTY에서는 갱신되는 상태 화면, 리다이렉트할 때는 단계별
+시작·종료 줄을 남기며 JSON stdout은 그대로 파싱할 수 있습니다.
+이미 시작한 실행에는 새 표시가 적용되지 않습니다.
+
 make가 없으면 모든 명령을 `sh scripts/bootstrap.sh <명령> [옵션]`으로 실행합니다.
 가상환경 활성화·PATH·offline 복구는 [개발환경 가이드](docs/development.md), 일상 작업과
 담당 영역은 [CONTRIBUTING.md](CONTRIBUTING.md)를 참고하세요.
