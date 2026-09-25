@@ -67,6 +67,8 @@ class Context:
         self._optimizer = stage["optimizer"]
 
     def propose(self, parent: Candidate, files: dict[str, str], producer: str) -> Candidate:
+        if parent.id not in self._candidate_ids:
+            raise ConfigurationError("Cannot propose from another stage's candidate")
         self._group.budget.remaining()
         self._group.verify_candidate(parent)
         candidate = self._group.candidates.create(parent, files, producer)
@@ -78,6 +80,8 @@ class Context:
         return candidate
 
     def evaluate(self, candidate: Candidate):
+        if candidate.id not in self._candidate_ids:
+            raise ConfigurationError("Cannot evaluate another stage's candidate")
         return self._group.evaluate(candidate, "train")
 
     def train_task_ids(self):
