@@ -18,7 +18,7 @@ from agent_optimizer.registry import PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, R
 from agent_optimizer.readiness import collect_plan
 from agent_optimizer.runner import run_experiment
 from agent_optimizer.setup_wizard import _bounded_tasks, wizard_arguments, write_experiment
-from support import test_project
+from support import ROOT, test_project
 
 
 class CLIExperienceTests(unittest.TestCase):
@@ -36,7 +36,8 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn("Usage:", text)
         self.assertIn("Options", text)
         self.assertNotIn("--install-completion", text)
-        self.assertIn('make setup ARGS="--core"', text)
+        self.assertIn("make setup-core", text)
+        self.assertIn("기존 실험", text)
         self.assertIn("준비된 실험 실행", text)
         self.assertIn("실행 요약 확인 또는 HTML 재생성", text)
         self.assertFalse((self.root / "runs").exists())
@@ -678,6 +679,21 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertFalse((self.root / "runs").exists())
         self.assertFalse(any(self.root.rglob("__pycache__")))
 
+    def test_ace_example_plan_reuses_registered_cvdp_evaluator(self):
+        benchmark = self.root / "datasets/ace-demo/tasks.json"
+        benchmark.parent.mkdir(parents=True)
+        shutil.copyfile(self.data, benchmark)
+        shutil.copytree(ROOT / "experiments/simple-feedback", self.root / "experiments/simple-feedback")
+        model_module = self.root / "src/agent_optimizer/models.py"
+        model_module.parent.mkdir(parents=True)
+        shutil.copyfile(ROOT / "src/agent_optimizer/models.py", model_module)
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["doctor", "--plan", str(self.root / "examples/ace-rtl/experiment.toml"),
+                                   "--json"]), 0)
+        report = json.loads(output.getvalue())
+        self.assertTrue(report["ready"], report["checks"])
+
     def test_tui_existing_ready_experiment_requires_confirmation_before_run(self):
         class Terminal(io.StringIO):
             def isatty(self):
@@ -706,6 +722,60 @@ class CLIExperienceTests(unittest.TestCase):
                 contextlib.redirect_stderr(Terminal()), contextlib.redirect_stdout(output):
             self.assertEqual(main(["tui", "--project-root", str(self.root)]), 0)
         self.assertEqual(json.loads(output.getvalue())["status"], "completed")
+
+    def test_ace_existing_profile_uses_its_live_bootstrap_for_tui_and_run(self):
+        benchmark = self.root / "datasets/ace-demo/tasks.json"
+        benchmark.parent.mkdir(parents=True)
+        shutil.copyfile(self.data, benchmark)  # Loading only; never passed to the ACE evaluator.
+        scripts = self.root / "scripts"
+        scripts.mkdir()
+        (scripts / "bootstrap.sh").write_text(
+            '#!/bin/sh\nprintf "%s:%s\\n" "$PWD" "$1" >> "$PWD/launch.marker"\n'
+            'exit "${LIVE_STATUS:-0}"\n')
+        experiment = self.root / "examples/ace-rtl/experiment.toml"
+
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        terminal = Terminal()
+        with patch("sys.stdin", Terminal("1\nexamples/ace-rtl/experiment.toml\ny\n")), \
+                patch("agent_optimizer.cli.collect_plan", return_value={"scope": "plan", "ready": True,
+                                                                         "checks": []}), \
+                patch("agent_optimizer.cli.run_experiment", side_effect=AssertionError("generic run")), \
+                contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 0, terminal.getvalue())
+        with patch.dict(os.environ, {"LIVE_STATUS": "3"}), \
+                patch("agent_optimizer.cli.run_experiment", side_effect=AssertionError("generic run")), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["run", str(experiment)]), 3)
+        self.assertEqual((self.root / "launch.marker").read_text().splitlines(),
+                         [f"{self.root.resolve()}:live", f"{self.root.resolve()}:live"])
+
+    def test_ace_launcher_rejects_a_copied_experiment_instead_of_running_the_fixed_demo(self):
+        benchmark = self.root / "datasets/ace-demo/tasks.json"
+        benchmark.parent.mkdir(parents=True)
+        shutil.copyfile(self.data, benchmark)
+        source = self.root / "examples/ace-rtl/experiment.toml"
+        copied = source.with_name("changed-experiment.toml")
+        shutil.copyfile(source, copied)
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["run", str(copied)]), 2)
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_ace_run_rejects_output_override_before_launch(self):
+        benchmark = self.root / "datasets/ace-demo/tasks.json"
+        benchmark.parent.mkdir(parents=True)
+        shutil.copyfile(self.data, benchmark)
+        scripts = self.root / "scripts"
+        scripts.mkdir()
+        (scripts / "bootstrap.sh").write_text('#!/bin/sh\ntouch "$PWD/launch.marker"\n')
+        error = io.StringIO()
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(error):
+            self.assertEqual(main(["run", str(self.root / "examples/ace-rtl/experiment.toml"),
+                                   "--output", str(self.root / "custom-runs")]), 2)
+        self.assertIn("--output", error.getvalue())
+        self.assertFalse((self.root / "launch.marker").exists())
 
     def test_wizard_selects_a_registered_harness_for_the_generated_run(self):
         terminal = io.StringIO()

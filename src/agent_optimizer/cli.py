@@ -77,15 +77,29 @@ def main(argv=None):
 
 app = typer.Typer(help="여러 Agent의 최적화 실험을 위한 작업 도구", no_args_is_help=True,
                   add_completion=False,
-                  epilog=('저장소에서 시작: make setup ARGS="--core" 후 agent-opt datasets list로 '
-                          '데이터셋을 확인하세요. 대화형은 agent-opt tui(TTY 필요), 비대화형은 '
-                          'agent-opt init --help를 사용합니다. 모델 없는 합성 예제는 README.md를 참고하세요.'))
+                  epilog=('저장소에서 시작: make setup-core. 기존 실험을 선택하려면 agent-opt tui의 '
+                          '"기존 실험 실행", 새 설정은 agent-opt init(대화형)을 사용하세요. '
+                          '데이터셋은 직접 선택하며 모델 없는 합성 예제는 README.md를 참고하세요.'))
 dataset_app = typer.Typer(help="데이터셋 목록 표시 및 명시적으로 선택한 데이터셋 준비", no_args_is_help=True)
 app.add_typer(dataset_app, name="datasets")
 
 
 def _invoke(command: str, **options) -> int:
     return _dispatch(SimpleNamespace(command=command, **options))
+
+
+def _launch_existing(spec: dict, registry: Registry, *, output: Path | None = None) -> int | None:
+    registry.load_project(spec["_root"])
+    registry.load_plugins(spec["_root"], {"harnesses": spec.get("plugins", {}).get("harnesses", {})})
+    launchers = [getattr(registry.resolve("harnesses", profile["adapter"]), "launch_existing", None)
+                 for profile in spec["_profiles"]]
+    if any(launcher is not None for launcher in launchers):
+        if output is not None:
+            raise ConfigurationError("전용 실행 프로필은 --output을 지원하지 않습니다")
+        if len(spec["_profiles"]) != 1 or len(spec["_agents"]) != 1:
+            raise ConfigurationError("전용 실행 프로필은 단일 Agent·하네스 실험에서만 사용할 수 있습니다")
+        return launchers[0](spec)
+    return None
 
 
 @app.command("plugins")
@@ -126,8 +140,8 @@ def datasets_prepare(name: str | None = typer.Argument(None, help="등록된 데
 def init_command(project_root: Path | None = None,
                  agent: str | None = typer.Option(None, help="로컬 소스 경로 또는 Git URL(Git이면 --revision 지정)"),
                  revision: str | None = None, name: str | None = None,
-                 command: str | None = typer.Option(None, "--command", help="명령 하네스의 Agent 실행 argv(셸 실행 없음)"),
-                 command_json: str | None = typer.Option(None, "--command-json", help="대시(-)로 시작하는 Agent 옵션도 포함하는 JSON 인수 배열"),
+                 command: str | None = typer.Option(None, "--command", help="명령 하네스의 Agent argv: 인용을 분리하지만 셸 확장·파이프·리다이렉션은 실행하지 않음"),
+                 command_json: str | None = typer.Option(None, "--command-json", help="기존 방식: Agent argv의 JSON 문자열 배열"),
                  editable: list[str] | None = typer.Option(None, "--editable", help="수정 허용 Agent 경로/패턴(반복 가능)"),
                  prompt_file: str = "prompts/system.md",
                  dataset: list[str] | None = typer.Option(None, "--dataset", help="데이터셋 직접 선택: 등록 ID 또는 로컬 tasks.json(반복 가능)"),
@@ -182,7 +196,7 @@ def init_command(project_root: Path | None = None,
 
 @app.command("tui")
 def tui_command(project_root: Path | None = None) -> int:
-    """대화형 설정 및 실행 진행 상황 표시(TTY 필요)."""
+    """기존 실험 선택 또는 새 실험 생성 후 실행(TTY 필요)."""
     return _invoke("tui", project_root=project_root or Path.cwd())
 
 
@@ -428,6 +442,9 @@ def _dispatch(args):
                     return main(["run-session", prepared["session"]])
                 experiment = Path(prepared["experiment"])
             spec = load_experiment(experiment)
+            launched = _launch_existing(spec, registry)
+            if launched is not None:
+                return launched
             with ProgressDisplay() as progress:
                 progress.configure_budget(spec.get("budget", {}).get("max_trials", 100))
                 root, summary = run_experiment(spec, Registry(), on_event=progress)
@@ -502,6 +519,9 @@ def _dispatch(args):
         elif args.command in {"validate", "plan", "run"}:
             spec = load_experiment(args.experiment.resolve())
             if args.command == "run":
+                launched = _launch_existing(spec, registry, output=args.output)
+                if launched is not None:
+                    return launched
                 with ProgressDisplay() as progress:
                     progress.configure_budget(spec.get("budget", {}).get("max_trials", 100))
                     root, summary = run_experiment(spec, registry, args.output, on_event=progress)
