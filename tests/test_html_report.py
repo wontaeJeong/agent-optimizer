@@ -133,6 +133,7 @@ class HTMLReportTests(unittest.TestCase):
                               "selected": [], "final_test": [], "stages": []}]}
         page = write_html_report(run, summary).read_text(encoding="utf-8")
         journey = page.split('<section id="journey">', 1)[1].split('</section>', 1)[0]
+        self.assertIn('id="units-0"', page)
         self.assertIn('<strong>반복 3</strong>', journey)
         self.assertNotIn('<strong>Iteration 3</strong>', journey)
         self.assertIn('&quot;iteration&quot;: 3', journey)
@@ -159,6 +160,108 @@ class HTMLReportTests(unittest.TestCase):
         with contextlib.redirect_stdout(output):
             self.assertEqual(main(["report", str(run), "--html"]), 0)
         self.assertEqual(Path(json.loads(output.getvalue())["html"]), run / "report.html")
+
+    def test_real_run_shows_visual_progress_comparison_and_trial_trail_offline(self):
+        run, _ = run_experiment(self.spec, Registry(), self.root / "runs")
+        page = (run / "report.html").read_text(encoding="utf-8")
+        self.assertIn('id="progress-0"', page)
+        self.assertIn('class="best-curve"', page)
+        self.assertIn('class="trial-point"', page)
+        self.assertIn('id="comparison-0"', page)
+        self.assertIn('id="timeline-0"', page)
+        self.assertIn('id="tasks-0"', page)
+        self.assertIn('<title id="progress-title-0">검증 점수 추이</title>', page)
+        progress = page.split('id="progress-0"', 1)[1].split('</section>', 1)[0]
+        self.assertIn('>1.000</text>', progress)
+        self.assertIn('>0.000</text>', progress)
+        journey = page.split('<section id="journey">', 1)[1].split('</section>', 1)[0]
+        self.assertNotIn('<ol class="lineage">', journey.split('<details', 1)[0])
+        self.assertIn('href="#evaluation-0-', page)
+        self.assertIn('기준 후보', page)
+        self.assertIn('최종 선택', page)
+        self.assertIn('실패 상세 2건', page)
+        self.assertLess(page.index('id="progress-0"'), page.index('<dl class="meta">'))
+        self.assertLess(page.index('id="progress-0"'), page.index('<div class="cards"'))
+        self.assertNotIn('<script', page)
+        self.assertNotIn('https://cdn', page)
+
+    def test_two_objectives_show_tradeoff_without_claiming_pareto(self):
+        run = self.root / "two-objectives"
+        run.mkdir()
+        (run / "manifest.json").write_text(json.dumps({"experiment": {"objective": {
+            "mode": "lexicographic", "metrics": [
+                {"name": "solve_rate", "direction": "maximize", "source": "passed"},
+                {"name": "seconds", "direction": "minimize"}]}}}), encoding="utf-8")
+        common = {"agent_id": "agent", "harness_id": "harness", "split": "validation", "valid": True}
+        (run / "events.jsonl").write_text("\n".join(json.dumps({
+            "event": "candidate_evaluated", **common, "candidate_id": candidate,
+            "stage_id": stage, "metrics": {"solve_rate": score, "seconds": seconds}})
+            for candidate, stage, score, seconds in (("base", "baseline", 0.3, 12),
+                                                      ("long-" + "X" * 240, "search", 0.8, 9),
+                                                      ("best", "search", 0.9, 11))) + "\n", encoding="utf-8")
+        def row(candidate, score, seconds):
+            return {**common, "candidate_id": candidate,
+                    "metrics": {"solve_rate": score, "seconds": seconds}}
+        summary = {"status": "completed", "groups": [{"agent_id": "agent", "harness_id": "harness",
+                   "baseline": row("base", 0.3, 12), "selected": [row("best", 0.9, 11)],
+                   "stages": [], "final_test": []}]}
+        page = write_html_report(run, summary).read_text(encoding="utf-8")
+        self.assertIn('id="landscape-0"', page)
+        self.assertIn('목적 지표 관계', page)
+        self.assertIn('우선순위', page)
+        self.assertIn('class="landscape-point', page)
+        progress = page.split('id="progress-0"', 1)[1].split('</section>', 1)[0]
+        self.assertIn('seconds 9.000', progress)
+        self.assertIn('search', progress)
+        self.assertNotIn('Pareto', page)
+        self.assertIn('long-' + 'X' * 240, page)
+
+    def test_empty_and_one_trial_do_not_draw_invented_curve(self):
+        run = self.root / "single"
+        run.mkdir()
+        summary = {"status": "partial", "groups": [{"agent_id": "solo", "harness_id": "fixture",
+                   "baseline": None, "selected": [], "final_test": [], "stages": []}]}
+        page = write_html_report(run, summary).read_text(encoding="utf-8")
+        self.assertNotIn('class="best-curve"', page)
+        self.assertNotIn('id="landscape-0"', page)
+        (run / "events.jsonl").write_text(json.dumps({"event": "trial_completed", "trial_id": "only",
+            "agent_id": "solo", "harness_id": "fixture", "candidate_id": "C", "task_id": "t",
+            "split": "train", "status": "timeout", "metrics": {"task_wall_time_seconds": 4.0}}) + "\n")
+        page = write_html_report(run, summary).read_text(encoding="utf-8")
+        self.assertIn('id="timeline-0"', page)
+        self.assertIn('4.000', page)
+        self.assertNotIn('class="best-curve"', page)
+
+    def test_duplicate_trial_details_link_to_distinct_evidence_rows(self):
+        run = self.root / "duplicate-trials"
+        run.mkdir()
+        common = {"event": "trial_completed", "agent_id": "solo", "harness_id": "fixture",
+                  "candidate_id": "base", "task_id": "same", "split": "train", "status": "passed",
+                  "metrics": {"passed": 1, "task_wall_time_seconds": 1.0}}
+        (run / "events.jsonl").write_text("\n".join(json.dumps({**common, "trial_id": name})
+            for name in ("same", "same")) + "\n")
+        summary = {"groups": [{"agent_id": "solo", "harness_id": "fixture",
+                              "baseline": None, "selected": [], "stages": []}]}
+        page = write_html_report(run, summary).read_text(encoding="utf-8")
+        timeline = page.split('id="timeline-0"', 1)[1].split('</section>', 1)[0]
+        self.assertIn('href="#evaluation-0-0"', timeline)
+        self.assertIn('href="#evaluation-0-1"', timeline)
+
+    def test_invalid_huge_aggregate_does_not_break_valid_progress(self):
+        run = self.root / "huge-aggregate"
+        run.mkdir()
+        (run / "manifest.json").write_text(json.dumps({"experiment": {"objective": {
+            "metrics": [{"name": "score", "direction": "maximize"}]}}}))
+        common = {"event": "candidate_evaluated", "agent_id": "solo", "harness_id": "fixture",
+                  "split": "validation", "valid": True, "stage_id": "search"}
+        (run / "events.jsonl").write_text("\n".join(json.dumps({**common,
+            "candidate_id": name, "metrics": {"score": score}})
+            for name, score in (("base", 0), ("best", 1), ("overflow", 10 ** 400))) + "\n")
+        summary = {"groups": [{"agent_id": "solo", "harness_id": "fixture",
+                              "baseline": None, "selected": [], "stages": []}]}
+        page = write_html_report(run, summary).read_text(encoding="utf-8")
+        self.assertIn('class="best-curve"', page)
+        self.assertIn('overflow', page)
 
     def test_untrusted_feedback_is_escaped_in_incomplete_report(self):
         class FailingEvaluator:
@@ -243,7 +346,7 @@ class HTMLReportTests(unittest.TestCase):
         self.assertIn('scope="col"', html)
         self.assertIn("<caption", html)
         self.assertNotIn('src="https://', html)
-        self.assertRegex(html, r'<strong>7</strong><span><abbr[^>]*>완료된 평가</abbr>')
+        self.assertIn('완료된 평가 7건', html)
         self.assertEqual(model["counts"]["completed_evaluations"], 7)
         self.assertEqual(model["identity"]["run_wall_time_seconds"],
                          summary["run_wall_time_seconds"])
@@ -472,6 +575,7 @@ class HTMLReportTests(unittest.TestCase):
 
         page = write_html_report(run, summary).read_text(encoding="utf-8")
         journey = page.split('<section id="journey">', 1)[1].split('</section>', 1)[0]
+        self.assertIn('id="units-0"', page)
         self.assertIn("g0", journey)
         self.assertIn("optimizer_probe_completed", journey)
         self.assertIn("&lt;unsafe&gt;opaque&lt;/unsafe&gt;", journey)

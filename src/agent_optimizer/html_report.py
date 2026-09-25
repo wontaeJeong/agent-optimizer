@@ -11,6 +11,10 @@ from urllib.parse import quote
 from agent_optimizer.contracts import ConfigurationError
 from agent_optimizer.locale import current_language, human
 from agent_optimizer.report_style import STYLE
+from agent_optimizer.report_visualizations import (
+    render_comparison, render_landscape, render_outcomes, render_progress,
+    render_tasks, render_timeline, render_trail, render_units,
+)
 from agent_optimizer.workspace import safe_path
 
 
@@ -227,7 +231,21 @@ def _metadata(report):
         for label, item in fields) + '</dl>'
 
 
-def _comparison(group, number):
+def _quick_config(report):
+    configuration = report.get('configuration') or {}
+    benchmark = (report.get('provenance') or {}).get('benchmark') or {}
+    metrics = (report.get('objective') or {}).get('metrics') or []
+    objectives = ''.join(f'<li>{"↑" if item.get("direction") == "maximize" else "↓"} '
+                         f'{text(item.get("name"))}</li>' for item in metrics if isinstance(item, dict))
+    return (f'<div class="quick-config"><div><span class="eyebrow">{text(_s("벤치마크"))}</span><strong>'
+            f'{text(benchmark.get("id") or configuration.get("benchmark"))}</strong></div>'
+            f'<div><span class="eyebrow">{text(_s("목적 지표 · 우선순위"))}</span>'
+            f'<ol>{objectives or "<li>" + text(_s("기록 없음")) + "</li>"}</ol></div>'
+            f'<div><span class="eyebrow">{text(_s("예산"))}</span>'
+            f'<strong>{text(_budget_label(configuration.get("budget")))}</strong></div></div>')
+
+
+def _comparison(group, number, objective):
     selected = group.get('selected') or []
     winners = [item for item in selected if _valid_selection(item, group)]
     other = [item for item in selected if isinstance(item, dict) and not _valid_selection(item, group)]
@@ -245,13 +263,19 @@ def _comparison(group, number):
     heading = (f'<section class="group" id="group-{number}"><div class="group-heading">'
                f'<h2>{text(group["agent_id"])} / {text(group["harness_id"])}</h2>'
                f'<span class="pill {"good" if group["comparison_trend"] == "improved" else ""}">'
-               f'{_display(group["comparison_trend"], STATES)}</span></div>'
-               f'<p class="subtle">{text(_s("완료"))} {_count(counts.get("completed_evaluations"))}{text(_s("건 · "))}'
-               f'{text(_s("통과"))} {_count(counts.get("passed_evaluations"))}{text(_s("건 · "))}'
-               f'{text(_s("실패"))} {_count(counts.get("failed_evaluations"))}{text(_s("건 · "))}'
-               f'{_term("예산 사용 횟수")} {_count(counts.get("trials_used"))}{text(_s("회")) if _language.get() == "ko" else ""}</p>'
-               f'<p>{_term("기준 후보")}: <code>{text(baseline.get("candidate_id"))}</code> → '
-               f'{" · ".join(selection)}</p>')
+               f'{_display(group["comparison_trend"], STATES)}</span></div>')
+    evidence = (f'<p class="subtle">{text(_s("완료"))} {_count(counts.get("completed_evaluations"))}{text(_s("건 · "))}'
+                f'{text(_s("통과"))} {_count(counts.get("passed_evaluations"))}{text(_s("건 · "))}'
+                f'{text(_s("실패"))} {_count(counts.get("failed_evaluations"))}{text(_s("건 · "))}'
+                f'{_term("예산 사용 횟수")} {_count(counts.get("trials_used"))}{text(_s("회")) if _language.get() == "ko" else ""}</p>'
+                f'<p>{_term("기준 후보")}: <code>{text(baseline.get("candidate_id"))}</code> → '
+                f'{" · ".join(selection)}</p>')
+    visuals = (render_progress(group, objective, number)
+               + render_comparison(group, objective, number)
+               + render_landscape(group, objective, number)
+               + render_units(group, objective, number) + render_trail(group, number)
+               + render_tasks(group, number)
+               + render_timeline(group, number) + render_outcomes(group, number))
     rows = []
     for metric in group['comparison']:
         difference = _signed(metric.get('delta'))
@@ -260,9 +284,10 @@ def _comparison(group, number):
         rows.append(_cells((text(metric.get('name')), _display(metric.get('direction'), DIRECTIONS),
                             value(metric.get('baseline')), value(metric.get('selected')),
                             difference, _display(metric.get('trend'), STATES)), numeric=(2, 3, 4)))
-    return heading + _table('검증 · 기준 후보 → 선택 후보',
-                            ('지표', '방향', '기준 후보', '선택 후보', '점수 차이', '변화'),
-                            rows, numeric=(2, 3, 4)) + '</section>'
+    return heading + visuals + _details(_s('검증 집계와 실행 건수 · 상세'), evidence + _table(
+        '검증 · 기준 후보 → 선택 후보',
+        ('지표', '방향', '기준 후보', '선택 후보', '점수 차이', '변화'),
+        rows, numeric=(2, 3, 4))) + '</section>'
 
 
 def _test_results(report):
@@ -278,7 +303,7 @@ def _test_results(report):
 def _recorded_events(report, group, structured=False):
     events = [event for event in report.get('events', [])
               if isinstance(event, dict) and isinstance(event.get('event'), str)
-              and event.get('event') != 'trial_completed'
+              and event.get('event') not in ('trial_completed', 'candidate_evaluated')
               and event.get('agent_id') == group['agent_id']
               and event.get('harness_id') == group['harness_id']]
     if not events:
@@ -328,7 +353,10 @@ def _journey(report):
             sections.append(_details(_s('그룹 이벤트 기록 · 원본 근거'),
                                      _recorded_events(report, group, structured=True)))
         else:
-            sections.append(_recorded_events(report, group))
+            sections.append('<p class="subtle">기록된 탐색 구조가 없습니다. '
+                            '이벤트 순서와 원본은 아래에서 확인하세요.</p>')
+            sections.append(_details('그룹 이벤트 기록 · 원본 근거',
+                                     _recorded_events(report, group)))
         if edges:
             sections.append(f'<p class="tag">{text(_s("기록된 후보 부모 관계"))}</p><ul class="lineage">')
             for edge in edges:
@@ -454,15 +482,27 @@ def _failures(report):
                          ' · ' + text(identity.get('error_type')) + '</strong>' +
                          _details(_s('실행 오류 원문'), '<pre>' + text(identity.get('error')) + '</pre>') + '</div>')
     for index, group in enumerate(report['groups']):
+        if not group['failures']:
+            continue
+        categories = {}
+        for failure in group['failures']:
+            category = failure['category']
+            categories[category] = categories.get(category, 0) + 1
+        sections.append(f'<h3>{text(group["key"])} · {text(_s("실패"))} {len(group["failures"])}{text(_s("건"))}</h3>'
+                        '<ul class="failure-summary">' + ''.join(
+                            f'<li>{_display(name, FAILURES)} <strong>{count}{text(_s("건"))}</strong></li>'
+                            for name, count in sorted(categories.items())) + '</ul>')
+        details = []
         for failure in group['failures']:
             evaluation = next(((position, item) for position, item in enumerate(group['evaluations'])
                                if item.get('id') == failure.get('evaluation_ref')), None)
             trial = (f'<a href="#evaluation-{index}-{evaluation[0]}">'
                      f'{text(evaluation[1].get("trial_id"))}</a>') if evaluation else text(failure.get('evaluation_ref'))
-            sections.append('<div class="panel"><strong class="bad">' + _display(failure.get('category'), FAILURES) +
-                            '</strong> · ' + text(group['key']) + ' · ' + trial +
-                             (_details(_s('실패 메시지 원문'), '<pre>' + text(failure['message']) + '</pre>')
-                             if failure.get('message') else '') + '</div>')
+            details.append('<div class="panel"><strong class="bad">' + _display(failure.get('category'), FAILURES) +
+                           '</strong> · ' + text(group['key']) + ' · ' + trial +
+                           (_details(_s('실패 메시지 원문'), '<pre>' + text(failure['message']) + '</pre>')
+                            if failure.get('message') else '') + '</div>')
+        sections.append(_details(f'{_s("실패 상세")} {len(group["failures"])}{_s("건")}', ''.join(details)))
     if len(sections) == 1:
         sections.append(f'<p class="subtle">{text(_s("분류된 실패 기록 없음"))}</p>')
     return ''.join(sections) + '</section>'
@@ -502,8 +542,41 @@ def _provenance(report):
                'plugin_sha256': manifest.get('plugin_sha256', {})}
     return (f'<section id="provenance"><h2>{text(_s("재현 정보와 출처"))}</h2>'
             f'<p>{text(_s("벤치마크 SHA-256"))}: <code>' + text(manifest.get('benchmark_sha256')) + '</code></p>'
+            + _details(_s('설정 개요 · 식별자와 실행 근거'), _metadata(report))
             + _details(_s('실험 설정 원본'), _json(report.get('configuration') or {}))
             + _details(_s('소스 고정 버전 · 모델 · 플러그인 해시 원본'), _json(content)) + '</section>')
+
+
+def _hero(report):
+    groups = []
+    for index, group in enumerate(report['groups']):
+        metric = (group.get('comparison') or [None])[0]
+        winner = next((row for row in group.get('selected', [])
+                       if _valid_selection(row, group)), None)
+        if not metric or winner is None or metric.get('selected') is None:
+            result = '<strong>비교 가능한 검증 선택 없음</strong>'
+        else:
+            delta = (f'{metric["delta_pp"]:+.1f} pp' if metric.get('delta_pp') is not None
+                     else _signed(metric.get('delta')))
+            percent = metric.get('delta_pp') is not None
+            measured = (f'{metric["selected"] * 100:.0f}%' if percent else value(metric['selected']))
+            baseline = (f'{metric["baseline"] * 100:.0f}%' if percent else value(metric.get('baseline')))
+            result = (f'<strong>{measured} <small>{text(metric["name"])}</small></strong>'
+                      f'<span>{delta} · 기준 {baseline} · '
+                      f'{_display(group["comparison_trend"], STATES)}</span>')
+        groups.append(f'<div class="headline-group"><span class="eyebrow">{text(group["key"])}</span>'
+                      f'{result}<a href="#group-{index}">검증 경로 보기 →</a></div>')
+    counts = report['counts']
+    wall = report['identity'].get('run_wall_time_seconds')
+    facts = (f'완료된 평가 {_count(counts.get("completed_evaluations"))}건 · '
+             f'예약된 평가 {_count(counts.get("trials_used"))}회'
+             + (f' · 실측 벽시계 {value(wall)}초' if wall is not None else ''))
+    return (f'<section id="scores" class="summary-section"><span class="eyebrow">{text(_s("실험 요약"))}</span>'
+            f'<h2>{text(_s("최적화 결과"))}</h2><p class="subtle">'
+            f'{text(_s("그룹별 검증 선택을 독립적으로 표시합니다. 점수가 없는 경우 0으로 간주하지 않습니다."))}</p>'
+            + ('<div class="headlines">' + ''.join(groups) + '</div>' if groups else
+               f'<p class="subtle">{text(_s("기록된 그룹 없음"))}</p>')
+            + f'<p class="summary-facts">{facts}</p></section>')
 
 
 def _render_report(root: Path, report: dict) -> str:
@@ -526,17 +599,17 @@ def _render_report(root: Path, report: dict) -> str:
              f'<title>Agent Optimizer · {text(title)}</title><style>{STYLE}</style></head><body>',
               f'<header><div class="eyebrow">Agent Optimizer / {text(_s("실험 분석"))}</div>',
               f'<h1>{text(title)}</h1><span class="pill">{_display(identity.get("status"), STATES)}</span>{synthetic}',
-              _metadata(report),
-              f'<nav aria-label="{text(_s("리포트 목차"))}"><a href="#scores">{text(_s("점수 비교"))}</a>'
+               _quick_config(report),
+               f'<nav aria-label="{text(_s("리포트 목차"))}"><a href="#scores">{text(_s("결과와 개선 경로"))}</a>'
               f'<a href="#held-out-test">{text(_s("최종 테스트"))}</a><a href="#journey">{text(_s("최적화 과정"))}</a>'
               f'<a href="#evaluations">{text(_s("평가 근거"))}</a><a href="#candidates">{text(_s("후보 변경"))}</a>'
               f'<a href="#failures">{text(_s("실패 근거"))}</a><a href="#stages">{text(_s("단계와 사용량"))}</a>'
               f'<a href="#provenance">{text(_s("재현 정보"))}</a></nav></header><main>',
-              '<div class="cards">' + cards + '</div>',
-              '<section id="scores"><h2>' + _term('기준 후보') + ' → ' + text(_s('선택된 ')) + _term('검증') + text(_s(' 결과')) + '</h2>'
-              f'<p class="subtle">{text(_s("같은 그룹의 검증 집계만 비교합니다. 지표 방향과 차이는 기록된 리포트를 따르며 없는 점수는 0으로 취급하지 않습니다."))}</p></section>']
-    parts.extend(_comparison(group, index) for index, group in enumerate(report['groups']))
-    parts.extend((_test_results(report), _journey(report), _evaluations(root, report),
+               _hero(report)]
+    parts.extend(_comparison(group, index, report.get('objective') or {})
+                 for index, group in enumerate(report['groups']))
+    parts.extend(('<div class="cards">' + cards + '</div>',
+                  _test_results(report), _journey(report), _evaluations(root, report),
                   _candidates(root, report), _failures(report), _stages(report), _provenance(report)))
     parts.extend(('</main><footer>' + text(_s('일부만 기록된 하네스 사용량을 전체 사용량으로 표시하지 않습니다. 데이터·모델·예산이 같은 실험끼리 비교하세요. ')) +
                   '<a href="summary.json">summary.json</a> · <a href="events.jsonl">events.jsonl</a> · '

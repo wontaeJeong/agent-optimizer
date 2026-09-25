@@ -41,6 +41,76 @@ class ReportModelTests(unittest.TestCase):
         (self.root / "events.jsonl").write_text(
             "\n".join(json.dumps(row) for row in rows) + "\n", encoding="utf-8")
 
+    def test_progress_uses_recorded_validation_aggregates_and_lexicographic_best(self):
+        self.manifest_objective([{"name": "solve_rate", "direction": "maximize"},
+                                 {"name": "seconds", "direction": "minimize"}])
+        base = self.row({"solve_rate": 0.5, "seconds": 12}, candidate_id="base")
+        chosen = self.row({"solve_rate": 0.5, "seconds": 10}, candidate_id="chosen")
+        common = {"agent_id": "agent-a", "harness_id": "harness", "split": "validation"}
+        self.events([{"event": "candidate_evaluated", **common, "stage_id": stage,
+                      "candidate_id": candidate, "valid": valid, "metrics": score,
+                      "trial_ids": [trial]}
+                     for stage, candidate, valid, score, trial in (
+                         ("baseline", "base", True, base["metrics"], "b"),
+                         ("search", "rejected", True, {"solve_rate": 0.5, "seconds": 11}, "r"),
+                         ("search", "chosen", True, chosen["metrics"], "c"),
+                         ("search", "not-final", True, {"solve_rate": 0.8, "seconds": 15}, "n"),
+                         ("search", "broken", False, {"solve_rate": 1.0, "seconds": 1}, "x"))])
+        report = build_report(self.root, {"groups": [self.group(base, [chosen])]})
+        points = report["groups"][0]["visualization"]["progress"]
+        self.assertEqual([p["improvement"] for p in points],
+                         ["baseline", "improved", "improved", "improved", "invalid"])
+        self.assertEqual([p["best_metrics"]["solve_rate"] if p["best_metrics"] else None
+                          for p in points], [0.5, 0.5, 0.5, 0.8, 0.8])
+        self.assertEqual([p["selected"] for p in points], [False, False, True, False, False])
+        self.assertEqual(points[3]["source"], "candidate_evaluated")
+        self.assertEqual(points[2]["trial_refs"], ["agent-a/harness/c"])
+        self.assertEqual(report["report_schema_version"], 2)
+
+    def test_trial_timeline_and_task_comparison_keep_real_split_and_duration(self):
+        self.manifest_objective([{"name": "solve_rate", "source": "passed",
+                                 "direction": "maximize", "aggregate": "mean"}])
+        base = self.row({"solve_rate": 0.0}, candidate_id="base")
+        chosen = self.row({"solve_rate": 1.0}, candidate_id="best")
+        common = {"event": "trial_completed", "agent_id": "agent-a", "harness_id": "harness",
+                  "task_id": "alu", "stage_id": "search", "repeat": 0}
+        self.events([{**common, "candidate_id": "base", "trial_id": "b", "split": "validation",
+                      "status": "failed", "valid": True,
+                      "metrics": {"passed": 0, "task_wall_time_seconds": 2.5}},
+                     {**common, "candidate_id": "best", "trial_id": "s", "split": "validation",
+                      "status": "passed", "valid": True,
+                      "metrics": {"passed": 1, "task_wall_time_seconds": 1.0}},
+                     {**common, "candidate_id": "best", "trial_id": "t", "split": "test",
+                      "status": "passed", "valid": True,
+                      "metrics": {"passed": 1, "task_wall_time_seconds": 99}},
+                     {**common, "candidate_id": "best", "trial_id": "i", "split": "train",
+                      "status": "infrastructure_error", "valid": False,
+                      "metrics": {"passed": None, "task_wall_time_seconds": None}}])
+        visual = build_report(self.root, {"groups": [self.group(base, [chosen])]})["groups"][0]["visualization"]
+        self.assertEqual(visual["task_comparison"], [
+            {"task_id": "alu", "baseline": "failed", "selected": "passed"}])
+        self.assertEqual([row["duration_seconds"] for row in visual["trial_timeline"]],
+                         [2.5, 1.0, 99, None])
+        self.assertEqual(visual["outcomes"]["infrastructure"], 1)
+        self.assertEqual(visual["outcomes"]["scored_failure"], 1)
+
+    def test_missing_aggregate_events_never_invents_progress(self):
+        self.manifest_objective([{"name": "score", "direction": "maximize"}])
+        visual = build_report(self.root, {"groups": [self.group(
+            self.row({"score": 0}, candidate_id="base"),
+            [self.row({"score": 1}, candidate_id="best")])]})["groups"][0]["visualization"]
+        self.assertEqual(visual["progress"], [])
+        self.assertEqual(visual["trial_timeline"], [])
+
+    def test_aggregate_only_candidate_is_available_to_visual_trail(self):
+        self.manifest_objective([{"name": "score", "direction": "maximize"}])
+        self.events([{"event": "candidate_evaluated", "agent_id": "agent-a",
+                     "harness_id": "harness", "candidate_id": "aggregate-only",
+                     "split": "validation", "valid": True, "metrics": {"score": 2}}])
+        group = build_report(self.root, {"groups": [self.group()]})["groups"][0]
+        self.assertEqual([item["candidate_id"] for item in group["candidates"]], ["aggregate-only"])
+        self.assertEqual(group["visualization"]["progress"][0]["improvement"], "first")
+
     def test_common_iteration_events_keep_recorded_order_without_checkpoint_inference(self):
         self.events([{"event": "optimizer_iteration_started", "agent_id": "agent-a",
                       "harness_id": "harness", "stage_id": "search", "optimizer": "unknown",
@@ -552,7 +622,7 @@ class ReportModelTests(unittest.TestCase):
 
         report = build_report(self.root, summary)
 
-        self.assertEqual(report["report_schema_version"], 1)
+        self.assertEqual(report["report_schema_version"], 2)
         self.assertEqual(report["identity"], {"run_id": "run-1", "status": "completed",
                                                "synthetic": True})
         self.assertEqual(report["objective"], objective)
