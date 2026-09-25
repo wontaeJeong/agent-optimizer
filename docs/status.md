@@ -9,6 +9,9 @@
 `agent-opt init`은 TTY에서 새 설정만 만들 수 있다. 병렬 scheduler·resume·native ACE는 [보류](FUTURE.md)다.
 고정 `examples/ace-rtl/experiment.toml`을 TUI/`agent-opt run`에서 선택하면 예제 어댑터가
 기존 `live` 준비·실행에 위임한다. 이는 OpenCode 스킬 프로필 + 공식 CVDP 평가이며 native ACE는 아니다.
+wheel 단독 설치의 로컬 Agent·사용자 데이터셋/명시적 evaluator 실험은 소스 저장소 없이
+실행할 수 있다. ACE/CVDP 선택형 연동을 wheel 사용자가 직접 준비하는 경로는 별도
+고정 버전 카탈로그 연결 전까지 완료로 표시하지 않는다.
 
 ## 현재 기능
 

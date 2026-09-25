@@ -1,5 +1,21 @@
 # 검증 기록
 
+## 2026-09-25 wheel 독립 실행과 ACE 예제 lifecycle 분리
+
+Mac ARM64 / Python 3.12.12 / Docker daemon `linux/arm64`, 작업 브랜치
+`design/unified-execution-flow`. 모델 API endpoint·키는 설정하지 않았다.
+
+| 범위·실제 명령 | 결과 |
+|---|---|
+| 개발 코어: `make setup-core`; `make test`; `make lint`; `actionlint`; `git diff --check` | 코어 진단 ready, 전체 **547개 중 532 통과·15 skip·실패 0**, lint·워크플로 문법·공백 검사 통과. skip은 호스트 실도구와 선택형 통합 검사이며 합성 결과를 모델 실험으로 세지 않았다. |
+| 설치 패키지: `.venv/bin/python -m build`; `.venv/bin/python tests/test_installed_cli.py dist/agent_optimizer-0.3.0-py3-none-any.whl` | 공백이 있는 임시 경로에 wheel 설치 후, 소스 밖에서 `agent-opt` 도움말·선택형 데이터셋 목록·TTY 시작·사용자 로컬 Agent와 지정 평가기의 init/doctor/run/report 완료. 원본 Agent 파일 불변. 실행 스크립트 shebang의 공백 경로 문제를 표준 console entry point로 수정해 재검증했다. |
+| ACE 평가 실행환경: `make setup` → `make doctor` → `make smoke`; `PYTHONPATH=src .venv/bin/python -c '...lifecycle.inspect(root)...'` | 고정 소스·데이터·driver·이미지 준비, 공식 CVDP 정답/오답 smoke `runs/dev-smoke-0e3c857a4cb3/summary.json` `passed`, 재배치 가능한 lifecycle 진단 `ready=true`, 24개 검사. Docker layer는 기존 cache를 재사용했다. |
+| ACE 모델 진입점: `.venv/bin/agent-opt run examples/ace-rtl/experiment.toml` | shell 재진입 없이 예제 lifecycle로 들어가며 모델 설정 부재로 exit 2. 실제 모델·후보 선택 결과는 이번 변경에서 측정하지 않았다. |
+
+wheel 사용자용 ACE/CVDP 고정 버전 다운로드·작업공간 생성·TUI 확인 준비는 후속 연동
+카탈로그 구현이 필요하다. 이 단계의 모의 lifecycle/로컬 모델 없는 검사를 실모델 E2E로
+기록하지 않는다.
+
 ## 2026-09-25 터미널·리포트 한영 지원
 
 Mac ARM64 / Python 3.12.12의 독립 워크트리에서 확인했다. 저장소 로컬 `.env`의
