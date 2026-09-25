@@ -27,7 +27,7 @@ from agent_optimizer.setup_wizard import (component_inventory, prepare_selection
                                           write_experiment)
 from agent_optimizer.terminal_report import PreparationStatus, ProgressDisplay
 from agent_optimizer.terminal_style import style
-from agent_optimizer.locale import MESSAGES, current_language, human, report_language, t
+from agent_optimizer.locale import MESSAGES, current_language, human, render_diagnostic, report_language, t
 from agent_optimizer.results import write_json
 from agent_optimizer.readiness import collect_dataset, collect_plan
 
@@ -59,8 +59,8 @@ def main(argv=None):
         print(f"error: {exc}", file=sys.stderr)
         return 2
     if argv and argv[0] == "rerank":
-        print(style("error:", "error", stream=sys.stderr) + " rerank is deferred; configure the objective for a new run. "
-              "Stored reports and frozen selections remain available; see deferred/README.md", file=sys.stderr)
+        print(style("error:", "error", stream=sys.stderr) + " " + human(
+            "rerank is deferred; configure the objective for a new run. Stored reports and frozen selections remain available; see deferred/README.md"), file=sys.stderr)
         return 2
     previous = sys.dont_write_bytecode
     if argv and argv[0] == "doctor":
@@ -355,12 +355,12 @@ def _dispatch(args):
             try:
                 init_args = wizard_arguments(args.project_root.absolute())
             except EOFError:
-                print(style("TUI cancelled:", "warning", stream=sys.stderr) + " input ended", file=sys.stderr)
+                print(style(human("TUI cancelled:"), "warning", stream=sys.stderr) + " " + human("input ended"), file=sys.stderr)
                 return 2
             except KeyboardInterrupt:
-                print("\n" + style("TUI interrupted", "warning", stream=sys.stderr), file=sys.stderr)
+                print("\n" + style(human("TUI interrupted"), "warning", stream=sys.stderr), file=sys.stderr)
                 return 130
-            print("\n  " + style("Preparing the selected dataset…", "warning", stream=sys.stderr),
+            print("\n  " + style(human("Preparing the selected dataset…"), "warning", stream=sys.stderr),
                   file=sys.stderr, flush=True)
             output = io.StringIO()
             with contextlib.redirect_stdout(output):
@@ -435,11 +435,12 @@ def _dispatch(args):
                     print(f"{report['scope']} {human('readiness')}: "
                           + style(status, "success" if report["ready"] else "error"))
                     for row in report["checks"]:
+                        message, remedy = render_diagnostic(row)
                         tone = {"ok": "success", "error": "error", "blocked": "warning"}.get(
                             row["status"], "warning")
-                        print(f"[{style(row['status'], tone)}] {row['id']}: {human(row['message'])}")
-                        if row["remedy"]:
-                            print(f"  {style(t('remedy') + ':', 'warning')} {human(row['remedy'])}")
+                        print(f"[{style(row['status'], tone)}] {row['id']}: {message}")
+                        if remedy:
+                            print(f"  {style(t('remedy') + ':', 'warning')} {remedy}")
                 return 0 if report["ready"] else 2
             show(doctor())
         elif args.command == "agents":
@@ -487,6 +488,6 @@ def _dispatch(args):
                             writer.writerow({**{k: r[k] for k in fixed}, **r["metrics"]})
             show(data)
     except (ConfigurationError, UnavailableError, KeyError, TypeError, ValueError, OSError) as exc:
-        print(f"{style('error:', 'error', stream=sys.stderr)} {exc}", file=sys.stderr)
+        print(f"{style('error:', 'error', stream=sys.stderr)} {human(str(exc))}", file=sys.stderr)
         return 2
     return 0

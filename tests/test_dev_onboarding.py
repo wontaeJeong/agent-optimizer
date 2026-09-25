@@ -134,6 +134,7 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
         self.downloader(0)
         result = self.invoke("setup", "--core")
         self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("[setup] 코어 사전 준비: 호스트 OS와 Git 검사", result.stdout)
         trace = self.trace_text()
         self.assertIn("installer:", trace)
         self.assertIn("arg:sync\narg:--frozen\n", trace)
@@ -183,12 +184,12 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
     def test_core_still_requires_git_and_offline_uv(self):
         result = self.invoke("setup", "--core")
         self.assertEqual(result.returncode, 2)
-        self.assertIn("Git unavailable", result.stderr)
+        self.assertIn("Git을 사용할 수 없습니다", result.stderr)
         self.assertNotIn("Docker", result.stderr)
         self.tool("git")
         result = self.invoke("setup", "--core", "--offline")
         self.assertEqual(result.returncode, 2)
-        self.assertIn("uv missing", result.stderr)
+        self.assertIn("uv가 없습니다", result.stderr)
         self.assertIn("setup --core", result.stderr)
         self.assertEqual(self.trace_text(), "")
 
@@ -202,6 +203,8 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
                 self.assertEqual(result.returncode, 2)
                 self.assertIn("project-uv.log", result.stderr)
                 self.assertIn("setup --core", result.stderr)
+                if "--offline" in options:
+                    self.assertIn("오프라인 동기화 실패", result.stderr)
                 self.assertNotIn("docker", self.trace_text())
 
     def test_core_conflicts_rejected_before_probes_and_missing_python_remedy_is_core(self):
@@ -211,7 +214,7 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
             with self.subTest(args=args):
                 result = self.invoke(*args)
                 self.assertEqual(result.returncode, 2)
-                self.assertIn("--core cannot", result.stderr)
+                self.assertIn("--core와", result.stderr)
         for command in ("demo", "test", "lint", "smoke", "live", "menu"):
             self.assertEqual(self.invoke(command, "--core").returncode, 2)
         result = self.invoke("doctor", "--core", "--json")
@@ -226,7 +229,7 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
             with self.subTest(args=args):
                 result = self.invoke(*args)
                 self.assertEqual(result.returncode, 2, result.stderr)
-                self.assertIn("--dataset" if "--core" not in args else "--core cannot", result.stderr)
+                self.assertIn("--dataset" if "--core" not in args else "--core와", result.stderr)
                 self.assertEqual(self.trace_text(), "")
         self.assertFalse((self.root / "external").exists())
 
@@ -324,7 +327,7 @@ exit 2
                 result = self.invoke(command)
                 self.assertLess(time.monotonic() - started, 1.8, result.stderr)
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("timed out", result.stderr)
+                self.assertIn("시간 초과", result.stderr)
                 self.assertIn("setup", result.stderr)
                 self.assertNotIn("SECRET", result.stdout + result.stderr)
                 self.assertIsNone(sentinel.poll())
@@ -342,7 +345,7 @@ exit 2
         result = self.invoke("setup")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("python:", self.trace_text())
-        self.assertNotIn("timed out", result.stderr)
+        self.assertNotIn("시간 초과", result.stderr)
 
     def test_stalled_host_os_probe_has_prerequisite_deadline(self):
         self.fast_deadline()
@@ -354,7 +357,7 @@ exit 2
         self.assertLess(time.monotonic() - started, 1.8)
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("prerequisites", result.stderr)
-        self.assertIn("timed out", result.stderr)
+        self.assertIn("시간 초과", result.stderr)
 
     def test_offline_missing_uv_never_invokes_downloader(self):
         self.prerequisites()
@@ -362,7 +365,7 @@ exit 2
         result = self.invoke("setup", "--offline")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("uv", result.stderr)
-        self.assertIn("offline", result.stderr.lower())
+        self.assertIn("오프라인", result.stderr)
         self.assertEqual(self.trace_text(), "")
 
     def downloader(self, code):
@@ -380,7 +383,7 @@ exit {code}
         self.downloader(22)
         result = self.invoke("setup")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("download", result.stderr.lower())
+        self.assertIn("다운로드", result.stderr)
         self.assertNotIn("installer:", self.trace_text())
         self.assertNotIn("uv:", self.trace_text())
 
@@ -530,7 +533,7 @@ printf 'system-python\\n'
         result = self.invoke("setup", "--offline")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("project-uv.log", result.stderr)
-        self.assertIn("rerun", result.stderr)
+        self.assertIn("다시 실행", result.stderr)
         self.assertNotIn("python:", self.trace_text())
 
     def test_existing_broken_environment_is_preserved_without_uv_sync(self):
@@ -541,7 +544,7 @@ printf 'system-python\\n'
         sentinel.write_text("user-owned")
         result = self.invoke("setup")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("preserved", result.stderr)
+        self.assertIn("보존", result.stderr)
         self.assertEqual(sentinel.read_text(), "user-owned")
         self.assertEqual(self.trace_text(), "")
 
@@ -558,7 +561,7 @@ printf 'system-python\\n'
                 result = self.invoke("setup")
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("bootstrap-uv.log", result.stderr)
-                self.assertIn("rerun", result.stderr)
+                self.assertIn("다시 실행", result.stderr)
                 self.assertNotIn("uv:", self.trace_text())
                 self.assertNotIn("python:", self.trace_text())
                 self.assertEqual(list(temporary.iterdir()), [])
@@ -581,7 +584,7 @@ printf 'system-python\\n'
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("uv preparation", result.stderr)
                 self.assertIn(path, result.stderr)
-                self.assertIn("rerun", result.stderr)
+                self.assertIn("다시 실행", result.stderr)
                 self.assertEqual(self.trace_text(), "")
 
     def test_sync_without_python_reports_dispatch_stage_and_repair(self):
@@ -589,9 +592,9 @@ printf 'system-python\\n'
         self.tool("uv")
         result = self.invoke("setup")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("dispatch", result.stderr)
+        self.assertIn("Python 전달 실패", result.stderr)
         self.assertIn(str(self.root / ".venv/bin/python"), result.stderr)
-        self.assertIn("rerun", result.stderr)
+        self.assertIn("다시 실행", result.stderr)
 
 
 class DeveloperCommandsTests(unittest.TestCase):
@@ -908,6 +911,17 @@ class DeveloperCommandsTests(unittest.TestCase):
         self.assertIn("setup-logs", self.output.getvalue())
         self.assertIn("ready", self.output.getvalue())
 
+    def test_setup_stages_follow_display_language_without_changing_json(self):
+        for language, expected in (("ko", "[setup] 최종 진단: 시작"),
+                                   ("en", "[setup] final doctor: starting")):
+            with self.subTest(language=language), patch.dict(os.environ, {"AGENT_OPT_LANG": language}):
+                self.output = io.StringIO()
+                code, events = self.setup_flow()
+                self.assertEqual(code, 0)
+                self.assertEqual(events, ["environment", "dataset", "doctor", "demo"])
+                self.assertIn(expected, self.output.getvalue())
+                self.assertIn('"status": "ready"', self.output.getvalue())
+
     def test_setup_failure_and_interrupt_halt_with_stage_repair_and_no_ready(self):
         for failure in (UnavailableError("source mismatch"), KeyboardInterrupt()):
             with self.subTest(failure=type(failure)):
@@ -997,4 +1011,4 @@ class PreparationProgressTests(unittest.TestCase):
                             setup.run(["uv", "pip", "sync"], log=log)
                     else:
                         setup.run(["uv", "pip", "sync"], log=log)
-                self.assertEqual("complete" in output.getvalue(), code == 0)
+                self.assertEqual("완료" in output.getvalue(), code == 0)

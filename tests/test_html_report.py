@@ -86,6 +86,8 @@ class HTMLReportTests(unittest.TestCase):
         labels = Labels()
         labels.feed((run / "report.html").read_text())
         self.assertFalse(labels.korean, f"한국어 UI 문구 {len(labels.korean)}개: {labels.korean[:12]}")
+        summary_line = (run / "report.html").read_text().split('<section class="group"', 1)[1].split('</p>', 1)[0]
+        self.assertNotIn("—</span> trials", summary_line)
 
     def test_session_html_localizes_status_and_explains_dataset_separation(self):
         root = self.root / "session"

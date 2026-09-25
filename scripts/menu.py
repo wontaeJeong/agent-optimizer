@@ -31,8 +31,8 @@ MENU = """
 def execute(argv, env, *, return_code=False):
     result = subprocess.run(argv, cwd=ROOT, env=env.copy(), shell=False)
     if result.returncode:
-        print(style(f"명령 실패 (exit {result.returncode}).", "error")
-              + " 위 출력을 확인하세요; 자동 재시도하지 않습니다.")
+        print(style(t("명령 실패 (exit {code}).", code=result.returncode), "error")
+              + " " + human("위 출력을 확인하세요; 자동 재시도하지 않습니다."))
     return result.returncode if return_code else result.returncode == 0
 
 
@@ -43,7 +43,7 @@ def bootstrap(command, env, *args):
 def agent_tui(env):
     cli = ROOT / ".venv/bin/agent-opt"
     if not cli.is_file():
-        print(style("프로젝트 .venv가 필요합니다:", "warning")
+        print(style(human("프로젝트 .venv가 필요합니다:"), "warning")
               + " sh scripts/bootstrap.sh setup --core")
         return 2
     return execute([str(cli), "tui"], env, return_code=True)
@@ -52,10 +52,10 @@ def agent_tui(env):
 def local_demo(env):
     python = ROOT / ".venv/bin/python"  # Preserve virtualenv executable identity.
     if not python.is_file():
-        print(style("프로젝트 .venv가 필요합니다:", "warning")
+        print(style(human("프로젝트 .venv가 필요합니다:"), "warning")
               + " sh scripts/bootstrap.sh setup --core")
         return
-    print("합성 최소 데모 후 로컬 HTTP fixture 기반 Optimizer 회귀 테스트 (외부 LLM·Docker 없음).")
+    print(human("합성 최소 데모 후 로컬 HTTP fixture 기반 Optimizer 회귀 테스트 (외부 LLM·Docker 없음)."))
     if bootstrap("demo", env):
         test_env = {key: value for key, value in env.items() if key not in {"PYTHONHOME", "PYTHONPATH"}}
         execute([str(python), "-m", "unittest", "discover", "-s", "tests",
@@ -157,8 +157,8 @@ def main(argv=None, *, env=None):
     parser = ColorArgumentParser(description=human(__doc__), epilog=human("TTY 필요. 자동화에는 setup/doctor/demo/live 명령을 사용하세요."))
     parser.parse_args(argv)
     if not sys.stdin.isatty() or not sys.stdout.isatty():
-        print(style("menu requires a TTY;", "error")
-              + " 자동화에는 setup/doctor/demo/live 등 명시적 명령을 사용하세요.")
+        print(style(human("menu requires a TTY;"), "error")
+              + " " + human("자동화에는 setup/doctor/demo/live 등 명시적 명령을 사용하세요."))
         return 2
     session = dict(os.environ if env is None else env)
     last_tui_code = 0
@@ -185,20 +185,20 @@ def main(argv=None, *, env=None):
                 elif choice == "8":
                     last_tui_code = agent_tui(session)
                 else:
-                    print(style("0..8 중 번호를 선택하세요.", "warning"))
+                    print(style(human("0..8 중 번호를 선택하세요."), "warning"))
             except (ConfigurationError, UnavailableError) as exc:
-                print(f"{style('실행하지 못했습니다:', 'error')} {exc}")
+                print(f"{style(human('실행하지 못했습니다:'), 'error')} {exc}")
             except getpass.GetPassWarning:
-                print(style("숨김 토큰 입력이 불가능하여 취소했습니다.", "error") + " TTY를 확인하세요.")
+                print(style(human("숨김 토큰 입력이 불가능하여 취소했습니다."), "error") + " " + human("TTY를 확인하세요."))
             except (OSError, ValueError, subprocess.SubprocessError):
                 # Do not echo exception payloads that could contain URLs or credentials.
-                print(style("명령 또는 보고서 처리 실패.", "error")
-                      + " 코어는 1번, ACE 평가/모델 실행 자산은 7번 준비 후 다시 확인하세요.")
+                print(style(human("명령 또는 보고서 처리 실패."), "error")
+                      + " " + human("코어는 1번, ACE 평가/모델 실행 자산은 7번 준비 후 다시 확인하세요."))
     except EOFError:
-        print("\n종료합니다.")
+        print("\n" + human("종료합니다."))
         return 0
     except KeyboardInterrupt:
-        print("\n중단했습니다.")
+        print("\n" + human("중단했습니다."))
         return 130
 
 

@@ -89,6 +89,13 @@ class MenuFlows(unittest.TestCase):
         self.assertNotIn("URL 방식:", output)
         self.assertEqual(calls, [])
 
+    def test_english_menu_invalid_choice_guidance(self):
+        with patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}):
+            code, output, calls = self.flow(["9", "0"])
+        self.assertEqual(code, 0)
+        self.assertIn("Choose a number from 0 to 8.", output)
+        self.assertEqual(calls, [])
+
     def test_interrupt_exits_130(self):
         code, _, calls = self.flow([KeyboardInterrupt()])
         self.assertEqual(code, 130)

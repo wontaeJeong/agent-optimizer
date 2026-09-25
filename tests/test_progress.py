@@ -2,6 +2,7 @@
 import json
 import io
 import contextlib
+import os
 import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -55,6 +56,31 @@ class ProgressTests(unittest.TestCase):
         self.assertLess(last_line.index("slow: 5.00s"), last_line.index("fast: 1.00s"))
         self.assertNotIn("ETA", text)
 
+    def test_terminal_progress_explains_trial_event_in_korean_without_changing_event_fields(self):
+        event = {"event": "trial_completed", "timestamp": "2026-09-24T10:00:00Z",
+                 "dataset": "demo", "task_id": "task1", "metrics": {"task_wall_time_seconds": 0.2}}
+        outputs = {}
+        for language in ("ko", "en"):
+            with patch.dict(os.environ, {"AGENT_OPT_LANG": language}):
+                stream = io.StringIO()
+                ProgressDisplay(stream=stream)(event)
+                outputs[language] = stream.getvalue()
+        self.assertIn("평가 완료", outputs["ko"])
+        self.assertNotIn("평가 완료", outputs["en"])
+        self.assertIn("dataset=demo", outputs["ko"])
+        self.assertEqual(event["event"], "trial_completed")
+
+    def test_interactive_progress_waits_in_selected_language(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        with patch.dict(os.environ, {"AGENT_OPT_LANG": "ko"}):
+            screen = Terminal()
+            with ProgressDisplay(stream=screen):
+                pass
+        self.assertIn("이벤트 대기 중", screen.getvalue())
+
     def test_interactive_progress_uses_rich_styling_and_keeps_json_stdout_clean(self):
         class Terminal(io.StringIO):
             def isatty(self):
@@ -94,6 +120,19 @@ class ProgressTests(unittest.TestCase):
         self.assertEqual(output.getvalue(), "")
         self.assertIn("[doctor] check=host-api starting", status.getvalue())
         self.assertIn("[doctor] check=host-api failed", status.getvalue())
+
+    def test_preparation_progress_explains_state_in_selected_language(self):
+        outputs = {}
+        for language in ("ko", "en"):
+            with patch.dict(os.environ, {"AGENT_OPT_LANG": language}):
+                status = io.StringIO()
+                with PreparationStatus("sample_text", stream=status):
+                    pass
+                outputs[language] = status.getvalue()
+        self.assertIn("데이터셋 준비 중", outputs["ko"])
+        self.assertIn("완료", outputs["ko"])
+        self.assertNotIn("데이터셋 준비 중", outputs["en"])
+        self.assertIn("dataset=sample_text", outputs["ko"])
 
     def test_doctor_status_stays_readable_on_tty_without_optional_rich(self):
         class Terminal(io.StringIO):

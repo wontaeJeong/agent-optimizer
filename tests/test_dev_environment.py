@@ -23,6 +23,19 @@ prepare = module("ace_prepare_dev", ROOT / "examples/ace-rtl/prepare.py")
 cvdp = module("ace_eval_dev", ROOT / "examples/ace-rtl/evaluator.py")
 
 
+class ExampleSetupLanguageTests(unittest.TestCase):
+    def test_owned_setup_progress_uses_selected_language(self):
+        for language, expected in (("ko", "[setup] uv --version: 시작"),
+                                   ("en", "[setup] uv --version: starting")):
+            with self.subTest(language=language), tempfile.TemporaryDirectory() as directory:
+                output = io.StringIO()
+                with patch.dict(os.environ, {"AGENT_OPT_LANG": language}), \
+                        patch.object(setup.subprocess, "run", return_value=subprocess.CompletedProcess([], 0)), \
+                        redirect_stdout(output), redirect_stderr(io.StringIO()):
+                    setup._run(["uv", "--version"], Path(directory), None, {})
+                self.assertIn(expected, output.getvalue())
+
+
 def official_row():
     # Same metadata shape as the pinned HF QAM16 row; no reference solution.
     return {
@@ -859,7 +872,7 @@ class SetupProgressTests(unittest.TestCase):
             self.assertIn("[setup] check=driver-uv.log starting", progress.getvalue())
             self.assertIn("[setup] check=driver-uv.log complete elapsed=", progress.getvalue())
             self.assertEqual(json.loads(log.read_text().splitlines()[0])[0], sys.executable)
-            self.assertIn("driver-uv.log: complete", output.getvalue())
+            self.assertIn("driver-uv.log: 완료", output.getvalue())
 
 
 class ShippedRTLProfileTests(unittest.TestCase):

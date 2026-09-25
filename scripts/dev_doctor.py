@@ -13,7 +13,7 @@ from agent_optimizer.network import CA_VARIABLES, demo_environment, network_envi
 from agent_optimizer.registry import Registry
 from agent_optimizer import readiness
 from agent_optimizer.terminal_style import style
-from agent_optimizer.locale import human
+from agent_optimizer.locale import human, render_diagnostic
 
 SETUP = "Run sh scripts/bootstrap.sh setup (or python3 scripts/dev.py setup)."
 
@@ -164,11 +164,12 @@ def render_report(report: dict, *, json_output: bool = False) -> None:
     for area, ready in report["areas"].items():
         print(f"  {area}: " + style(human("ready" if ready else "not ready"), "success" if ready else "error"))
     for check in report["checks"]:
+        message, remedy = render_diagnostic(check)
         tone = {"ok": "success", "error": "error", "blocked": "warning"}.get(
             check["status"], "warning")
-        print(f"[{style(check['status'], tone)}] {check['id']}: {human(check['message'])}")
-        if check["remedy"]:
-            print(f"  {style(human('Fix:'), 'warning')} {human(check['remedy'])}")
+        print(f"[{style(check['status'], tone)}] {check['id']}: {message}")
+        if remedy:
+            print(f"  {style(human('Fix:'), 'warning')} {remedy}")
     if report.get("scope") == "core":
         print(human("ACE evaluation and model readiness not checked; use full setup/doctor (menu option 7 prepares ACE)."))
     elif report.get("scope") == "dataset":

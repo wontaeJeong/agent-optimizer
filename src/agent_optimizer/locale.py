@@ -127,6 +127,20 @@ MESSAGES = {
     " 결과": (" 결과", " results"),
     "같은 그룹의 검증 집계만 비교합니다. 지표 방향과 차이는 기록된 리포트를 따르며 없는 점수는 0으로 취급하지 않습니다.": ("같은 그룹의 검증 집계만 비교합니다. 지표 방향과 차이는 기록된 리포트를 따르며 없는 점수는 0으로 취급하지 않습니다.", "Compare within-group validation aggregates only. Direction and difference come from the recorded report; missing scores are not zero."),
     "일부만 기록된 하네스 사용량을 전체 사용량으로 표시하지 않습니다. 데이터·모델·예산이 같은 실험끼리 비교하세요. ": ("일부만 기록된 하네스 사용량을 전체 사용량으로 표시하지 않습니다. 데이터·모델·예산이 같은 실험끼리 비교하세요. ", "Partial Harness usage is never labeled complete. Compare only runs with equivalent data, models, and budgets. "),
+    "명령 실패 (exit {code}).": ("명령 실패 (exit {code}).", "Command failed (exit {code})."),
+    "위 출력을 확인하세요; 자동 재시도하지 않습니다.": ("위 출력을 확인하세요; 자동 재시도하지 않습니다.", "Inspect the output above; there is no automatic retry."),
+    "프로젝트 .venv가 필요합니다:": ("프로젝트 .venv가 필요합니다:", "Project .venv is required:"),
+    "합성 최소 데모 후 로컬 HTTP fixture 기반 Optimizer 회귀 테스트 (외부 LLM·Docker 없음).": ("합성 최소 데모 후 로컬 HTTP fixture 기반 Optimizer 회귀 테스트 (외부 LLM·Docker 없음).", "Run a minimal synthetic demo, then Optimizer regression tests using a local HTTP fixture (no external LLM or Docker)."),
+    "menu requires a TTY;": ("menu에는 TTY가 필요합니다;", "menu requires a TTY;"),
+    "자동화에는 setup/doctor/demo/live 등 명시적 명령을 사용하세요.": ("자동화에는 setup/doctor/demo/live 등 명시적 명령을 사용하세요.", "For automation use explicit setup/doctor/demo/live commands."),
+    "0..8 중 번호를 선택하세요.": ("0..8 중 번호를 선택하세요.", "Choose a number from 0 to 8."),
+    "실행하지 못했습니다:": ("실행하지 못했습니다:", "Unable to run:"),
+    "숨김 토큰 입력이 불가능하여 취소했습니다.": ("숨김 토큰 입력이 불가능하여 취소했습니다.", "Cancelled because hidden token input is unavailable."),
+    "TTY를 확인하세요.": ("TTY를 확인하세요.", "Check the TTY."),
+    "명령 또는 보고서 처리 실패.": ("명령 또는 보고서 처리 실패.", "Command or report processing failed."),
+    "코어는 1번, ACE 평가/모델 실행 자산은 7번 준비 후 다시 확인하세요.": ("코어는 1번, ACE 평가/모델 실행 자산은 7번 준비 후 다시 확인하세요.", "Prepare core with option 1 and ACE evaluation/model assets with option 7, then retry."),
+    "종료합니다.": ("종료합니다.", "Exiting."),
+    "중단했습니다.": ("중단했습니다.", "Interrupted."),
     "Experiment report": ("실험 보고서", "Experiment report"),
     "Status": ("상태", "Status"),
     "Synthetic": ("합성", "Synthetic"),
@@ -161,12 +175,64 @@ MESSAGES = {
     "not reported": ("기록되지 않음", "not reported"),
     "Reproducibility": ("재현 정보", "Reproducibility"),
     "Dataset": ("데이터셋", "Dataset"),
+    "Datasets": ("데이터셋", "Datasets"),
+    "Optimizers": ("Optimizer", "Optimizers"),
     "Benchmark SHA-256": ("벤치마크 SHA-256", "Benchmark SHA-256"),
     "Objective": ("목적 지표", "Objective"),
     "Budget": ("예산", "Budget"),
     "not recorded": ("기록 없음", "not recorded"),
     "Missing metrics are null, not zero. Empty usage lists mean unreported usage, not free execution.": ("미수집 지표는 0이 아닌 null입니다. 빈 사용량 목록은 무료 실행이 아니라 미보고를 뜻합니다.", "Missing metrics are null, not zero. Empty usage lists mean unreported usage, not free execution."),
     "Harness-reported usage can be partial. Compare only identical datasets, models and budgets.": ("하네스 보고 사용량은 일부일 수 있습니다. 같은 데이터셋·모델·예산의 실행만 비교하세요.", "Harness-reported usage can be partial. Compare only identical datasets, models and budgets."),
+    "example environment": ("예제 환경", "example environment"),
+    "dataset preparation": ("데이터셋 준비", "dataset preparation"),
+    "final doctor": ("최종 진단", "final doctor"),
+    "minimal demo": ("최소 데모", "minimal demo"),
+    "starting": ("시작", "starting"),
+    "complete": ("완료", "complete"),
+    "failed": ("실패", "failed"),
+    "read-only": ("읽기 전용", "read-only"),
+    "logs": ("로그", "logs"),
+    "output": ("출력", "output"),
+    "results": ("결과", "results"),
+    "inspect the command output above. If dependencies are missing, run sh scripts/bootstrap.sh setup --core.": (
+        "위 명령 출력을 확인하세요. 의존성이 없으면 sh scripts/bootstrap.sh setup --core를 실행하세요.",
+        "inspect the command output above. If dependencies are missing, run sh scripts/bootstrap.sh setup --core."),
+    "trial_started": ("평가 시작", "trial_started"),
+    "waiting for events": ("이벤트 대기 중", "waiting for events"),
+    "trial_completed": ("평가 완료", "trial_completed"),
+    "agent_started": ("Agent 실행 시작", "agent_started"),
+    "evaluation_started": ("채점 시작", "evaluation_started"),
+    "optimizer_iteration_started": ("Optimizer 반복 시작", "optimizer_iteration_started"),
+    "optimizer_iteration_completed": ("Optimizer 반복 완료", "optimizer_iteration_completed"),
+    "optimizer_review_started": ("Optimizer 검토 시작", "optimizer_review_started"),
+    "optimizer_merge_started": ("후보 병합 시작", "optimizer_merge_started"),
+    "optimizer_merge_completed": ("후보 병합 완료", "optimizer_merge_completed"),
+    "stage_budget_exhausted": ("단계 예산 소진", "stage_budget_exhausted"),
+    "budget_exhausted": ("평가 예산 소진", "budget_exhausted"),
+    "error": ("오류", "error"),
+    "interrupted": ("중단", "interrupted"),
+    "rerank is deferred; configure the objective for a new run. Stored reports and frozen selections remain available; see deferred/README.md": (
+        "rerank는 보류 중입니다. 새 실행의 objective를 설정하세요. 저장된 보고서와 고정 선택 결과는 그대로 볼 수 있습니다. deferred/README.md를 참고하세요.",
+        "rerank is deferred; configure the objective for a new run. Stored reports and frozen selections remain available; see deferred/README.md"),
+    "pinned sources": ("고정 소스", "pinned sources"),
+    "verified dataset": ("검증된 데이터셋", "verified dataset"),
+    "evaluation image": ("평가 이미지", "evaluation image"),
+    "agent image": ("Agent 이미지", "agent image"),
+    "example tool checks": ("예제 도구 검사", "example tool checks"),
+    "checkout": ("체크아웃", "checkout"),
+    "cache": ("캐시", "cache"),
+    "log": ("로그", "log"),
+    "terminal": ("터미널", "terminal"),
+    "verify cached": ("캐시 검증", "verify cached"),
+    "build": ("빌드", "build"),
+    "코어 도구만 준비·진단; Docker/ACE 제외(--dataset/--platform/--model과 함께 사용 불가)": ("코어 도구만 준비·진단; Docker/ACE 제외(--dataset/--platform/--model과 함께 사용 불가)", "Prepare or diagnose core tools only; excludes Docker/ACE (cannot combine with --dataset/--platform/--model)"),
+    "등록 데이터셋 하나 준비(--core/--platform/--model과 함께 사용 불가)": ("등록 데이터셋 하나 준비(--core/--platform/--model과 함께 사용 불가)", "Prepare one registered dataset (cannot combine with --core/--platform/--model)"),
+    "등록 데이터셋 하나 진단, 읽기 전용(--core/--platform/--model과 함께 사용 불가)": ("등록 데이터셋 하나 진단, 읽기 전용(--core/--platform/--model과 함께 사용 불가)", "Read-only check of one registered dataset (cannot combine with --core/--platform/--model)"),
+    "기본값: Docker daemon의 기본 플랫폼": ("기본값: Docker daemon의 기본 플랫폼", "Default: the Docker daemon's platform"),
+    "검증된 캐시 자산만 재사용; 다운로드·빌드 없음": ("검증된 캐시 자산만 재사용; 다운로드·빌드 없음", "Reuse verified cached assets only; no download or build"),
+    "단일 JSON 진단 결과 출력": ("단일 JSON 진단 결과 출력", "Print one JSON diagnostic result"),
+    "호스트 API와 컨테이너 OpenCode 도구를 명시적으로 호출": ("호스트 API와 컨테이너 OpenCode 도구를 명시적으로 호출", "Explicitly call the host API and container OpenCode tool"),
+    "최적화 반복 횟수 지정(1..20, 기본값 3)": ("최적화 반복 횟수 지정(1..20, 기본값 3)", "Set optimization iterations (1..20; default 3)"),
     "여러 Agent의 최적화 실험을 위한 작업 도구": ("여러 Agent의 최적화 실험을 위한 작업 도구", "Optimization experiments for multiple Agents"),
     '저장소에서 시작: make setup ARGS="--core" 후 agent-opt datasets list로 데이터셋을 확인하세요. 대화형은 agent-opt tui(TTY 필요), 비대화형은 agent-opt init --help를 사용합니다. 모델 없는 합성 예제는 README.md를 참고하세요.': (
         '저장소에서 시작: make setup ARGS="--core" 후 agent-opt datasets list로 데이터셋을 확인하세요. 대화형은 agent-opt tui(TTY 필요), 비대화형은 agent-opt init --help를 사용합니다. 모델 없는 합성 예제는 README.md를 참고하세요.',
@@ -259,6 +325,90 @@ _REPORT_EN = {
 for _ko, _en in _REPORT_EN.items():
     MESSAGES.setdefault(_ko, (_ko, _en))
 
+_DEVELOPMENT_KO = {
+    "Host OS and diagnostic Python compatibility (Mac/Linux, Python >=3.11).": "호스트 OS와 진단 Python 호환성 (Mac/Linux, Python >=3.11).",
+    "Use Mac or Ubuntu with Python >=3.11; run sh scripts/bootstrap.sh setup.": "Python >=3.11을 지원하는 Mac 또는 Ubuntu에서 sh scripts/bootstrap.sh setup을 실행하세요.",
+    "Use Mac or Ubuntu with Python >=3.11; run sh scripts/bootstrap.sh setup --core.": "Python >=3.11을 지원하는 Mac 또는 Ubuntu에서 sh scripts/bootstrap.sh setup --core를 실행하세요.",
+    "Host git executable.": "호스트 Git 실행 파일을 사용할 수 있습니다.",
+    "Host uv executable.": "호스트 uv 실행 파일을 사용할 수 있습니다.",
+    "Install Git: Mac: xcode-select --install; Ubuntu: sudo apt install git.": "Git 설치: Mac: xcode-select --install; Ubuntu: sudo apt install git.",
+    "Run sh scripts/bootstrap.sh setup (or python3 scripts/dev.py setup).": "sh scripts/bootstrap.sh setup(또는 python3 scripts/dev.py setup)을 실행하세요.",
+    "Run sh scripts/bootstrap.sh setup --core (or python3 scripts/dev.py setup --core).": "sh scripts/bootstrap.sh setup --core(또는 python3 scripts/dev.py setup --core)를 실행하세요.",
+    "Project .venv Python >=3.11.": "프로젝트 .venv에 Python >=3.11이 있습니다.",
+    "Interpreter belongs to the project virtualenv.": "인터프리터가 프로젝트 가상환경에 속합니다.",
+    "Installed project package in .venv.": "프로젝트 패키지가 .venv에 설치되어 있습니다.",
+    "Installed agent-opt executable.": "agent-opt 실행 파일이 설치되어 있습니다.",
+    "Project ruff development tool.": "프로젝트 Ruff 개발 도구가 있습니다.",
+    "Project build development tool.": "프로젝트 build 개발 도구가 있습니다.",
+    "Optional proxy and CA configuration.": "선택적 프록시와 CA 설정입니다.",
+    "Correct or unset AGENT_OPT_CA_BUNDLE; provide a readable valid full PEM trust bundle without private keys, then rerun doctor.": "AGENT_OPT_CA_BUNDLE을 수정하거나 해제하세요. 개인 키가 없는 읽기 가능한 PEM 신뢰 번들을 준비한 뒤 doctor를 다시 실행하세요.",
+    "Resolve core.python first. Run sh scripts/bootstrap.sh setup --core (or python3 scripts/dev.py setup --core).": "먼저 core.python을 해결하고 sh scripts/bootstrap.sh setup --core(또는 python3 scripts/dev.py setup --core)를 실행하세요.",
+    "Choose a dataset name or a local tasks.json": "데이터셋 이름 또는 로컬 tasks.json을 지정하세요",
+    "Select a dataset explicitly with --dataset": "데이터셋을 --dataset으로 직접 선택하세요",
+    "--agent, --command-json, and --editable are required": "--agent, --command-json, --editable은 필수입니다",
+    "Agent argv must be a nonempty JSON string array": "Agent 인수는 비어 있지 않은 JSON 문자열 배열이어야 합니다",
+    "Inspect the choices then pass --yes to confirm preparation": "선택 항목을 확인한 뒤 --yes로 준비를 승인하세요",
+    "A pinned Git Agent requires a revision": "고정 Git Agent에는 commit revision이 필요합니다",
+    "--model requires --plan": "--model에는 --plan이 필요합니다",
+    "run-session requires at least two prepared experiments": "run-session에는 준비된 실험이 최소 두 개 필요합니다",
+    "TUI cancelled:": "TUI 취소:",
+    "input ended": "입력이 종료되었습니다",
+    "TUI interrupted": "TUI가 중단되었습니다",
+    "Preparing the selected dataset…": "선택한 데이터셋 준비 중…",
+    "Dataset provider is unavailable": "데이터셋 제공자를 사용할 수 없습니다",
+    "Use agent-opt datasets list and register the selected provider": "agent-opt datasets list로 확인하고 선택한 제공자를 등록하세요",
+    "Central component inventory is incomplete": "중앙 컴포넌트 목록이 불완전합니다",
+    "Restore missing registered integration files": "누락된 등록 연동 파일을 복원하세요",
+    "Dataset provider has no read-only readiness check": "데이터셋 제공자에 읽기 전용 진단이 없습니다",
+    "Implement doctor(cache) for this dataset provider": "이 데이터셋 제공자에 doctor(cache)를 구현하세요",
+    "Dataset inspection failed": "데이터셋 검사에 실패했습니다",
+    "Inspect the selected provider and its local cache": "선택한 제공자와 로컬 캐시를 확인하세요",
+    "Local Agent sources are available": "로컬 Agent 소스를 사용할 수 있습니다",
+    "Agent source declarations checked; pinned Git source contents unverified until run snapshot": "Agent 소스 선언을 확인했습니다. 고정 Git 소스의 내용은 실행 스냅샷 전까지 미검증입니다",
+    "Provide existing local Agent sources or prepare pinned Git sources": "존재하는 로컬 Agent 소스를 제공하거나 고정 Git 소스를 준비하세요",
+    "Declared Agent prompt sources are available": "선언한 Agent 프롬프트 소스를 사용할 수 있습니다",
+    "Declared Agent prompt paths checked; pinned Git source contents unverified until run snapshot": "선언한 Agent 프롬프트 경로를 확인했습니다. 고정 Git 소스의 내용은 실행 스냅샷 전까지 미검증입니다",
+    "Provide each declared prompt_file in Agent source": "Agent 소스에 선언한 prompt_file을 각각 제공하세요",
+    "Editable Agent files exist": "수정 가능한 Agent 파일이 존재합니다",
+    "Declared editable Agent paths checked; pinned Git source contents unverified until run snapshot": "수정 가능한 Agent 경로를 확인했습니다. 고정 Git 소스의 내용은 실행 스냅샷 전까지 미검증입니다",
+    "Declare editable paths matching existing Agent files": "실제 Agent 파일과 일치하는 editable 경로를 선언하세요",
+    "Research optimizer options and editable source files are valid": "연구 Optimizer 옵션과 수정 가능한 소스 파일이 유효합니다",
+    "Declare an existing editable optimizer file, train tasks, and positive iteration allowance": "존재하는 수정 가능 Optimizer 파일·train 과제·양수 반복 허용량을 선언하세요",
+    "Experiment file is missing or invalid": "실험 파일이 없거나 잘못되었습니다",
+    "Provide a valid experiment.toml": "유효한 experiment.toml을 제공하세요",
+    "Experiment project_root is invalid": "실험 project_root가 잘못되었습니다",
+    "Set project_root to a directory path string": "project_root를 디렉터리 경로 문자열로 설정하세요",
+    "Experiment schema is valid": "실험 스키마가 유효합니다",
+    "Experiment schema or referenced input is invalid": "실험 스키마 또는 참조한 입력이 잘못되었습니다",
+    "Correct the experiment, Agent, harness, and benchmark declarations": "실험·Agent·하네스·벤치마크 선언을 수정하세요",
+    "Registered component files and declared dependencies are available": "등록된 컴포넌트 파일과 선언한 의존성을 사용할 수 있습니다",
+    "Restore the selected registered component and declared dependency files": "선택한 등록 컴포넌트와 선언한 의존성 파일을 복원하세요",
+    "Agent execution argv is declared": "Agent 실행 argv가 선언되어 있습니다",
+    "Declare a nonempty harness.command argv array": "비어 있지 않은 harness.command argv 배열을 선언하세요",
+    "Harnesses are registered": "하네스가 등록되어 있습니다",
+    "Harness or declared plugin files are unavailable": "하네스 또는 선언한 플러그인 파일을 사용할 수 없습니다",
+    "Register the harness and provide its declared plugin files": "하네스를 등록하고 선언한 플러그인 파일을 제공하세요",
+    "Declared runtime binaries are available": "선언한 실행 도구를 사용할 수 있습니다",
+    "Install the declared Docker or OpenCode runtime executable": "선언한 Docker 또는 OpenCode 실행 파일을 설치하세요",
+    "Evaluator is registered": "채점기가 등록되어 있습니다",
+    "Evaluator is not registered": "채점기가 등록되지 않았습니다",
+    "Register the selected evaluator or supply an explicit evaluator plugin": "선택한 채점기를 등록하거나 평가기 플러그인을 명시하세요",
+    "Optimizers are registered": "Optimizer가 등록되어 있습니다",
+    "Optimizer is not registered": "Optimizer가 등록되지 않았습니다",
+    "Select a registered optimizer": "등록된 Optimizer를 선택하세요",
+    "Task output files are declared": "과제 출력 파일이 선언되어 있습니다",
+    "Declare task output file paths in the benchmark": "벤치마크에 과제 출력 파일 경로를 선언하세요",
+    "Selected dataset and evaluator match": "선택한 데이터셋과 채점기가 일치합니다",
+    "Use the registered evaluator ID from the selected dataset provider": "선택한 데이터셋 제공자에 등록된 채점기 ID를 사용하세요",
+    "Custom benchmark schema and splits are valid": "사용자 벤치마크 스키마와 분할이 유효합니다",
+    "Required model configuration is present": "필요한 모델 설정이 있습니다",
+    "Model connectivity probe passed": "모델 연결 검사가 통과했습니다",
+    "Model connectivity probe failed": "모델 연결 검사가 실패했습니다",
+    "Verify model credentials, endpoint, connectivity, and tool-call support": "모델 자격증명·endpoint·연결·tool-call 지원을 확인하세요",
+}
+for _en, _ko in _DEVELOPMENT_KO.items():
+    MESSAGES.setdefault(_en, (_ko, _en))
+
 
 def current_language(raw: str | None = None) -> str:
     selected = os.environ.get("AGENT_OPT_LANG", "") if raw is None else raw
@@ -278,6 +428,28 @@ def t(key: str, *, lang: str | None = None, **values: object) -> str:
 def human(text: str, *, lang: str | None = None) -> str:
     """Known static UI text is translated; component-provided text is unchanged."""
     return t(text, lang=lang) if text in MESSAGES else text
+
+
+def render_diagnostic(row: dict, *, lang: str | None = None) -> tuple[str, str]:
+    """Render owned explanations without changing collected diagnostic records."""
+    selected = lang or current_language()
+    message, remedy = row["message"], row["remedy"]
+    if selected == "ko" and row["id"] == "budget.trials":
+        count = re.fullmatch(r"Trial budget must reserve at least (\d+) trials", message)
+        if count:
+            number = count.group(1)
+            return (f"평가 예산은 최소 {number}회 예약해야 합니다",
+                    f"budget.max_trials를 최소 {number}으로 설정하거나 단계 허용량을 줄이세요" if remedy else "")
+    if selected == "ko" and row["id"] == "model.configuration" and remedy:
+        prefix = ("Set AGENT_OPT_MODEL_ENDPOINT (or AGENT_OPT_MODEL_BASE_URL) and "
+                  "AGENT_OPT_MODEL_API_KEY for research optimizers; set ")
+        suffix = " for OpenCode harnesses"
+        if remedy.startswith(prefix) and remedy.endswith(suffix):
+            harness_keys = remedy[len(prefix):-len(suffix)]
+            return human(message, lang=selected), (
+                "연구 Optimizer에는 AGENT_OPT_MODEL_ENDPOINT(또는 AGENT_OPT_MODEL_BASE_URL)와 "
+                f"AGENT_OPT_MODEL_API_KEY를, OpenCode 하네스에는 {harness_keys}를 설정하세요")
+    return human(message, lang=selected), human(remedy, lang=selected)
 
 
 def report_language(summary: dict, root: Path, *, override: str | None = None) -> str:

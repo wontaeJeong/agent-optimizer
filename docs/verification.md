@@ -1,5 +1,19 @@
 # 검증 기록
 
+## 2026-09-25 터미널·리포트 한영 지원
+
+Mac ARM64 / Python 3.12.12의 독립 워크트리에서 확인했다. 저장소 로컬 `.env`의
+`AGENT_OPT_MODEL_*` 값은 프로세스 메모리에만 읽어 `ModelSettings.from_env` 유효성을 확인했고,
+자격증명을 출력하거나 Git에 추가하지 않았다. 실제 모델 API 호출이나 Docker/CVDP 평가를
+새로 검증한 것은 아니다.
+
+| 실제 명령·검사 | 결과 |
+|---|---|
+| `env -u AGENT_OPT_MODEL_BASE_URL PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -q`; `make lint`; `git diff --check` | unittest **558개 중 543 통과·15 skip·실패 0**, Ruff·공백 검사 통과. 기존 테스트가 외부 `AGENT_OPT_MODEL_BASE_URL`을 상속해 발생하는 실패는 [별도 PR #28](https://github.com/wontaeJeong/agent-optimizer/pull/28)로 수정했다. 이 PR에서는 그 환경 변수를 제외하고 전체 테스트를 실행했다. |
+| `make setup ARGS="--core --offline"`; `make doctor ARGS="--core --json"`; `make demo` | 캐시 코어 준비·진단 `ready`, 7-trial 합성 데모 `completed`. JSON 키·상태 값과 진단 원문은 영어로 유지했다. |
+| `AGENT_OPT_LANG=en make help`; `AGENT_OPT_LANG=en PYTHONPATH=src .venv/bin/python -m agent_optimizer run examples/minimal/experiment.toml`; `AGENT_OPT_LANG=en .venv/bin/agent-opt report runs/20260925T063337Z-c1bf43dd --html` | 영어 도움말, 7-trial 합성 실행 완료, `report_language=en` 기록과 `report.html` 영어 재생성 확인. 기본 한국어 HTML과 영어 HTML의 1440px 캡처: `docs/superpowers/terminal-language-before-1440.png`, `terminal-language-after-1440.png`. 실제 모델 성능 근거는 아니다. |
+
+
 ## 2026-09-25 장시간 명령 진행 표시 전수 보완
 
 Mac ARM64 / Python 3.12.12 / Docker daemon `linux/arm64`. 모델 키를 사용하지 않았다.

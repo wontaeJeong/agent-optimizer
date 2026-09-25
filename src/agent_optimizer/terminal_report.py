@@ -6,6 +6,9 @@ import threading
 import time
 import os
 
+from agent_optimizer.locale import current_language, human
+
+
 def _terminal_progress(stream):
     from rich.console import Console
     from rich.progress import Progress, ProgressColumn, SpinnerColumn, TimeElapsedColumn
@@ -56,7 +59,7 @@ class ProgressDisplay:
     def start(self):
         if self.tty and self.progress is None:
             self.progress = _terminal_progress(self.stream)
-            self.task_id = self.progress.add_task("waiting for events", total=None)
+            self.task_id = self.progress.add_task(human("waiting for events"), total=None)
             self.progress.start()
         return self
 
@@ -84,6 +87,8 @@ class ProgressDisplay:
         phase = event.get("phase", name.replace("_", " "))
         iteration = event.get("iteration")
         label = f"dataset={dataset} stage={stage} task={task} phase={phase}"
+        if current_language() == "ko":
+            label += f" · {human(name)}"
         if iteration is not None:
             total = event.get("total")
             label += f" iteration={iteration}/{total}" if total is not None else f" iteration={iteration}"
@@ -134,9 +139,13 @@ class PreparationStatus:
         self.stream = sys.stderr if stream is None else stream
         self.progress = None
         self.label = f"[{action}] {subject}={name}"
+        self.subject = subject
 
     def __enter__(self):
         self.started = time.monotonic()
+        label = f"{self.label} starting"
+        if current_language() == "ko":
+            label += " · 데이터셋 준비 중" if self.subject == "dataset" else " · 진단 중"
         if self.stream.isatty():
             try:
                 self.progress = _terminal_progress(self.stream)
@@ -144,11 +153,11 @@ class PreparationStatus:
                 if exc.name != "rich" and not exc.name.startswith("rich."):
                     raise
             if self.progress is not None:
-                self.task_id = self.progress.add_task(f"{self.label} starting",
+                self.task_id = self.progress.add_task(label,
                                                       total=None, tone="yellow")
                 self.progress.start()
         if self.progress is None:
-            self.stream.write(f"{self.label} starting\n")
+            self.stream.write(label + "\n")
             self.stream.flush()
         return self
 
@@ -156,6 +165,8 @@ class PreparationStatus:
         status = "failed" if error_type else "complete"
         message = (f"{self.label} {status} "
                    f"elapsed={time.monotonic()-self.started:.1f}s")
+        if current_language() == "ko":
+            message += " · 실패" if error_type else " · 완료"
         if self.progress is not None:
             self.progress.update(self.task_id, description=message,
                                  tone="red" if error_type else "green")

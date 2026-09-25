@@ -49,19 +49,103 @@ help() {
 }
 
 fail() {
+    message=$*
+    if [ "$language" = ko ]; then
+        case "$message" in
+            'help takes no options') message='help 명령에는 옵션을 지정할 수 없습니다' ;;
+            'Unknown command: '*) message="알 수 없는 명령: ${message#Unknown command: }" ;;
+            'Unsupported option for '*)
+                detail=${message#Unsupported option for }
+                detail=${detail%. Run sh scripts/bootstrap.sh help.}
+                message="지원하지 않는 옵션 ($detail). sh scripts/bootstrap.sh help를 실행하세요." ;;
+            '--dataset requires an identifier'* ) message='--dataset에는 소문자·숫자·_·.·-로 된 ID가 필요합니다' ;;
+            '--dataset may be specified only once') message='--dataset은 한 번만 지정할 수 있습니다' ;;
+            '--iterations requires an integer from 1 to 20'|'--iterations requires 1..20')
+                message='--iterations에는 1..20 정수가 필요합니다' ;;
+            '--platform requires linux/amd64 or linux/arm64') message='--platform에는 linux/amd64 또는 linux/arm64가 필요합니다' ;;
+            'Unsupported platform: '*) message="지원하지 않는 플랫폼: ${message#Unsupported platform: }" ;;
+            '--core cannot be combined with --dataset') message='--core와 --dataset은 함께 사용할 수 없습니다' ;;
+            '--dataset cannot be combined with --platform or --model') message='--dataset과 --platform/--model은 함께 사용할 수 없습니다' ;;
+            '--core cannot be combined with --platform or --model'*)
+                message='--core와 --platform/--model은 함께 사용할 수 없습니다. ACE 전체 명령은 --core 없이 실행하세요.' ;;
+            'setup offline: uv missing; '*)
+                message="오프라인 setup에 uv가 없습니다. 먼저 온라인 $setup_command 명령으로 uv를 준비하세요." ;;
+            'setup prerequisites failed; '*)
+                message="setup 사전 준비 실패: 위 항목을 수정하고 $setup_command 명령을 다시 실행하세요." ;;
+            'Python >=3.11 is unavailable.'*)
+                message="Python >=3.11을 사용할 수 없습니다. $setup_command 명령을 실행하세요. 설치는 시도하지 않았습니다." ;;
+            'AGENT_OPT_CA_BUNDLE must be a readable PEM CA bundle;'*)
+                message='AGENT_OPT_CA_BUNDLE에는 읽기 가능한 PEM CA 번들이 필요합니다. 수정 후 setup을 다시 실행하세요.' ;;
+            'AGENT_OPT_CA_BUNDLE must not contain line breaks.')
+                message='AGENT_OPT_CA_BUNDLE에는 줄바꿈을 넣을 수 없습니다.' ;;
+            'setup offline project sync failed; see '*)
+                message="setup 오프라인 동기화 실패; 로그: $logs/project-uv.log. 필요한 cache/Python을 온라인 $setup_command 명령으로 준비하고 $setup_command --offline을 다시 실행하세요." ;;
+            'setup project sync failed; see '*)
+                message="setup 프로젝트 동기화 실패; 로그: $logs/project-uv.log. 문제를 수정하고 $setup_command 명령을 다시 실행하세요." ;;
+            'setup uv download failed; rerun '*)
+                message="setup uv 다운로드 실패: $url 연결을 확인하고 $setup_command 명령을 다시 실행하세요." ;;
+            'setup uv installer failed; see '*)
+                message="setup uv 설치 실패; 로그: $logs/bootstrap-uv.log. 문제를 수정하고 $setup_command 명령을 다시 실행하세요." ;;
+            'setup uv download: install curl/wget '*)
+                message="setup uv 다운로드에는 curl/wget이 필요합니다 (Mac: brew install curl; Ubuntu: sudo apt install curl). 설치 후 $setup_command 명령을 다시 실행하세요." ;;
+            'setup uv download: cannot allocate temporary wget configuration.')
+                message='setup uv 다운로드용 임시 wget 설정을 만들지 못했습니다. TMPDIR을 확인하세요.' ;;
+            'setup: existing '*'.venv is incompatible and preserved.'*)
+                message="setup: 기존 $ROOT/.venv가 호환되지 않아 보존했습니다. 명시적으로 이동한 뒤 $setup_command 명령을 다시 실행하세요." ;;
+            'setup '*': cannot create '*'; repair the path/permissions and rerun '*)
+                message="setup $stage: $logs 디렉터리를 만들 수 없습니다. 경로·권한을 수정하고 $setup_command 명령을 다시 실행하세요." ;;
+            'setup '*': cannot allocate installer in '*)
+                message="setup $stage: ${TMPDIR:-/tmp}에 설치 파일을 만들 수 없습니다. 쓰기 가능한 TMPDIR을 지정한 뒤 $setup_command 명령을 다시 실행하세요." ;;
+            'setup uv installation missing at '*)
+                message="setup uv 설치 후 실행 파일을 찾을 수 없습니다: $ROOT/.cache/uv/bin; 로그: $logs/bootstrap-uv.log. 문제를 수정하고 $setup_command 명령을 다시 실행하세요." ;;
+            'setup Python dispatch: '*)
+                message="setup Python 전달 실패: $ROOT/.venv/bin/python을 사용할 수 없습니다. $logs/project-uv.log를 확인하고 $setup_command 명령을 다시 실행하세요." ;;
+        esac
+    fi
     if [ -t 2 ] && [ -z "${NO_COLOR:-}" ] && [ "$json_output" = false ]; then
-        printf '\033[31m%s\033[0m\n' "$*" >&2
+        printf '\033[31m%s\033[0m\n' "$message" >&2
     else
-        printf '%s\n' "$*" >&2
+        printf '%s\n' "$message" >&2
     fi
     exit 2
 }
 
+prerequisite_warning() {
+    message=$*
+    if [ "$language" = ko ]; then
+        case "$message" in
+            'Host OS unavailable or unsupported:'*) message='호스트 OS를 사용할 수 없거나 지원하지 않습니다. Mac/Ubuntu에서 uname -s를 확인하세요.' ;;
+            'Git unavailable.'*) message='Git을 사용할 수 없습니다. Mac: xcode-select --install; Ubuntu: sudo apt install git.' ;;
+            'Docker CLI unavailable.'*) message='Docker CLI를 사용할 수 없습니다. Mac: Docker Desktop https://docs.docker.com/desktop/setup/install/mac-install/ ; Ubuntu: Docker Engine과 Compose https://docs.docker.com/engine/install/ubuntu/' ;;
+            'Docker daemon unavailable.'*) message='Docker daemon을 사용할 수 없습니다. Mac: Docker Desktop 실행; Ubuntu: sudo systemctl start docker 후 소켓 권한 확인 https://docs.docker.com/engine/install/linux-postinstall/' ;;
+            'Docker Compose unavailable.'*) message='Docker Compose를 사용할 수 없습니다. Desktop 갱신 또는 docker-compose-plugin 설치: https://docs.docker.com/compose/install/linux/' ;;
+            'CA-enabled builds require docker buildx;'*) message='CA 사용 빌드에는 docker buildx가 필요합니다. docker-buildx-plugin 설치 후 setup을 다시 실행하세요.' ;;
+        esac
+    fi
+    printf '%s\n' "$message" >&2
+}
+
 setup_status() {
+    message=$2
+    if [ "$language" = ko ]; then
+        case "$message" in
+            '[setup] core prerequisites: checking host OS and Git')
+                message='[setup] 코어 사전 준비: 호스트 OS와 Git 검사' ;;
+            '[setup] prerequisites: checking Git, Docker daemon and Compose')
+                message='[setup] 사전 준비: Git·Docker daemon·Compose 검사' ;;
+            '[setup] prerequisites: complete') message='[setup] 사전 준비: 완료' ;;
+            '[setup] uv preparation: installing 0.10.7; log: '*)
+                message="[setup] uv 준비: 0.10.7 설치; 로그: ${message#*; log: }" ;;
+            '[setup] project Python and frozen dependencies; log: '*)
+                message="[setup] 프로젝트 Python과 고정 의존성 준비; 로그: ${message#*; log: }" ;;
+            '[setup] project Python and frozen dependencies: complete')
+                message='[setup] 프로젝트 Python과 고정 의존성 준비: 완료' ;;
+        esac
+    fi
     if [ -t 1 ] && [ -z "${NO_COLOR:-}" ]; then
-        printf '\033[%sm%s\033[0m\n' "$1" "$2"
+        printf '\033[%sm%s\033[0m\n' "$1" "$message"
     else
-        printf '%s\n' "$2"
+        printf '%s\n' "$message"
     fi
 }
 
@@ -180,8 +264,13 @@ if [ -n "$dataset" ]; then
 fi
 if [ "$show_help" = true ]; then
     if [ "$command" = menu ]; then
-        printf '%s\n' 'menu: 대화형 번호 메뉴(TTY와 Python >=3.11 필요).' \
-            'sh scripts/bootstrap.sh menu로 실행하세요. 자동화에는 setup/doctor/demo/live 명령을 사용하세요.'
+        if [ "$language" = en ]; then
+            printf '%s\n' 'menu: interactive numbered menu (TTY and Python >=3.11 required).' \
+                'Run sh scripts/bootstrap.sh menu. For automation use setup/doctor/demo/live.'
+        else
+            printf '%s\n' 'menu: 대화형 번호 메뉴(TTY와 Python >=3.11 필요).' \
+                'sh scripts/bootstrap.sh menu로 실행하세요. 자동화에는 setup/doctor/demo/live 명령을 사용하세요.'
+        fi
     else
         help
     fi
@@ -237,7 +326,11 @@ short_probe() (
     probe=$!
     (
         sleep 15
-        printf '%s timed out after 15s; repair the tool/endpoint and rerun sh scripts/bootstrap.sh %s.\n' "$label" "$command" >&2
+        if [ "$language" = ko ]; then
+            printf '%s 검사 15초 시간 초과; 도구/연결을 수정하고 sh scripts/bootstrap.sh %s 명령을 다시 실행하세요.\n' "$label" "$command" >&2
+        else
+            printf '%s timed out after 15s; repair the tool/endpoint and rerun sh scripts/bootstrap.sh %s.\n' "$label" "$command" >&2
+        fi
         stop_probe_tree "$probe"
     ) &
     timer=$!
@@ -292,29 +385,29 @@ missing=false
 # Expand uname inside the bounded child, not in this parent shell.
 # shellcheck disable=SC2016
 if ! short_probe 'setup prerequisites: host OS' sh -c 'case "$(uname -s)" in Darwin|Linux) exit 0;; *) exit 1;; esac'; then
-    printf '%s\n' 'Host OS unavailable or unsupported: use Mac or Ubuntu; check uname -s.' >&2
+    prerequisite_warning 'Host OS unavailable or unsupported: use Mac or Ubuntu; check uname -s.'
     missing=true
 fi
 if ! command -v git >/dev/null 2>&1 || ! short_probe 'setup prerequisites: Git' git --version; then
-    printf '%s\n' 'Git unavailable. Mac: xcode-select --install; Ubuntu: sudo apt install git.' >&2
+    prerequisite_warning 'Git unavailable. Mac: xcode-select --install; Ubuntu: sudo apt install git.'
     missing=true
 fi
 if [ "$core" = false ] && [ -z "$dataset" ]; then
     if ! command -v docker >/dev/null 2>&1; then
-        printf '%s\n' 'Docker CLI unavailable. Mac: install/open Docker Desktop https://docs.docker.com/desktop/setup/install/mac-install/ ; Ubuntu: install Engine + Compose plugin https://docs.docker.com/engine/install/ubuntu/' >&2
+        prerequisite_warning 'Docker CLI unavailable. Mac: install/open Docker Desktop https://docs.docker.com/desktop/setup/install/mac-install/ ; Ubuntu: install Engine + Compose plugin https://docs.docker.com/engine/install/ubuntu/'
         missing=true
     else
         if ! short_probe 'setup prerequisites: Docker daemon' docker info; then
-            printf '%s\n' 'Docker daemon unavailable. Mac: open Docker Desktop; Ubuntu: sudo systemctl start docker, then check docker info and socket permissions: https://docs.docker.com/engine/install/linux-postinstall/' >&2
+            prerequisite_warning 'Docker daemon unavailable. Mac: open Docker Desktop; Ubuntu: sudo systemctl start docker, then check docker info and socket permissions: https://docs.docker.com/engine/install/linux-postinstall/'
             missing=true
         fi
         if ! short_probe 'setup prerequisites: Docker Compose' docker compose version; then
-            printf '%s\n' 'Docker Compose unavailable. Mac: update Docker Desktop; Ubuntu: install docker-compose-plugin from the Docker apt repository: https://docs.docker.com/compose/install/linux/' >&2
+            prerequisite_warning 'Docker Compose unavailable. Mac: update Docker Desktop; Ubuntu: install docker-compose-plugin from the Docker apt repository: https://docs.docker.com/compose/install/linux/'
             missing=true
         fi
         if [ -n "${AGENT_OPT_CA_BUNDLE:-}" ] && [ "$offline" = false ] &&
             ! short_probe 'setup prerequisites: Docker Buildx' docker buildx version; then
-            printf '%s\n' 'CA-enabled builds require docker buildx; install docker-buildx-plugin and rerun setup.' >&2
+            prerequisite_warning 'CA-enabled builds require docker buildx; install docker-buildx-plugin and rerun setup.'
             missing=true
         fi
     fi

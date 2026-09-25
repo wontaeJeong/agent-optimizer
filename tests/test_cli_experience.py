@@ -71,6 +71,21 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn("readiness:", rendered["en"])
         self.assertEqual(machine["ko"], machine["en"])
 
+    def test_plan_budget_diagnostic_localizes_number_without_changing_json(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        plan.write_text(plan.read_text().replace("max_trials = 40", "max_trials = 1"))
+        with patch.dict(os.environ, {"AGENT_OPT_LANG": "ko"}):
+            human_output = io.StringIO()
+            with contextlib.redirect_stdout(human_output), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(main(["doctor", "--plan", str(plan)]), 2)
+            machine_output = io.StringIO()
+            with contextlib.redirect_stdout(machine_output), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(main(["doctor", "--plan", str(plan), "--json"]), 2)
+        self.assertIn("평가 예산은 최소", human_output.getvalue())
+        budget = next(row for row in json.loads(machine_output.getvalue())["checks"]
+                      if row["id"] == "budget.trials")
+        self.assertIn("Trial budget must reserve at least", budget["message"])
+
     def test_datasets_list_rejects_ignored_positional_filters(self):
         output, error = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
@@ -643,6 +658,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["status"], "completed")
         self.assertTrue((self.root / "runs/configs/wizard-demo/experiment.toml").is_file())
         self.assertIn("fixture-validation", terminal.getvalue())
+        self.assertIn("데이터셋:", terminal.getvalue().split("선택한 데이터셋 준비 중", 1)[0][-500:])
 
     def test_wizard_selects_a_registered_harness_for_the_generated_run(self):
         terminal = io.StringIO()

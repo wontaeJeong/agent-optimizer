@@ -249,7 +249,7 @@ def _comparison(group, number):
                f'<p class="subtle">{text(_s("완료"))} {_count(counts.get("completed_evaluations"))}{text(_s("건 · "))}'
                f'{text(_s("통과"))} {_count(counts.get("passed_evaluations"))}{text(_s("건 · "))}'
                f'{text(_s("실패"))} {_count(counts.get("failed_evaluations"))}{text(_s("건 · "))}'
-               f'{_term("예산 사용 횟수")} {_count(counts.get("trials_used"))}{text(_s("회"))}</p>'
+               f'{_term("예산 사용 횟수")} {_count(counts.get("trials_used"))}{text(_s("회")) if _language.get() == "ko" else ""}</p>'
                f'<p>{_term("기준 후보")}: <code>{text(baseline.get("candidate_id"))}</code> → '
                f'{" · ".join(selection)}</p>')
     rows = []
