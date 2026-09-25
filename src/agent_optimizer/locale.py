@@ -6,6 +6,11 @@ from pathlib import Path
 
 
 MESSAGES = {
+    "세션 대기": ("대기", "queued"),
+    "세션 실행 중": ("실행 중", "running"),
+    "세션 완료": ("완료", "completed"),
+    "세션 실패": ("실패", "failed"),
+    "세션 중단": ("중단", "interrupted"),
     "remedy": ("해결", "Remedy"),
     "readiness": ("준비 상태", "readiness"),
     "Synthetic fixture tasks are valid": ("합성 예제 과제를 사용할 수 있습니다", "Synthetic fixture tasks are valid"),

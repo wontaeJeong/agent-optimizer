@@ -12,7 +12,7 @@ from agent_optimizer.cli import main
 from agent_optimizer.contracts import ConfigurationError, Evaluation
 from agent_optimizer.registry import Registry
 from agent_optimizer.runner import run_experiment
-from agent_optimizer.terminal_report import PreparationStatus, ProgressDisplay
+from agent_optimizer.terminal_report import PreparationStatus, ProgressDisplay, SessionProgress
 from support import ROOT, module, test_project
 
 ace_checks = module("progress_ace_checks", ROOT / "examples/ace-rtl/environment/checks.py")
@@ -80,6 +80,37 @@ class ProgressTests(unittest.TestCase):
             with ProgressDisplay(stream=screen):
                 pass
         self.assertIn("이벤트 대기 중", screen.getvalue())
+
+    def test_session_tty_keeps_both_datasets_visible_while_one_finishes(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        screen = Terminal()
+        with SessionProgress(["first", "second"], stream=screen) as progress:
+            progress.start(0)
+            progress.start(1)
+            progress.event(1, {"event": "agent_started", "stage_id": "baseline",
+                               "task_id": "t2", "phase": "agent"})
+            progress.finish(0, "completed", 1.2)
+        rendered = screen.getvalue()
+        self.assertIn("[1/2] first", rendered)
+        self.assertIn("[2/2] second", rendered)
+        self.assertIn("t2", rendered)
+        self.assertIn("완료", rendered)
+        self.assertRegex(rendered, r"\x1b\[[0-9;]+m")
+
+    def test_session_redirected_progress_identifies_duplicate_names_without_stdout(self):
+        output, status = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), SessionProgress(["same", "same"], stream=status) as progress:
+            progress.start(0)
+            progress.start(1)
+            progress.event(1, {"event": "trial_started", "task_id": "task-2", "phase": "workspace"})
+            progress.finish(0, "completed", 1.2)
+        self.assertEqual(output.getvalue(), "")
+        self.assertIn("[1/2] same", status.getvalue())
+        self.assertIn("[2/2] same", status.getvalue())
+        self.assertIn("task-2", status.getvalue())
 
     def test_interactive_progress_uses_rich_styling_and_keeps_json_stdout_clean(self):
         class Terminal(io.StringIO):
