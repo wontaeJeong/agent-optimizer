@@ -19,6 +19,7 @@ from agent_optimizer.registry import PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, R
 from agent_optimizer.results import write_json
 from agent_optimizer.terminal_report import PreparationStatus
 from agent_optimizer.terminal_style import style
+from agent_optimizer.locale import human
 from agent_optimizer.workspace import safe_path
 
 
@@ -230,12 +231,12 @@ def wizard_arguments(project_root: Path) -> list[str]:
     registry, _, _ = component_inventory(project_root)
 
     def ask(label):
-        print("  " + style(f"{label}:", "warning", stream=sys.stderr) + " ",
+        print("  " + style(f"{human(label)}:", "warning", stream=sys.stderr) + " ",
               end="", file=sys.stderr, flush=True)
         return input().strip()
 
     print("\n╭─────────────────────────────────────────────────────────╮", file=sys.stderr)
-    print(style("│  Agent Optimizer   ·   new optimization experiment     │", "heading",
+    print(style(human("│  Agent Optimizer   ·   new optimization experiment     │"), "heading",
                 stream=sys.stderr), file=sys.stderr)
     print("╰─────────────────────────────────────────────────────────╯", file=sys.stderr)
     name = ask("Experiment name")
@@ -244,7 +245,7 @@ def wizard_arguments(project_root: Path) -> list[str]:
     command = shlex.split(ask("Agent execution argv (e.g. python agent.py {task_dir})"))
     editable = [item.strip() for item in ask("Editable files (comma separated)").split(",") if item.strip()]
     choices = sorted(registry.factories["datasets"])
-    print("\n  " + style("Choose a dataset; there is no automatic recommendation:", "heading",
+    print("\n  " + style(human("Choose a dataset; there is no automatic recommendation:"), "heading",
                            stream=sys.stderr), file=sys.stderr)
     for index, key in enumerate(choices, 1):
         info = registry.factories["datasets"][key]().describe()
@@ -262,9 +263,9 @@ def wizard_arguments(project_root: Path) -> list[str]:
     direction = (ask("Score direction maximize/minimize (Enter for maximize)") or "maximize"
                  if evaluator else "maximize")
     if direction not in {"maximize", "minimize"}:
-        raise ConfigurationError("Score direction must be maximize or minimize")
+        raise ConfigurationError(human("Score direction must be maximize or minimize"))
     optimizers = sorted(registry.factories["optimizers"])
-    print("\n  " + style("Select optimizer algorithms:", "heading", stream=sys.stderr),
+    print("\n  " + style(human("Select optimizer algorithms:"), "heading", stream=sys.stderr),
           file=sys.stderr)
     for index, key in enumerate(optimizers, 1):
         print(f"    {style(f'{index}.', 'heading', stream=sys.stderr)} {key}", file=sys.stderr)
@@ -272,26 +273,26 @@ def wizard_arguments(project_root: Path) -> list[str]:
     try:
         selected = [optimizers[int(index.strip()) - 1] for index in numbers.split(",")]
     except (ValueError, IndexError):
-        raise ConfigurationError("Choose one or more listed optimizer numbers") from None
+        raise ConfigurationError(human("Choose one or more listed optimizer numbers")) from None
     if not selected or not all(item in optimizers for item in selected):
-        raise ConfigurationError("Choose one or more listed optimizers")
+        raise ConfigurationError(human("Choose one or more listed optimizers"))
     harnesses = sorted(registry.factories["harnesses"])
-    print("\n  " + style("Select an Agent harness:", "heading", stream=sys.stderr), file=sys.stderr)
+    print("\n  " + style(human("Select an Agent harness:"), "heading", stream=sys.stderr), file=sys.stderr)
     for index, key in enumerate(harnesses, 1):
         print(f"    {style(f'{index}.', 'heading', stream=sys.stderr)} {key}", file=sys.stderr)
     number = ask("Harness number")
     if not number.isdigit() or not 1 <= int(number) <= len(harnesses):
-        raise ConfigurationError("Choose a listed harness number")
+        raise ConfigurationError(human("Choose a listed harness number"))
     harness = harnesses[int(number) - 1]
     scaffold = (ask("Active runtime harness .py file (Enter to auto-detect one match)")
                 if any(item in {"meta_harness", "ecdysis"} for item in selected) else "")
     target_file = (ask("Editable text target (Enter to auto-detect one match)")
                    if "gepa" in selected else "")
-    print(f"\n  Agent: {agent}\n  Datasets: {', '.join(selected_datasets)}\n  Harness: {harness}"
-          f"\n  Optimizers: {', '.join(selected)}",
+    print(f"\n  {human('Agent')}: {agent}\n  {human('Datasets')}: {', '.join(selected_datasets)}\n  {human('Harness')}: {harness}"
+          f"\n  {human('Optimizers')}: {', '.join(selected)}",
           file=sys.stderr)
     if ask("Prepare dataset and run? [y/N]").lower() not in {"y", "yes"}:
-        raise ConfigurationError("Experiment cancelled without preparing data")
+        raise ConfigurationError(human("Experiment cancelled without preparing data"))
     arguments = ["init", "--project-root", str(project_root), "--name", name,
                  "--agent", agent, *[part for dataset in selected_datasets
                                      for part in ("--dataset", dataset)],

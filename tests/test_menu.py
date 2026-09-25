@@ -63,6 +63,14 @@ class MenuFlows(unittest.TestCase):
             self.assertEqual(calls, [])
             self.assertEqual(list(self.root.iterdir()), [])
 
+    def test_english_menu_titles_with_same_numbered_commands(self):
+        with patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}):
+            code, output, calls = self.flow(["0"])
+        self.assertEqual(code, 0)
+        self.assertIn("1. Set up core development environment", output)
+        self.assertIn("8. General Agent optimization TUI", output)
+        self.assertEqual(calls, [])
+
     def test_interrupt_exits_130(self):
         code, _, calls = self.flow([KeyboardInterrupt()])
         self.assertEqual(code, 130)

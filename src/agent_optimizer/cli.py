@@ -27,6 +27,7 @@ from agent_optimizer.setup_wizard import (component_inventory, prepare_selection
                                           write_experiment)
 from agent_optimizer.terminal_report import PreparationStatus, ProgressDisplay
 from agent_optimizer.terminal_style import style
+from agent_optimizer.locale import MESSAGES, current_language, human, t
 from agent_optimizer.results import write_json
 from agent_optimizer.readiness import collect_dataset, collect_plan
 
@@ -52,6 +53,11 @@ def doctor():
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    try:
+        language = current_language()
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
     if argv and argv[0] == "rerank":
         print(style("error:", "error", stream=sys.stderr) + " rerank is deferred; configure the objective for a new run. "
               "Stored reports and frozen selections remain available; see deferred/README.md", file=sys.stderr)
@@ -60,8 +66,10 @@ def main(argv=None):
     if argv and argv[0] == "doctor":
         sys.dont_write_bytecode = True
     try:
-        return typer.main.get_command(app).main(args=argv, prog_name="agent-opt",
-                                                standalone_mode=False) or 0
+        command = typer.main.get_command(app)
+        if language == "en":
+            localize_click_help(command)
+        return command.main(args=argv, prog_name="agent-opt", standalone_mode=False) or 0
     except ClickException as exc:
         print(f"{style('error:', 'error', stream=sys.stderr)} {exc.format_message()}", file=sys.stderr)
         return exc.exit_code
@@ -80,6 +88,20 @@ app = typer.Typer(help="여러 Agent의 최적화 실험을 위한 작업 도구
                           'agent-opt init --help를 사용합니다. 모델 없는 합성 예제는 README.md를 참고하세요.'))
 dataset_app = typer.Typer(help="데이터셋 목록 표시 및 명시적으로 선택한 데이터셋 준비", no_args_is_help=True)
 app.add_typer(dataset_app, name="datasets")
+
+
+def localize_click_help(command):
+    """Translate static help on this invocation's Click command tree."""
+    for attribute in ("help", "short_help", "epilog"):
+        value = getattr(command, attribute, None)
+        if value in MESSAGES:
+            setattr(command, attribute, t(value, lang="en"))
+    for parameter in command.params:
+        value = getattr(parameter, "help", None)
+        if value in MESSAGES:
+            parameter.help = t(value, lang="en")
+    for child in getattr(command, "commands", {}).values():
+        localize_click_help(child)
 
 
 def _invoke(command: str, **options) -> int:
@@ -329,7 +351,7 @@ def _dispatch(args):
                 rollback.pop_all()
         elif args.command == "tui":
             if not sys.stdin.isatty() or not sys.stderr.isatty():
-                raise ConfigurationError("TUI requires a TTY for both input and output")
+                raise ConfigurationError(t("TUI requires a TTY for both input and output"))
             try:
                 init_args = wizard_arguments(args.project_root.absolute())
             except EOFError:
@@ -409,14 +431,14 @@ def _dispatch(args):
                     show(report)
                 else:
                     status = "ready" if report["ready"] else "not ready"
-                    print(f"{report['scope']} readiness: "
+                    print(f"{report['scope']} {human('readiness')}: "
                           + style(status, "success" if report["ready"] else "error"))
                     for row in report["checks"]:
                         tone = {"ok": "success", "error": "error", "blocked": "warning"}.get(
                             row["status"], "warning")
-                        print(f"[{style(row['status'], tone)}] {row['id']}: {row['message']}")
+                        print(f"[{style(row['status'], tone)}] {row['id']}: {human(row['message'])}")
                         if row["remedy"]:
-                            print(f"  {style('Remedy:', 'warning')} {row['remedy']}")
+                            print(f"  {style(t('remedy') + ':', 'warning')} {human(row['remedy'])}")
                 return 0 if report["ready"] else 2
             show(doctor())
         elif args.command == "agents":

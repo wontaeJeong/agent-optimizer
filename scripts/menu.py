@@ -14,6 +14,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.models import ModelSettings
 from agent_optimizer.terminal_style import ColorArgumentParser, style
+from agent_optimizer.locale import current_language, human
 
 MENU = """
 1. 코어 개발 환경 설치
@@ -148,7 +149,12 @@ def reports():
 
 
 def main(argv=None, *, env=None):
-    parser = ColorArgumentParser(description=__doc__, epilog="TTY 필요. 자동화에는 setup/doctor/demo/live 명령을 사용하세요.")
+    try:
+        current_language()
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    parser = ColorArgumentParser(description=human(__doc__), epilog=human("TTY 필요. 자동화에는 setup/doctor/demo/live 명령을 사용하세요."))
     parser.parse_args(argv)
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         print(style("menu requires a TTY;", "error")
@@ -158,9 +164,9 @@ def main(argv=None, *, env=None):
     last_tui_code = 0
     try:
         while True:
-            print(style("Agent Optimizer · 개발자 메뉴", "heading"))
-            print(MENU)
-            choice = input(style("선택: ", "warning")).strip()
+            print(style(human("Agent Optimizer · 개발자 메뉴"), "heading"))
+            print("\n".join(human(line) for line in MENU.splitlines()))
+            choice = input(style(human("선택: "), "warning")).strip()
             if choice == "0":
                 return last_tui_code
             try:

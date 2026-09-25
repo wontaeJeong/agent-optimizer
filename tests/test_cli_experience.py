@@ -57,6 +57,20 @@ class CLIExperienceTests(unittest.TestCase):
                 self.assertIn(phrase, text)
         self.assertFalse((self.root / "runs").exists())
 
+    def test_doctor_human_status_changes_language_but_json_does_not(self):
+        rendered, machine = {}, {}
+        for language in ("ko", "en"):
+            with patch.dict(os.environ, {"AGENT_OPT_LANG": language}):
+                with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(["doctor", "--dataset", "sample_text", "--project-root", str(self.root)]), 0)
+                rendered[language] = output.getvalue()
+                with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
+                    self.assertEqual(main(["doctor", "--dataset", "sample_text", "--project-root", str(self.root), "--json"]), 0)
+                machine[language] = json.loads(output.getvalue())
+        self.assertIn("준비 상태:", rendered["ko"])
+        self.assertIn("readiness:", rendered["en"])
+        self.assertEqual(machine["ko"], machine["en"])
+
     def test_datasets_list_rejects_ignored_positional_filters(self):
         output, error = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
@@ -638,7 +652,7 @@ class CLIExperienceTests(unittest.TestCase):
                         "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1", "y"])
 
         def answer():
-            if "Harness number" in terminal.getvalue().splitlines()[-1]:
+            if "하네스 번호" in terminal.getvalue().splitlines()[-1]:
                 return str(sorted(Registry().factories["harnesses"]).index("fixture") + 1)
             return next(answers)
 
@@ -652,6 +666,16 @@ class CLIExperienceTests(unittest.TestCase):
         run, summary = run_experiment(spec, Registry(), self.root / "runs")
         self.assertEqual(summary["status"], "completed")
         self.assertTrue((run / "manifest.json").is_file())
+
+    def test_wizard_prompts_follow_language_without_changing_options(self):
+        for language, expected in (("ko", "실험 이름:"), ("en", "Experiment name:")):
+            with self.subTest(language=language):
+                output = io.StringIO()
+                with patch.dict(os.environ, {"AGENT_OPT_LANG": language}), \
+                        patch("builtins.input", side_effect=EOFError), contextlib.redirect_stderr(output):
+                    with self.assertRaises(EOFError):
+                        wizard_arguments(self.root)
+                self.assertIn(expected, output.getvalue())
 
     def test_tui_eof_leaves_sources_and_configuration_untouched(self):
         class Terminal(io.StringIO):

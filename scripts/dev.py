@@ -19,6 +19,7 @@ from agent_optimizer.registry import Registry
 from agent_optimizer import readiness
 from agent_optimizer.terminal_report import PreparationStatus
 from agent_optimizer.terminal_style import ColorArgumentParser, style
+from agent_optimizer.locale import current_language, human
 
 
 def load(name, path):
@@ -57,11 +58,16 @@ def run_core(command):
 
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
-    parser = ColorArgumentParser(description=__doc__, epilog=(
+    try:
+        current_language()
+    except ValueError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+    parser = ColorArgumentParser(description=human(__doc__), epilog=human((
         "코어 사전 준비: Git. ACE 전체 준비에는 Docker Engine/Compose도 필요합니다. "
         "Python이나 make가 없다면 sh scripts/bootstrap.sh setup --core를 사용하세요. "
         "make <명령> ARGS='...'에는 일반 셸 인수를 전달합니다."
-    ))
+    )))
     commands = parser.add_subparsers(dest="command")
     descriptions = {
         "setup": "--core/--dataset 없이: ACE 전체 준비; --core: 코어와 합성 fixture; "
@@ -77,7 +83,7 @@ def main(argv=None):
         "help": "도구 조회나 설치 없이 이 도움말 표시",
     }
     for name, description in descriptions.items():
-        command = commands.add_parser(name, help=description, description=description, allow_abbrev=False)
+        command = commands.add_parser(name, help=human(description), description=human(description), allow_abbrev=False)
         if name in {"setup", "doctor"}:
             command.add_argument("--core", action="store_true", help="코어 도구만 준비·진단; Docker/ACE 제외(--dataset/--platform/--model과 함께 사용 불가)")
             command.add_argument("--dataset", metavar="ID", help=(
