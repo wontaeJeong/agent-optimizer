@@ -6,6 +6,7 @@ import io
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -23,7 +24,8 @@ from agent_optimizer.runner import preflight, run_experiment
 from agent_optimizer.registry import Registry
 from agent_optimizer.network import network_environment
 from agent_optimizer.setup_wizard import (component_inventory, prepare_selection,
-                                          _bounded_tasks, choose_editable_file, wizard_arguments,
+                                          _bounded_tasks, choose_editable_file, requires_command,
+                                          supports_generated_profile, wizard_arguments,
                                           write_experiment)
 from agent_optimizer.terminal_report import PreparationStatus, ProgressDisplay
 from agent_optimizer.terminal_style import style
@@ -124,6 +126,7 @@ def datasets_prepare(name: str | None = typer.Argument(None, help="등록된 데
 def init_command(project_root: Path | None = None,
                  agent: str | None = typer.Option(None, help="로컬 소스 경로 또는 Git URL(Git이면 --revision 지정)"),
                  revision: str | None = None, name: str | None = None,
+                 command: str | None = typer.Option(None, "--command", help="명령 하네스의 Agent 실행 argv(셸 실행 없음)"),
                  command_json: str | None = typer.Option(None, "--command-json", help="대시(-)로 시작하는 Agent 옵션도 포함하는 JSON 인수 배열"),
                  editable: list[str] | None = typer.Option(None, "--editable", help="수정 허용 Agent 경로/패턴(반복 가능)"),
                  prompt_file: str = "prompts/system.md",
@@ -138,7 +141,7 @@ def init_command(project_root: Path | None = None,
                  yes: bool = typer.Option(False, help="TTY 없이 준비를 확인하고 진행")) -> int:
     """직접 선택한 데이터셋으로 실험 설정 생성."""
     return _invoke("init", project_root=project_root or Path.cwd(), agent=agent,
-                   revision=revision, name=name, command_json=command_json,
+                   revision=revision, name=name, command_text=command, command_json=command_json,
                    editable=editable, prompt_file=prompt_file, dataset=dataset,
                    evaluator=evaluator, metric=metric, direction=direction,
                    harness=harness, optimizer=optimizer, optimizer_config=optimizer_config,
@@ -213,12 +216,21 @@ def _dispatch(args):
         elif args.command == "init":
             if not args.dataset:
                 raise ConfigurationError("Select a dataset explicitly with --dataset")
-            if not args.agent or not args.command_json or not args.editable:
-                raise ConfigurationError("--agent, --command-json, and --editable are required")
-            command = json.loads(args.command_json)
-            if not isinstance(command, list) or not command or not all(
-                    isinstance(part, str) and part for part in command):
-                raise ConfigurationError("Agent argv must be a nonempty JSON string array")
+            if not args.agent or not args.editable:
+                raise ConfigurationError("--agent와 --editable을 지정하세요")
+            if args.command_text is not None and args.command_json is not None:
+                raise ConfigurationError("--command와 --command-json을 함께 사용할 수 없습니다")
+            command = None
+            if args.command_text is not None:
+                try:
+                    command = shlex.split(args.command_text)
+                except ValueError as exc:
+                    raise ConfigurationError(f"잘못된 Agent 실행 명령: {exc}") from exc
+            elif args.command_json is not None:
+                command = json.loads(args.command_json)
+            if command is not None and (not isinstance(command, list) or not command or not all(
+                    isinstance(part, str) and part for part in command)):
+                raise ConfigurationError("Agent argv must be a nonempty string array")
             if not args.yes:
                 raise ConfigurationError("Inspect the choices then pass --yes to confirm preparation")
             root = args.project_root.absolute()
@@ -230,6 +242,14 @@ def _dispatch(args):
             name = args.name or (agent.name if isinstance(agent, Path) and agent.is_dir() else "agent")
             name = name.lower().replace(" ", "-")
             inventory, _, _ = component_inventory(root)
+            adapter = inventory.resolve("harnesses", args.harness)
+            uses_command = requires_command(adapter)
+            if uses_command and command is None:
+                raise ConfigurationError("이 하네스에는 --command 또는 --command-json이 필요합니다")
+            if not uses_command and command is not None:
+                raise ConfigurationError("선택한 하네스는 Agent 실행 명령을 받지 않습니다")
+            if not supports_generated_profile(adapter):
+                raise ConfigurationError("전용 하네스 프로필이 필요합니다. 기존 experiment.toml을 사용하세요")
             chosen = args.optimizer or ["gepa"]
             custom_configs = json.loads(args.optimizer_config) if args.optimizer_config else {}
             if (not isinstance(custom_configs, dict)
@@ -238,17 +258,16 @@ def _dispatch(args):
                 raise ConfigurationError("--optimizer-config must be a JSON mapping of optimizer names to options")
             for optimizer in chosen:
                 inventory.resolve("optimizers", optimizer)
-            inventory.resolve("harnesses", args.harness)
             target = (choose_editable_file(agent, args.editable, explicit=args.target_file)
                       if "gepa" in chosen else None)
             scaffold = (choose_editable_file(agent, args.editable, suffix=".py",
                                              explicit=args.scaffold_file)
                         if any(o in {"meta_harness", "ecdysis"} for o in chosen) else None)
+            harness = {"adapter": args.harness}
+            if command is not None:
+                harness["command"] = command
             if args.revision:
-                harness = {"adapter": args.harness, "command": command,
-                           "revision": args.revision}
-            else:
-                harness = {"adapter": args.harness, "command": command}
+                harness["revision"] = args.revision
             experiments = []
             multiple = len(args.dataset) > 1
             with contextlib.ExitStack() as rollback:

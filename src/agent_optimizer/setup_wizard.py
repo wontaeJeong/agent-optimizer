@@ -15,6 +15,8 @@ from pathlib import Path
 from agent_optimizer.config import identifier, load_experiment, load_tasks, positive
 from agent_optimizer.contracts import ConfigurationError
 from agent_optimizer.datasets import CustomDataset
+from agent_optimizer.harnesses.command import CommandHarness, FixtureHarness
+from agent_optimizer.harnesses.opencode import OpenCodeHarness
 from agent_optimizer.registry import PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, Registry
 from agent_optimizer.results import write_json
 from agent_optimizer.terminal_report import PreparationStatus
@@ -26,6 +28,15 @@ def component_inventory(project_root: Path) -> tuple[Registry, dict, dict]:
     registry = Registry()
     registry.load_project(project_root)
     return registry, PROJECT_COMPONENTS, PROJECT_DEPENDENCIES
+
+
+def requires_command(adapter: type) -> bool:
+    return (isinstance(adapter, type) and issubclass(adapter, CommandHarness)
+            and adapter.argv is CommandHarness.argv)
+
+
+def supports_generated_profile(adapter: type) -> bool:
+    return requires_command(adapter) or adapter in {FixtureHarness, OpenCodeHarness}
 
 
 def prepare_selection(project_root: Path, selection: str, *, evaluator: str | None = None,
@@ -138,7 +149,7 @@ def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dat
         raise ConfigurationError(f"Generated configuration already exists: {config_root}")
     if not editable or not all(isinstance(value, str) and value for value in editable):
         raise ConfigurationError("At least one editable Agent file is required")
-    if not harness.get("command"):
+    if harness.get("adapter", "command") == "command" and not harness.get("command"):
         raise ConfigurationError("Agent execution argv is required")
     if type(max_tasks) is not int or max_tasks < 1:
         raise ConfigurationError("max_tasks must be positive")
@@ -181,9 +192,10 @@ def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dat
                             f"revision = {_literal(harness['revision'])}"]
         (config_root / "agent.toml").write_text("\n".join(agent_lines) + "\n", encoding="utf-8")
         harness_lines = [f"id = {_literal(harness.get('id', 'user-command'))}",
-                         f"adapter = {_literal(harness.get('adapter', 'command'))}",
-                         f"command = {_literal(harness['command'])}", "allow_local = true", "",
-                         "[runtime]", 'kind = "local"']
+                         f"adapter = {_literal(harness.get('adapter', 'command'))}"]
+        if "command" in harness:
+            harness_lines.append(f"command = {_literal(harness['command'])}")
+        harness_lines += ["allow_local = true", "", "[runtime]", 'kind = "local"']
         (config_root / "harness.toml").write_text("\n".join(harness_lines) + "\n", encoding="utf-8")
         lines = ["schema_version = 1", f"name = {_literal(name)}",
                  f"project_root = {_literal(os.path.relpath(project_root, config_root))}",
@@ -241,7 +253,6 @@ def wizard_arguments(project_root: Path) -> list[str]:
     name = ask("Experiment name")
     agent = ask("Agent source directory or pinned Git URL")
     revision = ask("Git commit (leave blank for local source)") if "://" in agent else ""
-    command = shlex.split(ask("Agent execution argv (e.g. python agent.py {task_dir})"))
     editable = [item.strip() for item in ask("Editable files (comma separated)").split(",") if item.strip()]
     choices = sorted(registry.factories["datasets"])
     print("\n  " + style("Choose a dataset; there is no automatic recommendation:", "heading",
@@ -283,6 +294,13 @@ def wizard_arguments(project_root: Path) -> list[str]:
     if not number.isdigit() or not 1 <= int(number) <= len(harnesses):
         raise ConfigurationError("Choose a listed harness number")
     harness = harnesses[int(number) - 1]
+    adapter = registry.resolve("harnesses", harness)
+    if not supports_generated_profile(adapter):
+        raise ConfigurationError("전용 하네스 프로필이 필요합니다. 기존 experiment.toml을 사용하세요")
+    command = (shlex.split(ask("Agent execution argv (e.g. python agent.py {task_dir})"))
+               if requires_command(adapter) else None)
+    if command is not None and not command:
+        raise ConfigurationError("Agent 실행 명령을 입력하세요")
     scaffold = (ask("Active runtime harness .py file (Enter to auto-detect one match)")
                 if any(item in {"meta_harness", "ecdysis"} for item in selected) else "")
     target_file = (ask("Editable text target (Enter to auto-detect one match)")
@@ -295,8 +313,9 @@ def wizard_arguments(project_root: Path) -> list[str]:
     arguments = ["init", "--project-root", str(project_root), "--name", name,
                  "--agent", agent, *[part for dataset in selected_datasets
                                      for part in ("--dataset", dataset)],
-                 "--command-json", json.dumps(command),
                  "--editable", editable[0], "--harness", harness, "--yes"]
+    if command is not None:
+        arguments += ["--command-json", json.dumps(command)]
     for item in editable[1:]:
         arguments += ["--editable", item]
     for optimizer in selected:
