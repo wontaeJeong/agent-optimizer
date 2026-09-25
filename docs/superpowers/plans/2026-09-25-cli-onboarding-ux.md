@@ -25,6 +25,7 @@
 - `scripts/bootstrap.sh`: CLI 도움말의 대표 명령 변경.
 - `src/agent_optimizer/setup_wizard.py`: 대화형 Agent/데이터셋/하네스 입력과 재사용 가능한 인수 작성. 명령이 필요한 하네스만 질문.
 - `src/agent_optimizer/cli.py`: 비대화형 인수 검증·대화형 `init`/`tui` 분기·기존 계획 진단/확인/실행.
+- `examples/ace-rtl/adapter.py`: 준비된 고정 ACE 스킬 프로필을 기존 `live` 명령으로 위임하는 예제 전용 메서드.
 - `tests/test_dev_onboarding.py`, `tests/test_cli_experience.py`: 실제 진입점과 계약 경계를 회귀 검증.
 - `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `docs/development.md`, `docs/adding-components.md`, `docs/NEXT_STEPS.md`, `website/user/getting-started.md`, `website/developer/validation.md`: 사용자 시작 예시와 의미를 일치시킴.
 
@@ -109,14 +110,41 @@
 - [ ] **4. GREEN 확인:** 전체 CLI 회귀 및 `PYTHONPATH=src /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m unittest discover -s tests -v`를 확인한다.
 - [ ] **5. 커밋:** 두 Python 파일과 테스트만 스테이징해 한국어 메시지로 커밋한다.
 
-### 작업 4: 시작 가이드와 최종 UX 검증
+### 작업 4: ACE 실사용 프로필의 실행 위임과 환경 검증 경계
 
-**파일:** `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `docs/development.md`, `docs/adding-components.md`, `docs/NEXT_STEPS.md`, `website/user/getting-started.md`, `website/developer/validation.md`, `examples/minimal/README.md`, `src/agent_optimizer/cli.py`(도움말 문구).
+**파일:** `src/agent_optimizer/cli.py`, `examples/ace-rtl/adapter.py`, `examples/ace-rtl/experiment.toml`, `tests/test_cli_experience.py`, `docs/verification.md`.
+
+**입력:** ACE 고정 `experiment.toml`의 이미 확인된 선택 및 등록된 `ACEOpenCode` 어댑터. **출력:** 실제 `live` 명령과 동일한 사전 검사·모델·Docker/공식 CVDP 실행 및 자식 종료 코드. 일반 하네스는 기존 runner 사용.
+
+- [ ] **1. RED:** 임시 프로젝트에 `examples/ace-rtl/experiment.toml`과 출력 마커를 기록하는 가짜 `scripts/bootstrap.sh`를 두고 TUI의 기존 실험 선택 및 `agent-opt run`이 `sh scripts/bootstrap.sh live`를 `cwd=project_root`에서 정확히 한 번 실행하는지 검사한다. 가짜 script의 종료 2/3은 그대로 전달하고 일반 최소 fixture는 직접 runner로 완료한다. `collect_plan`은 ACE 자산이 없는 fixture에서만 `ready=true`로 교체하고 실제 자식 프로세스·파일 마커는 교체하지 않는다.
+  ```python
+  (self.root / "scripts").mkdir()
+  (self.root / "scripts/bootstrap.sh").write_text(
+      '#!/bin/sh\nprintf "%s:%s\\n" "$PWD" "$1" > "$PWD/launch.marker"\nexit 3\n')
+  # TUI에서 ACE 경로를 선택/승인하거나 main(["run", str(ace_experiment)]) 후:
+  self.assertEqual((self.root / "launch.marker").read_text().strip(), f"{self.root.resolve()}:live")
+  ```
+- [ ] **2. RED 실행:** `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_cli_experience.py -k ace -v`에서 기존 TUI가 일반 runner를 호출하는 실패를 확인한다.
+- [ ] **3. 최소 구현:** `ACEOpenCode.launch_existing(spec: dict) -> int`는 `_source`가 예제의 정확한 실험 파일인지 확인하고 `subprocess.run(["sh", str(root / "scripts/bootstrap.sh"), "live"], cwd=root, shell=False).returncode`를 반환한다. `cli.py`의 공유 실행 경로는 선택된 등록 하네스 구현에 이 메서드가 있는 경우에만 호출한다. 다중 Agent/하네스와 다른 파일을 ACE 고정 경로로 넘기지 않는다. `--output`은 예제 `live`에 전달되지 않으므로 조용히 무시하지 않고 오류로 거절한다. `live`가 가진 모델/lock·플랫폼·driver·이미지 진단을 CLI에 복사하지 않는다.
+  ```python
+  adapter = registry.resolve("harnesses", spec["_profiles"][0]["adapter"])
+  launcher = getattr(adapter, "launch_existing", None)
+  if launcher is not None:
+      return launcher(spec)
+  return run_experiment(spec, registry, on_event=progress)
+  ```
+- [ ] **4. 중앙 평가기 재사용:** `doctor --plan examples/ace-rtl/experiment.toml --json`에서 `evaluator.registration`이 정상이어야 한다. 현재 중복된 `[plugins.evaluators] cvdp`와 대응 helper 선언을 지우고 중앙 `PROJECT_COMPONENTS`·`PROJECT_DEPENDENCIES`를 사용한다. 변경 전 실패와 변경 후 성공을 회귀로 검증한다.
+- [ ] **5. GREEN/환경 분리:** CLI/어댑터 경계 테스트와 `make lint`를 통과시킨다. 현재 작업 워크트리의 `make doctor-core`와 Docker/ACE 준비 자산의 유무를 확인한다. `make setup` → `make doctor` → `make smoke`를 실제 실행하고 모델 키가 있을 때만 `sh scripts/bootstrap.sh doctor --model` → TUI/CLI 실제 ACE 실행으로 확대한다. 없다면 실제 모델 완료를 기록하지 않는다.
+- [ ] **6. 커밋:** CLI·ACE 예제·계약 테스트를 한국어 메시지로 커밋한다.
+
+### 작업 5: 시작 가이드와 최종 UX 검증
+
+**파일:** `README.md`, `AGENTS.md`, `CONTRIBUTING.md`, `docs/development.md`, `docs/adding-components.md`, `docs/NEXT_STEPS.md`, `docs/verification.md`, `website/user/getting-started.md`, `website/user/experiment.md`, `website/developer/validation.md`, `examples/minimal/README.md`, `src/agent_optimizer/cli.py`(도움말 문구), `.github/workflows/ci.yml`(실행환경 검사 구분 필요 시).
 
 **입력:** 새 Make 별칭과 명령/기존 계획 분리. **출력:** 복사 가능한 명령과 ACE 예제 경계 안내.
 
 - [ ] **1. 실패 검사:** README/가이드의 첫 설치와 `agent-opt --help`에서 여전히 `ARGS="--core"`를 권장하는 위치를 확인하고, `sh scripts/bootstrap.sh setup --core`·기존 ARGS 경로를 사용하는 자동화는 유지할 목록을 만든다.
-- [ ] **2. 문서·도움말 갱신:** 첫 시작은 `make setup-core` → `make doctor-core` → `agent-opt tui`(기존 ACE 선택) 또는 `agent-opt init`(새 Agent) → `doctor --plan` → `run` 순서로 적는다. ACE는 `make setup` 후 `examples/ace-rtl/experiment.toml`을 명시적으로 선택하게 한다. 인수 조합 예시는 직접 bootstrap 구문, JSON argv는 호환 예시, 새 `--command`는 명령형 하네스에만 사용한다고 적는다. 참조된 기타 온보딩 문서도 동일한 대표 명령으로 맞춘다.
+- [ ] **2. 문서·도움말 갱신:** 첫 시작은 `make setup-core` → `make doctor-core` → `agent-opt tui`(기존 ACE 선택) 또는 `agent-opt init`(새 Agent) → `doctor --plan` → `run` 순서로 적는다. ACE는 `make setup`·`make doctor`로 고정 자산을 준비하고 `examples/ace-rtl/experiment.toml`을 명시적으로 선택해 같은 `live` 경로에서 실제 실행하게 한다. 코어 검사/공식 평가 smoke/모델 live를 별개 증거로 표기한다. 인수 조합 예시는 직접 bootstrap 구문, JSON argv는 호환 예시, 새 `--command`는 명령형 하네스에만 사용한다고 적는다. 참조된 기타 온보딩 문서도 동일한 대표 명령으로 맞춘다.
   ```text
   make setup-core
   make doctor-core

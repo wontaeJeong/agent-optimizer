@@ -5,24 +5,27 @@
 ## 1. 코어 준비
 
 ```bash
-make setup ARGS="--core"
-make doctor ARGS="--core"
+make setup-core
+make doctor-core
 .venv/bin/agent-opt --help
 ```
 
 `setup --core`는 필요한 Python·개발 환경을 준비하고 **7 trial 합성 데모**를 실행합니다. 처음에는 의존성 다운로드가 필요할 수 있습니다. `doctor`의 `Core development environment: ready`를 확인하세요. 코어 준비는 모델·공식 평가 데이터·Docker 이미지 준비 완료를 뜻하지 않습니다.
 
 !!! tip "설치가 막히면"
-    프록시·사내 CA가 필요한 환경은 저장소의 [네트워크 안내](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/network.md)를 확인하세요. `make doctor ARGS="--core"`로 부족한 코어 도구를 다시 진단할 수 있습니다.
+    프록시·사내 CA가 필요한 환경은 저장소의 [네트워크 안내](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/network.md)를 확인하세요. `make doctor-core`로 부족한 코어 도구를 다시 진단할 수 있습니다.
 
 ## 2. 작은 실험 직접 만들기
 
-아래 예제는 로컬 Agent와 직접 지정한 합성 과제·평가기만 사용합니다. 동일한 이름으로 다시 만들 때는 `--name`과 이후의 설정 경로를 함께 바꾸세요. 기존 설정을 덮어쓰지 않습니다.
+아래 예제는 로컬 Agent와 직접 지정한 합성 과제·평가기만 사용합니다. TTY에서는
+`.venv/bin/agent-opt init`으로 질문에 답하면 **설정만** 만들 수 있습니다. 명시적 인수가
+필요한 자동화에서는 다음처럼 실행하세요. 동일한 이름으로 다시 만들 때는 `--name`과
+이후의 설정 경로를 함께 바꾸세요. 기존 설정을 덮어쓰지 않습니다.
 
 ```bash
 .venv/bin/agent-opt init --name guide-fixture \
   --agent examples/minimal/agents/solo \
-  --command-json '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]' \
+  --command '{python} {agent_dir}/src/fixture_agent.py {task_dir}' \
   --editable configs/strategy.json \
   --dataset examples/minimal/tasks.json \
   --evaluator examples/minimal/evaluator.py:TextFixtureEvaluator \
@@ -39,4 +42,11 @@ make doctor ARGS="--core"
 .venv/bin/agent-opt tui
 ```
 
-터미널에서 Agent·실행 argv·editable 범위·Optimizer·**데이터셋**을 차례로 선택합니다. TUI는 데이터셋을 자동 추천하지 않습니다. 바로 사용자 실험을 구성하려면 [실험 구성](experiment.md)을, 보고서를 읽으려면 [결과 읽기](results.md)를 확인하세요.
+터미널에서 기존 `experiment.toml`을 선택하면 정적 계획 진단과 확인 뒤 실행합니다. 새 실험을
+선택하면 Agent·editable 범위·Optimizer·**데이터셋**을 차례로 고르며, 실행 명령은
+`command` 하네스에서만 입력합니다. TUI는 데이터셋을 자동 추천하지 않습니다. ACE-RTL은
+전체 `make setup`으로 준비하고 모델 자격증명을 지정한 후
+`examples/ace-rtl/experiment.toml`을 선택하는 기존 OpenCode 스킬 프로필입니다.
+이 경로는 ACE 예제 `live`의 실제 준비·공식 CVDP 평가를 실행합니다(native ACE 실행은
+아닙니다). [실험 구성](experiment.md)과
+[결과 읽기](results.md)를 참고하세요.

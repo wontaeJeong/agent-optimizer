@@ -1,5 +1,22 @@
 # 검증 기록
 
+## 2026-09-25 개발 명령·CLI 온보딩과 ACE 실행환경 분리
+
+Mac ARM64 / Python 3.12.12 / Docker daemon `linux/arm64`, 작업 워크트리
+`chore/setup-cli-syntax`. 실제 모델 환경변수·자격증명은 설정되지 않았다. 첫 `make setup`은
+이미 존재하는 Docker layer를 재사용했으며 냉간 이미지 빌드 검증은 아니다.
+
+| 단계·실제 명령 | 결과·범위 |
+|---|---|
+| 개발환경: `make setup-core`, `make doctor-core`, `make help`; `PYTHONPATH=src .venv/bin/python -m agent_optimizer run examples/minimal/experiment.toml` | 코어 진단 ready, 간편 Make 별칭의 실제 실행 및 API-free 합성 데모 7 trial completed. ACE 평가·모델 검증과 별개다. |
+| 계약: `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v`; `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_cli_experience.py -q`; `make lint`; `actionlint`; `.venv-docs/bin/mkdocs build --strict`; `git diff --check` | 전체 **537개 중 522 통과·15 skip·실패 0** 후 출력 경로 옵션 검증을 추가해 CLI 회귀 **77개 통과**. Ruff·워크플로 문법·가이드 엄격 빌드·공백 검사 통과. skip에는 호스트 Yosys/Icarus 9개와 선택형 Docker 네트워크 검사가 포함된다. TUI/CLI ACE 선택은 임시 bootstrap fixture로 argv·cwd·종료 코드 전달을 검증했다. |
+| ACE 평가 실행환경: `make setup` → `make doctor` → `sh scripts/bootstrap.sh setup --offline` → `make smoke` | 고정 Git/데이터/driver/이미지 확인 후 `evaluation=ready`, `live=not ready`. `runs/dev-smoke-f6448875345d/summary.json`은 `passed`: 이미지 내 실제 도구 9개, host-Docker toy 정답/오답/조기 종료, 공식 CVDP raw test 각 1개에서 정답 `passed=1`·오답 `passed=0`. 모델 호출 없음. |
+| ACE 정적 계획: `.venv/bin/agent-opt doctor --plan examples/ace-rtl/experiment.toml --json` | 기존 실험 파일의 중복 CVDP evaluator 등록을 제거한 뒤 `scope=plan`, `ready=true`. 이는 실모델 호출이나 공식 평가 실행 결과가 아니다. |
+| ACE 실행 진입점: `.venv/bin/agent-opt run examples/ace-rtl/experiment.toml`; pseudo-TTY에서 `.venv/bin/agent-opt tui` → `1` → `examples/ace-rtl/experiment.toml` → `y` | 둘 다 예제 `live` 경로에 도달하여 `status=blocked`, `stage=live`, 종료 코드 2를 유지. 모델 endpoint/키가 없는 환경이라 실제 모델·Agent 후보 최적화는 실행되지 않았다. |
+
+실제 모델→ACE 스킬 프로필→CVDP→후보 선택 결과는 현재 작업에서 새로 생성하지 않았다.
+이전 E2E 기록은 당시 모델·설정의 근거이며 이번 CLI/TUI 변경의 실모델 성공 근거로 재사용하지 않는다.
+
 ## 2026-09-25 장시간 명령 진행 표시 전수 보완
 
 Mac ARM64 / Python 3.12.12 / Docker daemon `linux/arm64`. 모델 키를 사용하지 않았다.
