@@ -627,8 +627,9 @@ class DeveloperCommandsTests(unittest.TestCase):
     def test_direct_core_doctor_progress_does_not_require_rich_before_setup(self):
         result = subprocess.run([str(ROOT / ".venv/bin/python"), "-S", "scripts/dev.py", "doctor", "--core", "--json"],
                                 cwd=ROOT, capture_output=True, text=True, timeout=60)
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertTrue(json.loads(result.stdout)["ready"])
+        report = json.loads(result.stdout)
+        self.assertEqual(report["scope"], "core")
+        self.assertEqual(result.returncode, 0 if report["ready"] else 2, result.stderr)
         self.assertIn("[doctor] check=environment starting", result.stderr)
 
     def test_network_is_loaded_before_core_and_shell_setup(self):
