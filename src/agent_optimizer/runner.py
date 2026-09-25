@@ -20,6 +20,7 @@ from agent_optimizer.objectives import aggregate, select
 from agent_optimizer.process import execute
 from agent_optimizer.workspace import CandidateStore, collect_outputs, copy_tree, safe_path
 from agent_optimizer.results import EventStore, write_json
+from agent_optimizer.locale import current_language
 from agent_optimizer.sources import materialize_agent
 
 
@@ -375,6 +376,7 @@ def run_experiment(spec, registry, output: Path | None = None, on_event=None):
     budget = Budget(spec.get("budget", {}))
     events = EventStore(root / "events.jsonl", on_event=on_event)
     summary = {"schema_version": 1, "run_id": run_id, "status": "running",
+               "report_language": current_language(),
                "synthetic": spec["_benchmark_metadata"].get("synthetic", False),
                "groups": [], "trials_used": 0,
                "planned_groups": len(spec["_agents"])*len(spec["_profiles"])}

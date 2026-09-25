@@ -1,12 +1,26 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from agent_optimizer.results import write_report
 
 
 class UsageReportTests(unittest.TestCase):
+    def test_markdown_title_follows_language_without_changing_summary(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            summary = {"status": "completed", "groups": []}
+            with patch.dict(os.environ, {"AGENT_OPT_LANG": "ko"}):
+                write_report(root, summary)
+            self.assertTrue((root / "report.md").read_text().startswith("# 실험 보고서\n"))
+            with patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}):
+                write_report(root, summary)
+            self.assertTrue((root / "report.md").read_text().startswith("# Experiment report\n"))
+            self.assertEqual(summary, {"status": "completed", "groups": []})
+
     def test_report_shows_observed_partial_usage_without_summing_missing_trials(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -22,7 +36,7 @@ class UsageReportTests(unittest.TestCase):
             report = (root / "report.md").read_text()
             self.assertIn("| a | h | c1 | validation | 7 | null |", report)
             self.assertIn("| a | h | c2 | validation | null | null |", report)
-            self.assertIn("partial", report)
+            self.assertIn("하네스 보고 일부", report)
 
     def test_overflowing_usage_writes_all_artifacts_without_masking_run_error(self):
         from agent_optimizer.results import write_report_artifacts
@@ -122,7 +136,7 @@ class UsageReportTests(unittest.TestCase):
             html = (root / "report.html").read_text()
             self.assertIn("-1e+308", markdown)
             self.assertIn("1e+308", markdown)
-            self.assertIn("| a | h | unknown | 0 completed | 0 | 0 | score | -1e+308 | 1e+308 | null |", markdown)
+            self.assertIn("| a | h | unknown | 0 완료 | 0 | 0 | score | -1e+308 | 1e+308 | null |", markdown)
             self.assertIn("알 수 없음", html)
             self.assertIn("검증에서 선택된 후보", html)
             self.assertIn("chosen", html)
@@ -165,9 +179,9 @@ class UsageReportTests(unittest.TestCase):
                     self.assertIn(agent, artifact)
                 self.assertIn(trend, markdown)
                 self.assertIn({"improved": "개선", "regressed": "악화"}[trend], html)
-                self.assertIn("1 completed", markdown)
+                self.assertIn("1 완료", markdown)
                 self.assertIn("완료 1건", html)
-            self.assertIn("Reserved trials: 3; completed evaluations: 2", markdown)
+            self.assertIn("사용한 평가 예산: 3; 완료된 평가: 2", markdown)
 
     def test_markdown_keeps_all_stage_rows_together_before_group_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -191,19 +205,19 @@ class UsageReportTests(unittest.TestCase):
 
             write_report(root, summary)
             markdown = (root / "report.md").read_text()
-            optimization = markdown.split("## Optimization\n\n", 1)[1].split("## Reproducibility", 1)[0]
+            optimization = markdown.split("## 최적화\n\n", 1)[1].split("## 재현 정보", 1)[0]
             self.assertTrue(optimization.startswith(
-                "| Agent | Harness | Stage | Status | Checkpoint |\n"
+                "| Agent | 하네스 | 단계 | 상태 | 체크포인트 |\n"
                 "|---|---|---|---|---|\n"
                 "| alpha | fixture | prepare | completed | {} |\n"
                 "| alpha | fixture | polish | completed | {} |\n"
                 "| beta | fixture | inspect | completed | {} |\n\n"), optimization)
-            self.assertIn("Optimizer usage (alpha/fixture):", optimization)
-            self.assertIn("Optimizer usage (beta/fixture):", optimization)
-            self.assertIn("Failure alpha/fixture/failed-alpha: scored_failure — first group failed", optimization)
-            self.assertIn("Candidate changes: see this group's candidates/*/changes.diff.", optimization)
+            self.assertIn("Optimizer 사용량 (alpha/fixture):", optimization)
+            self.assertIn("Optimizer 사용량 (beta/fixture):", optimization)
+            self.assertIn("실패 alpha/fixture/failed-alpha: scored_failure — first group failed", optimization)
+            self.assertIn("후보 변경 내역: 이 그룹의 candidates/*/changes.diff를 확인하세요.", optimization)
             self.assertIn("| alpha | fixture | c1 | test |", markdown)
-            self.assertIn("Harness-reported usage can be partial.", markdown)
+            self.assertIn("하네스 보고 사용량은 일부일 수 있습니다.", markdown)
 
     def test_markdown_escapes_untrusted_table_cells_and_keeps_missing_usage_null(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -249,8 +263,8 @@ class UsageReportTests(unittest.TestCase):
             write_report(root, {"status": "interrupted", "groups": [],
                                 "run_wall_time_seconds": 3.25})
             markdown = (root / "report.md").read_text(encoding="utf-8")
-            self.assertIn("Run failure: interrupted — not reported", markdown)
-            self.assertNotIn("Run failure: interrupted — None", markdown)
-            self.assertIn("Observed run wall time: 3.25 s", markdown)
+            self.assertIn("실행 실패: interrupted — 기록되지 않음", markdown)
+            self.assertNotIn("실행 실패: interrupted — None", markdown)
+            self.assertIn("실측 실행 시간: 3.25 s", markdown)
             write_report(root, {"status": "interrupted", "groups": []})
-            self.assertNotIn("Observed run wall time:", (root / "report.md").read_text(encoding="utf-8"))
+            self.assertNotIn("실측 실행 시간:", (root / "report.md").read_text(encoding="utf-8"))

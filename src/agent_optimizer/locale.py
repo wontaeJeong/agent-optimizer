@@ -1,6 +1,8 @@
 """사람에게 표시하는 문구의 언어를 고릅니다. 실행 데이터는 번역하지 않습니다."""
 
 import os
+import re
+from pathlib import Path
 
 
 MESSAGES = {
@@ -8,6 +10,16 @@ MESSAGES = {
     "readiness": ("준비 상태", "readiness"),
     "Synthetic fixture tasks are valid": ("합성 예제 과제를 사용할 수 있습니다", "Synthetic fixture tasks are valid"),
     "Synthetic fixture evaluator is available": ("합성 예제 채점기를 사용할 수 있습니다", "Synthetic fixture evaluator is available"),
+    "Core development environment: ": ("코어 개발 환경: ", "Core development environment: "),
+    "Selected dataset environment: ": ("선택한 데이터셋 환경: ", "Selected dataset environment: "),
+    "Development environment: ": ("개발 환경: ", "Development environment: "),
+    "ready": ("준비됨", "ready"),
+    "not ready": ("준비되지 않음", "not ready"),
+    "Fix:": ("해결:", "Fix:"),
+    "ACE evaluation and model readiness not checked; use full setup/doctor (menu option 7 prepares ACE).": ("ACE 평가와 모델 준비 상태는 검사하지 않았습니다. 전체 setup/doctor를 실행하세요 (메뉴 7번으로 ACE 환경 준비).", "ACE evaluation and model readiness not checked; use full setup/doctor (menu option 7 prepares ACE)."),
+    "Selected dataset checks are read-only; no ACE Agent image or model was checked.": ("선택한 데이터셋의 읽기 전용 검사입니다. ACE Agent 이미지와 모델은 검사하지 않았습니다.", "Selected dataset checks are read-only; no ACE Agent image or model was checked."),
+    "Explicit model probes: ": ("명시적으로 실행한 모델 검사: ", "Explicit model probes: "),
+    "Live checks validate configuration only; no model endpoint or smoke was exercised. Use doctor --model for actual calls.": ("실행 진단은 설정만 검사했습니다. 모델 API와 smoke는 실행하지 않았습니다. 실제 호출에는 doctor --model을 사용하세요.", "Live checks validate configuration only; no model endpoint or smoke was exercised. Use doctor --model for actual calls."),
     "TUI requires a TTY for both input and output": ("TUI에는 입력과 출력 모두 TTY가 필요합니다", "TUI requires a TTY for both input and output"),
     "개발 명령: setup → doctor → demo. 어느 작업 디렉터리에서나 실행할 수 있습니다.": ("개발 명령: setup → doctor → demo. 어느 작업 디렉터리에서나 실행할 수 있습니다.", "Development commands: setup → doctor → demo. Run from any directory."),
     "--core/--dataset 없이: ACE 전체 준비; --core: 코어와 합성 fixture; --dataset ID: 선택한 데이터셋 준비": ("--core/--dataset 없이: ACE 전체 준비; --core: 코어와 합성 fixture; --dataset ID: 선택한 데이터셋 준비", "Prepare the full ACE environment by default; --core: core and synthetic fixture; --dataset ID: selected dataset"),
@@ -20,7 +32,6 @@ MESSAGES = {
     "대화형 번호 메뉴 열기(TTY 필요, 모델 설정은 세션에서만 유지)": ("대화형 번호 메뉴 열기(TTY 필요, 모델 설정은 세션에서만 유지)", "Open numbered menu (TTY required; model settings remain in session)"),
     "도구 조회나 설치 없이 이 도움말 표시": ("도구 조회나 설치 없이 이 도움말 표시", "Show help without probing or installing tools"),
     "코어 사전 준비: Git. ACE 전체 준비에는 Docker Engine/Compose도 필요합니다. Python이나 make가 없다면 sh scripts/bootstrap.sh setup --core를 사용하세요. make <명령> ARGS='...'에는 일반 셸 인수를 전달합니다.": ("코어 사전 준비: Git. ACE 전체 준비에는 Docker Engine/Compose도 필요합니다. Python이나 make가 없다면 sh scripts/bootstrap.sh setup --core를 사용하세요. make <명령> ARGS='...'에는 일반 셸 인수를 전달합니다.", "Core prerequisite: Git. Full ACE also needs Docker Engine/Compose. Without Python or make use sh scripts/bootstrap.sh setup --core. make <command> ARGS='...' passes normal shell arguments."),
-    "Agent Optimizer · 개발자 메뉴": ("Agent Optimizer · 개발자 메뉴", "Agent Optimizer · Developer menu"),
     "선택: ": ("선택: ", "Choice: "),
     "TTY 필요. 자동화에는 setup/doctor/demo/live 명령을 사용하세요.": ("TTY 필요. 자동화에는 setup/doctor/demo/live 명령을 사용하세요.", "TTY required. For automation use setup/doctor/demo/live commands."),
     "대화형 번호 메뉴. 자동화에는 명시적 명령을 사용합니다.": ("대화형 번호 메뉴. 자동화에는 명시적 명령을 사용합니다.", "Interactive numbered menu. Use explicit commands for automation."),
@@ -56,6 +67,106 @@ MESSAGES = {
     "Choose one or more listed optimizers": ("목록에서 Optimizer를 하나 이상 고르세요", "Choose one or more listed optimizers"),
     "Choose a listed harness number": ("목록의 하네스 번호를 고르세요", "Choose a listed harness number"),
     "Experiment cancelled without preparing data": ("데이터 준비 전에 실험을 취소했습니다", "Experiment cancelled without preparing data"),
+    "Docker·ACE 평가/모델 실행 자산이 필요하면 먼저 7번 ACE 전체 환경 준비를 선택하세요.": ("Docker·ACE 평가/모델 실행 자산이 필요하면 먼저 7번 ACE 전체 환경 준비를 선택하세요.", "If you need Docker and ACE evaluation/model assets, choose full ACE setup (option 7) first."),
+    "이 작업은 doctor --model로 실제 모델 API·컨테이너 도구를 호출합니다. 설정은 현재 세션에만 유지됩니다.": ("이 작업은 doctor --model로 실제 모델 API·컨테이너 도구를 호출합니다. 설정은 현재 세션에만 유지됩니다.", "This runs doctor --model against the actual model API and container tools. Settings remain in this session only."),
+    "URL 방식: 1=정확한 endpoint, 2=표준 base URL [{default}]: ": ("URL 방식: 1=정확한 endpoint, 2=표준 base URL [{default}]: ", "URL mode: 1=exact endpoint, 2=standard base URL [{default}]: "),
+    "URL 방식은 1 또는 2를 선택하세요.": ("URL 방식은 1 또는 2를 선택하세요.", "Choose URL mode 1 or 2."),
+    "{name} (빈 입력: 기존 값 유지): ": ("{name} (빈 입력: 기존 값 유지): ", "{name} (blank: keep current value): "),
+    "AGENT_OPT_MODEL_ID (빈 입력: 기존 값 또는 glm5.3-flash): ": ("AGENT_OPT_MODEL_ID (빈 입력: 기존 값 또는 glm5.3-flash): ", "AGENT_OPT_MODEL_ID (blank: current value or glm5.3-flash): "),
+    "Bearer token (숨김, 빈 입력: 기존 값 유지): ": ("Bearer token (숨김, 빈 입력: 기존 값 유지): ", "Bearer token (hidden; blank: keep current value): "),
+    "ACE 실행에는 7번 전체 환경 준비와 4번 모델 설정이 필요합니다.": ("ACE 실행에는 7번 전체 환경 준비와 4번 모델 설정이 필요합니다.", "ACE runs require full setup (option 7) and model configuration (option 4)."),
+    "모델 설정이 없거나 잘못되었습니다.": ("모델 설정이 없거나 잘못되었습니다.", "Model configuration is missing or invalid."),
+    "먼저 4번 모델 설정·연결 검사를 선택하세요.": ("먼저 4번 모델 설정·연결 검사를 선택하세요.", "Choose model configuration and connection check (option 4) first."),
+    "반복 횟수 [3] (1..20): ": ("반복 횟수 [3] (1..20): ", "Iterations [3] (1..20): "),
+    "반복 횟수는 1..20 정수여야 합니다.": ("반복 횟수는 1..20 정수여야 합니다.", "Iterations must be an integer from 1 to 20."),
+    "설정한 모델로 실제 ACE 최적화를 실행합니다.": ("설정한 모델로 실제 ACE 최적화를 실행합니다.", "Running ACE optimization with the configured model."),
+    "보고서가 없습니다.": ("보고서가 없습니다.", "No reports found."),
+    "3번 데모 또는 5번 실행 후 확인하세요.": ("3번 데모 또는 5번 실행 후 확인하세요.", "Run the demo (option 3) or optimization (option 5) first."),
+    "보고서 번호 (0: 돌아가기): ": ("보고서 번호 (0: 돌아가기): ", "Report number (0: back): "),
+    "목록의 보고서 번호를 선택하세요.": ("목록의 보고서 번호를 선택하세요.", "Choose a listed report number."),
+    "Agent Optimizer · 개발자 메뉴": ("Agent Optimizer · 개발자 메뉴", "Agent Optimizer · Developer menu"),
+    "생성된 리포트 없음": ("생성된 리포트 없음", "No report produced"),
+    "데이터셋 리포트 열기 ↗": ("데이터셋 리포트 열기 ↗", "Open dataset report ↗"),
+    "데이터셋": ("데이터셋", "Dataset"),
+    "상태": ("상태", "Status"),
+    "데이터셋 세션": ("데이터셋 세션", "Dataset session"),
+    "데이터셋별 독립 평가": ("데이터셋별 독립 평가", "Independent evaluations"),
+    "각 데이터셋은 자체 채점기를 사용합니다. ": ("각 데이터셋은 자체 채점기를 사용합니다. ", "Each dataset uses its own scorer. "),
+    "결과를 함께 순위화하지 마세요.": ("결과를 함께 순위화하지 마세요.", "Do not rank results from different evaluators together."),
+    "독립 평가": ("독립 평가", "Independent evaluation"),
+    "서로 다른 채점기의 점수를 직접 비교하거나 순위를 매기지 않습니다.": ("서로 다른 채점기의 점수를 직접 비교하거나 순위를 매기지 않습니다.", "Scores from different evaluators must not be compared or ranked directly."),
+    "세션 summary.json": ("세션 summary.json", "Session summary.json"),
+    "실험": ("실험", "Experiment"),
+    "실험 분석": ("실험 분석", "Experiment analysis"),
+    "리포트 목차": ("리포트 목차", "Report sections"),
+    "점수 비교": ("점수 비교", "Comparison"),
+    "최종 테스트": ("최종 테스트", "Held-out test"),
+    "최적화 과정": ("최적화 과정", "Journey"),
+    "평가 근거": ("평가 근거", "Evaluations"),
+    "후보 변경": ("후보 변경", "Candidates"),
+    "실패 근거": ("실패 근거", "Failures"),
+    "단계와 사용량": ("단계와 사용량", "Stages & usage"),
+    "재현 정보": ("재현 정보", "Reproduce"),
+    "합성 예제": ("합성 예제", "Synthetic fixture"),
+    "연결 확인용 예제이며 실제 모델 성능을 입증하지 않습니다.": ("연결 확인용 예제이며 실제 모델 성능을 입증하지 않습니다.", "Connection-only fixture; not evidence of model performance."),
+    "실제 모델 성능 근거 아님": ("실제 모델 성능 근거 아님", "not a model-performance claim"),
+    "벤치마크 기록 · 모델 근거는 별도 확인 필요": ("벤치마크 기록 · 모델 근거는 별도 확인 필요", "Benchmark evidence · verify model evidence separately"),
+    "Agent × 하네스 그룹": ("Agent × 하네스 그룹", "Agent × Harness groups"),
+    "하나의 Agent와 실행 하네스를 짝지어 독립적으로 평가한 단위입니다.": ("하나의 Agent와 실행 하네스를 짝지어 독립적으로 평가한 단위입니다.", "An independently evaluated Agent and Harness pairing."),
+    "완료된 평가": ("완료된 평가", "Completed evaluations"),
+    "과제별로 실제 종료되어 기록된 평가 건수입니다.": ("과제별로 실제 종료되어 기록된 평가 건수입니다.", "The number of task evaluations that actually completed."),
+    "통과한 평가": ("통과한 평가", "Passed evaluations"),
+    "실패한 평가": ("실패한 평가", "Failed evaluations"),
+    "예산 사용 횟수": ("예산 사용 횟수", "Trials used (budget)"),
+    "예약되어 사용된 평가 예산입니다. 완료된 평가 건수와 다를 수 있습니다.": ("예약되어 사용된 평가 예산입니다. 완료된 평가 건수와 다를 수 있습니다.", "Reserved trial budget; it may differ from the count of completed evaluations."),
+    "기준 후보": ("기준 후보", "Baseline"),
+    "최적화하기 전의 Agent를 동일 조건에서 평가한 결과입니다.": ("최적화하기 전의 Agent를 동일 조건에서 평가한 결과입니다.", "The unoptimized Agent evaluated under the same conditions."),
+    "검증": ("검증", "validation"),
+    "후보를 선택할 때 사용하는 데이터입니다. 최종 테스트와 분리됩니다.": ("후보를 선택할 때 사용하는 데이터입니다. 최종 테스트와 분리됩니다.", "Data used to select candidates, separate from the final test."),
+    "선택된 ": ("선택된 ", "selected "),
+    " 결과": (" 결과", " results"),
+    "같은 그룹의 검증 집계만 비교합니다. 지표 방향과 차이는 기록된 리포트를 따르며 없는 점수는 0으로 취급하지 않습니다.": ("같은 그룹의 검증 집계만 비교합니다. 지표 방향과 차이는 기록된 리포트를 따르며 없는 점수는 0으로 취급하지 않습니다.", "Compare within-group validation aggregates only. Direction and difference come from the recorded report; missing scores are not zero."),
+    "일부만 기록된 하네스 사용량을 전체 사용량으로 표시하지 않습니다. 데이터·모델·예산이 같은 실험끼리 비교하세요. ": ("일부만 기록된 하네스 사용량을 전체 사용량으로 표시하지 않습니다. 데이터·모델·예산이 같은 실험끼리 비교하세요. ", "Partial Harness usage is never labeled complete. Compare only runs with equivalent data, models, and budgets. "),
+    "Experiment report": ("실험 보고서", "Experiment report"),
+    "Status": ("상태", "Status"),
+    "Synthetic": ("합성", "Synthetic"),
+    "Observed run wall time": ("실측 실행 시간", "Observed run wall time"),
+    "Agent": ("Agent", "Agent"),
+    "Harness": ("하네스", "Harness"),
+    "Candidate": ("후보", "Candidate"),
+    "Split": ("데이터 구분", "Split"),
+    "Metrics": ("지표", "Metrics"),
+    "Group comparison and completed evaluations": ("그룹 비교와 완료된 평가", "Group comparison and completed evaluations"),
+    "Reserved trials": ("사용한 평가 예산", "Reserved trials"),
+    "completed evaluations": ("완료된 평가", "completed evaluations"),
+    "Trend": ("변화", "Trend"),
+    "Completed": ("완료", "Completed"),
+    "Passed": ("통과", "Passed"),
+    "Failed": ("실패", "Failed"),
+    "Metric": ("지표", "Metric"),
+    "Baseline": ("기준 후보", "Baseline"),
+    "Selected": ("선택 후보", "Selected"),
+    "Delta": ("점수 차이", "Delta"),
+    "Agent usage (Harness-reported partial; not complete totals)": ("Agent 사용량 (하네스 보고 일부, 전체 합계 아님)", "Agent usage (Harness-reported partial; not complete totals)"),
+    "IO tokens": ("입출력 토큰", "IO tokens"),
+    "Cost USD": ("비용 USD", "Cost USD"),
+    "Optimization": ("최적화", "Optimization"),
+    "Stage": ("단계", "Stage"),
+    "Checkpoint": ("체크포인트", "Checkpoint"),
+    "Optimizer usage": ("Optimizer 사용량", "Optimizer usage"),
+    "Candidate changes: see this group's candidates/*/changes.diff.": ("후보 변경 내역: 이 그룹의 candidates/*/changes.diff를 확인하세요.", "Candidate changes: see this group's candidates/*/changes.diff."),
+    "Structure": ("구조", "Structure"),
+    "Failure": ("실패", "Failure"),
+    "Run failure": ("실행 실패", "Run failure"),
+    "not reported": ("기록되지 않음", "not reported"),
+    "Reproducibility": ("재현 정보", "Reproducibility"),
+    "Dataset": ("데이터셋", "Dataset"),
+    "Benchmark SHA-256": ("벤치마크 SHA-256", "Benchmark SHA-256"),
+    "Objective": ("목적 지표", "Objective"),
+    "Budget": ("예산", "Budget"),
+    "not recorded": ("기록 없음", "not recorded"),
+    "Missing metrics are null, not zero. Empty usage lists mean unreported usage, not free execution.": ("미수집 지표는 0이 아닌 null입니다. 빈 사용량 목록은 무료 실행이 아니라 미보고를 뜻합니다.", "Missing metrics are null, not zero. Empty usage lists mean unreported usage, not free execution."),
+    "Harness-reported usage can be partial. Compare only identical datasets, models and budgets.": ("하네스 보고 사용량은 일부일 수 있습니다. 같은 데이터셋·모델·예산의 실행만 비교하세요.", "Harness-reported usage can be partial. Compare only identical datasets, models and budgets."),
     "여러 Agent의 최적화 실험을 위한 작업 도구": ("여러 Agent의 최적화 실험을 위한 작업 도구", "Optimization experiments for multiple Agents"),
     '저장소에서 시작: make setup ARGS="--core" 후 agent-opt datasets list로 데이터셋을 확인하세요. 대화형은 agent-opt tui(TTY 필요), 비대화형은 agent-opt init --help를 사용합니다. 모델 없는 합성 예제는 README.md를 참고하세요.': (
         '저장소에서 시작: make setup ARGS="--core" 후 agent-opt datasets list로 데이터셋을 확인하세요. 대화형은 agent-opt tui(TTY 필요), 비대화형은 agent-opt init --help를 사용합니다. 모델 없는 합성 예제는 README.md를 참고하세요.',
@@ -87,6 +198,67 @@ MESSAGES = {
     "독립 HTML 보고서 재생성": ("독립 HTML 보고서 재생성", "Regenerate the standalone HTML report"),
 }
 
+# 보고서의 고정 UI 문구만 번역합니다. 평가 근거/사용자 데이터는 이 목록을 거치지 않습니다.
+_REPORT_EN = {
+    "Agent × 하네스": "Agent × Harness",
+    "Agent와 실행 하네스를 짝지어 평가한 조합입니다.": "An Agent and Harness evaluated together.",
+    "검증으로 후보를 고른 뒤에만 확인하는 별도 데이터입니다. 탐색에 사용하지 않습니다.": "Held-out data checked only after candidate selection; never used for search.",
+    "후보": "Candidate", "원본 Agent의 스냅샷을 바탕으로 만든 변경 버전입니다.": "A changed version of the original Agent's snapshot.",
+    "선택 후보": "Selected candidate", "검증 결과에 따라 선택된 변경 버전입니다.": "The candidate selected using validation results.",
+    "평가 횟수": "Evaluation count", "한 후보를 한 과제에 실행해 평가한 건수입니다.": "Number of evaluated tasks for this candidate.",
+    "예산": "Budget", "실험에서 허용한 평가 횟수와 실행 시간의 상한입니다.": "Limits on trials and run time.",
+    "점수 차이": "Score difference", "선택 후보 점수에서 기준 후보 점수를 뺀 값입니다.": "Selected candidate score minus baseline score.",
+    "퍼센트포인트: 두 비율의 차이를 백분율 단위로 나타낸 값입니다.": "Percentage points: the difference between two percentages.",
+    "단계": "Stage", "각 Optimizer가 기준 후보에서 시작해 독립적으로 탐색하는 구간입니다.": "Each Optimizer explores independently from the baseline.",
+    "체크포인트": "Checkpoint", "Optimizer가 단계 실행 중 기록한 원본 상태입니다.": "Recorded original state of the Optimizer stage.",
+    "사용량": "Usage", "기록된 실행 비용과 토큰입니다. 값이 없으면 전체 사용량을 알 수 없습니다.": "Recorded cost and tokens; missing values do not imply zero total usage.",
+    "하네스": "Harness", "Agent 실행과 결과 수집을 연결하는 구성 요소입니다.": "Connects Agent execution to result collection.",
+    "기록 없음": "Not reported", "평가 기록 없음": "Not evaluated", "회": " trials",
+    "초 총 실행 제한": "s wall limit", "초/평가": "s/trial", "초": "s",
+    "벤치마크 ID": "Benchmark ID", "벤치마크 경로": "Benchmark path", "목적 지표": "Objective",
+    "선택 방식": "Selection mode", "유지 후보 수=": "keep=", "실행 ID": "Run ID",
+    "실측 실행 시간": "Observed run wall time", "높을수록 좋음": "maximize", "낮을수록 좋음": "minimize",
+    "우선순위 순서": "lexicographic", "평균": "mean", "합계": "sum",
+    "검증에서 선택된 후보: ": "Selected on validation: ",
+    "기록된 선택 (유효한 검증 결과 아님): ": "Recorded selection (not valid validation): ",
+    "검증 선택 결과: ": "Validation selection: ", "선택된 후보 없음": "No candidate selected",
+    "완료": "Completed", "통과": "Passed", "실패": "Failed", "건 · ": " · ", "건": " evaluations",
+    "검증 · 기준 후보 → 선택 후보": "Validation · baseline → selected",
+    "지표": "Metric", "방향": "Direction", "변화": "Trend",
+    "검증으로 후보를 확정한 뒤 기록한 테스트입니다. 탐색에는 사용하지 않으며 Agent × 하네스 그룹별 점수를 따로 보여줍니다.": "Held-out test recorded after validation selection; not used during search. Scores are reported separately by Agent × Harness group.",
+    "최종 테스트 · 기록된 집계": "Held-out test · recorded aggregates",
+    "그룹": "Group", "데이터 구분": "Split", "테스트": "test", "학습": "train",
+    "기록된 탐색 구조가 없습니다. 아래 평가 표를 확인하세요.": "No search structure recorded. See evaluations below.",
+    "기록된 그룹 이벤트를 로그 순서로 보여줍니다. 나머지 필드는 원본 기록에서 확인하세요.": "Recorded group events in log order. See the original event for remaining fields.",
+    "기록된 탐색 구조가 없어 그룹 이벤트를 로그 순서로 보여줍니다. 나머지 필드는 원본 기록에서 확인하세요.": "No search structure recorded; group events are shown in log order. See the original event for remaining fields.",
+    "시각": "Time", "작업": "Phase", "과제": "Task", "이벤트 원본": "Original event",
+    "그룹 이벤트 기록 · 원본 근거": "Recorded group events · original evidence",
+    "기록된 근거": "Recorded evidence", "반복": "Iteration", "상위 단위": "Parent unit",
+    "평가 참조": "Evaluation references", "기록된 후보 부모 관계": "Recorded candidate parents",
+    "피드백 전체 · ": "Full feedback · ", "표준 출력 로그": "stdout log", "표준 오류 로그": "stderr log",
+    "한 행은 한 과제의 평가 기록입니다. 과제별 지표는 전체 점수가 아닙니다.": "Each row is one task evaluation. Per-task metrics are not overall scores.",
+    "기록된 평가": "Recorded evaluations", "평가 ID": "Evaluation ID", "상태 / 원인": "Status / cause",
+    "관측 지표": "Observed metrics", "피드백 / 로그": "Feedback / logs",
+    "후보 변경 내역": "Candidate changes", "기록된 선택과 후보": "Recorded selections and candidates",
+    "부모 후보": "Parent candidate", "생성 주체": "Producer", "변경 파일": "Changed files",
+    "스냅샷 묶음": "Snapshot bundle", "변경 사항 미리보기": "Diff preview",
+    "기록된 후보 파일 없음": "No recorded candidate files", "평가 이력": "Evaluation history",
+    "검증에서 선택": "Selected on validation", "기록된 선택 · 유효한 검증 결과 아님": "Recorded selection · not valid validation",
+    "집계": "aggregate", "건의 평가": "evaluations", "기록된 후보": "Recorded candidate",
+    "실행 중단": "Run stopped", "실행 오류 원문": "Original run error",
+    "실패 메시지 원문": "Original failure message", "분류된 실패 기록 없음": "No classified failures recorded",
+    "실측 단계 실행 시간": "Observed stage wall time", "단계별 검증 선택 집계": "Selected validation aggregates by stage",
+    "단계 평가 집계 및 체크포인트 원본": "Stage evaluation aggregates and original checkpoint",
+    "단계별 평가 집계": "Stage evaluation aggregates",
+    "Optimizer 사용량은 단계별 관측값입니다. 하네스가 보고한 Agent 사용량은 예상된 모든 유효 평가의 값이 있을 때만 전체값이며, 빠진 값은 미수집입니다.": "Optimizer usage is observed per stage. Harness-reported Agent usage is complete only when every expected valid evaluation reports a value; missing values are uncollected.",
+    "Agent 사용량 (하네스 보고)": "Agent usage (Harness-reported)",
+    "Optimizer 사용량": "Optimizer usage", "벤치마크 SHA-256": "Benchmark SHA-256",
+    "재현 정보와 출처": "Reproducibility & provenance", "실험 설정 원본": "Original experiment configuration",
+    "소스 고정 버전 · 모델 · 플러그인 해시 원본": "Original source locks, models, and plugin hashes",
+}
+for _ko, _en in _REPORT_EN.items():
+    MESSAGES.setdefault(_ko, (_ko, _en))
+
 
 def current_language(raw: str | None = None) -> str:
     selected = os.environ.get("AGENT_OPT_LANG", "") if raw is None else raw
@@ -103,6 +275,21 @@ def t(key: str, *, lang: str | None = None, **values: object) -> str:
     return template.format(**values) if values else template
 
 
-def human(text: str) -> str:
+def human(text: str, *, lang: str | None = None) -> str:
     """Known static UI text is translated; component-provided text is unchanged."""
-    return t(text) if text in MESSAGES else text
+    return t(text, lang=lang) if text in MESSAGES else text
+
+
+def report_language(summary: dict, root: Path, *, override: str | None = None) -> str:
+    """Keep the run language across regeneration; override only this rendering."""
+    if override:
+        return current_language(override)
+    if summary.get("report_language") in ("ko", "en"):
+        return summary["report_language"]
+    previous = root / "report.html"
+    if previous.is_file() and not previous.is_symlink():
+        with previous.open("rb") as stream:
+            found = re.search(rb'<html\s+lang="(ko|en)"', stream.read(1024))
+        if found:
+            return found.group(1).decode("ascii")
+    return "en"

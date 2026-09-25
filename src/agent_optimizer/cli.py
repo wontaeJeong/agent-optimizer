@@ -27,7 +27,7 @@ from agent_optimizer.setup_wizard import (component_inventory, prepare_selection
                                           write_experiment)
 from agent_optimizer.terminal_report import PreparationStatus, ProgressDisplay
 from agent_optimizer.terminal_style import style
-from agent_optimizer.locale import MESSAGES, current_language, human, t
+from agent_optimizer.locale import MESSAGES, current_language, human, report_language, t
 from agent_optimizer.results import write_json
 from agent_optimizer.readiness import collect_dataset, collect_plan
 
@@ -410,9 +410,10 @@ def _dispatch(args):
                         entries.append({"dataset": item["dataset"], "status": "error",
                                         "error": str(exc), "report": report})
             from agent_optimizer.html_report import write_session_index
-            index = write_session_index(session_root, entries)
+            index = write_session_index(session_root, entries, language=current_language())
             status = "completed" if all(e["status"] == "completed" for e in entries) else "partial"
-            write_json(session_root / "summary.json", {"status": status, "experiments": entries})
+            write_json(session_root / "summary.json", {"status": status, "experiments": entries,
+                                                      "report_language": current_language()})
             show({"session_dir": session_root, "status": status, "index_html": index,
                   "reports": [session_root / e["report"] for e in entries if e["report"]]})
             return 0 if status == "completed" else 3
@@ -467,7 +468,9 @@ def _dispatch(args):
             if args.html:
                 from agent_optimizer.results import write_report_artifacts
                 with PreparationStatus("html", action="report", subject="check"):
-                    target = write_report_artifacts(args.run_dir, data)
+                    language = report_language(data, args.run_dir,
+                                               override=os.environ.get("AGENT_OPT_LANG") or None)
+                    target = write_report_artifacts(args.run_dir, data, language=language)
                 show({"html": target, "status": data["status"]})
                 return 0
             if args.csv:

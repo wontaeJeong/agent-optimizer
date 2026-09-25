@@ -264,9 +264,25 @@ class DoctorTests(unittest.TestCase):
         output = io.StringIO()
         with redirect_stdout(output):
             self.doctor.render_report(report)
-        self.assertIn("Core development environment: ready", output.getvalue())
-        self.assertIn("not checked", output.getvalue())
+        self.assertIn("코어 개발 환경: 준비됨", output.getvalue())
+        self.assertIn("검사하지 않았습니다", output.getvalue())
         self.assertNotIn("Live checks validate", output.getvalue())
+
+    def test_developer_doctor_human_language_does_not_change_json(self):
+        report = {"scope": "core", "ready": True, "areas": {"core": True}, "checks": []}
+        outputs = {}
+        for language in ("ko", "en"):
+            with patch.dict(os.environ, {"AGENT_OPT_LANG": language}):
+                text = io.StringIO()
+                with redirect_stdout(text):
+                    self.doctor.render_report(report)
+                outputs[language] = text.getvalue()
+                machine = io.StringIO()
+                with redirect_stdout(machine):
+                    self.doctor.render_report(report, json_output=True)
+                self.assertEqual(json.loads(machine.getvalue()), report)
+        self.assertIn("코어 개발 환경: 준비됨", outputs["ko"])
+        self.assertIn("Core development environment: ready", outputs["en"])
 
     def test_public_core_doctor_json_without_example_files(self):
         environment = self.public_checkout()

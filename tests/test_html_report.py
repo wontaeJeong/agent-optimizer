@@ -2,9 +2,12 @@
 import contextlib
 import io
 import json
+import os
 import re
 import unittest
+from html.parser import HTMLParser
 from pathlib import Path
+from unittest.mock import patch
 
 from agent_optimizer.cli import main
 from agent_optimizer.config import load_experiment
@@ -36,6 +39,54 @@ class HTMLReportTests(unittest.TestCase):
         self.assertIn('fixture-validation', page)
         self.assertIn('summary.json', page)
 
+    def test_english_run_remembers_report_language_and_one_time_override(self):
+        with patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}):
+            run, summary = run_experiment(self.spec, Registry(), self.root / "runs")
+        self.assertEqual(summary["report_language"], "en")
+        self.assertEqual(json.loads((run / "summary.json").read_text())["report_language"], "en")
+        page = (run / "report.html").read_text()
+        self.assertIn('<html lang="en">', page[:100])
+        navigation = page.split('<nav ', 1)[1].split('</nav>', 1)[0]
+        self.assertIn('aria-label="Report sections"', navigation)
+        self.assertIn('href="#scores">Comparison</a>', navigation)
+        self.assertNotIn('리포트 목차', navigation)
+        self.assertIn("# Experiment report", (run / "report.md").read_text())
+        with patch.dict(os.environ, {"AGENT_OPT_LANG": "ko"}), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["report", str(run), "--html"]), 0)
+        self.assertIn('<html lang="ko">', (run / "report.html").read_text()[:100])
+        with patch.dict(os.environ, {"AGENT_OPT_LANG": ""}), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["report", str(run), "--html"]), 0)
+        self.assertIn('<html lang="en">', (run / "report.html").read_text()[:100])
+        self.assertEqual(json.loads((run / "summary.json").read_text())["report_language"], "en")
+
+    def test_english_report_has_no_korean_interface_labels(self):
+        class Labels(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.ignored = 0
+                self.korean = []
+
+            def handle_starttag(self, tag, attrs):
+                if tag in {"style", "pre", "code"}:
+                    self.ignored += 1
+                elif not self.ignored:
+                    self.korean.extend(value for key, value in attrs
+                                       if key in {"title", "aria-label"} and re.search("[가-힣]", value or ""))
+
+            def handle_endtag(self, tag):
+                if tag in {"style", "pre", "code"}:
+                    self.ignored -= 1
+
+            def handle_data(self, data):
+                if not self.ignored and re.search("[가-힣]", data):
+                    self.korean.append(data.strip())
+
+        with patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}):
+            run, _ = run_experiment(self.spec, Registry(), self.root / "runs")
+        labels = Labels()
+        labels.feed((run / "report.html").read_text())
+        self.assertFalse(labels.korean, f"한국어 UI 문구 {len(labels.korean)}개: {labels.korean[:12]}")
+
     def test_session_html_localizes_status_and_explains_dataset_separation(self):
         root = self.root / "session"
         root.mkdir()
@@ -55,6 +106,19 @@ class HTMLReportTests(unittest.TestCase):
         self.assertIn('&lt;bad&gt;', page)
         self.assertIn('href="dataset-1/report.html"', page)
         self.assertNotIn('<private>', page)
+
+    def test_english_session_index_keeps_links_and_untrusted_dataset_escaped(self):
+        root = self.root / "english-session"
+        root.mkdir()
+        (root / "run").mkdir()
+        (root / "run/report.html").write_text("fixture")
+        page = write_session_index(root, [{"dataset": "<private>", "status": "completed",
+                                           "report": "run/report.html"}], language="en").read_text()
+        self.assertIn('<html lang="en">', page[:100])
+        self.assertIn("Independent evaluations", page)
+        self.assertIn('href="run/report.html"', page)
+        self.assertIn("&lt;private&gt;", page)
+        self.assertNotIn("<private>", page)
 
     def test_builtin_iteration_label_is_localized_but_raw_event_is_preserved(self):
         run = self.root / "iteration"
@@ -164,7 +228,7 @@ class HTMLReportTests(unittest.TestCase):
             self.assertGreater(group["counts"]["completed_evaluations"], 0)
             for content in (markdown, html):
                 self.assertIn(group["agent_id"], content)
-            self.assertIn(f'{group["counts"]["completed_evaluations"]} completed', markdown)
+            self.assertIn(f'{group["counts"]["completed_evaluations"]} 완료', markdown)
             self.assertIn(f'완료 {group["counts"]["completed_evaluations"]}건', html)
             self.assertIn(group["comparison_trend"], markdown)
             self.assertIn({"improved": "개선", "unchanged": "변화 없음"}[group["comparison_trend"]], html)

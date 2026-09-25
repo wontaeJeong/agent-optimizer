@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.models import ModelSettings
 from agent_optimizer.terminal_style import ColorArgumentParser, style
-from agent_optimizer.locale import current_language, human
+from agent_optimizer.locale import current_language, human, t
 
 MENU = """
 1. 코어 개발 환경 설치
@@ -63,25 +63,25 @@ def local_demo(env):
 
 
 def configure_model(env):
-    print("Docker·ACE 평가/모델 실행 자산이 필요하면 먼저 7번 ACE 전체 환경 준비를 선택하세요.")
-    print("이 작업은 doctor --model로 실제 모델 API·컨테이너 도구를 호출합니다. 설정은 현재 세션에만 유지됩니다.")
+    print(human("Docker·ACE 평가/모델 실행 자산이 필요하면 먼저 7번 ACE 전체 환경 준비를 선택하세요."))
+    print(human("이 작업은 doctor --model로 실제 모델 API·컨테이너 도구를 호출합니다. 설정은 현재 세션에만 유지됩니다."))
     staged = env.copy()
     default = "2" if staged.get("AGENT_OPT_MODEL_BASE_URL") and not staged.get("AGENT_OPT_MODEL_ENDPOINT") else "1"
-    mode = input(f"URL 방식: 1=정확한 endpoint, 2=표준 base URL [{default}]: ").strip() or default
+    mode = input(t("URL 방식: 1=정확한 endpoint, 2=표준 base URL [{default}]: ", default=default)).strip() or default
     if mode not in {"1", "2"}:
-        raise ConfigurationError("URL 방식은 1 또는 2를 선택하세요.")
+        raise ConfigurationError(human("URL 방식은 1 또는 2를 선택하세요."))
     name, unused = (("AGENT_OPT_MODEL_ENDPOINT", "AGENT_OPT_MODEL_BASE_URL") if mode == "1"
                     else ("AGENT_OPT_MODEL_BASE_URL", "AGENT_OPT_MODEL_ENDPOINT"))
     # Do not redisplay endpoint values (including malformed inherited credentials).
-    url = input(f"{name} (빈 입력: 기존 값 유지): ").strip()
+    url = input(t("{name} (빈 입력: 기존 값 유지): ", name=name)).strip()
     staged[name] = url or staged.get(name, "")
     staged.pop(unused, None)
-    model = input("AGENT_OPT_MODEL_ID (빈 입력: 기존 값 또는 glm5.3-flash): ").strip()
+    model = input(human("AGENT_OPT_MODEL_ID (빈 입력: 기존 값 또는 glm5.3-flash): ")).strip()
     staged["AGENT_OPT_MODEL_ID"] = model or staged.get("AGENT_OPT_MODEL_ID") or "glm5.3-flash"
     # getpass warns before falling back to echoed input: turn that warning into an abort.
     with warnings.catch_warnings():
         warnings.simplefilter("error", getpass.GetPassWarning)
-        token = getpass.getpass("Bearer token (숨김, 빈 입력: 기존 값 유지): ")
+        token = getpass.getpass(human("Bearer token (숨김, 빈 입력: 기존 값 유지): "))
     staged["AGENT_OPT_MODEL_API_KEY"] = token or staged.get("AGENT_OPT_MODEL_API_KEY", "")
     ModelSettings.from_env(staged)
     env.clear()
@@ -90,17 +90,17 @@ def configure_model(env):
 
 
 def live(env):
-    print("ACE 실행에는 7번 전체 환경 준비와 4번 모델 설정이 필요합니다.")
+    print(human("ACE 실행에는 7번 전체 환경 준비와 4번 모델 설정이 필요합니다."))
     try:
         ModelSettings.from_env(env)
     except (ConfigurationError, UnavailableError, ValueError):
-        print(style("모델 설정이 없거나 잘못되었습니다.", "warning")
-              + " 먼저 4번 모델 설정·연결 검사를 선택하세요.")
+        print(style(human("모델 설정이 없거나 잘못되었습니다."), "warning")
+              + " " + human("먼저 4번 모델 설정·연결 검사를 선택하세요."))
         return
-    text = input("반복 횟수 [3] (1..20): ").strip() or "3"
+    text = input(human("반복 횟수 [3] (1..20): ")).strip() or "3"
     if not text.isascii() or not text.isdecimal() or not 1 <= int(text) <= 20:
-        raise ConfigurationError("반복 횟수는 1..20 정수여야 합니다.")
-    print("설정한 모델로 실제 ACE 최적화를 실행합니다.")
+        raise ConfigurationError(human("반복 횟수는 1..20 정수여야 합니다."))
+    print(human("설정한 모델로 실제 ACE 최적화를 실행합니다."))
     bootstrap("live", env, "--iterations", str(int(text)))
 
 
@@ -136,15 +136,15 @@ def reports():
                 if directory.is_dir() and not directory.is_symlink() and report.is_file() and not report.is_symlink():
                     found.append(report.relative_to(runs))
     if not found:
-        print(style("보고서가 없습니다.", "warning") + " 3번 데모 또는 5번 실행 후 확인하세요.")
+        print(style(human("보고서가 없습니다."), "warning") + " " + human("3번 데모 또는 5번 실행 후 확인하세요."))
         return
     for index, path in enumerate(found, 1):
         print(f"{index}. {path}")
-    choice = input("보고서 번호 (0: 돌아가기): ").strip()
+    choice = input(human("보고서 번호 (0: 돌아가기): ")).strip()
     if choice == "0":
         return
     if not choice.isascii() or not choice.isdecimal() or not 1 <= int(choice) <= len(found):
-        raise ConfigurationError("목록의 보고서 번호를 선택하세요.")
+        raise ConfigurationError(human("목록의 보고서 번호를 선택하세요."))
     print(read_report(found[int(choice) - 1]))
 
 
