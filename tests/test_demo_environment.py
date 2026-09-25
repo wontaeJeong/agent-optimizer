@@ -1,9 +1,11 @@
 import copy
+import io
 import json
 import os
 import subprocess
 import tempfile
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
 from unittest.mock import patch
 
@@ -46,13 +48,19 @@ class DemoEnvironmentTests(unittest.TestCase):
         report = {"ready": True, "areas": {"core": True, "evaluation": True, "live": True}, "checks": []}
         environment = {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/chat/completion", "AGENT_OPT_MODEL_API_KEY": "fixture-secret",
                        "AGENT_OPT_CA_BUNDLE": ""}
-        with patch.dict(os.environ, environment, clear=True), patch.object(checks, "probe_model", side_effect=UnavailableError("fixture-secret")):
+        progress = io.StringIO()
+        with patch.dict(os.environ, environment, clear=True), \
+                patch.object(checks, "probe_model", side_effect=UnavailableError("fixture-secret")), \
+                redirect_stderr(progress):
             checks.check_models(ROOT, report)
             self.assertEqual(dict(os.environ), environment)
         self.assertFalse(report["ready"])
         self.assertEqual(report["model_status"], "blocked")
         self.assertIn("AGENT_OPT_MODEL_", report["checks"][-1]["remedy"])
         self.assertNotIn("fixture-secret", json.dumps(report))
+        self.assertIn("[doctor] check=host-api starting", progress.getvalue())
+        self.assertIn("[doctor] check=host-api failed", progress.getvalue())
+        self.assertNotIn("fixture-secret", progress.getvalue())
 
     def test_explicit_probe_cannot_pass_without_container_tool_result(self):
         original = {"ready": True, "areas": {"core": True, "evaluation": True, "live": True}, "checks": []}
@@ -62,8 +70,12 @@ class DemoEnvironmentTests(unittest.TestCase):
             (root / "external/environment-lock.json").write_text('{"platform":"linux/amd64"}')
             for failed in (False, True):
                 report = copy.deepcopy(original)
+                progress = io.StringIO()
                 with patch.dict(os.environ, {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/chat/completion", "AGENT_OPT_MODEL_API_KEY": "key", "AGENT_OPT_CA_BUNDLE": ""}, clear=True), patch.object(
-                        checks, "probe_model", return_value={"status": "passed"}), patch.object(
-                        checks, "probe_harness", side_effect=UnavailableError("failed") if failed else None):
+                         checks, "probe_model", return_value={"status": "passed"}), patch.object(
+                         checks, "probe_harness", side_effect=UnavailableError("failed") if failed else None), \
+                         redirect_stderr(progress):
                     checks.check_models(root, report)
                 self.assertEqual(report["ready"], not failed)
+                self.assertIn("[doctor] check=container-tool " + ("failed" if failed else "complete"),
+                              progress.getvalue())

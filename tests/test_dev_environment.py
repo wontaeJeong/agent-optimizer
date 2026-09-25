@@ -4,10 +4,11 @@ import io
 import json
 import os
 import subprocess
+import sys
 import tempfile
 import unittest
 import venv
-from contextlib import redirect_stdout
+from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -811,6 +812,25 @@ class PrivateResultLogTests(unittest.TestCase):
 
 
 class SmokeEvidenceTests(unittest.TestCase):
+    def test_smoke_reports_running_and_failed_tool_gate_before_final_json(self):
+        checks = module("ace_smoke_progress", ROOT / "examples/ace-rtl/environment/checks.py")
+
+        class NoEvaluatorNeeded:
+            def load_plugins(self, *_args):
+                pass
+
+        output, progress = io.StringIO(), io.StringIO()
+        with tempfile.TemporaryDirectory() as directory, \
+                patch.object(checks, "ROOT", Path(directory)), \
+                patch.object(checks, "Registry", return_value=NoEvaluatorNeeded()), \
+                patch.object(checks, "execute", return_value=ExecutionResult("timeout", None, 0.1, "out", "err")), \
+                redirect_stdout(output), redirect_stderr(progress):
+            with self.assertRaises(UnavailableError):
+                checks.smoke({"images": {"evaluation": {"id": "fixture-image"}}})
+        self.assertIn("[smoke] check=T4-real-tools starting", progress.getvalue())
+        self.assertIn("[smoke] check=T4-real-tools failed", progress.getvalue())
+        self.assertEqual(json.loads(output.getvalue())["status"], "failed")
+
     def test_pass_status_without_nonempty_official_raw_tests_is_not_smoke_success(self):
         path = ROOT / "examples/ace-rtl/environment/checks.py"
         self.assertTrue(path.is_file(), "smoke evidence validation missing")
@@ -826,6 +846,20 @@ class SmokeEvidenceTests(unittest.TestCase):
             checks.require_verdict(result, "passed", official=True)
             with self.assertRaises(UnavailableError):
                 checks.require_verdict(result, "failed", official=True)
+
+
+class SetupProgressTests(unittest.TestCase):
+    def test_logged_command_reports_elapsed_without_changing_its_output_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log = root / "driver-uv.log"
+            output, progress = io.StringIO(), io.StringIO()
+            with redirect_stdout(output), redirect_stderr(progress):
+                setup.run([sys.executable, "-c", "import time; time.sleep(1.1)"], cwd=root, log=log)
+            self.assertIn("[setup] check=driver-uv.log starting", progress.getvalue())
+            self.assertIn("[setup] check=driver-uv.log complete elapsed=", progress.getvalue())
+            self.assertEqual(json.loads(log.read_text().splitlines()[0])[0], sys.executable)
+            self.assertIn("driver-uv.log: complete", output.getvalue())
 
 
 class ShippedRTLProfileTests(unittest.TestCase):

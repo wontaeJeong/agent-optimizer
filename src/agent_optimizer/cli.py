@@ -25,7 +25,7 @@ from agent_optimizer.network import network_environment
 from agent_optimizer.setup_wizard import (component_inventory, prepare_selection,
                                           _bounded_tasks, choose_editable_file, wizard_arguments,
                                           write_experiment)
-from agent_optimizer.terminal_report import ProgressDisplay
+from agent_optimizer.terminal_report import PreparationStatus, ProgressDisplay
 from agent_optimizer.terminal_style import style
 from agent_optimizer.results import write_json
 from agent_optimizer.readiness import collect_dataset, collect_plan
@@ -398,8 +398,13 @@ def _dispatch(args):
             if args.model and not args.plan:
                 raise ConfigurationError("--model requires --plan")
             if args.dataset or args.plan:
-                report = (collect_dataset(args.project_root, args.dataset, registry) if args.dataset else
-                          collect_plan(args.plan, registry, model=args.model))
+                if args.dataset or args.model:
+                    label = "dataset" if args.dataset else "plan-model"
+                    with PreparationStatus(label, action="doctor", subject="check"):
+                        report = (collect_dataset(args.project_root, args.dataset, registry) if args.dataset else
+                                  collect_plan(args.plan, registry, model=True))
+                else:
+                    report = collect_plan(args.plan, registry)
                 if args.json:
                     show(report)
                 else:
@@ -439,20 +444,22 @@ def _dispatch(args):
             data = json.loads((args.run_dir / "summary.json").read_text())
             if args.html:
                 from agent_optimizer.results import write_report_artifacts
-                target = write_report_artifacts(args.run_dir, data)
+                with PreparationStatus("html", action="report", subject="check"):
+                    target = write_report_artifacts(args.run_dir, data)
                 show({"html": target, "status": data["status"]})
                 return 0
             if args.csv:
-                records = [json.loads(s) for s in (args.run_dir / "events.jsonl").read_text().splitlines()]
-                records = [r for r in records if r.get("event") == "trial_completed"]
-                keys = sorted({k for r in records for k in r["metrics"]})
-                fixed = ["agent_id", "harness_id", "candidate_id", "task_id", "split", "repeat", "status"]
-                args.csv.parent.mkdir(parents=True, exist_ok=True)
-                with args.csv.open("w", newline="", encoding="utf-8") as stream:
-                    writer = csv.DictWriter(stream, fieldnames=fixed + keys)
-                    writer.writeheader()
-                    for r in records:
-                        writer.writerow({**{k: r[k] for k in fixed}, **r["metrics"]})
+                with PreparationStatus("csv", action="report", subject="check"):
+                    records = [json.loads(s) for s in (args.run_dir / "events.jsonl").read_text().splitlines()]
+                    records = [r for r in records if r.get("event") == "trial_completed"]
+                    keys = sorted({k for r in records for k in r["metrics"]})
+                    fixed = ["agent_id", "harness_id", "candidate_id", "task_id", "split", "repeat", "status"]
+                    args.csv.parent.mkdir(parents=True, exist_ok=True)
+                    with args.csv.open("w", newline="", encoding="utf-8") as stream:
+                        writer = csv.DictWriter(stream, fieldnames=fixed + keys)
+                        writer.writeheader()
+                        for r in records:
+                            writer.writerow({**{k: r[k] for k in fixed}, **r["metrics"]})
             show(data)
     except (ConfigurationError, UnavailableError, KeyError, TypeError, ValueError, OSError) as exc:
         print(f"{style('error:', 'error', stream=sys.stderr)} {exc}", file=sys.stderr)

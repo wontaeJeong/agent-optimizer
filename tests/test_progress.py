@@ -3,6 +3,8 @@ import json
 import io
 import contextlib
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from agent_optimizer.config import load_experiment
 from agent_optimizer.cli import main
@@ -10,7 +12,9 @@ from agent_optimizer.contracts import ConfigurationError, Evaluation
 from agent_optimizer.registry import Registry
 from agent_optimizer.runner import run_experiment
 from agent_optimizer.terminal_report import PreparationStatus, ProgressDisplay
-from support import test_project
+from support import ROOT, module, test_project
+
+ace_checks = module("progress_ace_checks", ROOT / "examples/ace-rtl/environment/checks.py")
 
 
 class ProgressTests(unittest.TestCase):
@@ -81,6 +85,29 @@ class ProgressTests(unittest.TestCase):
         self.assertIn("failed", terminal.getvalue())
         self.assertRegex(terminal.getvalue(), r"\x1b\[[0-9;]+m")
 
+    def test_named_operation_keeps_stdout_clean_and_marks_failure(self):
+        output, status = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output):
+            with self.assertRaisesRegex(ValueError, "fixture failure"):
+                with PreparationStatus("host-api", stream=status, action="doctor", subject="check"):
+                    raise ValueError("fixture failure")
+        self.assertEqual(output.getvalue(), "")
+        self.assertIn("[doctor] check=host-api starting", status.getvalue())
+        self.assertIn("[doctor] check=host-api failed", status.getvalue())
+
+    def test_doctor_status_stays_readable_on_tty_without_optional_rich(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        terminal = Terminal()
+        with patch("agent_optimizer.terminal_report._terminal_progress",
+                   side_effect=ModuleNotFoundError("No module named 'rich'", name="rich")):
+            with PreparationStatus("environment", stream=terminal, action="doctor", subject="check"):
+                pass
+        self.assertIn("[doctor] check=environment starting", terminal.getvalue())
+        self.assertIn("[doctor] check=environment complete", terminal.getvalue())
+
     def test_configured_max_trial_budget_is_not_a_planned_total(self):
         output = io.StringIO()
         display = ProgressDisplay(stream=output)
@@ -100,6 +127,30 @@ class ProgressTests(unittest.TestCase):
                            "--output", str(self.root / "runs")])
         self.assertEqual(result, 0)
         self.assertIn("MAX TRIAL BUDGET completed=7 remaining=33 / 40", progress.getvalue())
+
+    def test_ace_live_streams_existing_agent_events_before_run_finishes(self):
+        spec = {"stages": [{"config": {"iterations": 1}}],
+                "_tasks": [SimpleNamespace(split="train"), SimpleNamespace(split="validation")],
+                "_profiles": [{"runtime": {"kind": "local"}}],
+                "budget": {"trial_timeout_seconds": 10}}
+        observed, output, progress = [], io.StringIO(), io.StringIO()
+
+        def fake_run(spec, registry, output_root, *, on_event=None):
+            for event, phase in (("trial_started", "workspace"), ("agent_started", "agent")):
+                on_event({"event": event, "phase": phase, "timestamp": "2026-09-25T02:00:00Z",
+                          "dataset": "ace-demo", "stage_id": "baseline", "task_id": "qam"})
+                observed.append(phase)
+            return output_root / "fixture", {"status": "completed"}
+
+        with patch.object(ace_checks, "ROOT", self.root), \
+                patch.object(ace_checks, "load_experiment", return_value=spec), \
+                patch.object(ace_checks, "run_experiment", side_effect=fake_run), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(progress):
+            self.assertEqual(ace_checks.live({"images": {"agent": {"id": "fixture"}}}, iterations=1), 0)
+        self.assertEqual(observed, ["workspace", "agent"])
+        self.assertIn("stage=baseline task=qam phase=agent", progress.getvalue())
+        self.assertIn("MAX TRIAL BUDGET completed=0 remaining=4 / 4", progress.getvalue())
+        self.assertEqual(json.loads(output.getvalue())["status"], "completed")
 
     def test_optimizer_validation_view_omits_feedback_and_private_data(self):
         path = self.root / "examples/minimal/observer.py"

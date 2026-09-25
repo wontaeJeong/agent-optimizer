@@ -1,5 +1,22 @@
 # 검증 기록
 
+## 2026-09-25 장시간 명령 진행 표시 전수 보완
+
+Mac ARM64 / Python 3.12.12 / Docker daemon `linux/arm64`. 모델 키를 사용하지 않았다.
+`make live`의 원인은 ACE 예제의 `run_experiment`에 `on_event`를 전달하지 않은 것이었다.
+기본 디렉토리에서 이미 실행 중이던 두 작업의 `events.jsonl`에 `agent_started`가 기록된 상태를
+확인했으며 해당 프로세스는 중단·수정하지 않았다. CLI `run`·TUI·선택 데이터셋 준비·`make demo`는
+기존 이벤트/상태 표시 경로가 연결됐음을 코드와 회귀로 구분해 확인했다.
+
+| 실제 명령·검사 | 결과 |
+|---|---|
+| `make setup ARGS="--core"`; `make setup` | 둘 다 exit 0, 각 7-trial 합성 데모 completed. 새 워크트리에서 고정 Git·데이터·driver를 준비하고 Mac `linux/arm64` 공식 이미지·도구 진단 ready. 이미지 빌드는 기존 Docker layer cache를 사용했으므로 cold build 근거가 아니다. |
+| `make smoke` | `runs/dev-smoke-dc1f6e8a5dc7/summary.json`: `status=passed`, 실제 도구 9개·toy 정답/오답·공식 CVDP 정답/오답 검사를 실행. stderr에 환경 확인부터 `official-negative`까지 시작·경과·완료 상태가 나왔고 마지막 stdout은 단일 결과 JSON이었다. |
+| `make test`; `make lint`; `node --test tests/endpoint-plugin.test.mjs`; `sh -n scripts/bootstrap.sh`; `git diff --check` | unittest **525개 중 510 통과·15 skip·실패 0**, Ruff·Node 1개·셸 문법·공백 검사 통과. TTY 지연 fixture는 작업 종료 전 `elapsed=` 표시를, 직접 Python doctor `-S`는 Rich 미설치 경로와 JSON stdout 분리를 확인했다. |
+
+실제 모델을 호출하는 새 `make live`는 이번 작업에서 실행하지 않았다. 합성 이벤트로 대기 중
+단계가 표시되는지 검증했고, 평가기 성능·모델 개선 여부는 기존 E2E 기록과 구분한다.
+
 ## 2026-09-25 공식 CVDP 평가 재실행
 
 환경: GitHub 제공 Ubuntu `linux/amd64`, Python 3.12.14, Docker 28.0.4,

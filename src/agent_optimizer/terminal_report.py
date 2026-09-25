@@ -6,18 +6,16 @@ import threading
 import time
 import os
 
-from rich.console import Console
-from rich.progress import Progress, ProgressColumn, SpinnerColumn, TimeElapsedColumn
-from rich.table import Column
-from rich.text import Text
-
-
-class _StatusColumn(ProgressColumn):
-    def render(self, task):
-        return Text(task.description, style=task.fields.get("tone", "yellow"))
-
-
 def _terminal_progress(stream):
+    from rich.console import Console
+    from rich.progress import Progress, ProgressColumn, SpinnerColumn, TimeElapsedColumn
+    from rich.table import Column
+    from rich.text import Text
+
+    class _StatusColumn(ProgressColumn):
+        def render(self, task):
+            return Text(task.description, style=task.fields.get("tone", "yellow"))
+
     return Progress(SpinnerColumn(), _StatusColumn(table_column=Column(overflow="fold")),
                     TimeElapsedColumn(),
                     console=Console(file=stream, force_terminal=True, color_system="standard",
@@ -129,28 +127,34 @@ class ProgressDisplay:
 
 
 class PreparationStatus:
-    """Keep the selected dataset and elapsed time visible during blocking setup."""
+    """Keep an operation and its elapsed time visible during blocking work."""
 
-    def __init__(self, name: str, stream=None):
+    def __init__(self, name: str, stream=None, *, action="prepare", subject="dataset"):
         self.name = name
         self.stream = sys.stderr if stream is None else stream
         self.progress = None
+        self.label = f"[{action}] {subject}={name}"
 
     def __enter__(self):
         self.started = time.monotonic()
         if self.stream.isatty():
-            self.progress = _terminal_progress(self.stream)
-            self.task_id = self.progress.add_task(f"[prepare] dataset={self.name} starting",
-                                                  total=None, tone="yellow")
-            self.progress.start()
-        else:
-            self.stream.write(f"[prepare] dataset={self.name} starting\n")
+            try:
+                self.progress = _terminal_progress(self.stream)
+            except ModuleNotFoundError as exc:
+                if exc.name != "rich" and not exc.name.startswith("rich."):
+                    raise
+            if self.progress is not None:
+                self.task_id = self.progress.add_task(f"{self.label} starting",
+                                                      total=None, tone="yellow")
+                self.progress.start()
+        if self.progress is None:
+            self.stream.write(f"{self.label} starting\n")
             self.stream.flush()
         return self
 
     def __exit__(self, error_type, *_):
         status = "failed" if error_type else "complete"
-        message = (f"[prepare] dataset={self.name} {status} "
+        message = (f"{self.label} {status} "
                    f"elapsed={time.monotonic()-self.started:.1f}s")
         if self.progress is not None:
             self.progress.update(self.task_id, description=message,

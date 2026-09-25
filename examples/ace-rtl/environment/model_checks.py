@@ -7,6 +7,7 @@ from agent_optimizer.contracts import ConfigurationError, RunRequest, Unavailabl
 from agent_optimizer.harnesses.opencode import OpenCodeHarness
 from agent_optimizer.models import ModelSettings, probe_model
 from agent_optimizer.network import demo_environment, network_environment
+from agent_optimizer.terminal_report import PreparationStatus
 
 
 def probe_harness(root, lock):
@@ -39,12 +40,14 @@ def check_models(root, report):
                           OPENCODE_CONFIG="/opt/agent-optimizer/compatible.json")
         if not report["ready"]:
             raise UnavailableError("Complete environment preparation first")
-        probe_model(settings=settings)
+        with PreparationStatus("host-api", action="doctor", subject="check"):
+            probe_model(settings=settings)
         report["checks"].append({"id": "live.host_api", "area": "live", "status": "ok",
                                  "message": "Actual host API tool-call probe passed.", "remedy": ""})
         lock = json.loads((root / "external/environment-lock.json").read_text())
         os.environ["DOCKER_DEFAULT_PLATFORM"] = lock["platform"]
-        probe_harness(root, lock)
+        with PreparationStatus("container-tool", action="doctor", subject="check"):
+            probe_harness(root, lock)
         passed = True
     except (ConfigurationError, UnavailableError, OSError, ValueError, KeyError):
         pass
