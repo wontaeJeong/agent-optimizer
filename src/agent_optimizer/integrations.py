@@ -227,10 +227,41 @@ def prepare_pointer(path: Path, *, offline: bool = False) -> dict:
     report = lifecycle.inspect(workspace)
     if not report["ready"]:
         raise UnavailableError("ACE 평가 실행환경을 준비하지 못했습니다")
+    publish_marker(workspace, integration["id"], obtained)
+    return {"experiment": path.resolve(), "profile": integration["id"], "ready": True}
+
+
+def publish_marker(workspace: Path, integration_id: str, obtained: dict) -> None:
+    source = INTEGRATIONS[integration_id]
+    if obtained["url"] != source["url"] or obtained["revision"] != source["revision"]:
+        raise ConfigurationError("준비된 연동 출처가 카탈로그와 다릅니다")
     fingerprint = {relative: hashlib.sha256(safe_path(workspace, relative).read_bytes()).hexdigest()
                    for relative in obtained["paths"]}
     marker = safe_path(workspace, ".agent-opt/integration-ready.json")
-    write_json(marker, {"ready": True, "id": integration["id"],
-                        "revision": integration["revision"], "contract": integration["contract"],
+    write_json(marker, {"ready": True, "id": integration_id,
+                        "revision": source["revision"], "contract": source["contract"],
                         "url": obtained["url"], "files": fingerprint})
-    return {"experiment": path.resolve(), "profile": integration["id"], "ready": True}
+
+
+def prepare_catalog_dataset(workspace: Path, selection: str, *, offline: bool = False) -> dict:
+    from agent_optimizer.registry import Registry
+
+    if selection not in {"cvdp", "verilog-spec", "verilog-completion"}:
+        raise ConfigurationError(f"지원하지 않는 데이터셋: {selection}")
+    workspace = workspace.resolve()
+    obtained = acquire_integration(workspace, selection, offline=offline)
+    plugins, dependencies = integration_plugins(selection)
+    registry = Registry()
+    from agent_optimizer.registry import plugin_files
+    plugin_files(workspace, plugins, dependencies)
+    registry.load_plugins(workspace, plugins)
+    provider = registry.resolve("datasets", selection)()
+    result = provider.prepare(workspace / "external/datasets" / selection, offline=offline)
+    if result.get("evaluator") not in plugins["evaluators"]:
+        raise ConfigurationError("선택한 데이터셋의 평가기 등록이 일치하지 않습니다")
+    registry.resolve("evaluators", result["evaluator"])
+    checks = provider.doctor(workspace / "external/datasets" / selection)
+    if not checks or any(row.get("status") != "ok" for row in checks):
+        raise UnavailableError(f"데이터셋 준비 진단 실패: {selection}")
+    publish_marker(workspace, selection, obtained)
+    return {**result, "dataset_provider": selection}
