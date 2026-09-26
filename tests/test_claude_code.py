@@ -53,7 +53,8 @@ class ClaudeCodeContractTests(unittest.TestCase):
     def test_argv_keeps_prompt_separate_and_refuses_docker(self):
         self.assertEqual(self.harness.argv(self.request),
                          ["claude", "-p", self.request.prompt, "--output-format", "stream-json",
-                          "--verbose", "--max-turns", "8", "--allowedTools", "Read,Write,Edit"])
+                          "--verbose", "--max-turns", "8", "--tools", "Read,Write,Edit",
+                          "--allowedTools", "Read,Write,Edit"])
         docker = RunRequest(self.workspace, self.request.agent_dir, self.request.task_dir,
                             self.request.prompt, 5, 3, {"runtime": {"kind": "docker"}}, self.logs)
         with self.assertRaises(UnavailableError):

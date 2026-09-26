@@ -14,7 +14,8 @@ class ClaudeCodeHarness(CommandHarness):
         if request.profile.get("runtime", {}).get("kind", "local") != "local":
             raise UnavailableError("claude_code requires a local runtime")
         return ["claude", "-p", request.prompt, "--output-format", "stream-json",
-                "--verbose", "--max-turns", "8", "--allowedTools", "Read,Write,Edit"]
+                "--verbose", "--max-turns", "8", "--tools", "Read,Write,Edit",
+                "--allowedTools", "Read,Write,Edit"]
 
     def run(self, request: RunRequest) -> ExecutionResult:
         # Reject unsupported runtimes before probing a host CLI.
