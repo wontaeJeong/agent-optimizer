@@ -33,6 +33,9 @@ class CLIExperienceTests(unittest.TestCase):
         self.agent = self.root / "examples/minimal/agents/solo"
         self.data = self.root / "examples/minimal/tasks.json"
 
+    def command_harness_choice(self):
+        return str(sorted(Registry().factories["harnesses"]).index("command") + 1)
+
     def test_top_level_help_points_to_setup_and_explains_run_and_report(self):
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
@@ -929,7 +932,8 @@ class CLIExperienceTests(unittest.TestCase):
 
         terminal, output = Terminal(), io.StringIO()
         answers = ["2", "wizard-demo", str(self.agent), "configs/strategy.json", str(self.data),
-                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1", "1",
+                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1",
+                   self.command_harness_choice(),
                    "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "y"]
         with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", side_effect=answers), \
                 contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(output):
@@ -946,7 +950,8 @@ class CLIExperienceTests(unittest.TestCase):
 
         terminal, output = Terminal(), io.StringIO()
         answers = ["guided-demo", str(self.agent), "configs/strategy.json", str(self.data),
-                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1", "1",
+                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1",
+                   self.command_harness_choice(),
                    "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "y"]
         with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", side_effect=answers), \
                 contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(output):
@@ -963,7 +968,8 @@ class CLIExperienceTests(unittest.TestCase):
 
         terminal, output = Terminal(), io.StringIO()
         answers = ["english-guide", str(self.agent), "configs/strategy.json", str(self.data),
-                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1", "1",
+                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1",
+                   self.command_harness_choice(),
                    "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "y"]
         with patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}), \
                 patch("sys.stdin.isatty", return_value=True), \
@@ -982,7 +988,8 @@ class CLIExperienceTests(unittest.TestCase):
         terminal, output = Terminal(), io.StringIO()
         answers = ["multi-guided", str(self.agent), "configs/strategy.json",
                    f"{self.data},{self.data}", "examples/minimal/evaluator.py:TextFixtureEvaluator",
-                   "", "", "1", "1", "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "y"]
+                   "", "", "1", self.command_harness_choice(),
+                   "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "y"]
         with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", side_effect=answers), \
                 contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(output):
             self.assertEqual(main(["init", "--project-root", str(self.root)]), 0)
@@ -999,7 +1006,8 @@ class CLIExperienceTests(unittest.TestCase):
         terminal, output = Terminal(), io.StringIO()
         answers = ["2", "multi-wizard", str(self.agent), "configs/strategy.json",
                    f"{self.data},{self.data}", "examples/minimal/evaluator.py:TextFixtureEvaluator",
-                   "", "", "1", "1", "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "y"]
+                   "", "", "1", self.command_harness_choice(),
+                   "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "y"]
         with patch("sys.stdin.isatty", return_value=True), patch("builtins.input", side_effect=answers), \
                 contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(output):
             self.assertEqual(main(["tui", "--project-root", str(self.root)]), 0)
@@ -1173,7 +1181,8 @@ class CLIExperienceTests(unittest.TestCase):
     def test_wizard_accepts_glob_with_one_real_runtime_harness_file(self):
         # The minimal fixture has one Python runtime scaffold under src/**.
         answers = ["harness-demo", str(self.agent), "src/**", str(self.data),
-                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "5", "1",
+                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "5",
+                   self.command_harness_choice(),
                    "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "", "y"]
         with patch("builtins.input", side_effect=answers), contextlib.redirect_stderr(io.StringIO()):
             args = wizard_arguments(self.root)
