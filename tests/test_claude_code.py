@@ -7,6 +7,7 @@ import os
 import subprocess
 import tempfile
 import unittest
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -18,7 +19,7 @@ from agent_optimizer.locale import render_diagnostic
 from agent_optimizer.readiness import collect_plan
 from agent_optimizer.registry import Registry
 from agent_optimizer.setup_wizard import supports_generated_profile
-from support import test_project
+from support import ROOT, module, test_project
 
 
 SUCCESS = {"type": "result", "subtype": "success", "is_error": False,
@@ -241,6 +242,182 @@ class ClaudeCodeSelectionTests(unittest.TestCase):
             else:
                 self.assertEqual(check["remedy"], "")
                 self.assertTrue(report["ready"], report)
+
+
+class ACEClaudeExampleTests(unittest.TestCase):
+    def setUp(self):
+        self.temporary, self.root = test_project()
+        self.addCleanup(self.temporary.cleanup)
+        benchmark = self.root / "datasets/ace-demo/tasks.json"
+        benchmark.parent.mkdir(parents=True)
+        public = json.loads((self.root / "examples/minimal/tasks.json").read_text(encoding="utf-8"))
+        public["tasks"] = public["tasks"][:2]
+        benchmark.write_text(json.dumps(public), encoding="utf-8")
+
+    def test_separate_claude_experiment_selects_ace_and_four_trial_budget(self):
+        original = load_experiment(self.root / "examples/ace-rtl/experiment.toml")
+        claude = load_experiment(self.root / "examples/ace-rtl/experiment-claude.toml")
+        self.assertEqual(original["_agents"][0].supported_harnesses,
+                         ("ace_opencode", "ace_claude_code"))
+        self.assertEqual(original["_profiles"][0]["adapter"], "ace_opencode")
+        self.assertEqual(original["stages"][0]["config"]["iterations"], 3)
+        self.assertEqual(claude["name"], "ace-rtl-claude-cvdp-demo")
+        self.assertEqual(claude["benchmark"], "datasets/ace-demo/tasks.json")
+        self.assertEqual(claude["evaluator"], "cvdp")
+        self.assertFalse(claude["final_test"])
+        self.assertEqual(claude["budget"]["max_trials"], 4)
+        self.assertEqual(claude["stages"][0]["optimizer"], "simple_feedback")
+        self.assertEqual(claude["stages"][0]["config"]["iterations"], 1)
+        self.assertEqual(claude["stages"][0]["config"]["file"],
+                         "skills/ace-rtl/references/role-guidance.md")
+        self.assertEqual({task.split for task in claude["_tasks"]}, {"train", "validation"})
+        self.assertEqual(claude["_profiles"][0]["adapter"], "ace_claude_code")
+        self.assertEqual(claude["_profiles"][0]["runtime"]["kind"], "local")
+        self.assertTrue(claude["_profiles"][0]["allow_local"])
+        self.assertEqual(claude["_profiles"][0]["required_cli_version"], "2.1.261")
+        registry = Registry()
+        registry.load_plugins(self.root, {"harnesses": claude["plugins"]["harnesses"]})
+        self.assertTrue(issubclass(registry.resolve("harnesses", "ace_claude_code"), ClaudeCodeHarness))
+
+    def test_claude_adapter_prepends_candidate_guidance_without_mutating_request(self):
+        adapter = module("ace_claude_adapter_guidance", ROOT / "examples/ace-rtl/adapter.py")
+        agent = self.root / "candidate"
+        guidance = agent / "skills/ace-rtl/references/role-guidance.md"
+        guidance.parent.mkdir(parents=True)
+        guidance.write_text("candidate-guidance", encoding="utf-8")
+        request = RunRequest(self.root, agent, self.root / "task", "public task", 0, 30,
+                             {"runtime": {"kind": "local"}}, self.root / "logs")
+        with patch.object(ClaudeCodeHarness, "run", return_value="executed") as execute:
+            self.assertEqual(adapter.ACEClaudeCode().run(request), "executed")
+        submitted = execute.call_args.args[0]
+        self.assertIn("candidate-guidance", submitted.prompt)
+        self.assertTrue(submitted.prompt.endswith("public task"))
+        self.assertEqual(request.prompt, "public task")
+
+    def test_claude_launcher_rejects_unapproved_source_and_uses_selected_lifecycle(self):
+        adapter = module("ace_claude_adapter_launcher", ROOT / "examples/ace-rtl/adapter.py")
+        approved = {"_source": ROOT / "examples/ace-rtl/experiment-claude.toml", "_root": ROOT}
+        for altered in ({**approved, "_source": ROOT / "examples/ace-rtl/experiment.toml"},
+                        {**approved, "_root": self.root}):
+            with self.subTest(altered=altered), self.assertRaises(ConfigurationError):
+                adapter.ACEClaudeCode.launch_existing(altered)
+        stub = self.root / "lifecycle.py"
+        stub.write_text('def run(root, *, experiment_file="experiment.toml"):\n'
+                        '    return 17 if experiment_file == "experiment-claude.toml" else 18\n', encoding="utf-8")
+        with patch.object(adapter, "safe_path", return_value=stub):
+            self.assertEqual(adapter.ACEClaudeCode.launch_existing(approved), 17)
+
+    def test_claude_preflight_checks_credentials_before_assets_and_cli(self):
+        lifecycle = module("ace_claude_lifecycle_missing", ROOT / "examples/ace-rtl/environment/lifecycle.py")
+        credentials = {"ANTHROPIC_AUTH_TOKEN": "fixture-secret", "ANTHROPIC_BASE_URL": "https://example.invalid",
+                       "ANTHROPIC_MODEL": "fixture-model"}
+        for missing in credentials:
+            with self.subTest(missing=missing), patch.dict(os.environ, {**credentials, missing: ""}, clear=True), \
+                 patch.object(lifecycle, "inspect") as inspect, \
+                 patch.object(lifecycle, "load_example") as loader, \
+                 patch("agent_optimizer.harnesses.claude_code.subprocess.run") as cli:
+                with self.assertRaises(UnavailableError) as error:
+                    lifecycle.run(ROOT, experiment_file="experiment-claude.toml")
+                self.assertIn(missing, str(error.exception))
+                self.assertNotIn("fixture-secret", str(error.exception))
+                inspect.assert_not_called()
+                loader.assert_not_called()
+                cli.assert_not_called()
+
+    def test_claude_preflight_stops_on_missing_evaluation_assets_without_cli(self):
+        lifecycle = module("ace_claude_lifecycle_unready", ROOT / "examples/ace-rtl/environment/lifecycle.py")
+        credentials = {"ANTHROPIC_AUTH_TOKEN": "fixture-secret", "ANTHROPIC_BASE_URL": "https://example.invalid",
+                       "ANTHROPIC_MODEL": "fixture-model"}
+        report = {"ready": False, "checks": [{"id": "image.evaluation", "area": "evaluation", "status": "error"}]}
+        with patch.dict(os.environ, credentials, clear=True), \
+             patch.object(lifecycle, "inspect", return_value=report) as inspect, \
+             patch.object(lifecycle, "load_example") as loader, \
+             patch("agent_optimizer.harnesses.claude_code.subprocess.run") as cli:
+            with self.assertRaisesRegex(UnavailableError, "image.evaluation"):
+                lifecycle.run(ROOT, experiment_file="experiment-claude.toml")
+            inspect.assert_called_once()
+            loader.assert_not_called()
+            cli.assert_not_called()
+            self.assertNotIn("OPENCODE_CONFIG", os.environ)
+
+    def test_claude_preflight_passes_selected_experiment_without_opencode_setup(self):
+        lifecycle = module("ace_claude_lifecycle_ready", ROOT / "examples/ace-rtl/environment/lifecycle.py")
+        credentials = {"ANTHROPIC_AUTH_TOKEN": "fixture-secret", "ANTHROPIC_BASE_URL": "https://example.invalid",
+                       "ANTHROPIC_MODEL": "fixture-model"}
+        lock = {"platform": "linux/amd64", "images": {"evaluation": {"id": "eval"}}}
+        report = {"ready": True, "checks": [], "lock": lock, "platform": "linux/amd64", "sim_image": "sim"}
+        seen = []
+
+        def load(root, relative, name):
+            if relative.endswith("setup.py"):
+                return SimpleNamespace(validate_live=lambda: self.fail("OpenCode setup called"))
+            if relative.endswith("checks.py"):
+                return SimpleNamespace(live=lambda *args, **kwargs: seen.append((args, kwargs, dict(os.environ))) or 0)
+            self.fail(relative)
+
+        with patch.dict(os.environ, credentials, clear=True), \
+             patch.object(lifecycle, "inspect", return_value=report), \
+             patch.object(lifecycle, "load_example", side_effect=load):
+            self.assertEqual(lifecycle.run(ROOT, experiment_file="experiment-claude.toml"), 0)
+            self.assertEqual(dict(os.environ), credentials)
+        self.assertEqual(seen[0][0], (lock,))
+        self.assertEqual(seen[0][1]["experiment_file"], "experiment-claude.toml")
+        self.assertEqual(seen[0][2]["OSS_SIM_IMAGE"], "sim")
+        self.assertNotIn("OPENCODE_CONFIG", seen[0][2])
+
+    def test_claude_preflight_does_not_require_opencode_agent_image(self):
+        lifecycle = module("ace_claude_lifecycle_local_assets", ROOT / "examples/ace-rtl/environment/lifecycle.py")
+        credentials = {"ANTHROPIC_AUTH_TOKEN": "fixture-secret", "ANTHROPIC_BASE_URL": "https://example.invalid",
+                       "ANTHROPIC_MODEL": "fixture-model"}
+        rows = [{"id": name, "area": "evaluation", "status": status}
+                for name, status in (("environment.lock", "ok"), ("image.evaluation", "ok"),
+                                     ("tools.evaluation", "ok"), ("image.agent", "error"),
+                                     ("tools.opencode", "error"))]
+        lock = {"platform": "linux/amd64", "images": {"evaluation": {"id": "eval"}}}
+        calls = []
+
+        def load(root, relative, name):
+            if relative.endswith("diagnostics.py"):
+                return SimpleNamespace(collect_checks=lambda *args, **kwargs: rows)
+            if relative.endswith("setup.py"):
+                return SimpleNamespace(read_environment_lock=lambda path: lock,
+                                       verified_sim_image=lambda prepared: "sim")
+            if relative.endswith("checks.py"):
+                return SimpleNamespace(live=lambda *args, **kwargs: calls.append(kwargs) or 0)
+            self.fail(relative)
+
+        with patch.dict(os.environ, credentials, clear=True), patch.object(lifecycle, "load_example", side_effect=load):
+            self.assertFalse(lifecycle.inspect(ROOT)["ready"])
+            self.assertEqual(lifecycle.run(ROOT, experiment_file="experiment-claude.toml"), 0)
+        self.assertEqual(calls, [{"iterations": None, "experiment_file": "experiment-claude.toml"}])
+
+    def test_claude_live_uses_local_profile_without_agent_image(self):
+        checks = module("ace_claude_live", ROOT / "examples/ace-rtl/environment/checks.py")
+        captured = []
+
+        def run(spec, registry, output, *, on_event):
+            captured.append(spec)
+            return output / "fixture", {"status": "completed"}
+
+        with patch.object(checks, "ROOT", self.root), patch.object(checks, "run_experiment", side_effect=run), \
+             contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(checks.live({"images": {"evaluation": {"id": "eval"}}},
+                                         experiment_file="experiment-claude.toml"), 0)
+        self.assertEqual(captured[0]["_profiles"][0]["runtime"], {"kind": "local"})
+        self.assertEqual(captured[0]["budget"]["max_trials"], 4)
+        self.assertEqual(captured[0]["budget"]["max_wall_time_seconds"], 4 * 600 + 60 + 180)
+
+    def test_claude_live_rejects_unprepared_tasks_before_runner(self):
+        checks = module("ace_claude_live_unprepared", ROOT / "examples/ace-rtl/environment/checks.py")
+        benchmark = self.root / "datasets/ace-demo/tasks.json"
+        fixture = json.loads(benchmark.read_text(encoding="utf-8"))
+        fixture["tasks"] = fixture["tasks"][1:]
+        benchmark.write_text(json.dumps(fixture), encoding="utf-8")
+        with patch.object(checks, "ROOT", self.root), patch.object(checks, "run_experiment") as run:
+            with self.assertRaises(ConfigurationError):
+                checks.live({"images": {"evaluation": {"id": "eval"}}},
+                            experiment_file="experiment-claude.toml")
+            run.assert_not_called()
 
 
 if __name__ == "__main__":

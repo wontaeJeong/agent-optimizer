@@ -101,8 +101,8 @@ def smoke(lock):
     return 0
 
 
-def live(lock, iterations=None):
-    spec = load_experiment(ROOT / "examples/ace-rtl/experiment.toml")
+def live(lock, iterations=None, experiment_file="experiment.toml"):
+    spec = load_experiment(ROOT / "examples/ace-rtl" / experiment_file)
     if iterations is not None:
         if type(iterations) is not int or not 1 <= iterations <= 20:
             raise ConfigurationError("Iterations must be an integer from 1 to 20")
@@ -113,7 +113,8 @@ def live(lock, iterations=None):
     spec["budget"]["max_trials"] = 2 * (count + 1)
     spec["budget"]["max_wall_time_seconds"] = 2 * (count + 1) * spec["budget"]["trial_timeout_seconds"] + count * 60 + 180
     for profile in spec["_profiles"]:
-        profile["runtime"]["image"] = lock["images"]["agent"]["id"]
+        if profile.get("runtime", {}).get("kind") == "docker":
+            profile["runtime"]["image"] = lock["images"]["agent"]["id"]
     with ProgressDisplay() as progress:
         progress.configure_budget(spec["budget"]["max_trials"])
         root, summary = run_experiment(spec, Registry(), ROOT / "runs/dev-live", on_event=progress)

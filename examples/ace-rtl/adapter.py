@@ -1,8 +1,9 @@
-"""OpenCode skill profile. This does not impersonate ACE's native runner."""
+"""Coding-Harness skill profiles. These do not impersonate ACE's native runner."""
 from dataclasses import replace
 import importlib.util
 from pathlib import Path
 from agent_optimizer.contracts import ConfigurationError
+from agent_optimizer.harnesses.claude_code import ClaudeCodeHarness
 from agent_optimizer.harnesses.opencode import OpenCodeHarness
 from agent_optimizer.workspace import safe_path
 
@@ -38,6 +39,25 @@ class ACEOpenCode(OpenCodeHarness):
         lifecycle = importlib.util.module_from_spec(loaded)
         loaded.loader.exec_module(lifecycle)
         return lifecycle.run(root)
+
+    def run(self, request):
+        return super().run(with_ace_guidance(request))
+
+
+class ACEClaudeCode(ClaudeCodeHarness):
+    @staticmethod
+    def launch_existing(spec):
+        root = Path(__file__).resolve().parents[2]
+        example = root / "examples/ace-rtl/experiment-claude.toml"
+        if spec["_source"].resolve() != example or spec["_root"] != root:
+            raise ConfigurationError("ACE Claude 실행은 examples/ace-rtl/experiment-claude.toml에서만 지원합니다")
+        path = safe_path(root, "examples/ace-rtl/environment/lifecycle.py")
+        loaded = importlib.util.spec_from_file_location("ace_claude_selected_lifecycle", path)
+        if loaded is None or loaded.loader is None:
+            raise ConfigurationError("ACE 연동 실행 파일이 없습니다")
+        lifecycle = importlib.util.module_from_spec(loaded)
+        loaded.loader.exec_module(lifecycle)
+        return lifecycle.run(root, experiment_file="experiment-claude.toml")
 
     def run(self, request):
         return super().run(with_ace_guidance(request))

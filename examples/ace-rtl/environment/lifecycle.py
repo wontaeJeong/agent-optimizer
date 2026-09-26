@@ -35,7 +35,7 @@ def prepare(root: Path, *, offline: bool = False, platform: str | None = None) -
 
 
 def inspect(root: Path, *, platform: str | None = None,
-            environment: dict[str, str] | None = None) -> dict:
+            environment: dict[str, str] | None = None, require_agent_image: bool = True) -> dict:
     root = root.resolve()
     diagnostics = load_example(root, "examples/ace-rtl/environment/diagnostics.py",
                                "ace_lifecycle_diagnostics")
@@ -43,6 +43,8 @@ def inspect(root: Path, *, platform: str | None = None,
     values["PATH"] = str(root / ".cache/uv/bin") + os.pathsep + values.get("PATH", os.defpath)
     values.update(network_environment(values))
     checks = diagnostics.collect_checks(root, platform, environment=values)
+    if not require_agent_image:
+        checks = [row for row in checks if row["id"] not in {"image.agent", "tools.opencode"}]
     ready = all(row["status"] == "ok" for row in checks if row["area"] == "evaluation")
     lock = None
     image = None
@@ -54,15 +56,24 @@ def inspect(root: Path, *, platform: str | None = None,
             "platform": lock["platform"] if lock else platform, "sim_image": image}
 
 
-def run(root: Path, *, iterations: int | None = None, platform: str | None = None) -> int:
+def run(root: Path, *, iterations: int | None = None, platform: str | None = None,
+        experiment_file: str = "experiment.toml") -> int:
     root = root.resolve()
     previous = os.environ.copy()
     try:
-        setup = load_example(root, "examples/ace-rtl/environment/setup.py", "ace_lifecycle_run_setup")
-        setup.validate_live()
+        if experiment_file == "experiment.toml":
+            setup = load_example(root, "examples/ace-rtl/environment/setup.py", "ace_lifecycle_run_setup")
+            setup.validate_live()
+        elif experiment_file == "experiment-claude.toml":
+            for name in ("ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_BASE_URL", "ANTHROPIC_MODEL"):
+                if not os.environ.get(name, "").strip():
+                    raise UnavailableError(f"Claude 실행환경 미준비: {name}")
+        else:
+            raise ConfigurationError("지원하지 않는 ACE 실험 파일입니다")
         os.environ.update(demo_environment())
         os.environ.update(network_environment())
-        report = inspect(root, platform=platform)
+        report = inspect(root, platform=platform,
+                         require_agent_image=experiment_file == "experiment.toml")
         if not report["ready"]:
             failures = [check["id"] for check in report["checks"]
                         if check["area"] == "evaluation" and check["status"] != "ok"]
@@ -70,8 +81,10 @@ def run(root: Path, *, iterations: int | None = None, platform: str | None = Non
         os.environ["DOCKER_DEFAULT_PLATFORM"] = report["platform"]
         os.environ["OSS_SIM_IMAGE"] = report["sim_image"]
         checks = load_example(root, "examples/ace-rtl/environment/checks.py",
-                              "ace_lifecycle_run_checks")
-        return checks.live(report["lock"], iterations=iterations)
+                               "ace_lifecycle_run_checks")
+        if experiment_file == "experiment.toml":
+            return checks.live(report["lock"], iterations=iterations)
+        return checks.live(report["lock"], iterations=iterations, experiment_file=experiment_file)
     finally:
         os.environ.clear()
         os.environ.update(previous)
