@@ -559,6 +559,20 @@ class ReportModelTests(unittest.TestCase):
         self.assertEqual(group["counts"]["failed_evaluations"], 1)
         self.assertEqual(report["counts"]["failed_evaluations"], 1)
 
+    def test_agent_turn_limit_is_an_execution_failure_not_infrastructure_or_scored_failure(self):
+        event = {"event": "trial_completed", "trial_id": "turn-limit", "agent_id": "agent-a",
+                 "harness_id": "harness", "status": "agent_incomplete", "valid": False,
+                 "metrics": {"passed": None}, "execution": {"status": "agent_incomplete", "returncode": 1,
+                                                       "detail": "Agent reached turn limit"}}
+        (self.root / "events.jsonl").write_text(json.dumps(event) + "\n", encoding="utf-8")
+
+        report = build_report(self.root, {"groups": [self.group()]})
+        group = report["groups"][0]
+        self.assertEqual(group["evaluations"][0]["failure"],
+                         {"category": "execution", "message": "Agent reached turn limit"})
+        self.assertEqual(group["failures"][0]["category"], "execution")
+        self.assertEqual(group["counts"]["failed_evaluations"], 1)
+
     def test_failed_score_with_process_error_execution_is_not_scored_failure(self):
         event = {"event": "trial_completed", "trial_id": "mismatch", "agent_id": "agent-a",
                  "harness_id": "harness", "status": "failed", "feedback": "low score",

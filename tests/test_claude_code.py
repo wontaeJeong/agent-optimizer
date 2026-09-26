@@ -94,6 +94,27 @@ class ClaudeCodeContractTests(unittest.TestCase):
                 if label == "malformed":
                     self.assertEqual(result.metrics["unparsed_event_lines"], 2)
 
+    def test_max_turns_is_agent_incomplete_even_with_nonzero_cli_exit(self):
+        event = {**SUCCESS, "subtype": "error_max_turns", "is_error": True,
+                 "result": "private model text"}
+        for status, code in (("process_error", 1), ("completed", 0)):
+            with self.subTest(status=status):
+                result = self.run_events([event], status=status, returncode=code)
+                self.assertEqual(result.status, "agent_incomplete")
+                self.assertEqual(result.returncode, code)
+                self.assertIn("turn", result.detail.lower())
+                self.assertNotIn("private model text", result.detail)
+                self.assertIsNone(result.metrics["agent_tokens"])
+
+    def test_max_turns_with_auth_or_malformed_trace_remains_infrastructure_error(self):
+        max_turns = {**SUCCESS, "subtype": "error_max_turns", "is_error": True}
+        for events in ([{"type": "auth_status", "error": "private credential"}, max_turns],
+                       ["not-json", max_turns]):
+            with self.subTest(events=len(events)):
+                result = self.run_events(events, status="process_error", returncode=1)
+                self.assertEqual(result.status, "infrastructure_error")
+                self.assertNotIn("private credential", result.detail)
+
     def test_malformed_line_before_success_result_is_infrastructure_error(self):
         result = self.run_events(['{"type":"error","message":"private credential"', SUCCESS])
         self.assertEqual(result.status, "infrastructure_error")
