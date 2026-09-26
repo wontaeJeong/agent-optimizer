@@ -164,7 +164,10 @@ def load_experiment(path: Path) -> dict:
     for filename in data["harnesses"]:
         profile = read_toml(safe_path(root, filename))
         only_keys(profile, {"id", "adapter", "command", "model_env", "agent", "runtime",
-                           "allow_local", "notes"}, "harness profile")
+                           "allow_local", "notes", "required_cli_version"}, "harness profile")
+        required = profile.get("required_cli_version")
+        if required is not None and (not isinstance(required, str) or not required.strip()):
+            raise ConfigurationError("required_cli_version must be a nonempty string")
         identifier(profile["id"])
         validate_runtime(profile.get("runtime", {}))
         if "command" in profile and (not isinstance(profile["command"], list) or

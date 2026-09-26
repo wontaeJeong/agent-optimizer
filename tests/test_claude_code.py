@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import json
 import os
 import subprocess
@@ -8,8 +10,13 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from agent_optimizer.contracts import ExecutionResult, RunRequest, UnavailableError
+from agent_optimizer.cli import main
+from agent_optimizer.config import load_experiment
+from agent_optimizer.contracts import ConfigurationError, ExecutionResult, RunRequest, UnavailableError
 from agent_optimizer.harnesses.claude_code import ClaudeCodeHarness
+from agent_optimizer.registry import Registry
+from agent_optimizer.setup_wizard import supports_generated_profile
+from support import test_project
 
 
 SUCCESS = {"type": "result", "subtype": "success", "is_error": False,
@@ -158,6 +165,50 @@ class ClaudeCodeContractTests(unittest.TestCase):
         self.assertEqual(result.metrics["harness_reported_cost_usd"], 0.01)
         self.assertEqual((self.request.task_dir / "answer.txt").read_text(), "fixture result")
         self.assertEqual((self.logs / "cli-version.txt").read_text(), "2.1.261\n")
+
+
+class ClaudeCodeSelectionTests(unittest.TestCase):
+    def test_builtin_harness_is_resolvable_and_can_generate_profile(self):
+        registry = Registry()
+        self.assertIs(registry.resolve("harnesses", "claude_code"), ClaudeCodeHarness)
+        self.assertTrue(supports_generated_profile(ClaudeCodeHarness))
+        capabilities = registry.describe()["capabilities"]["claude_code"]
+        self.assertEqual(capabilities.trace, "json_events")
+        self.assertFalse(capabilities.complete_token_accounting)
+        self.assertFalse(capabilities.isolated_runtime_available)
+
+    def test_init_creates_local_claude_code_profile_without_example_version_pin(self):
+        temporary, root = test_project()
+        self.addCleanup(temporary.cleanup)
+        arguments = ["init", "--project-root", str(root), "--name", "claude-demo",
+                     "--agent", str(root / "examples/minimal/agents/solo"),
+                     "--dataset", str(root / "examples/minimal/tasks.json"),
+                     "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                     "--optimizer", "baseline", "--editable", "configs/strategy.json",
+                     "--harness", "claude_code", "--yes"]
+        with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(arguments), 0)
+        experiment = Path(json.loads(output.getvalue())["experiment"])
+        profile = load_experiment(experiment)["_profiles"][0]
+        self.assertEqual(profile["adapter"], "claude_code")
+        self.assertEqual(profile["runtime"]["kind"], "local")
+        self.assertTrue(profile["allow_local"])
+        self.assertNotIn("command", profile)
+        self.assertNotIn("required_cli_version", profile)
+
+    def test_experiment_accepts_nonempty_version_pin_and_rejects_invalid_types(self):
+        temporary, root = test_project()
+        self.addCleanup(temporary.cleanup)
+        profile = root / "examples/minimal/harness.toml"
+        original = profile.read_text(encoding="utf-8")
+        experiment = root / "examples/minimal/experiment.toml"
+        profile.write_text('required_cli_version = "2.1.261"\n' + original, encoding="utf-8")
+        self.assertEqual(load_experiment(experiment)["_profiles"][0]["required_cli_version"], "2.1.261")
+        for invalid in ('""', '"   "', '261', 'true'):
+            with self.subTest(invalid=invalid):
+                profile.write_text(f"required_cli_version = {invalid}\n" + original, encoding="utf-8")
+                with self.assertRaises(ConfigurationError):
+                    load_experiment(experiment)
 
 
 if __name__ == "__main__":
