@@ -83,6 +83,12 @@ class ClaudeCodeContractTests(unittest.TestCase):
                 if label == "malformed":
                     self.assertEqual(result.metrics["unparsed_event_lines"], 2)
 
+    def test_malformed_line_before_success_result_is_infrastructure_error(self):
+        result = self.run_events(['{"type":"error","message":"private credential"', SUCCESS])
+        self.assertEqual(result.status, "infrastructure_error")
+        self.assertEqual(result.metrics["unparsed_event_lines"], 1)
+        self.assertNotIn("private credential", result.detail)
+
     def test_bad_cost_and_incomplete_usage_remain_unreported(self):
         for cost in (-0.1, float("nan"), True, "0.01", 10**1000):
             with self.subTest(cost=cost):
