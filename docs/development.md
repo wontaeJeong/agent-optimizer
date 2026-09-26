@@ -24,7 +24,7 @@ ACE/CVDP 소스·데이터·driver·이미지는 준비하지 않습니다. 여�
 |---|---|---|
 | 개발환경 | `make setup-core`, `make doctor-core`, `make lint`, `make test`, `make demo` | CLI/계약 회귀와 합성 연결 확인 |
 | ACE 평가 실행환경 | `make setup`, `make doctor`, `make smoke` | 고정 Docker 자산·driver·실도구·공식 CVDP 정답/오답 확인; 모델 호출 없음 |
-| ACE 모델·최적화 | 자격증명 준비 후 `sh scripts/bootstrap.sh doctor --model`, `.venv/bin/agent-opt tui`에서 `examples/ace-rtl/experiment.toml` 선택 또는 `.venv/bin/agent-opt run examples/ace-rtl/experiment.toml` | 실제 모델 호출·Agent 산출물·공식 평가·후보 선택 결과 |
+| ACE 모델·최적화 | `.venv/bin/agent-opt tui`에서 ACE 예제 선택(부족한 모델 값은 세션 입력) 또는 환경변수 준비 후 `.venv/bin/agent-opt run examples/ace-rtl/experiment.toml` | 실제 모델 호출·Agent 산출물·공식 평가·후보 선택 결과 |
 
 ACE 고정 프로필을 앱에서 실행하면 기존 예제 `live`가 lock·플랫폼·모델 연결을 검사합니다.
 `doctor --plan`은 정적 확인만 하며 TUI 성공·모델 준비 완료를 뜻하지 않습니다. 각 단계의
@@ -58,7 +58,7 @@ sh scripts/bootstrap.sh menu
 | 1. 코어 개발 환경 설치 | `setup --core` 실행. Git·uv/Python·frozen 개발 의존성만 준비하고 코어 doctor·최소 데모를 확인합니다. |
 | 2. 코어 환경 진단 | `doctor --core` 실행. 읽기 전용으로 코어 준비 상태와 복구 방법을 표시하며 ACE/모델 준비 여부는 검사하지 않습니다. |
 | 3. LLM 없이 데모·최적화 반복 테스트 | 1번으로 준비한 프로젝트 `.venv`에서 실제 최소 합성 데모 후 `test_feedback_optimizer.py` 회귀 테스트를 실행합니다. 로컬 HTTP fixture를 사용하며 외부 LLM·Docker가 필요 없습니다. 실제 모델 최적화나 성능 검증은 아닙니다. |
-| 4. 모델 설정·연결 검사 | 정확한 endpoint 또는 표준 base URL을 고르고 모델 ID·숨김 Bearer 토큰을 입력한 뒤 **실제 `doctor --model` 호출**. 모델 서비스와 7번으로 준비한 Docker/예제 환경이 필요합니다. |
+| 4. 모델 설정·연결 검사 | 표준 `AGENT_OPT_MODEL_BASE_URL`과 모델 ID·숨김 Bearer 토큰을 입력한 뒤 **실제 `doctor --model` 호출**. 모델 서비스와 7번으로 준비한 Docker/예제 환경이 필요합니다. |
 | 5. ACE 최적화 실행 | 설정한 모델로 **실제 `live --iterations N` 호출**. 기본 3회, 1..20회만 허용하며 7번 전체 준비와 4번 모델 설정이 필요합니다. |
 | 6. 실행 결과·보고서 확인 | 기존 `runs/<run-id>/report.md` 및 ACE `runs/dev-live/<run-id>/report.md`를 번호로 선택해 현재 내용을 표시합니다. setup 없이 사용 가능하며 경로 직접 입력·symlink 보고서는 허용하지 않습니다. |
 | 7. ACE 전체 환경 준비 | 기존 전체 `setup` 실행. 아래 Docker·Compose 사전 조건을 확인하고 고정 소스·데이터·driver·이미지를 준비합니다. 모델 API 호출은 하지 않습니다. |
@@ -66,7 +66,7 @@ sh scripts/bootstrap.sh menu
 | 0. 종료 | EOF도 종료, Ctrl-C는 130으로 안전하게 종료합니다. |
 
 4번은 기존 `AGENT_OPT_MODEL_*` 환경을 기본값으로 사용합니다. 빈 입력은 해당 기존 값을 유지하고 모델 ID가
-없으면 `glm5.3-flash`를 사용합니다. URL 방식 변경 시 사용하지 않는 URL 변수는 제거합니다.
+없으면 `glm5.3-flash`를 사용합니다.
 토큰은 표시하지 않으며 숨김 입력이 불가능하면 취소합니다. 입력·검증이 모두 끝난 설정만 메뉴의
 자식 환경에 반영하며 shell 환경이나 `.env`·credential 파일에는 저장하지 않습니다. 연결 검사가
 실패해도 완료된 세션 설정은 남으므로 4번에서 수정할 수 있습니다. 메뉴 종료 시 설정은 사라집니다.
@@ -104,7 +104,7 @@ make setup
 sh scripts/bootstrap.sh setup
 make doctor
 sh scripts/bootstrap.sh doctor --json
-# AGENT_OPT_MODEL_ENDPOINT(또는 AGENT_OPT_MODEL_BASE_URL), AGENT_OPT_MODEL_API_KEY, 선택적 AGENT_OPT_MODEL_ID 설정 후:
+# AGENT_OPT_MODEL_BASE_URL, AGENT_OPT_MODEL_API_KEY, 선택적 AGENT_OPT_MODEL_ID 설정 후:
 sh scripts/bootstrap.sh doctor --model  # 실제 호스트 API와 컨테이너 도구 호출
 sh scripts/bootstrap.sh live --iterations 3
 make demo
@@ -166,7 +166,7 @@ smoke는 공식 이미지에서 실제 도구 및 host-Docker·공식 CVDP 정�
 사용자 CLI의 `.venv/bin/agent-opt doctor --dataset ID --json`은 선택한 데이터셋의
 로컬 소스·해시·runtime/image 등을, `agent-opt doctor --plan <experiment.toml> --json`은
 Agent argv/output/editable 선언, 등록 ID, dataset/evaluator, 예산 및 모델 사용 stage의
-설정 존재 여부를 읽기 전용 점검합니다. 바이너리 목록은 인수 없는 `agent-opt doctor`의 호환 동작입니다.
+설정 존재 여부를 읽기 전용 점검합니다. `agent-opt doctor`에는 `--dataset` 또는 `--plan`을 지정하세요.
 두 정적 검사는 다운로드·설치·컨테이너 실행·Agent/evaluator 실행·모델 호출을 하지 않습니다.
 실제 모델 연결은 명시적 `agent-opt doctor --plan PATH --model`(모델 API 도구 호출 검사) 또는
 ACE 전체 `sh scripts/bootstrap.sh doctor --model`(호스트 API와 컨테이너 OpenCode 도구 호출 검사)을
@@ -199,9 +199,9 @@ live 설정 부재만으로는 setup/doctor가 실패하지 않습니다. 성공
 | `driver.lock`, `driver.packages`, `driver.imports` | 고정 requirements와 설치 상태 확인 후 online setup. 소스·lock drift는 검토 없이 pin 갱신하지 않음. |
 | `image.evaluation`, `image.agent`, `tools.evaluation`, `tools.opencode` | setup으로 이미지 identity/platform·실도구 복구; `external/setup-logs/` 확인. |
 | `setup offline: uv missing` / offline sync 실패 | online setup으로 uv/Python/패키지 cache를 준비한 뒤 offline 재실행. |
-| `live.key`, `live.model` | `AGENT_OPT_MODEL_API_KEY`, `AGENT_OPT_MODEL_ENDPOINT` 또는 `AGENT_OPT_MODEL_BASE_URL`, 선택적 `AGENT_OPT_MODEL_ID`(기본 `glm5.3-flash`) 설정. |
+| `live.key`, `live.model` | `AGENT_OPT_MODEL_API_KEY`, `AGENT_OPT_MODEL_BASE_URL`, 선택적 `AGENT_OPT_MODEL_ID`(기본 `glm5.3-flash`) 설정. |
 | `environment.ca` | 준비 시점과 CA가 다름. 명시한 전체 bundle 또는 Ubuntu 시스템 CA를 확인하고 online setup 재실행. |
-| `live.execution` | `doctor --model`의 실제 모델/도구 호출 실패. endpoint/auth·proxy/NO_PROXY·CA와 `runs/doctor-model-*/logs` 확인. |
+| `live.execution` | `doctor --model`의 실제 모델/도구 호출 실패. 기본 URL/auth·proxy/NO_PROXY·CA와 `runs/doctor-model-*/logs` 확인. |
 
 Python >=3.11 자체가 없으면 doctor 대신 `sh scripts/bootstrap.sh setup --core`부터 실행하세요.
 JSON은 `sh scripts/bootstrap.sh doctor --json`의 stdout에 단일 문서로

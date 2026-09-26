@@ -37,7 +37,7 @@
    각 stage는 baseline에서 시작하며 이력은 stage-local, 기본 최종 비교는 모든 winner다.
    완료 기준: 소스/평가/모델/예산 조건과 stage별 usage·diff·선택 근거를 보고서로 설명한다.
 5. **선택적 ACE/모델:** [ACE 안내](../examples/ace-rtl/README.md)대로 전체 setup/doctor/smoke 후
-   모델 자격증명을 준비해 `sh scripts/bootstrap.sh doctor --model`, `sh scripts/bootstrap.sh live --iterations 3`.
+   모델 자격증명을 준비해 `agent-opt tui`에서 ACE 예제를 선택하거나 준비된 `agent-opt run examples/ace-rtl/experiment.toml`을 실행한다. 개발 진단은 `sh scripts/bootstrap.sh doctor --model`로 분리한다.
    완료 기준: 실제 OpenCode 산출물·공식 raw 결과·모델/예산/partial usage 기록. 실패를 다른 모델/fixture로 대체하지 않는다.
 
 추가 연구 구현 채택 시 [고정 출처](SOURCES.md)를 확인한다. 실제 외부 Agent는 팀과 소스/권한/평가를 합의하고

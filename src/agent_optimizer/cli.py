@@ -119,14 +119,13 @@ def _launch_existing(spec: dict, registry: Registry, *, output: Path | None = No
 def _tui_model_environment(spec: dict, env: dict[str, str] | None = None) -> dict[str, str]:
     from agent_optimizer.model_input import ensure_model_api, ensure_model_selector
 
-    inventory = Registry()
-    inventory.load_project(spec["_root"])
-    inventory.load_plugins(spec["_root"], {"harnesses": spec.get("plugins", {}).get("harnesses", {})})
     profiles = spec["_profiles"]
     research = any(stage["optimizer"] in {"gepa", "meta_harness", "ecdysis"}
                    for stage in spec.get("stages", []))
-    api = research or any(getattr(inventory.resolve("harnesses", profile["adapter"]),
-                                  "needs_model_api", False) for profile in profiles)
+    model_keys = {"AGENT_OPT_MODEL_BASE_URL", "AGENT_OPT_MODEL_API_KEY"}
+    api = research or any(profile["adapter"] != "opencode" and
+                          model_keys.issubset(profile.get("runtime", {}).get("env_passthrough", []))
+                          for profile in profiles)
     staged = dict(os.environ if env is None else env)
     if api:
         staged = ensure_model_api(staged)
@@ -198,7 +197,7 @@ def init_command(project_root: Path | None = None,
     if profile is not None or workspace is not None:
         return _invoke("init-profile", profile=profile, workspace=workspace, agent=agent,
                        dataset=dataset, evaluator=evaluator, optimizer=optimizer, editable=editable,
-                        command_text=command, revision=revision, name=name)
+                       command_text=command, revision=revision, name=name)
     if (not any((agent, dataset, editable, command, name, revision, optimizer))
             and not yes and sys.stdin.isatty() and sys.stderr.isatty()):
         try:
@@ -230,7 +229,7 @@ def init_command(project_root: Path | None = None,
                   f"       agent-opt run {target}", file=sys.stderr)
         return 0
     return _invoke("init", project_root=project_root or Path.cwd(), agent=agent,
-                    revision=revision, name=name, command_text=command,
+                   revision=revision, name=name, command_text=command,
                    editable=editable, prompt_file=prompt_file, dataset=dataset,
                    evaluator=evaluator, metric=metric, direction=direction,
                    harness=harness, optimizer=optimizer, optimizer_config=optimizer_config,
@@ -312,7 +311,7 @@ def _dispatch(args):
             if not args.profile or args.workspace is None:
                 raise ConfigurationError("--profile과 --workspace를 함께 지정하세요")
             if any((args.agent, args.dataset, args.evaluator, args.optimizer, args.editable,
-                     args.command_text, args.revision, args.name)):
+                    args.command_text, args.revision, args.name)):
                 raise ConfigurationError("--profile에는 Agent·데이터셋·실행 명령 옵션을 섞지 마세요")
             from agent_optimizer.integrations import write_pending_experiment
             target = write_pending_experiment(args.workspace, args.profile)

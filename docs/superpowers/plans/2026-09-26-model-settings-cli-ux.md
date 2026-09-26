@@ -4,7 +4,7 @@
 
 **목표:** 단일 `AGENT_OPT_MODEL_BASE_URL` 설정과 설치형 앱 중심의 ACE/CVDP E2E 경로를 제공하고 실제 중복 공개 명령/옵션을 제거한다.
 
-**구조:** 공통 모델 HTTP 계약은 `models.py`, 대화형 일시 입력은 평평한 `model_input.py`에 둔다. TUI는 범용 연구/하네스의 필요 값을 세션에서 받아 실행하며 ACE 예제는 기존 launcher에서 모델 API 필요 여부만 노출한다. 앱 CLI의 기존 `init`/`prepare`/`run` 호출 경계와 ACE lifecycle을 재사용한다.
+**구조:** 공통 모델 HTTP 계약은 `models.py`, 대화형 일시 입력은 평평한 `model_input.py`에 둔다. TUI는 연구 stage·하네스의 선언된 환경 전달 값만 읽어 모델 입력을 세션에서 받고, 실행 승인 전 플러그인을 import하지 않는다. 앱 CLI의 기존 `init`/`prepare`/`run` 호출 경계와 ACE lifecycle을 재사용한다.
 
 **기술:** Python 3.11+, Typer, unittest, `shlex`, Docker/CVDP(선택적 실환경).
 
@@ -50,12 +50,12 @@
 
 ### 작업 3: 앱 TUI의 세션 모델 입력
 
-**인터페이스:** `model_input.ensure_model_api(env: dict[str,str]) -> dict[str,str]`, `model_input.ensure_model_selector(env: dict[str,str], key: str) -> dict[str,str]`, `model_input.session_environment(env: dict[str,str])` context manager. 반환값은 새 매핑이며 취소·입력 오류에서는 원본 환경을 변경하지 않는다. `ACEOpenCode.needs_model_api = True`로 전용 launcher의 요구를 알린다.
+**인터페이스:** `model_input.ensure_model_api(env: dict[str,str]) -> dict[str,str]`, `model_input.ensure_model_selector(env: dict[str,str], key: str) -> dict[str,str]`, `model_input.session_environment(env: dict[str,str])` context manager. 반환값은 새 매핑이며 취소·입력 오류에서는 원본 환경을 변경하지 않는다. ACE 전용 하네스의 선언된 `runtime.env_passthrough`에는 URL·키가 모두 있어 모델 API 입력 필요성을 판정한다.
 
 - [ ] `tests/test_cli_experience.py`의 ACE 기존 실험/TUI 3번 및 일반 연구·OpenCode 실험에 대해 누락된 값만 묻고 토큰을 출력하지 않는 테스트, 취소 시 실행 없음, 종료 뒤 원래 환경 복구, 이미 값이 있으면 추가 프롬프트 없음, 비TTY `run`에서는 입력 요구 없이 환경 부족 오류를 유지하는 테스트를 작성한다.
 - [ ] 새 TUI 회귀가 실패하는지 `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_cli_experience.py -v`로 확인한다.
 - [ ] `model_input.py`에 `getpass.getpass`와 `GetPassWarning` 거부, `ModelSettings.from_env()` 검증, 부족한 URL·키·선택자만 질문하는 함수와 `try/finally` 환경 복구를 구현한다. 예: `staged = dict(env); staged['AGENT_OPT_MODEL_BASE_URL'] = input('AGENT_OPT_MODEL_BASE_URL: ').strip()`; `session_environment`는 기존 관련 변수를 복원한다.
-- [ ] TUI의 `collect_plan()` 전에 선택된 optimizer의 API 요구/하네스 `model_env`/선택형 launcher의 `needs_model_api`를 판정해 세션 입력을 적용한다. ACE 전용 다운로드·채점 로직은 예제 launcher에 둔다. 기존 확인/취소·JSON stdout·오류 코드는 보존한다.
+- [ ] TUI의 `collect_plan()` 전에 선택된 optimizer의 API 요구/하네스 `model_env`/전용 하네스가 선언한 URL·키 전달을 판정해 세션 입력을 적용한다. 일반 `opencode`가 선택적으로 전달하는 API 키는 강제하지 않는다. 승인 전 플러그인을 import하지 않고 ACE 전용 다운로드·채점 로직은 예제 launcher에 둔다. 기존 확인/취소·JSON stdout·오류 코드는 보존한다.
 - [ ] TUI/메뉴/ACE CLI 회귀를 통과시키고 비밀 값이 stdout/stderr/실험 파일에 나오지 않는지 확인한다. 기능을 별도 커밋한다.
 
 ### 작업 4: 사용자/개발 문서와 최종 검증
