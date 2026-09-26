@@ -15,6 +15,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class TerminalLanguageTests(unittest.TestCase):
+    def test_english_tui_model_key_prompt_does_not_echo_credential(self):
+        from agent_optimizer.model_input import ensure_model_api
+
+        prompts = []
+        with patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}), \
+                patch("builtins.input", side_effect=["https://example.invalid/v1", ""]), \
+                patch("getpass.getpass", side_effect=lambda label: prompts.append(label) or "fixture-secret"):
+            result = ensure_model_api({"AGENT_OPT_LANG": "en"})
+        self.assertEqual(result["AGENT_OPT_MODEL_API_KEY"], "fixture-secret")
+        self.assertEqual(prompts, ["Model API key (hidden): "])
+
     def invoke(self, language):
         env = dict(os.environ, AGENT_OPT_LANG=language)
         return subprocess.run(["sh", "scripts/bootstrap.sh", "help"], cwd=ROOT, env=env,
@@ -89,7 +100,7 @@ class TerminalLanguageTests(unittest.TestCase):
         plain = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
         rendered = " ".join(plain.replace("│", " ").split())
         self.assertIn("Command harness Agent argv", rendered)
-        self.assertIn("Legacy JSON string array", rendered)
+        self.assertNotIn("Legacy JSON string array", rendered)
         self.assertNotIn("명령 하네스의 Agent argv", result.stdout)
 
     def test_english_session_help_explains_parallel_dataset_workers(self):

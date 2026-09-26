@@ -25,6 +25,8 @@ This profile evaluates ACE skill usage through a coding Harness, not ACE's nativ
 
 
 class ACEOpenCode(OpenCodeHarness):
+    needs_model_api = True
+
     @staticmethod
     def launch_existing(spec):
         root = Path(__file__).resolve().parents[2]

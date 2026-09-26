@@ -937,6 +937,8 @@ class CLIExperienceTests(unittest.TestCase):
                                  terminal.getvalue())
             self.assertTrue(target.is_file())
             self.assertTrue((workspace / ".agent-opt/integration-ready.json").is_file())
+            from agent_optimizer.integrations import verified_integration
+            self.assertIsNotNone(verified_integration(workspace))
             self.assertEqual((workspace / "executed.marker").exists(), expected == 0)
             self.assertIn("계획 진단: 준비됨", terminal.getvalue())
 
@@ -1024,6 +1026,37 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["status"], "completed")
         self.assertIn("[1/2]", terminal.getvalue())
         self.assertIn("[2/2]", terminal.getvalue())
+
+    def test_tui_multi_dataset_research_passes_session_model_to_workers(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        research = str(sorted(Registry().factories["optimizers"]).index("gepa") + 1)
+        answers = ["2", "research-session", str(self.agent), "configs/strategy.json",
+                   f"{self.data},{self.data}", "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                   "", "", research, "1", "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
+                   "", "y", "https://example.invalid/v1", ""]
+        observed = {}
+        original_main = main
+
+        def route(argv):
+            if argv[0] == "run-session":
+                observed["base"] = os.environ.get("AGENT_OPT_MODEL_BASE_URL")
+                observed["key"] = os.environ.get("AGENT_OPT_MODEL_API_KEY")
+                return 0
+            return original_main(argv)
+
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_BASE_URL": "", "AGENT_OPT_MODEL_API_KEY": "",
+                                  "AGENT_OPT_MODEL_ID": ""}), \
+                patch("sys.stdin.isatty", return_value=True), \
+                patch("builtins.input", side_effect=answers), \
+                patch("getpass.getpass", return_value="session-secret"), \
+                patch("agent_optimizer.cli.main", side_effect=route), \
+                contextlib.redirect_stderr(Terminal()), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(original_main(["tui", "--project-root", str(self.root)]), 0)
+            self.assertEqual(os.environ["AGENT_OPT_MODEL_API_KEY"], "")
+        self.assertEqual(observed, {"base": "https://example.invalid/v1", "key": "session-secret"})
 
     def test_tui_existing_ace_profile_does_not_ask_for_command_or_prepare_dataset(self):
         class Terminal(io.StringIO):
@@ -1116,6 +1149,109 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual((self.root / "launch.marker").read_text().splitlines(),
                          [f"{self.root.resolve()}:direct", f"{self.root.resolve()}:direct"])
         self.assertFalse((self.root / "scripts/bootstrap.sh").exists())
+
+    def test_tui_ace_asks_for_missing_model_values_only_for_this_run(self):
+        benchmark = self.root / "datasets/ace-demo/tasks.json"
+        benchmark.parent.mkdir(parents=True)
+        shutil.copyfile(self.data, benchmark)
+        (self.root / "examples/ace-rtl/environment/lifecycle.py").write_text(
+            'import os\n'
+            'def run(root, *, iterations=None, platform=None):\n'
+            '    if os.environ.get("AGENT_OPT_MODEL_API_KEY") != "session-secret":\n'
+            '        return 2\n'
+            '    (root / "launch.marker").write_text(os.environ["AGENT_OPT_MODEL_BASE_URL"])\n'
+            '    return 0\n')
+
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        terminal = Terminal()
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_BASE_URL": "", "AGENT_OPT_MODEL_API_KEY": "",
+                                  "AGENT_OPT_MODEL_ID": ""}), \
+                patch("sys.stdin.isatty", return_value=True), \
+                patch("builtins.input", side_effect=["1", "examples/ace-rtl/experiment.toml",
+                                                     "https://example.invalid/v1", "", "y"]), \
+                patch("getpass.getpass", return_value="session-secret"), \
+                patch("agent_optimizer.cli.collect_plan", return_value={"scope": "plan", "ready": True,
+                                                                 "checks": []}), \
+                contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 0, terminal.getvalue())
+            self.assertEqual(os.environ["AGENT_OPT_MODEL_API_KEY"], "")
+        self.assertEqual((self.root / "launch.marker").read_text(), "https://example.invalid/v1")
+        self.assertNotIn("session-secret", terminal.getvalue())
+
+    def test_tui_invalid_model_url_stops_before_launch_without_echoing_key(self):
+        benchmark = self.root / "datasets/ace-demo/tasks.json"
+        benchmark.parent.mkdir(parents=True)
+        shutil.copyfile(self.data, benchmark)
+        (self.root / "examples/ace-rtl/environment/lifecycle.py").write_text(
+            'def run(root, *, iterations=None, platform=None):\n'
+            '    (root / "launch.marker").write_text("unexpected")\n'
+            '    return 0\n')
+
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        terminal = Terminal()
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_BASE_URL": "http://remote.invalid/v1",
+                                  "AGENT_OPT_MODEL_API_KEY": "session-secret"}), \
+                patch("sys.stdin.isatty", return_value=True), \
+                patch("builtins.input", side_effect=["1", "examples/ace-rtl/experiment.toml"]), \
+                patch("agent_optimizer.cli.collect_plan", side_effect=AssertionError("진단 전 모델 오류 필요")), \
+                contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
+        self.assertIn("HTTPS", terminal.getvalue())
+        self.assertNotIn("session-secret", terminal.getvalue())
+        self.assertFalse((self.root / "launch.marker").exists())
+
+    def test_tui_research_prompts_for_model_before_plan_and_does_not_run_when_declined(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        plan.write_text(plan.read_text().replace('optimizer = "file_variants"', 'optimizer = "gepa"')
+                        .replace('include_seeds = true', 'file = "configs/strategy.json"\niterations = 1'))
+
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        terminal = Terminal()
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_BASE_URL": "", "AGENT_OPT_MODEL_API_KEY": "",
+                                  "AGENT_OPT_MODEL_ID": ""}), \
+                patch("sys.stdin.isatty", return_value=True), \
+                patch("builtins.input", side_effect=["1", "examples/minimal/experiment.toml",
+                                                     "https://example.invalid/v1", "", "n"]), \
+                patch("getpass.getpass", return_value="session-secret"), \
+                patch("agent_optimizer.cli.run_experiment", side_effect=AssertionError("실행되면 안 됨")), \
+                contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2, terminal.getvalue())
+            self.assertEqual(os.environ["AGENT_OPT_MODEL_API_KEY"], "")
+        self.assertIn("계획 진단: 준비됨", terminal.getvalue())
+        self.assertNotIn("session-secret", terminal.getvalue())
+
+    def test_tui_opencode_asks_only_for_its_declared_model_selector(self):
+        harness = self.root / "examples/minimal/harness.toml"
+        harness.write_text('id = "opencode"\nadapter = "opencode"\nmodel_env = "TEAM_MODEL"\n'
+                           '[runtime]\nkind = "docker"\nimage = "pinned-agent"\n')
+
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        def inspect(_path, _registry):
+            self.assertEqual(os.environ["TEAM_MODEL"], "team/model")
+            return {"scope": "plan", "ready": True, "checks": []}
+
+        with patch.dict(os.environ, {"TEAM_MODEL": "", "AGENT_OPT_MODEL_BASE_URL": "",
+                                  "AGENT_OPT_MODEL_API_KEY": ""}), \
+                patch("sys.stdin.isatty", return_value=True), \
+                patch("builtins.input", side_effect=["1", "examples/minimal/experiment.toml",
+                                                     "team/model", "n"]), \
+                patch("getpass.getpass", side_effect=AssertionError("API 키 요청")), \
+                patch("agent_optimizer.cli.collect_plan", side_effect=inspect), \
+                contextlib.redirect_stderr(Terminal()), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
+            self.assertEqual(os.environ["TEAM_MODEL"], "")
 
     def test_ace_launcher_rejects_a_copied_experiment_instead_of_running_the_fixed_demo(self):
         benchmark = self.root / "datasets/ace-demo/tasks.json"
