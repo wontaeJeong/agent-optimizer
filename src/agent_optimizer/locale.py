@@ -497,7 +497,8 @@ _DEVELOPMENT_KO = {
     "Harness or declared plugin files are unavailable": "하네스 또는 선언한 플러그인 파일을 사용할 수 없습니다",
     "Register the harness and provide its declared plugin files": "하네스를 등록하고 선언한 플러그인 파일을 제공하세요",
     "Declared runtime binaries are available": "선언한 실행 도구를 사용할 수 있습니다",
-    "Install the declared Docker or OpenCode runtime executable": "선언한 Docker 또는 OpenCode 실행 파일을 설치하세요",
+    "Install the declared Docker, OpenCode, or Claude Code (claude) runtime executable":
+        "선언한 Docker, OpenCode 또는 Claude Code (claude) 실행 파일을 설치하세요",
     "Evaluator is registered": "채점기가 등록되어 있습니다",
     "Evaluator is not registered": "채점기가 등록되지 않았습니다",
     "Register the selected evaluator or supply an explicit evaluator plugin": "선택한 채점기를 등록하거나 평가기 플러그인을 명시하세요",
