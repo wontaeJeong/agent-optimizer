@@ -452,7 +452,6 @@ _DEVELOPMENT_KO = {
     "Resolve core.python first. Run sh scripts/bootstrap.sh setup --core (or python3 scripts/dev.py setup --core).": "먼저 core.python을 해결하고 sh scripts/bootstrap.sh setup --core(또는 python3 scripts/dev.py setup --core)를 실행하세요.",
     "Choose a dataset name or a local tasks.json": "데이터셋 이름 또는 로컬 tasks.json을 지정하세요",
     "Select a dataset explicitly with --dataset": "데이터셋을 --dataset으로 직접 선택하세요",
-    "--agent, --command-json, and --editable are required": "--agent, --command-json, --editable은 필수입니다",
     "Agent argv must be a nonempty JSON string array": "Agent 인수는 비어 있지 않은 JSON 문자열 배열이어야 합니다",
     "Inspect the choices then pass --yes to confirm preparation": "선택 항목을 확인한 뒤 --yes로 준비를 승인하세요",
     "A pinned Git Agent requires a revision": "고정 Git Agent에는 commit revision이 필요합니다",
