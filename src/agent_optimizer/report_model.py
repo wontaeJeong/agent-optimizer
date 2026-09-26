@@ -128,7 +128,7 @@ def _failure(status, execution=None, error_type=None, error=None, feedback=None)
     execution = execution if isinstance(execution, dict) else {}
     causes = {"infrastructure_error": "infrastructure", "timeout": "timeout",
               "unsupported": "unsupported", "interrupted": "interrupted",
-              "process_error": "execution",
+              "process_error": "execution", "agent_incomplete": "execution",
               "error": "run_error", "source_error": "run_error",
               "budget_exhausted": "interrupted"}
     execution_status = execution.get("status")

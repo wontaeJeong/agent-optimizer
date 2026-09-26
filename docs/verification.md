@@ -22,6 +22,37 @@ Mac ARM64 / Python 3.12 / Docker daemon `linux/arm64`, `fix/model-config-app-ux`
 `make doctor ARGS="--json"` → `sh scripts/bootstrap.sh setup --offline`을 **순서대로** 재실행해
 각각 준비됨·오프라인 통과를 확인했다. 두 작업공간의 동시 이미지 태그 격리는 이번 변경에서
 검증하거나 구현하지 않았다.
+## 2026-09-27 Claude Code 추가 4 trial: 공식 CVDP 부분 성공
+
+Mac ARM64 / Docker daemon `linux/arm64`, Python 3.12.12, Claude Code 2.1.261.
+로컬 시간 2026-09-27, run ID의 UTC 시간은 2026-09-26이다. 사용자가 **별도로 승인한**
+추가 한 번의 실행에서 기존 [2/4 실패](#2026-09-27-claude-codedeepseekcvdp-첫-실실행-차단)는
+보존하고 **새 예산 4/4 trial만** 사용했다. Claude Code Agent는 DeepSeek Anthropic 호환
+`https://api.deepseek.com/anthropic` / `deepseek-flash`, `simple_feedback`의 **1회 후보 제안**은
+OpenAI `https://api.openai.com/v1/chat/completions` / `.env`의 `OPENAI_MODEL`로 지정한
+모델이다. `.env` 값은 앱의 자동 로딩 없이 승인된 기본 checkout에서 실행 래퍼 메모리에만
+읽었다. 값·`.env` 원문을 터미널이나 Git 추적 문서/argv에 기록하지 않았다.
+자식 프로세스에서만 `AGENT_OPT_MODEL_ENDPOINT`를 제거하고
+`AGENT_OPT_MODEL_BASE_URL=https://api.openai.com/v1`, `AGENT_OPT_MODEL_ID`←`OPENAI_MODEL`,
+`AGENT_OPT_MODEL_API_KEY`←`OPENAI_API_KEY`로 덮어썼다. 별도 `ANTHROPIC_AUTH_TOKEN`←기존
+DeepSeek 키와 DeepSeek 기본 모델 변수를 유지하고 충돌하는 `ANTHROPIC_API_KEY`를 제거했다.
+`ModelSettings.from_env()`에서 endpoint/model/key 조합을 **요청 없이** 사전 검증했다.
+
+| 실제 명령·근거 | 관측 결과 |
+|---|---|
+| `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_claude_code.py -q`; 같은 명령으로 `test_run_lifecycle.py`, `test_report_model.py`, `test_models.py`, `test_feedback_optimizer.py`; `make lint`; `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v` | 유료 호출 전 각 **24/24, 24/24, 41/41, 7/7, 5/5**, Ruff 통과; 전체 **654건 중 639 통과·15 skip·실패 0**, exit 0. `error_max_turns`/auth 격리, 무효 trial/null 집계·선택 제외, 보고서 실행 실패 분류에 대해 순서대로 RED→GREEN. |
+| `make doctor`; `make smoke`; `PYTHONPATH=src .venv/bin/python -m agent_optimizer doctor --plan examples/ace-rtl/experiment-claude.toml --json`; `claude --version` | 모두 exit 0. 평가 자산 ready, `runs/dev-smoke-79a3d6dc05c7/summary.json` passed(실도구 9개·toy·공식 LFSR 정답/오답), 정적 plan ready, CLI 2.1.261. 모델 API 진단 호출 없음. |
+| `.venv/bin/python -c '<메모리의 dotenv_values로 위 환경 매핑·ModelSettings 검증 후 subprocess.run([".venv/bin/python", "-m", "agent_optimizer", "run", "examples/ace-rtl/experiment-claude.toml"], env=env)>'` | **exit 0, `runs/dev-live/20260926T222716Z-ca4f9e46`, `summary.status=completed`, `synthetic=false`, 실제 4/4 trial**, 201.44초. `events.jsonl`, `summary.json`, `report.json`, `report.html`, `stages/feedback.json`과 `frozen_selection.json`을 대조했다. |
+| 공식 각 trial `result.json` → `cvdp_evaluation/work/raw_result.json` | baseline train `c0001` priority encoder: `passed=1`, raw 1 test `result=0`, `error_msg=null`; 후보 train `c0002` priority encoder: 동일; 후보 validation `c0002` QAM16: 동일. 세 trial 모두 trace의 실제 `deepseek-flash` 응답에서 Read/Write 또는 Edit 도구 호출, 산출 RTL 파일, CLI `result.subtype=success` 확인. |
+| baseline validation `c0001` QAM16의 `result.json`·trace와 `report.md` | `error_max_turns`, CLI exit 1 → **`agent_incomplete`, `valid=false`, `passed=null`**, 공식 채점 미실행·raw 파일 없음. trace에서 MCP 도구 이름/권한 거부도 확인: `--tools`는 내장 도구만 제한하고 외부 등록 MCP 가용성까지 제한하지 않는다. 보고서는 이 trial을 인프라 문제가 아닌 **실행 미완료**로 표시한다. |
+| `candidates/c0002/changes.diff`, `summary.json`, `frozen_selection.json` | OpenAI 제안이 `skills/ace-rtl/references/role-guidance.md` 하나만 수정했고 checkpoint에 선택 모델이 기록됨. Optimizer usage input 967 / output 741, 비용 미수집 `null`. `c0002` validation은 공식 1/1, `solve_rate=1.0`, `seconds=105.74`; **유효한 후보만** 선택·고정. baseline validation은 `solve_rate=null`, `seconds=null`이므로 비교 차이도 `null`이며 성능 향상 근거가 아니다. final test 실행 없음. |
+
+세 성공 trial의 Agent 전체 `agent_tokens`·`agent_cost_usd`는 `null`이고 CLI의
+`harness_reported_*`는 호출별 부분 사용량이다. 실패 baseline의 CLI 부분 사용량도 공식
+점수가 아니다. 첫 실패 run의 저장 기록은 수정/덮어쓰기 하지 않았다. 두 split에 대한
+**후보**의 실제 raw 채점은 확인했지만 baseline validation은 무효이며 모든 stage winner를
+동일한 유효 baseline과 비교하는 실험·다른 환경·native ACE의 개선 효과는 미검증이다.
+
 ## 2026-09-27 Claude Code–DeepSeek–CVDP 첫 실실행 (차단)
 
 Mac ARM64 / Docker daemon `linux/arm64` (Docker 29.2.1, Compose 5.1.3), 프로젝트 Python
@@ -42,8 +73,9 @@ Mac ARM64 / Docker daemon `linux/arm64` (Docker 29.2.1, Compose 5.1.3), 프로�
 첫 실패의 CLI 자기보고 `harness_reported_io_tokens`는 validation 70,531 / train 42,916,
 `harness_reported_cost_usd`는 각각 0.613259 / 0.429908이다. 이는 실패한 호출의 **부분
 지표**이며 `agent_tokens`·`agent_cost_usd`는 null, 공식 CVDP 점수·선택 근거가 아니다.
-최대 4 trial의 누적 호출 제한을 지키려고 추가 실모델 run을 하지 않았다. 성공적인 두 split
-공식 raw 결과, 수정 후보 비교, 최종 성능은 **차단/미검증**이다. `make setup`이 통과해 선택적
+당시 4 trial의 누적 호출 제한을 지키려고 추가 실모델 run을 하지 않았다. 당시 성공적인 두 split
+공식 raw 결과, 수정 후보 비교, 최종 성능은 **차단/미검증**이었다. 이후 별도 승인을 받은
+[추가 실행](#2026-09-27-claude-code-추가-4-trial-공식-cvdp-부분-성공)과 구분한다. `make setup`이 통과해 선택적
 `make setup ARGS="--dataset cvdp"` 경로는 별도로 실행하지 않았다. 해당 경로는 평가 자산만
 준비하며 현재 예제의 `lifecycle.inspect`가 요구하는 전체 ACE lock과 구별된다.
 

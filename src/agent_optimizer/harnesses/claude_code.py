@@ -80,6 +80,11 @@ class ClaudeCodeHarness(CommandHarness):
         result.metrics.update(harness_reported_io_tokens=sum(tokens) if valid_tokens else None,
                               harness_reported_cost_usd=cost if valid_cost else None,
                               unparsed_event_lines=float(invalid))
+        if (not invalid and not saw_error and final.get("subtype") == "error_max_turns"
+                and final.get("is_error") is True and result.returncode is not None
+                and result.status in {"completed", "infrastructure_error"}):
+            result.status = "agent_incomplete"
+            result.detail = "Claude Code reached its turn limit before completing the task"
         if result.status == "completed" and (invalid or not final or final.get("subtype") != "success"
                                               or final.get("is_error") is not False or saw_error):
             result.status = "infrastructure_error"
