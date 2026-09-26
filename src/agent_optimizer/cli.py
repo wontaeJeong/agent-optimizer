@@ -8,7 +8,6 @@ import os
 import re
 import shlex
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -39,21 +38,6 @@ from agent_optimizer.readiness import collect_dataset, collect_plan
 
 def show(value):
     print(json.dumps(jsonable(value), indent=2, ensure_ascii=False, allow_nan=False))
-
-
-def doctor():
-    result = {}
-    for binary, flag in [("python3", "--version"), ("git", "--version"), ("docker", "--version"), ("opencode", "--version")]:
-        path = shutil.which(binary)
-        row = {"available": bool(path), "path": path}
-        if path:
-            try:
-                proc = subprocess.run([path, flag], capture_output=True, text=True, timeout=10)
-                row["version"] = (proc.stdout or proc.stderr).splitlines()[:2]
-            except (OSError, subprocess.TimeoutExpired) as exc:
-                row["error"] = str(exc)
-        result[binary] = row
-    return result
 
 
 def main(argv=None):
@@ -179,7 +163,6 @@ def init_command(project_root: Path | None = None,
                  agent: str | None = typer.Option(None, help="로컬 소스 경로 또는 Git URL(Git이면 --revision 지정)"),
                  revision: str | None = None, name: str | None = None,
                  command: str | None = typer.Option(None, "--command", help="명령 하네스의 Agent argv: 인용을 분리하지만 셸 확장·파이프·리다이렉션은 실행하지 않음"),
-                 command_json: str | None = typer.Option(None, "--command-json", help="기존 방식: Agent argv의 JSON 문자열 배열"),
                  editable: list[str] | None = typer.Option(None, "--editable", help="수정 허용 Agent 경로/패턴(반복 가능)"),
                  prompt_file: str = "prompts/system.md",
                  dataset: list[str] | None = typer.Option(None, "--dataset", help="데이터셋 직접 선택: 등록 ID 또는 로컬 tasks.json(반복 가능)"),
@@ -195,8 +178,8 @@ def init_command(project_root: Path | None = None,
     if profile is not None or workspace is not None:
         return _invoke("init-profile", profile=profile, workspace=workspace, agent=agent,
                        dataset=dataset, evaluator=evaluator, optimizer=optimizer, editable=editable,
-                       command_text=command, command_json=command_json, revision=revision, name=name)
-    if (not any((agent, dataset, editable, command, command_json, name, revision, optimizer))
+                        command_text=command, revision=revision, name=name)
+    if (not any((agent, dataset, editable, command, name, revision, optimizer))
             and not yes and sys.stdin.isatty() and sys.stderr.isatty()):
         try:
             arguments = wizard_arguments((project_root or Path.cwd()).absolute(), execute=False)
@@ -227,7 +210,7 @@ def init_command(project_root: Path | None = None,
                   f"       agent-opt run {target}", file=sys.stderr)
         return 0
     return _invoke("init", project_root=project_root or Path.cwd(), agent=agent,
-                   revision=revision, name=name, command_text=command, command_json=command_json,
+                    revision=revision, name=name, command_text=command,
                    editable=editable, prompt_file=prompt_file, dataset=dataset,
                    evaluator=evaluator, metric=metric, direction=direction,
                    harness=harness, optimizer=optimizer, optimizer_config=optimizer_config,
@@ -253,12 +236,6 @@ def run_session_command(session: Path, output: Path | None = None,
 def agents_command(root: Path = Path("examples")) -> int:
     """독립 등록된 Agent 대상 목록 표시."""
     return _invoke("agents", root=root)
-
-
-@app.command("validate")
-def validate_command(experiment: Path) -> int:
-    """준비된 실험 설정과 연동 계약 검사."""
-    return _invoke("validate", experiment=experiment)
 
 
 @app.command("plan")
@@ -315,7 +292,7 @@ def _dispatch(args):
             if not args.profile or args.workspace is None:
                 raise ConfigurationError("--profile과 --workspace를 함께 지정하세요")
             if any((args.agent, args.dataset, args.evaluator, args.optimizer, args.editable,
-                    args.command_text, args.command_json, args.revision, args.name)):
+                     args.command_text, args.revision, args.name)):
                 raise ConfigurationError("--profile에는 Agent·데이터셋·실행 명령 옵션을 섞지 마세요")
             from agent_optimizer.integrations import write_pending_experiment
             target = write_pending_experiment(args.workspace, args.profile)
@@ -325,16 +302,12 @@ def _dispatch(args):
                 raise ConfigurationError("Select a dataset explicitly with --dataset")
             if not args.agent or not args.editable:
                 raise ConfigurationError("--agent와 --editable을 지정하세요")
-            if args.command_text is not None and args.command_json is not None:
-                raise ConfigurationError("--command와 --command-json을 함께 사용할 수 없습니다")
             command = None
             if args.command_text is not None:
                 try:
                     command = shlex.split(args.command_text)
                 except ValueError as exc:
                     raise ConfigurationError(f"잘못된 Agent 실행 명령: {exc}") from exc
-            elif args.command_json is not None:
-                command = json.loads(args.command_json)
             if command is not None and (not isinstance(command, list) or not command or not all(
                     isinstance(part, str) and part for part in command)):
                 raise ConfigurationError("Agent argv must be a nonempty string array")
@@ -354,7 +327,7 @@ def _dispatch(args):
             adapter = inventory.resolve("harnesses", args.harness)
             uses_command = requires_command(adapter)
             if uses_command and command is None:
-                raise ConfigurationError("이 하네스에는 --command 또는 --command-json이 필요합니다")
+                raise ConfigurationError("이 하네스에는 --command가 필요합니다")
             if not uses_command and command is not None:
                 raise ConfigurationError("선택한 하네스는 Agent 실행 명령을 받지 않습니다")
             if not supports_generated_profile(adapter):
@@ -601,10 +574,10 @@ def _dispatch(args):
                         if remedy:
                             print(f"  {style(t('remedy') + ':', 'warning')} {remedy}")
                 return 0 if report["ready"] else 2
-            show(doctor())
+            raise ConfigurationError("agent-opt doctor --plan PATH 또는 --dataset ID를 지정하세요")
         elif args.command == "agents":
             show([load_agent(p) for p in sorted(args.root.rglob("agent.toml"))])
-        elif args.command in {"validate", "plan", "run"}:
+        elif args.command in {"plan", "run"}:
             spec = load_experiment(args.experiment.resolve())
             if args.command == "run":
                 launched = _launch_existing(spec, registry, output=args.output)

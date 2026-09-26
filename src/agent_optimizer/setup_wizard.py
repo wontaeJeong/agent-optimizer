@@ -326,7 +326,7 @@ def wizard_arguments(project_root: Path, *, execute: bool = True) -> list[str]:
                                      for part in ("--dataset", dataset)],
                  "--editable", editable[0], "--harness", harness, "--yes"]
     if command is not None:
-        arguments += ["--command-json", json.dumps(command)]
+        arguments += ["--command", shlex.join(command)]
     for item in editable[1:]:
         arguments += ["--editable", item]
     for optimizer in selected:

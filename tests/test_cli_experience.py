@@ -99,11 +99,29 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn("unexpected extra argument", error.getvalue())
         self.assertEqual(output.getvalue(), "")
 
-    def test_doctor_keeps_legacy_binary_inventory_without_options(self):
-        output = io.StringIO()
+    def test_doctor_without_target_guides_to_plan_or_dataset(self):
+        output, error = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+            self.assertEqual(main(["doctor"]), 2)
+        self.assertEqual(output.getvalue(), "")
+        self.assertIn("--plan", error.getvalue())
+        self.assertIn("--dataset", error.getvalue())
+
+    def test_validate_alias_is_removed_while_plan_remains_available(self):
+        output, error = io.StringIO(), io.StringIO()
+        plan = self.root / "examples/minimal/experiment.toml"
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
+            self.assertEqual(main(["validate", str(plan)]), 2)
+        self.assertEqual(output.getvalue(), "")
+        self.assertIn("No such command", error.getvalue())
         with contextlib.redirect_stdout(output):
-            self.assertEqual(main(["doctor"]), 0)
-        self.assertEqual(set(json.loads(output.getvalue())), {"python3", "git", "docker", "opencode"})
+            self.assertEqual(main(["plan", str(plan)]), 0)
+
+    def test_command_json_is_not_an_alternate_public_argv_setting(self):
+        error = io.StringIO()
+        with contextlib.redirect_stderr(error):
+            self.assertEqual(main(["init", "--command-json", '["python"]']), 2)
+        self.assertIn("No such option", error.getvalue())
 
     def test_plan_doctor_api_free_minimal_needs_no_model_credentials(self):
         output, progress = io.StringIO(), io.StringIO()
@@ -745,7 +763,7 @@ class CLIExperienceTests(unittest.TestCase):
         args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
                 "--name", "shipped-team", "--dataset", "sample_text", "--harness", "sample_command",
                 "--optimizer", "sample_baseline", "--editable", "configs/strategy.json",
-                 "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]', "--yes"]
+                  "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "--yes"]
         output = io.StringIO()
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
@@ -776,8 +794,8 @@ class CLIExperienceTests(unittest.TestCase):
                                          '"evaluator": "examples/minimal/evaluator.py:TextFixtureEvaluator"'))
         args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
                 "--dataset", "sample_text", "--name", "invalid-provider",
-                "--editable", "configs/strategy.json", "--optimizer", "baseline", "--command-json",
-                 '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]', "--yes"]
+                 "--editable", "configs/strategy.json", "--optimizer", "baseline", "--command",
+                  "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "--yes"]
         errors = io.StringIO()
         with contextlib.redirect_stderr(errors), contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(main(args), 2)
@@ -795,8 +813,8 @@ class CLIExperienceTests(unittest.TestCase):
     def test_init_no_optimizer_fails_before_dataset_preparation(self):
         args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
                 "--name", "no-optimizer", "--dataset", "sample_text",
-                "--editable", "configs/strategy.json", "--command-json",
-                '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]', "--yes"]
+                 "--editable", "configs/strategy.json", "--command",
+                 "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "--yes"]
         errors = io.StringIO()
         with contextlib.redirect_stderr(errors), contextlib.redirect_stdout(io.StringIO()):
             code = main(args)
@@ -822,7 +840,7 @@ class CLIExperienceTests(unittest.TestCase):
                 "--name", "custom-demo", "--dataset", str(self.data),
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--editable", "configs/strategy.json", "--optimizer", "baseline",
-                 "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]', "--yes"]
+                  "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "--yes"]
         before = (self.agent / "configs/strategy.json").read_bytes()
         with contextlib.redirect_stdout(output):
             self.assertEqual(main(args), 0)
@@ -1174,14 +1192,17 @@ class CLIExperienceTests(unittest.TestCase):
         # The minimal fixture has one Python runtime scaffold under src/**.
         answers = ["harness-demo", str(self.agent), "src/**", str(self.data),
                    "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "5", "1",
-                   "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "", "y"]
+                    '{python} "{agent_dir}/src/fixture agent.py" --target {task_dir}', "", "y"]
         with patch("builtins.input", side_effect=answers), contextlib.redirect_stderr(io.StringIO()):
             args = wizard_arguments(self.root)
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
-        stage = load_experiment(self.root / "runs/configs/harness-demo/experiment.toml")["stages"][0]
+        spec = load_experiment(self.root / "runs/configs/harness-demo/experiment.toml")
+        stage = spec["stages"][0]
         self.assertEqual(stage["optimizer"], "meta_harness")
         self.assertEqual(stage["config"]["file"], "src/fixture_agent.py")
+        self.assertEqual(spec["_profiles"][0]["command"],
+                         ["{python}", "{agent_dir}/src/fixture agent.py", "--target", "{task_dir}"])
 
     def test_init_preserves_pinned_git_agent_url_in_manifest(self):
         url = "https://example.invalid/team/agent.git"
@@ -1190,7 +1211,7 @@ class CLIExperienceTests(unittest.TestCase):
                 "--dataset", str(self.data),
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--editable", "configs/strategy.json", "--optimizer", "baseline",
-                 "--command-json", '["{python}","{agent_dir}/agent.py","{task_dir}"]', "--yes"]
+                  "--command", "{python} {agent_dir}/agent.py {task_dir}", "--yes"]
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(main(args), 0)
         spec = load_experiment(self.root / "runs/configs/remote-demo/experiment.toml")
@@ -1202,20 +1223,20 @@ class CLIExperienceTests(unittest.TestCase):
                 "--name", "glob-demo", "--dataset", str(self.data),
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--editable", "configs/**", "--optimizer", "gepa",
-                 "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]', "--yes"]
+                  "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "--yes"]
         error = io.StringIO()
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(error):
             self.assertEqual(main(args), 0, error.getvalue())
         spec = load_experiment(self.root / "runs/configs/glob-demo/experiment.toml")
         self.assertEqual(spec["stages"][0]["config"]["file"], "configs/strategy.json")
 
-    def test_init_accepts_agent_argv_with_dash_prefixed_options_as_json(self):
+    def test_init_accepts_agent_argv_with_dash_prefixed_options(self):
         arguments = ["{python}", "{agent_dir}/src/fixture_agent.py", "--target", "{task_dir}"]
         args = ["init", "--project-root", str(self.root), "--name", "flag-demo",
                 "--agent", str(self.agent), "--dataset", str(self.data),
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--optimizer", "baseline", "--editable", "configs/strategy.json",
-                "--command-json", json.dumps(arguments), "--yes"]
+                 "--command", " ".join(arguments), "--yes"]
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
         profile = load_experiment(self.root / "runs/configs/flag-demo/experiment.toml")["_profiles"][0]
@@ -1248,8 +1269,7 @@ class CLIExperienceTests(unittest.TestCase):
     def test_init_rejects_invalid_command_options_before_dataset_preparation(self):
         prefix = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
                   "--dataset", str(self.data), "--editable", "configs/strategy.json", "--yes"]
-        for name, options in (("conflict", ["--command", "python agent.py", "--command-json", '["python"]']),
-                              ("unclosed", ["--command", "'python agent.py"]),
+        for name, options in (("unclosed", ["--command", "'python agent.py"]),
                               ("empty", ["--command", " "]),
                               ("opencode-input", ["--harness", "opencode", "--command", "python agent.py"])):
             with self.subTest(name=name):
@@ -1270,8 +1290,8 @@ class CLIExperienceTests(unittest.TestCase):
                 "--agent", str(self.agent), "--dataset", str(source),
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--optimizer", "gepa", "--max-tasks", "3", "--editable",
-                 "configs/strategy.json", "--command-json",
-                 '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]', "--yes"]
+                  "configs/strategy.json", "--command",
+                  "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "--yes"]
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
         spec = load_experiment(self.root / "runs/configs/sampled/experiment.toml")
@@ -1293,7 +1313,7 @@ class CLIExperienceTests(unittest.TestCase):
                 "--agent", str(self.agent), "--dataset", str(self.data),
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--optimizer", "baseline", "--editable", "configs/strategy.json",
-                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                 "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                 "--max-trials", "12", "--max-wall-time-seconds", "90",
                 "--trial-timeout-seconds", "20", "--yes"]
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -1309,7 +1329,7 @@ class CLIExperienceTests(unittest.TestCase):
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--metric", "latency", "--direction", "minimize",
                 "--optimizer", "gepa", "--editable", "configs/strategy.json",
-                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                 "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                 "--yes"]
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
@@ -1325,7 +1345,7 @@ class CLIExperienceTests(unittest.TestCase):
                 "--agent", str(self.agent), "--dataset", str(self.data),
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--optimizer", "baseline", "--editable", "configs/strategy.json",
-                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                 "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                 "--max-trials", "1", "--yes"]
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 2)
@@ -1337,7 +1357,7 @@ class CLIExperienceTests(unittest.TestCase):
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--optimizer", "baseline", "--optimizer-config", "[]",
                 "--editable", "configs/strategy.json",
-                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                 "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                 "--yes"]
         error = io.StringIO()
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(error):
@@ -1353,7 +1373,7 @@ class CLIExperienceTests(unittest.TestCase):
                 "--agent", str(self.agent), "--dataset", str(self.data),
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--optimizer", "file_variants", "--editable", "configs/strategy.json",
-                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                 "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                 "--optimizer-config", json.dumps(options), "--yes"]
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
@@ -1378,7 +1398,7 @@ class CLIExperienceTests(unittest.TestCase):
                 "--agent", str(self.agent), "--dataset", str(self.data),
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--optimizer", "baseline", "--editable", "configs/strategy.json",
-                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                 "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                 "--yes"]
         bad = [*args, "--optimizer-config", '{"baseline":{"unsupported":null}}']
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -1405,7 +1425,7 @@ class CLIExperienceTests(unittest.TestCase):
                 "--agent", str(self.agent), "--dataset", str(self.data), "--dataset", str(second),
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--optimizer", "baseline", "--editable", "configs/strategy.json",
-                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                 "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                 "--yes"]
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 2)
@@ -1433,7 +1453,7 @@ class CLIExperienceTests(unittest.TestCase):
                 "--agent", str(self.agent), "--dataset", str(self.data),
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--optimizer", "file_variants", "--editable", "configs/strategy.json",
-                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                 "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                 "--optimizer-config", json.dumps(options), "--yes"]
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
@@ -1450,7 +1470,7 @@ class CLIExperienceTests(unittest.TestCase):
                 "--dataset", "sample_text", "--evaluator",
                 "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--optimizer", "baseline", "--editable", "configs/strategy.json",
-                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                 "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                 "--yes"]
         with contextlib.redirect_stdout(BrokenOutput()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 2)
@@ -1472,7 +1492,7 @@ class CLIExperienceTests(unittest.TestCase):
                 "--optimizer", "gepa",
                 "--optimizer-config", '{"gepa":{"iterations":6,"batch_size":1,"merge":true}}',
                 "--editable", "configs/strategy.json",
-                "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]',
+                 "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                 "--yes"]
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
@@ -1539,7 +1559,7 @@ class CLIExperienceTests(unittest.TestCase):
             self.assertNotIn("extensions", spec)
             self.assertNotIn("future_set", spec.get("plugins", {}).get("datasets", {}))
             self.assertEqual(spec["_benchmark_metadata"]["dataset_provider"], "future_set")
-            for action in ("validate", "plan", "run"):
+            for action in ("plan", "run"):
                 with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
                     self.assertEqual(main([action, str(experiment)]), 0)
             root, summary = run_experiment(spec, Registry(), self.root / "runs")
@@ -1589,8 +1609,8 @@ class CLIExperienceTests(unittest.TestCase):
                 "--name", "comparison", "--dataset", str(datasets[0]),
                 "--dataset", str(datasets[1]), "--evaluator",
                 "examples/minimal/evaluator.py:TextFixtureEvaluator", "--editable",
-                 "configs/strategy.json", "--optimizer", "baseline", "--command-json",
-                 '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]', "--yes"]
+                  "configs/strategy.json", "--optimizer", "baseline", "--command",
+                  "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "--yes"]
         init_output = io.StringIO()
         with contextlib.redirect_stdout(init_output):
             self.assertEqual(main(args), 0)
@@ -1678,7 +1698,7 @@ class CLIExperienceTests(unittest.TestCase):
                 "--agent", str(self.agent), "--dataset", str(first), "--dataset", str(second),
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--optimizer", "baseline", "--editable", "configs/strategy.json",
-                 "--command-json", '["{python}","{agent_dir}/src/fixture_agent.py","{task_dir}"]', "--yes"]
+                  "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "--yes"]
         output = io.StringIO()
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)

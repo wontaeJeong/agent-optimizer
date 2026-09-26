@@ -40,12 +40,12 @@ class NetworkTests(unittest.TestCase):
     def test_cli_applies_network_to_in_process_plugins(self):
         from agent_optimizer import cli
         captured = {}
-        def inspect():
+        def inspect(_registry):
             captured.update(os.environ)
             return {}
         with patch.dict(os.environ, {"HTTP_PROXY": "http://proxy.test"}, clear=True), \
-                patch.object(cli, "doctor", side_effect=inspect), redirect_stdout(io.StringIO()):
-            self.assertEqual(cli.main(["doctor"]), 0)
+                patch.object(cli.Registry, "describe", inspect), redirect_stdout(io.StringIO()):
+            self.assertEqual(cli.main(["plugins", "--project-root", str(Path(__file__).resolve().parents[1])]), 0)
         self.assertEqual(captured.get("http_proxy"), "http://proxy.test")
 
     def test_lowercase_precedence_empty_and_absent(self):
