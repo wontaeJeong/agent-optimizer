@@ -333,9 +333,11 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
             required.add("docker")
         required.update("opencode" for profile in profiles if profile.get("adapter") == "opencode"
                         and profile.get("runtime", {}).get("kind", "local") == "local")
+        required.update("claude" for profile in profiles if profile.get("adapter") == "claude_code"
+                        and profile.get("runtime", {}).get("kind", "local") == "local")
         rows.append(check("runtime.binary", "runtime", all(shutil.which(name) for name in required),
                           "Declared runtime binaries are available",
-                          "Install the declared Docker or OpenCode runtime executable"))
+                          "Install the declared Docker, OpenCode, or Claude Code (claude) runtime executable"))
         try:
             if not _registered(registry, plugins, "evaluators", raw["evaluator"]):
                 raise UnavailableError("Unregistered evaluator")
