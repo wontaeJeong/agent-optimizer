@@ -22,6 +22,30 @@ Mac ARM64 / Python 3.12 / Docker daemon `linux/arm64`, `fix/model-config-app-ux`
 `make doctor ARGS="--json"` → `sh scripts/bootstrap.sh setup --offline`을 **순서대로** 재실행해
 각각 준비됨·오프라인 통과를 확인했다. 두 작업공간의 동시 이미지 태그 격리는 이번 변경에서
 검증하거나 구현하지 않았다.
+## 2026-09-27 Claude Code–DeepSeek–CVDP 첫 실실행 (차단)
+
+Mac ARM64 / Docker daemon `linux/arm64` (Docker 29.2.1, Compose 5.1.3), 프로젝트 Python
+3.12.12, Claude Code **2.1.261**. 로컬 시간 2026-09-27, 아래 run ID의 UTC 시각은
+2026-09-26이다. 사용자가 선택한 CVDP의 기존 ACE 스킬 예제에서 DeepSeek Anthropic 호환
+`https://api.deepseek.com/anthropic`, 모델 `deepseek-flash`, `final_test=false`, 1회 후보 수정,
+**최대 4 trial**로 실행했다. 자격증명은 기본 checkout의 로컬 `.env`에서 실행 셸의 자식 환경에만
+전달했다. 충돌하는 `ANTHROPIC_API_KEY`와 다른 provider 선택 환경은 자식 환경에서 제거했다.
+`.env` 자동 로딩·키 출력·저장소 기록은 하지 않았다.
+
+| 실제 명령·근거 | 관측 결과 |
+|---|---|
+| `make doctor-core`; `make setup`; `make doctor`; `make smoke` | 모두 exit 0. 고정 ACE `fead921f18bb57345b5a41ef93ba625be208e99c`, CVDP `8e894cf74414ab1eaea1e2b4e80a02f123df07b6`, HF `5b807d945f6a99aa645f7e43a64a2115e281b4bf`와 데이터 SHA-256 `cbcd81295561ebb16e4d857e096f4d9908d042c33aff3b58abf236e868411857` 대조. 평가 이미지 ID `sha256:ee167c7cd486111a2a807a703ae6bbb30debf2d26f5bb9d0d760ec07c96a58ec`는 기존 layer cache를 재사용했다. `runs/dev-smoke-b95fffd53de9/summary.json`의 실도구 9개·toy 3개·공식 LFSR 정답/오답 검사 통과. **smoke 전용** `cvdp-positive/cvdp_evaluation/work/raw_result.json`은 비어 있지 않은 1 test에서 `result=0`, `cvdp-negative/.../raw_result.json`은 1 test에서 `result=1`, 양쪽 `error_msg=null`. |
+| `claude --version`; `PYTHONPATH=src .venv/bin/python -m agent_optimizer doctor --plan examples/ace-rtl/experiment-claude.toml --json` | 각각 exit 0, `2.1.261 (Claude Code)`와 `scope=plan`, `ready=true`. plan은 실제 모델/과제 완료 확인이 아니다. |
+| `PYTHONPATH=src .venv/bin/python -m agent_optimizer run examples/ace-rtl/experiment-claude.toml` (실행 셸에서 DeepSeek 키→`ANTHROPIC_AUTH_TOKEN`, 명시적 `ANTHROPIC_MODEL`·기본 모델 변수 설정) | **exit 2, 2/4 trial 사용, status=error**. `runs/dev-live/20260926T140556Z-88ebf11b/summary.json`, `events.jsonl`, `report.json`·`report.html` 생성. baseline validation QAM16과 baseline train priority encoder 모두 `infrastructure_error`, `valid=false`, `passed=null`, validation 집계 `solve_rate=null`/`seconds=null`, 후보 선택 없음. 둘 다 CLI 반환 1·원본 JSONL `result.subtype=error_max_turns`, `is_error=true`, 9 turns; 검증 trace의 모델은 `deepseek-flash`, 도구 이름은 Read/Bash(두 번째는 Write도 사용), Bash 권한 거부는 5회/2회. train에 `rtl/priority_encoder.v`가 만들어졌으나 **공식 평가로 전달되지 않았으며** 두 trial 모두 `raw_result.json`이 없다. |
+| `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_claude_code.py -v` (회귀 추가 전/후) | 사전 **22개 중 1 실패(RED)**: 도구 노출 제한 `--tools` 누락. 승인된 범위대로 `--tools Read,Write,Edit`를 추가한 뒤 **22개 전부 통과(GREEN)**. Claude Code 공식 CLI 문서와 로컬 `claude --help`에서 `--allowedTools`는 자동 허가, `--tools`는 가용 도구 제한임을 대조. 수정 뒤 실모델 재실행은 하지 않았으므로 `error_max_turns` 해결 여부는 **미검증**. |
+
+첫 실패의 CLI 자기보고 `harness_reported_io_tokens`는 validation 70,531 / train 42,916,
+`harness_reported_cost_usd`는 각각 0.613259 / 0.429908이다. 이는 실패한 호출의 **부분
+지표**이며 `agent_tokens`·`agent_cost_usd`는 null, 공식 CVDP 점수·선택 근거가 아니다.
+최대 4 trial의 누적 호출 제한을 지키려고 추가 실모델 run을 하지 않았다. 성공적인 두 split
+공식 raw 결과, 수정 후보 비교, 최종 성능은 **차단/미검증**이다. `make setup`이 통과해 선택적
+`make setup ARGS="--dataset cvdp"` 경로는 별도로 실행하지 않았다. 해당 경로는 평가 자산만
+준비하며 현재 예제의 `lifecycle.inspect`가 요구하는 전체 ACE lock과 구별된다.
 
 ## 2026-09-26 데이터셋 병렬 실행·터미널 진행 화면
 
