@@ -82,8 +82,6 @@ MESSAGES = {
     "Experiment cancelled without preparing data": ("데이터 준비 전에 실험을 취소했습니다", "Experiment cancelled without preparing data"),
     "Docker·ACE 평가/모델 실행 자산이 필요하면 먼저 7번 ACE 전체 환경 준비를 선택하세요.": ("Docker·ACE 평가/모델 실행 자산이 필요하면 먼저 7번 ACE 전체 환경 준비를 선택하세요.", "If you need Docker and ACE evaluation/model assets, choose full ACE setup (option 7) first."),
     "이 작업은 doctor --model로 실제 모델 API·컨테이너 도구를 호출합니다. 설정은 현재 세션에만 유지됩니다.": ("이 작업은 doctor --model로 실제 모델 API·컨테이너 도구를 호출합니다. 설정은 현재 세션에만 유지됩니다.", "This runs doctor --model against the actual model API and container tools. Settings remain in this session only."),
-    "URL 방식: 1=정확한 endpoint, 2=표준 base URL [{default}]: ": ("URL 방식: 1=정확한 endpoint, 2=표준 base URL [{default}]: ", "URL mode: 1=exact endpoint, 2=standard base URL [{default}]: "),
-    "URL 방식은 1 또는 2를 선택하세요.": ("URL 방식은 1 또는 2를 선택하세요.", "Choose URL mode 1 or 2."),
     "{name} (빈 입력: 기존 값 유지): ": ("{name} (빈 입력: 기존 값 유지): ", "{name} (blank: keep current value): "),
     "AGENT_OPT_MODEL_ID (빈 입력: 기존 값 또는 glm5.3-flash): ": ("AGENT_OPT_MODEL_ID (빈 입력: 기존 값 또는 glm5.3-flash): ", "AGENT_OPT_MODEL_ID (blank: current value or glm5.3-flash): "),
     "Bearer token (숨김, 빈 입력: 기존 값 유지): ": ("Bearer token (숨김, 빈 입력: 기존 값 유지): ", "Bearer token (hidden; blank: keep current value): "),
@@ -550,13 +548,13 @@ def render_diagnostic(row: dict, *, lang: str | None = None) -> tuple[str, str]:
             return (f"평가 예산은 최소 {number}회 예약해야 합니다",
                     f"budget.max_trials를 최소 {number}으로 설정하거나 단계 허용량을 줄이세요" if remedy else "")
     if selected == "ko" and row["id"] == "model.configuration" and remedy:
-        prefix = ("Set AGENT_OPT_MODEL_ENDPOINT (or AGENT_OPT_MODEL_BASE_URL) and "
+        prefix = ("Set AGENT_OPT_MODEL_BASE_URL and "
                   "AGENT_OPT_MODEL_API_KEY for research optimizers; set ")
         suffix = " for OpenCode harnesses"
         if remedy.startswith(prefix) and remedy.endswith(suffix):
             harness_keys = remedy[len(prefix):-len(suffix)]
             return human(message, lang=selected), (
-                "연구 Optimizer에는 AGENT_OPT_MODEL_ENDPOINT(또는 AGENT_OPT_MODEL_BASE_URL)와 "
+                "연구 Optimizer에는 AGENT_OPT_MODEL_BASE_URL과 "
                 f"AGENT_OPT_MODEL_API_KEY를, OpenCode 하네스에는 {harness_keys}를 설정하세요")
     return human(message, lang=selected), human(remedy, lang=selected)
 

@@ -73,7 +73,7 @@ class ResearchSearchTests(unittest.TestCase):
         self.spec["final_stages"] = ["gepa"]
         output = self.root / "runs"
         with patch.dict(os.environ, {}, clear=True):
-            with self.assertRaisesRegex((UnavailableError, ValueError), "AGENT_OPT_MODEL_ENDPOINT|AGENT_OPT_MODEL_BASE_URL"):
+            with self.assertRaisesRegex((UnavailableError, ValueError), "AGENT_OPT_MODEL_BASE_URL"):
                 run_experiment(self.spec, Registry(), output)
         self.assertFalse(output.exists())
 

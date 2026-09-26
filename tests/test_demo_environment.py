@@ -19,8 +19,8 @@ doctor = module("demo_merged_doctor", ROOT / "scripts/dev_doctor.py")
 
 
 class DemoEnvironmentTests(unittest.TestCase):
-    def test_live_accepts_configured_model_and_refuses_missing_endpoint(self):
-        with patch.dict(os.environ, {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/v1/chat/completion",
+    def test_live_accepts_configured_model_and_refuses_missing_base_url(self):
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1",
                                     "AGENT_OPT_MODEL_API_KEY": "fixture-key"}, clear=True):
             self.assertEqual(setup.validate_live(), "compatible/glm5.3-flash")
             self.assertEqual(os.environ["AGENT_OPT_MODEL_ID"], "glm5.3-flash")
@@ -46,7 +46,7 @@ class DemoEnvironmentTests(unittest.TestCase):
 
     def test_explicit_probe_failure_sets_nonzero_readiness_without_leaking_or_mutating_env(self):
         report = {"ready": True, "areas": {"core": True, "evaluation": True, "live": True}, "checks": []}
-        environment = {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/chat/completion", "AGENT_OPT_MODEL_API_KEY": "fixture-secret",
+        environment = {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1", "AGENT_OPT_MODEL_API_KEY": "fixture-secret",
                        "AGENT_OPT_CA_BUNDLE": ""}
         progress = io.StringIO()
         with patch.dict(os.environ, environment, clear=True), \
@@ -71,7 +71,7 @@ class DemoEnvironmentTests(unittest.TestCase):
             for failed in (False, True):
                 report = copy.deepcopy(original)
                 progress = io.StringIO()
-                with patch.dict(os.environ, {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/chat/completion", "AGENT_OPT_MODEL_API_KEY": "key", "AGENT_OPT_CA_BUNDLE": ""}, clear=True), patch.object(
+                with patch.dict(os.environ, {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1", "AGENT_OPT_MODEL_API_KEY": "key", "AGENT_OPT_CA_BUNDLE": ""}, clear=True), patch.object(
                          checks, "probe_model", return_value={"status": "passed"}), patch.object(
                          checks, "probe_harness", side_effect=UnavailableError("failed") if failed else None), \
                          redirect_stderr(progress):

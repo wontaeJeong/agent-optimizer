@@ -247,11 +247,11 @@ class EnvironmentChecks(unittest.TestCase):
 
     def test_live_model_configuration_precedes_any_execution(self):
         self.assertTrue(hasattr(setup, "validate_live"), "live preflight missing")
-        with patch.dict(os.environ, {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/v1/chat/completion"}, clear=True):
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1"}, clear=True):
             with self.assertRaisesRegex(UnavailableError, "blocked_auth"):
                 setup.validate_live()
         with patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "test-only"}, clear=True):
-            with self.assertRaisesRegex(ConfigurationError, "AGENT_OPT_MODEL_ENDPOINT"):
+            with self.assertRaisesRegex(ConfigurationError, "AGENT_OPT_MODEL_BASE_URL"):
                 setup.validate_live()
         with patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "test-only", "AGENT_OPT_MODEL_ID": "model-a",
                                     "AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1"}, clear=True):
@@ -638,7 +638,7 @@ class PreparedImageTests(unittest.TestCase):
                     patch.object(lifecycle, "load_example", side_effect=lifecycle_file), \
                     patch.object(setup.subprocess, "check_output", side_effect=inspect), \
                     patch("sys.argv", ["dev.py", command, "--platform", "linux/amd64"]), \
-                    patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "test-only", "AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/v1/chat/completion", "AGENT_OPT_CA_BUNDLE": ""}, clear=True), \
+                    patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "test-only", "AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1", "AGENT_OPT_CA_BUNDLE": ""}, clear=True), \
                     redirect_stdout(stdout):
                 code = dev.main()
         return code, observed, stdout.getvalue()

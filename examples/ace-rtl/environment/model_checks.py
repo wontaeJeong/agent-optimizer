@@ -17,7 +17,7 @@ def probe_harness(root, lock):
     agent.mkdir()
     marker = "doctor-" + uuid.uuid4().hex
     runtime = {"kind": "docker", "image": lock["images"]["agent"]["id"], "network": "bridge",
-               "env_passthrough": ["AGENT_OPT_MODEL_ENDPOINT", "AGENT_OPT_MODEL_BASE_URL", "AGENT_OPT_MODEL_ID", "AGENT_OPT_MODEL_API_KEY", "AGENT_OPT_MODEL", "OPENCODE_CONFIG"]}
+                "env_passthrough": ["AGENT_OPT_MODEL_BASE_URL", "AGENT_OPT_MODEL_ID", "AGENT_OPT_MODEL_API_KEY", "AGENT_OPT_MODEL", "OPENCODE_CONFIG"]}
     request = RunRequest(workspace, agent, task,
                          f"Use the bash tool to write exactly {marker} into task/probe.txt. Then stop.",
                          0, 120, {"model_env": "AGENT_OPT_MODEL", "runtime": runtime}, workspace / "logs")

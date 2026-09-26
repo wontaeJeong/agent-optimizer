@@ -63,20 +63,37 @@ def completion(content="hello", usage=None):
 
 
 class ModelTests(unittest.TestCase):
+    def test_base_url_is_the_only_model_url_and_uses_standard_completion_path(self):
+        with model_server([(200, completion())]) as (url, requests), patch.dict(os.environ, {}, clear=True):
+            settings = ModelSettings.from_env({"AGENT_OPT_MODEL_BASE_URL": url + "/v1/",
+                                               "AGENT_OPT_MODEL_API_KEY": "fixture-secret"})
+            complete([{"role": "user", "content": "hi"}], settings=settings)
+            self.assertEqual(requests[0]["path"], "/v1/chat/completions")
+            self.assertEqual(requests[0]["authorization"], "Bearer fixture-secret")
+
+    def test_legacy_endpoint_is_rejected_even_when_base_url_is_present(self):
+        with patch.dict(os.environ, {}, clear=True):
+            for values in ({}, {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1"}):
+                with self.subTest(values=values), self.assertRaisesRegex(
+                        ConfigurationError, "AGENT_OPT_MODEL_ENDPOINT 대신 AGENT_OPT_MODEL_BASE_URL"):
+                    ModelSettings.from_env({**values,
+                                            "AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/v1/chat/completions",
+                                            "AGENT_OPT_MODEL_API_KEY": "fixture-secret"})
+
     def test_trickling_response_cannot_extend_total_request_deadline(self):
         with model_server([(200, completion())], trickle=True) as (url, _requests):
-            settings = ModelSettings.from_env({"AGENT_OPT_MODEL_ENDPOINT": url + "/chat/completion", "AGENT_OPT_MODEL_API_KEY": "key"})
+            settings = ModelSettings.from_env({"AGENT_OPT_MODEL_BASE_URL": url, "AGENT_OPT_MODEL_API_KEY": "key"})
             started = time.monotonic()
             with self.assertRaises(UnavailableError):
                 complete([], settings=settings, timeout=0.5)
             self.assertLess(time.monotonic() - started, 1.5)
 
-    def test_exact_endpoint_and_default_model_reach_server_with_bearer(self):
+    def test_base_url_and_default_model_reach_server_with_bearer(self):
         with model_server([(200, completion())]) as (url, requests), patch.dict(os.environ, {
-            "AGENT_OPT_MODEL_ENDPOINT": url + "/v1/chat/completion", "AGENT_OPT_MODEL_API_KEY": "fixture-secret",
+            "AGENT_OPT_MODEL_BASE_URL": url + "/v1", "AGENT_OPT_MODEL_API_KEY": "fixture-secret",
         }, clear=True):
             self.assertEqual(complete([{"role": "user", "content": "hi"}])["choices"][0]["message"]["content"], "hello")
-            self.assertEqual(requests[0]["path"], "/v1/chat/completion")
+            self.assertEqual(requests[0]["path"], "/v1/chat/completions")
             self.assertEqual(requests[0]["authorization"], "Bearer fixture-secret")
             self.assertEqual(requests[0]["body"]["model"], "glm5.3-flash")
             self.assertFalse(requests[0]["body"]["stream"])
@@ -90,10 +107,13 @@ class ModelTests(unittest.TestCase):
             self.assertEqual(requests[0]["body"]["model"], "another/model")
 
     def test_invalid_config_is_rejected_before_network(self):
-        good = {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/v1/chat/completion", "AGENT_OPT_MODEL_API_KEY": "key"}
-        for update in [{"AGENT_OPT_MODEL_API_KEY": ""}, {"AGENT_OPT_MODEL_ID": ""}, {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1"},
-                       {"AGENT_OPT_MODEL_ENDPOINT": "http://example.invalid/v1"}, {"AGENT_OPT_MODEL_ENDPOINT": "https://key@example.invalid/v1"},
-                       {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/v1?token=secret"}, {"AGENT_OPT_MODEL_API_KEY": "key\nheader"}]:
+        good = {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1", "AGENT_OPT_MODEL_API_KEY": "key"}
+        for update in [{"AGENT_OPT_MODEL_API_KEY": ""}, {"AGENT_OPT_MODEL_ID": ""},
+                       {"AGENT_OPT_MODEL_BASE_URL": "http://example.invalid/v1"},
+                       {"AGENT_OPT_MODEL_BASE_URL": "https://key@example.invalid/v1"},
+                       {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1?token=secret"},
+                       {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1/chat/completions"},
+                       {"AGENT_OPT_MODEL_API_KEY": "key\nheader"}]:
             with self.subTest(update=update), self.assertRaises((ConfigurationError, UnavailableError)):
                 ModelSettings.from_env({**good, **update})
 
@@ -101,7 +121,7 @@ class ModelTests(unittest.TestCase):
         for status, body in [(401, b"fixture-secret"), (500, b"fixture-secret"), (307, b"redirect"),
                              (200, b"not-json fixture-secret"), (200, {}), (200, {"choices": []})]:
             with self.subTest(status=status, body=body), model_server([(status, body)]) as (url, requests):
-                settings = ModelSettings.from_env({"AGENT_OPT_MODEL_ENDPOINT": url + "/chat/completion", "AGENT_OPT_MODEL_API_KEY": "fixture-secret"})
+                settings = ModelSettings.from_env({"AGENT_OPT_MODEL_BASE_URL": url, "AGENT_OPT_MODEL_API_KEY": "fixture-secret"})
                 with self.assertRaises(UnavailableError) as error:
                     complete([], settings=settings)
                 self.assertNotIn("fixture-secret", str(error.exception))
@@ -112,19 +132,19 @@ class ModelTests(unittest.TestCase):
         reply["choices"][0]["message"]["tool_calls"] = [{"id": "call_1", "type": "function", "function": {
             "name": "connectivity_check", "arguments": '{"ok":true}'}}]
         with model_server([(200, reply)], require_auto_tools=True) as (url, requests):
-            settings = ModelSettings.from_env({"AGENT_OPT_MODEL_ENDPOINT": url + "/chat/completion", "AGENT_OPT_MODEL_API_KEY": "key"})
+            settings = ModelSettings.from_env({"AGENT_OPT_MODEL_BASE_URL": url, "AGENT_OPT_MODEL_API_KEY": "key"})
             self.assertEqual(probe_model(settings=settings)["status"], "passed")
             self.assertEqual(requests[0]["body"]["tools"][0]["function"]["name"], "connectivity_check")
             self.assertIn(requests[0]["body"].get("tool_choice"), (None, "auto"))
         with model_server([(200, completion())]) as (url, _requests):
-            settings = ModelSettings.from_env({"AGENT_OPT_MODEL_ENDPOINT": url + "/chat/completion", "AGENT_OPT_MODEL_API_KEY": "key"})
+            settings = ModelSettings.from_env({"AGENT_OPT_MODEL_BASE_URL": url, "AGENT_OPT_MODEL_API_KEY": "key"})
             with self.assertRaises(UnavailableError):
                 probe_model(settings=settings)
 
     def test_prefixed_only_and_explicit_mapping_isolation(self):
-        new = {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/v1/chat/completions",
+        new = {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1",
                "AGENT_OPT_MODEL_API_KEY": "fixture-secret"}
-        with patch.dict(os.environ, {"MODEL_ENDPOINT": new["AGENT_OPT_MODEL_ENDPOINT"],
+        with patch.dict(os.environ, {"MODEL_ENDPOINT": new["AGENT_OPT_MODEL_BASE_URL"],
                                      "MODEL_API_KEY": "old-secret"}, clear=True):
             with self.assertRaises((ConfigurationError, UnavailableError)):
                 ModelSettings.from_env()
@@ -132,5 +152,5 @@ class ModelTests(unittest.TestCase):
             self.assertEqual(settings.model, "glm5.3-flash")
             self.assertNotIn("fixture-secret", repr(settings))
             with self.assertRaises((ConfigurationError, UnavailableError)):
-                ModelSettings.from_env({"MODEL_ENDPOINT": new["AGENT_OPT_MODEL_ENDPOINT"],
+                ModelSettings.from_env({"MODEL_ENDPOINT": new["AGENT_OPT_MODEL_BASE_URL"],
                                         "MODEL_API_KEY": "old-secret"})

@@ -192,7 +192,7 @@ class TerminalLanguageTests(unittest.TestCase):
 
         row = {"id": "model.configuration", "status": "error",
                "message": "Required model configuration is present",
-               "remedy": "Set AGENT_OPT_MODEL_ENDPOINT (or AGENT_OPT_MODEL_BASE_URL) and AGENT_OPT_MODEL_API_KEY for research optimizers; set AGENT_OPT_MODEL for OpenCode harnesses"}
+                "remedy": "Set AGENT_OPT_MODEL_BASE_URL and AGENT_OPT_MODEL_API_KEY for research optimizers; set AGENT_OPT_MODEL for OpenCode harnesses"}
         message, remedy = render_diagnostic(row, lang="ko")
         self.assertIn("필요한 모델 설정", message)
         self.assertIn("연구 Optimizer", remedy)
