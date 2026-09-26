@@ -17,6 +17,7 @@ from agent_optimizer.contracts import ConfigurationError
 from agent_optimizer.catalog import DATASETS as CATALOG_DATASETS
 from agent_optimizer.datasets import CustomDataset
 from agent_optimizer.harnesses.command import CommandHarness, FixtureHarness
+from agent_optimizer.harnesses.claude_code import ClaudeCodeHarness
 from agent_optimizer.harnesses.opencode import OpenCodeHarness
 from agent_optimizer.registry import PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, Registry
 from agent_optimizer.results import write_json
@@ -38,7 +39,7 @@ def requires_command(adapter: type) -> bool:
 
 
 def supports_generated_profile(adapter: type) -> bool:
-    return requires_command(adapter) or adapter in {FixtureHarness, OpenCodeHarness}
+    return requires_command(adapter) or adapter in {FixtureHarness, OpenCodeHarness, ClaudeCodeHarness}
 
 
 def prepare_selection(project_root: Path, selection: str, *, evaluator: str | None = None,

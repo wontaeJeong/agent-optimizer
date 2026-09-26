@@ -7,6 +7,7 @@ from agent_optimizer.config import read_toml
 from agent_optimizer.contracts import ConfigurationError, UnavailableError, BUILTIN_HARNESSES
 from agent_optimizer.workspace import safe_path
 from agent_optimizer.harnesses.command import CommandHarness, FixtureHarness
+from agent_optimizer.harnesses.claude_code import ClaudeCodeHarness
 from agent_optimizer.harnesses.opencode import OpenCodeHarness
 from agent_optimizer.optimizers.baseline import BaselineOptimizer
 from agent_optimizer.optimizers.file_variants import FileVariantsOptimizer
@@ -86,12 +87,13 @@ class Registry:
             "optimizers": {"baseline": BaselineOptimizer, "file_variants": FileVariantsOptimizer,
                            "gepa": GEPAOptimizer, "meta_harness": MetaHarnessOptimizer,
                            "ecdysis": EcdysisOptimizer},
-            "harnesses": {"command": CommandHarness, "fixture": FixtureHarness, "opencode": OpenCodeHarness},
+            "harnesses": {"command": CommandHarness, "fixture": FixtureHarness, "opencode": OpenCodeHarness,
+                          "claude_code": ClaudeCodeHarness},
             "evaluators": {},
             "datasets": {},
         }
         self.reserved = {"optimizers": set(),
-                         "harnesses": {"claude_code", "codex", "openagent"},
+                         "harnesses": {"codex", "openagent"},
                          "evaluators": set(), "datasets": set()}
         self.loaded = {}
 
