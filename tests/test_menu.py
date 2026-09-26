@@ -30,7 +30,7 @@ class MenuFlows(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory(dir=ROOT)
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        self.env = {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/chat/completion",
+        self.env = {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1",
                     "AGENT_OPT_MODEL_API_KEY": "inherited-secret"}
 
     def flow(self, inputs, *, env=None, token="", codes=(), print_prompts=False):
@@ -85,8 +85,8 @@ class MenuFlows(unittest.TestCase):
         with patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}):
             code, output, calls = self.flow(["4", EOFError()], print_prompts=True)
         self.assertEqual(code, 0)
-        self.assertIn("URL mode:", output)
-        self.assertNotIn("URL 방식:", output)
+        self.assertIn("AGENT_OPT_MODEL_BASE_URL", output)
+        self.assertNotIn("URL mode:", output)
         self.assertEqual(calls, [])
 
     def test_english_menu_invalid_choice_guidance(self):
@@ -172,7 +172,7 @@ class MenuFlows(unittest.TestCase):
 
     def test_model_base_switch_override_and_session_only_token(self):
         before = self.env.copy()
-        _, output, calls = self.flow(["4", "2", "https://example.invalid/v1", "other-model", "2", "0"],
+        _, output, calls = self.flow(["4", "https://example.invalid/v1", "other-model", "2", "0"],
                                      token="new-hidden-secret")
         self.assertEqual(self.env, before)
         self.assertNotIn("new-hidden-secret", output)
@@ -187,23 +187,22 @@ class MenuFlows(unittest.TestCase):
         self.assertNotIn("MODEL_API_KEY", child)
         self.assertEqual(calls[1][1], child)
 
-    def test_model_exact_switch_default_model_and_empty_token_keeps_inherited(self):
+    def test_model_base_edit_default_model_and_empty_token_keeps_inherited(self):
         env = {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1", "AGENT_OPT_MODEL_API_KEY": "kept"}
-        _, _, calls = self.flow(["4", "1", "https://example.invalid/chat/completion", "", "0"], env=env)
+        _, _, calls = self.flow(["4", "https://example.invalid/other", "", "0"], env=env)
         child = calls[0][1]
-        self.assertNotIn("AGENT_OPT_MODEL_BASE_URL", child)
-        self.assertEqual(ModelSettings.from_env(child).endpoint, "https://example.invalid/chat/completion")
+        self.assertEqual(ModelSettings.from_env(child).endpoint, "https://example.invalid/other/chat/completions")
         self.assertEqual(child["AGENT_OPT_MODEL_ID"], "glm5.3-flash")
         self.assertEqual(child["AGENT_OPT_MODEL_API_KEY"], "kept")
 
     def test_model_inherited_defaults(self):
         env = {**self.env, "AGENT_OPT_MODEL_ID": "inherited-model"}
-        _, _, calls = self.flow(["4", "", "", "", "0"], env=env)
+        _, _, calls = self.flow(["4", "", "", "0"], env=env)
         self.assertEqual(calls[0][1], env)
 
     def test_empty_inherited_model_id_uses_default_on_enter(self):
         env = {**self.env, "AGENT_OPT_MODEL_ID": ""}
-        code, _, calls = self.flow(["4", "", "", "", "0"], env=env)
+        code, _, calls = self.flow(["4", "", "", "0"], env=env)
         self.assertEqual(code, 0)
         self.assertEqual(len(calls), 1)
         self.assertEqual(calls[0][0][-2:], ["doctor", "--model"])
@@ -211,8 +210,8 @@ class MenuFlows(unittest.TestCase):
         self.assertEqual(env["AGENT_OPT_MODEL_ID"], "")
 
     def test_invalid_model_input_does_not_commit_partial_settings(self):
-        for values in (["9"], ["1", "http://remote.invalid", ""],
-                       ["1", "https://valid.invalid", "bad model"]):
+        for values in (["http://remote.invalid", ""],
+                       ["https://valid.invalid", "bad model"]):
             with self.subTest(values=values):
                 _, output, calls = self.flow(["4", *values, "2", "0"], token="replacement")
                 self.assertEqual(len(calls), 1)
@@ -220,7 +219,7 @@ class MenuFlows(unittest.TestCase):
                 self.assertNotIn("replacement", output)
 
     def test_eof_during_model_edit_exits_without_execution_or_environment_change(self):
-        for values in ([], ["2"], ["2", "https://new.invalid"]):
+        for values in ([], ["https://new.invalid"]):
             code, _, calls = self.flow(["4", *values, EOFError()])
             self.assertEqual(code, 0)
             self.assertEqual(calls, [])
@@ -478,7 +477,7 @@ os.execv("/bin/sh", ["sh", *args])
         before = dict(os.environ)
         secret = "pty-only-secret-914"
         code, output = self.interact(self.entries()[0], [
-            ("선택: ", "4\n"), ("URL 방식", "1\n"), ("AGENT_OPT_MODEL_ENDPOINT", "https://example.invalid/chat/completion\n"),
+            ("선택: ", "4\n"), ("AGENT_OPT_MODEL_BASE_URL", "https://example.invalid/v1\n"),
             ("AGENT_OPT_MODEL_ID", "\n"), ("Bearer token", secret + "\n"), ("선택: ", "5\n"),
             ("반복 횟수", "3\n"), ("선택: ", "0\n"),
         ])

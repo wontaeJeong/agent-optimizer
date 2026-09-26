@@ -29,7 +29,6 @@ def _environment_settings():
     class EnvironmentSettings(BaseSettings):
         model_config = SettingsConfigDict(env_prefix="AGENT_OPT_MODEL_", env_file=None)
 
-        endpoint: str = ""
         base_url: str = ""
         id: str = "glm5.3-flash"
         api_key: SecretStr = SecretStr("")
@@ -46,10 +45,12 @@ class ModelSettings:
     @classmethod
     def from_env(cls, env=None):
         Settings = _environment_settings()
+        environment = os.environ if env is None else env
+        if environment.get("AGENT_OPT_MODEL_ENDPOINT"):
+            raise ConfigurationError("AGENT_OPT_MODEL_ENDPOINT 대신 AGENT_OPT_MODEL_BASE_URL을 사용하세요")
         # Supply every field for an explicit mapping, so unrelated process values
         # cannot leak into a menu session or a read-only diagnostic.
         values = ({} if env is None else {
-            "endpoint": env.get("AGENT_OPT_MODEL_ENDPOINT", ""),
             "base_url": env.get("AGENT_OPT_MODEL_BASE_URL", ""),
             "id": env.get("AGENT_OPT_MODEL_ID", "glm5.3-flash"),
             "api_key": env.get("AGENT_OPT_MODEL_API_KEY", ""),
@@ -58,10 +59,10 @@ class ModelSettings:
             settings = Settings(**values)
         except ValueError:
             raise ConfigurationError("Invalid AGENT_OPT_MODEL_ settings") from None
-        endpoint, base = settings.endpoint, settings.base_url
-        if bool(endpoint) == bool(base):
-            raise ConfigurationError("Set exactly one of AGENT_OPT_MODEL_ENDPOINT (full URL) or AGENT_OPT_MODEL_BASE_URL")
-        url = endpoint or base.rstrip("/") + "/chat/completions"
+        base = settings.base_url.rstrip("/")
+        if not base or base.endswith("/chat/completions"):
+            raise ConfigurationError("AGENT_OPT_MODEL_BASE_URL에 /chat/completions를 제외한 모델 API 기본 주소를 설정하세요")
+        url = base + "/chat/completions"
         parts = urlsplit(url)
         if (parts.scheme not in {"https", "http"} or not parts.hostname or parts.username or parts.password
                 or parts.query or parts.fragment or any(c.isspace() for c in url)

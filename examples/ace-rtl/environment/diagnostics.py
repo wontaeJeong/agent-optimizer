@@ -194,5 +194,5 @@ def collect_checks(root: Path, platform: str | None = None, *, environment=None)
     except (ConfigurationError, UnavailableError, ValueError):
         model_valid = False
     runner.add("live.model", model_valid, "OpenAI-compatible model configuration (not endpoint availability).",
-               "Set exactly one of AGENT_OPT_MODEL_ENDPOINT/AGENT_OPT_MODEL_BASE_URL; optional AGENT_OPT_MODEL_ID defaults to glm5.3-flash.")
+                "Set AGENT_OPT_MODEL_BASE_URL; optional AGENT_OPT_MODEL_ID defaults to glm5.3-flash.")
     return runner.checks

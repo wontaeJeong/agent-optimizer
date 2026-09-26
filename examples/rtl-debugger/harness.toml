@@ -7,4 +7,4 @@ kind = "docker"
 image = "agent-optimizer-opencode:local"
 network = "bridge"
 # Default image config: explicit free OpenRouter model. Compatible provider is opt-in.
-env_passthrough = ["AGENT_OPT_MODEL", "OPENROUTER_API_KEY", "OPENCODE_CONFIG", "AGENT_OPT_MODEL_BASE_URL", "AGENT_OPT_MODEL_ID", "AGENT_OPT_MODEL_API_KEY", "AGENT_OPT_MODEL_ENDPOINT"]
+env_passthrough = ["AGENT_OPT_MODEL", "OPENROUTER_API_KEY", "OPENCODE_CONFIG", "AGENT_OPT_MODEL_BASE_URL", "AGENT_OPT_MODEL_ID", "AGENT_OPT_MODEL_API_KEY"]
