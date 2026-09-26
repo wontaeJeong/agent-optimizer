@@ -14,6 +14,8 @@ from agent_optimizer.cli import main
 from agent_optimizer.config import load_experiment
 from agent_optimizer.contracts import ConfigurationError, ExecutionResult, RunRequest, UnavailableError
 from agent_optimizer.harnesses.claude_code import ClaudeCodeHarness
+from agent_optimizer.locale import render_diagnostic
+from agent_optimizer.readiness import collect_plan
 from agent_optimizer.registry import Registry
 from agent_optimizer.setup_wizard import supports_generated_profile
 from support import test_project
@@ -209,6 +211,36 @@ class ClaudeCodeSelectionTests(unittest.TestCase):
                 profile.write_text(f"required_cli_version = {invalid}\n" + original, encoding="utf-8")
                 with self.assertRaises(ConfigurationError):
                     load_experiment(experiment)
+
+    def test_doctor_plan_checks_missing_and_present_claude_binary(self):
+        temporary, root = test_project()
+        self.addCleanup(temporary.cleanup)
+        profile = root / "examples/minimal/harness.toml"
+        profile.write_text('id = "claude"\nadapter = "claude_code"\nallow_local = true\n'
+                           '[runtime]\nkind = "local"\n', encoding="utf-8")
+        for name in ("solo", "team"):
+            manifest = root / f"examples/minimal/{name}.toml"
+            manifest.write_text(manifest.read_text(encoding="utf-8").replace(
+                'supported_harnesses = ["fixture", "opencode", "command"]',
+                'supported_harnesses = ["claude_code"]'), encoding="utf-8")
+        plan = root / "examples/minimal/experiment.toml"
+        for available, expected in ((False, "error"), (True, "ok")):
+            with self.subTest(available=available), patch(
+                    "agent_optimizer.readiness.shutil.which",
+                    side_effect=lambda name: "/usr/bin/claude" if available and name == "claude" else None):
+                report = collect_plan(plan, Registry())
+            check = next(row for row in report["checks"] if row["id"] == "runtime.binary")
+            self.assertEqual(next(row for row in report["checks"] if row["id"] == "plan.schema")["status"], "ok")
+            self.assertEqual(check["status"], expected)
+            if not available:
+                self.assertFalse(report["ready"])
+                self.assertIn("Claude Code", check["remedy"])
+                self.assertIn("claude", check["remedy"])
+                self.assertIn("설치하세요", render_diagnostic(check, lang="ko")[1])
+                self.assertIn("Claude Code (claude)", render_diagnostic(check, lang="en")[1])
+            else:
+                self.assertEqual(check["remedy"], "")
+                self.assertTrue(report["ready"], report)
 
 
 if __name__ == "__main__":
