@@ -79,7 +79,7 @@ class ClaudeCodeHarness(CommandHarness):
         result.metrics.update(harness_reported_io_tokens=sum(tokens) if valid_tokens else None,
                               harness_reported_cost_usd=cost if valid_cost else None,
                               unparsed_event_lines=float(invalid))
-        if result.status == "completed" and (not final or final.get("subtype") != "success"
+        if result.status == "completed" and (invalid or not final or final.get("subtype") != "success"
                                               or final.get("is_error") is not False or saw_error):
             result.status = "infrastructure_error"
             result.detail = "Claude Code did not emit a successful result; see raw trace"
