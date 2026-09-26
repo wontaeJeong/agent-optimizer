@@ -85,6 +85,8 @@ MESSAGES = {
     "{name} (빈 입력: 기존 값 유지): ": ("{name} (빈 입력: 기존 값 유지): ", "{name} (blank: keep current value): "),
     "AGENT_OPT_MODEL_ID (빈 입력: 기존 값 또는 glm5.3-flash): ": ("AGENT_OPT_MODEL_ID (빈 입력: 기존 값 또는 glm5.3-flash): ", "AGENT_OPT_MODEL_ID (blank: current value or glm5.3-flash): "),
     "Bearer token (숨김, 빈 입력: 기존 값 유지): ": ("Bearer token (숨김, 빈 입력: 기존 값 유지): ", "Bearer token (hidden; blank: keep current value): "),
+    "모델 API 키 (숨김): ": ("모델 API 키 (숨김): ", "Model API key (hidden): "),
+    "{key} (OpenCode 모델): ": ("{key} (OpenCode 모델): ", "{key} (OpenCode model): "),
     "ACE 실행에는 7번 전체 환경 준비와 4번 모델 설정이 필요합니다.": ("ACE 실행에는 7번 전체 환경 준비와 4번 모델 설정이 필요합니다.", "ACE runs require full setup (option 7) and model configuration (option 4)."),
     "모델 설정이 없거나 잘못되었습니다.": ("모델 설정이 없거나 잘못되었습니다.", "Model configuration is missing or invalid."),
     "먼저 4번 모델 설정·연결 검사를 선택하세요.": ("먼저 4번 모델 설정·연결 검사를 선택하세요.", "Choose model configuration and connection check (option 4) first."),

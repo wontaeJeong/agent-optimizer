@@ -116,6 +116,26 @@ def _launch_existing(spec: dict, registry: Registry, *, output: Path | None = No
     return None
 
 
+def _tui_model_environment(spec: dict, env: dict[str, str] | None = None) -> dict[str, str]:
+    from agent_optimizer.model_input import ensure_model_api, ensure_model_selector
+
+    inventory = Registry()
+    inventory.load_project(spec["_root"])
+    inventory.load_plugins(spec["_root"], {"harnesses": spec.get("plugins", {}).get("harnesses", {})})
+    profiles = spec["_profiles"]
+    research = any(stage["optimizer"] in {"gepa", "meta_harness", "ecdysis"}
+                   for stage in spec.get("stages", []))
+    api = research or any(getattr(inventory.resolve("harnesses", profile["adapter"]),
+                                  "needs_model_api", False) for profile in profiles)
+    staged = dict(os.environ if env is None else env)
+    if api:
+        staged = ensure_model_api(staged)
+    for profile in profiles:
+        if profile["adapter"] == "opencode":
+            staged = ensure_model_selector(staged, profile.get("model_env", "AGENT_OPT_MODEL"))
+    return staged
+
+
 @app.command("plugins")
 def plugins_command(project_root: Path | None = None) -> int:
     """구현된 연동 목록 표시."""
@@ -470,22 +490,6 @@ def _dispatch(args):
                         if not experiment.is_absolute():
                             experiment = args.project_root / experiment
                         experiment = experiment.resolve()
-                    report = collect_plan(experiment, registry)
-                    print(f"{human('실험 설정')}: {experiment}", file=sys.stderr)
-                    print(f"{human('계획 진단')}: {human('준비됨' if report['ready'] else '준비 부족')}", file=sys.stderr)
-                    if not report["ready"]:
-                        for check in report["checks"]:
-                            if check["status"] != "ok":
-                                message, remedy = render_diagnostic(check)
-                                print(f"  {check['id']}: {message} {remedy}", file=sys.stderr)
-                        return 2
-                    if choice == "3":
-                        print(f"{human('실도구 진단')}: {human('준비됨')}",
-                              file=sys.stderr)
-                    print(human("이 실험을 실행할까요? [y/N]: "), end="", file=sys.stderr, flush=True)
-                    if input().strip().lower() not in {"y", "yes"}:
-                        print(human("실험 실행을 취소했습니다"), file=sys.stderr)
-                        return 2
                     init_args = None
                 elif choice == "2":
                     init_args = wizard_arguments(args.project_root.absolute())
@@ -507,18 +511,53 @@ def _dispatch(args):
                     return code
                 prepared = json.loads(output.getvalue())
                 if "session" in prepared:
-                    return main(["run-session", prepared["session"]])
+                    from agent_optimizer.model_input import session_environment
+                    try:
+                        staged = dict(os.environ)
+                        for item in prepared["experiments"]:
+                            staged = _tui_model_environment(load_experiment(Path(item["experiment"])), staged)
+                        with session_environment(staged):
+                            return main(["run-session", prepared["session"]])
+                    except KeyboardInterrupt:
+                        print("\n" + style(human("TUI interrupted"), "warning", stream=sys.stderr), file=sys.stderr)
+                        return 130
                 experiment = Path(prepared["experiment"])
             spec = load_experiment(experiment)
-            launched = _launch_existing(spec, registry)
-            if launched is not None:
-                return launched
-            with ProgressDisplay() as progress:
-                progress.configure_budget(spec.get("budget", {}).get("max_trials", 100))
-                root, summary = run_experiment(spec, Registry(), on_event=progress)
-            show({"run_dir": root, "status": summary["status"], "trials_used": summary["trials_used"],
-                  "report_html": root / "report.html"})
-            return 0 if summary["status"] == "completed" else 3
+            from agent_optimizer.model_input import session_environment
+            try:
+                environment = _tui_model_environment(spec)
+                with session_environment(environment):
+                    if choice in {"1", "3"}:
+                        report = collect_plan(experiment, registry)
+                        print(f"{human('실험 설정')}: {experiment}", file=sys.stderr)
+                        print(f"{human('계획 진단')}: {human('준비됨' if report['ready'] else '준비 부족')}", file=sys.stderr)
+                        if not report["ready"]:
+                            for check in report["checks"]:
+                                if check["status"] != "ok":
+                                    message, remedy = render_diagnostic(check)
+                                    print(f"  {check['id']}: {message} {remedy}", file=sys.stderr)
+                            return 2
+                        if choice == "3":
+                            print(f"{human('실도구 진단')}: {human('준비됨')}", file=sys.stderr)
+                        print(human("이 실험을 실행할까요? [y/N]: "), end="", file=sys.stderr, flush=True)
+                        if input().strip().lower() not in {"y", "yes"}:
+                            print(human("실험 실행을 취소했습니다"), file=sys.stderr)
+                            return 2
+                    launched = _launch_existing(spec, registry)
+                    if launched is not None:
+                        return launched
+                    with ProgressDisplay() as progress:
+                        progress.configure_budget(spec.get("budget", {}).get("max_trials", 100))
+                        root, summary = run_experiment(spec, Registry(), on_event=progress)
+                    show({"run_dir": root, "status": summary["status"], "trials_used": summary["trials_used"],
+                          "report_html": root / "report.html"})
+                    return 0 if summary["status"] == "completed" else 3
+            except EOFError:
+                print(style(human("TUI cancelled:"), "warning", stream=sys.stderr) + " " + human("input ended"), file=sys.stderr)
+                return 2
+            except KeyboardInterrupt:
+                print("\n" + style(human("TUI interrupted"), "warning", stream=sys.stderr), file=sys.stderr)
+                return 130
         elif args.command == "run-session":
             data = json.loads(args.session.read_text(encoding="utf-8"))
             if (data.get("schema_version") != 1 or not isinstance(data.get("experiments"), list)

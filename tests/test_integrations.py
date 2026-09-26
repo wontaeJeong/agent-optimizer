@@ -97,6 +97,19 @@ class SourceTests(unittest.TestCase):
 
 
 class OptionalIntegrationTests(unittest.TestCase):
+    def test_selected_integration_excludes_generated_bytecode(self):
+        from agent_optimizer.integrations import selected_files
+
+        with tempfile.TemporaryDirectory(prefix="pinned-bytecode-") as directory:
+            root = Path(directory)
+            repo, _ = self.pinned_fixture(root)
+            generated = repo / "examples/ace-rtl/__pycache__/adapter.cpython-312.pyc"
+            generated.parent.mkdir()
+            generated.write_bytes(b"transient bytecode")
+            selected = {path.relative_to(repo).as_posix() for path in selected_files(repo, "ace-rtl")}
+            self.assertIn("examples/ace-rtl/adapter.py", selected)
+            self.assertNotIn("examples/ace-rtl/__pycache__/adapter.cpython-312.pyc", selected)
+
     def pinned_fixture(self, root):
         repo = root / "first-party"
         for relative in ("examples/ace-rtl/adapter.py", "examples/ace-rtl/environment/lifecycle.py",
