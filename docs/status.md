@@ -66,6 +66,7 @@ native `ace_agent_runner.py`/`ace_cvdp_native_runner.py`의 자체 역할·반�
   공식 Docker/SSE-tool fixture, 온보딩 검증을 [날짜별 기록](verification.md)에 유지한다.
   그 당시 9-trial minimal 기록은 당시 결과이며 현재 7-trial 경로로 소급 수정하지 않는다.
 - **이번 실제 연결 검증:** DeepSeek `deepseek-flash` → ACE OpenCode 스킬 프로필 → 공식 CVDP의 두 과제·4 trial이 Mac ARM64에서 실행되었다. 두 validation 후보가 1.0으로 동점이라 시간 기준으로 baseline이 선택되었다. [2026-09-25 기록](verification.md#2026-09-25-ace-rtl-스킬-프로필-실제-모델-e2e).
+- **Claude Code 첫 실실행은 차단:** Mac ARM64의 Claude Code 2.1.261·DeepSeek Anthropic 호환 endpoint에서 baseline 2/4 trial이 `error_max_turns`로 종료됐다. train/validation 공식 raw 결과·후보 선택은 없다. `--allowedTools`와 가용 도구 제한을 혼동한 부분은 `--tools` 회귀 RED→GREEN으로 수정했지만 실모델 재실행은 아직 미검증이다. [2026-09-27 기록](verification.md#2026-09-27-claude-codedeepseekcvdp-첫-실실행-차단).
 - **선택형 wheel의 새 검증:** Mac ARM64에서 소스 밖 wheel 설치·사용자 Agent 합성 실행, 선택형 ACE 고정 Git/driver/이미지 준비와 읽기 전용 계획 진단, Docker 공식 LFSR 정답·오답을 확인했다. 모델 키 없는 `run`은 `blocked_auth`로 차단된다. [같은 날짜의 별도 기록](verification.md#2026-09-25-선택형-wheel-연동-검증).
 - **미검증:** 실제 배포 모델→실 Agent에 세 연구 알고리즘을 적용한 성능 향상, native ACE,
   Verilog-Eval의 전체 과제/Ubuntu x86_64 실행, 전체 sub-agent 사용량. 새 팀 컴포넌트도

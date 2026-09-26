@@ -125,6 +125,17 @@ runs를 Git에 추가하지 마세요.
 
 ## 현재 검증 범위
 
+Claude Code 선택 프로필은 `experiment-claude.toml` (`harness-claude.toml`의 외부 CLI
+2.1.261 요구)이다. 로컬 셸에 `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic`,
+`ANTHROPIC_AUTH_TOKEN`(DeepSeek 키), `ANTHROPIC_MODEL=deepseek-flash` 및 같은 모델의 Claude
+기본 모델 변수를 명시적으로 전달한다. 앱은 `.env`를 자동 로딩하지 않는다. `make setup` →
+`make doctor` → `make smoke` → `agent-opt doctor --plan examples/ace-rtl/experiment-claude.toml --json`
+후 `agent-opt run examples/ace-rtl/experiment-claude.toml` 순서다. 이 프로필은 4 trial 상한,
+test 미실행이며 OpenCode/ACE native runner와 별도다. 2026-09-27 첫 실제 DeepSeek 호출은
+**2 trial 뒤 max-turn 종료**로 공식 train/validation 평가 없이 차단되었다. 파일 도구 가용 범위
+수정은 계약 테스트만 통과했으며 실모델 재검증·최적화 성공은 주장하지 않는다.
+[실제 실행 근거](../../docs/verification.md#2026-09-27-claude-codedeepseekcvdp-첫-실실행-차단).
+
 과제 공개/비공개 분리와 공식 결과 형식 처리는 오프라인 테스트합니다.
 Mac Docker ARM64와 native Ubuntu x86_64에서 evaluator-only 정답/오답을 확인했습니다.
 `deepseek-flash`로 Mac ARM64에서 이 OpenCode 스킬 프로필의 실제 모델→공식 CVDP 두 과제·4 trial을 실행했습니다.
