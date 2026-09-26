@@ -1,0 +1,37 @@
+schema_version = 1
+name = "ace-rtl-claude-cvdp-demo"
+project_root = "../.."
+agents = ["examples/ace-rtl/source.toml"]
+harnesses = ["examples/ace-rtl/harness-claude.toml"]
+benchmark = "datasets/ace-demo/tasks.json"
+evaluator = "cvdp"
+final_test = false
+final_stages = ["feedback"]
+[plugins.harnesses]
+ace_claude_code = "examples/ace-rtl/adapter.py:ACEClaudeCode"
+[plugins.optimizers]
+simple_feedback = "experiments/simple-feedback/optimizer.py:Optimizer"
+[plugin_dependencies]
+"optimizers/simple_feedback" = ["src/agent_optimizer/models.py"]
+[budget]
+max_trials = 4
+max_wall_time_seconds = 2640
+trial_timeout_seconds = 600
+[objective]
+mode = "lexicographic"
+[[objective.metrics]]
+name = "solve_rate"
+source = "passed"
+direction = "maximize"
+[[objective.metrics]]
+name = "seconds"
+source = "task_wall_time_seconds"
+direction = "minimize"
+[[stages]]
+id = "feedback"
+optimizer = "simple_feedback"
+inputs = ["baseline"]
+[stages.config]
+file = "skills/ace-rtl/references/role-guidance.md"
+iterations = 1
+request_timeout_seconds = 60
