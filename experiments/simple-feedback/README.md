@@ -22,7 +22,7 @@ iterations = 3
 request_timeout_seconds = 60
 ```
 
-`AGENT_OPT_MODEL_ENDPOINT`(완전한 completion URL) 또는 `AGENT_OPT_MODEL_BASE_URL` 중 하나,
+`AGENT_OPT_MODEL_BASE_URL`(`/chat/completions`를 제외한 기본 URL),
 `AGENT_OPT_MODEL_API_KEY`, 선택적 `AGENT_OPT_MODEL_ID`(기본 `glm5.3-flash`)를 환경에 설정합니다.
 설정 파일에 인증 값을 넣지 마세요.
 모델 응답은 `{"content":"전체 파일 내용"}`이어야 합니다. 잘못된 응답·환경 실패는 중단합니다.

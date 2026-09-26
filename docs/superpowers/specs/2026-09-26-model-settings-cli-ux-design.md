@@ -42,7 +42,10 @@
   세션 입력을 제공한다. 일반 연구 Optimizer에 필요한 API 설정과 OpenCode 하네스에
   선언된 모델 선택자도 부족한 값만 물으며 모델 없는 실험에는 모델 입력을 요구하지
   않는다. 정적 진단에 `model.configuration`이 포함된 실험에서는 모델 입력 이후에
-  진단하므로 입력 부족으로 실행 확인 전에 잘못 차단되지 않는다.
+  진단하므로 입력 부족으로 실행 확인 전에 잘못 차단되지 않는다. 모델 API의 필요성은
+  연구 stage 또는 전용 하네스의 선언된 환경 전달 값으로 판정하며, 실행 승인 전에
+  하네스 플러그인 구현 파일을 import하지 않는다. 일반 OpenCode의 선택형 호환 API
+  환경 전달만으로 별도 API 키를 강제하지 않는다.
 - 비대화형: `agent-opt init --profile ace-rtl --workspace PATH` → `agent-opt prepare
   PATH/experiment.toml` → `agent-opt run PATH/experiment.toml`. 저장소 개발자는
   `make setup-core` 뒤 `agent-opt run examples/ace-rtl/experiment.toml`을 사용할 수 있으나

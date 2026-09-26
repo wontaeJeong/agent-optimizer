@@ -24,6 +24,10 @@ test("base URL preserves streamed request, tool body and cancellation", async ()
     assert.equal(observed[1].redirect, "error");
     assert.equal(await reply.text(), "data: [DONE]\n\n");
     assert.throws(() => options.fetch("https://another.invalid", init));
+    process.env.AGENT_OPT_MODEL_BASE_URL = "https://example.invalid/v1///";
+    await (await plugin()).config(config);
+    await config.provider.compatible.options.fetch("https://example.invalid/v1/chat/completions", init);
+    assert.equal(observed[0], "https://example.invalid/v1/chat/completions");
     process.env.AGENT_OPT_MODEL_ENDPOINT = "https://ambiguous.invalid/v1/chat/completions";
     await assert.rejects((await plugin()).config(config), /AGENT_OPT_MODEL_BASE_URL/);
     delete process.env.AGENT_OPT_MODEL_BASE_URL;

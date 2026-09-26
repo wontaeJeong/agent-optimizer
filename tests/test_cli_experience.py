@@ -1073,6 +1073,25 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertFalse((self.root / "runs").exists())
         self.assertFalse(any(self.root.rglob("__pycache__")))
 
+    def test_tui_cancel_before_run_does_not_import_harness_plugin(self):
+        benchmark = self.root / "datasets/ace-demo/tasks.json"
+        benchmark.parent.mkdir(parents=True)
+        shutil.copyfile(self.data, benchmark)
+
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1",
+                                  "AGENT_OPT_MODEL_API_KEY": "fixture-key"}), \
+                patch("sys.stdin.isatty", return_value=True), \
+                patch("builtins.input", side_effect=["1", "examples/ace-rtl/experiment.toml", "n"]), \
+                patch("agent_optimizer.cli.Registry.load_plugins", side_effect=AssertionError("미승인 plugin import")), \
+                patch("agent_optimizer.cli.collect_plan", return_value={"scope": "plan", "ready": True,
+                                                                 "checks": []}), \
+                contextlib.redirect_stderr(Terminal()), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
+
     def test_ace_example_plan_reuses_registered_cvdp_evaluator(self):
         benchmark = self.root / "datasets/ace-demo/tasks.json"
         benchmark.parent.mkdir(parents=True)
@@ -1136,7 +1155,9 @@ class CLIExperienceTests(unittest.TestCase):
                 return True
 
         terminal = Terminal()
-        with patch("sys.stdin", Terminal("1\nexamples/ace-rtl/experiment.toml\ny\n")), \
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1",
+                                  "AGENT_OPT_MODEL_API_KEY": "fixture-key"}), \
+                patch("sys.stdin", Terminal("1\nexamples/ace-rtl/experiment.toml\ny\n")), \
                 patch("agent_optimizer.cli.collect_plan", return_value={"scope": "plan", "ready": True,
                                                                          "checks": []}), \
                 patch("agent_optimizer.cli.run_experiment", side_effect=AssertionError("generic run")), \
@@ -1232,7 +1253,9 @@ class CLIExperienceTests(unittest.TestCase):
     def test_tui_opencode_asks_only_for_its_declared_model_selector(self):
         harness = self.root / "examples/minimal/harness.toml"
         harness.write_text('id = "opencode"\nadapter = "opencode"\nmodel_env = "TEAM_MODEL"\n'
-                           '[runtime]\nkind = "docker"\nimage = "pinned-agent"\n')
+                           '[runtime]\nkind = "docker"\nimage = "pinned-agent"\n'
+                           'env_passthrough = ["TEAM_MODEL", "AGENT_OPT_MODEL_BASE_URL", '
+                           '"AGENT_OPT_MODEL_API_KEY"]\n')
 
         class Terminal(io.StringIO):
             def isatty(self):

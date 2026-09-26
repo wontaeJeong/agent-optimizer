@@ -24,7 +24,7 @@ Optimizer는 propose/evaluate, Harness는 RunRequest/ExecutionResult, 외부 Age
 | 개발 명령·CLI UX | `test_dev_onboarding.py`·`test_cli_experience.py` → `make lint`, `make test`, `make demo`; 합성/명령 전달 성공은 ACE 실행 성공과 구분 |
 | 팀 플러그인·코어 | 관련 계약 회귀 → `.venv/bin/agent-opt datasets list` / `doctor --dataset ID` / `doctor --plan PATH` / 작은 fixture 실행 → `make lint`, `make test`, `make demo`, `git diff --check` |
 | 패키징·의존성·릴리즈 | 위 검사 + `.venv/bin/python -m build`; `.venv/bin/python tests/test_installed_cli.py dist/agent_optimizer-0.3.0-py3-none-any.whl`로 저장소 밖 wheel의 목록·TUI 거절·사용자 Agent/채점기 init/doctor/run/report 확인 |
-| ACE·Docker·환경 연결 | 관련 회귀 + `make setup` → `make doctor` → `sh scripts/bootstrap.sh setup --offline` → `make smoke`; 수동 공식 CI는 모델 없이 평가 경로와 ACE CLI의 인증 실패를 검사. 실제 모델은 자격증명 준비 후 `sh scripts/bootstrap.sh doctor --model`/작은 live·TUI 경로로 별도 확인 |
+| ACE·Docker·환경 연결 | 관련 회귀 + `make setup` → `make doctor` → `sh scripts/bootstrap.sh setup --offline` → `make smoke`; 수동 공식 CI는 모델 없이 평가 경로와 ACE CLI의 인증 실패를 검사. 실제 모델 E2E는 자격증명 준비 후 앱의 `agent-opt tui` 또는 `agent-opt run examples/ace-rtl/experiment.toml`로 확인하고, 개발 중에는 `sh scripts/bootstrap.sh doctor --model`로 연결만 별도 진단 |
 
 선택형 ACE의 wheel 실도구 검증은 저장소 밖 가상환경에 빌드된 wheel을 설치한 뒤
 `agent-opt init --profile ace-rtl --workspace <공유 작업공간>` →
