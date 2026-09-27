@@ -34,14 +34,16 @@
 - 팀 구현은 `experiments/<team>/`, 등록은 `src/agent_optimizer/registry.py`의 Dataset/Harness/Optimizer/Evaluator ID→파일 경로다.
   기존 개별 experiment `[plugins.*]`도 그대로 사용한다.
 
-## 현재 MVP 선택 (2026-09-22)
+## 당시 MVP 구현 선택 (2026-09-22)
+
+이 절은 당시의 구현 선택 기록이다. 최신 지원 범위는 [현재 구현 상태](status.md)를 따른다.
 
 - 코어 setup/doctor와 API-free fixture부터 시작하고 팀 파일 플러그인 하나를 연결한다.
   `experiments/<team>/`가 소유권 경계이며 팀 컴포넌트는 중앙 registry에 등록한다(설치 entry point 불필요).
-- 여러 Agent × 호환 Harness 전체 조합 및 여러 독립 Optimizer를 순차 실행한다. 모든 stage는
-  baseline에서 시작하며 stage-local train history와 공통 baseline cache를 사용한다.
-  기본 최종 비교는 모든 stage winner, 선택은 lexicographic keep=1·mean/sum이다.
-- 현재 변경 API는 텍스트 생성/교체다. 임의 pair matrix·삭제·바이너리 패치는 지원하지 않는다.
+- 당시에는 여러 Agent × 호환 Harness 전체 조합 및 여러 독립 Optimizer를 순차 실행하기로 했다. 모든 stage가
+  baseline에서 시작하고 stage-local train history와 공통 baseline cache를 사용하며,
+  기본 최종 비교는 모든 stage winner, 선택은 lexicographic keep=1·mean/sum으로 정했다.
+- 당시 변경 API는 텍스트 생성/교체로 한정했고, 임의 pair matrix·삭제·바이너리 패치는 보류했다.
 - 최소 데모는 두 합성 Agent·한 repair stage·7 trial이다. `baseline`/`file_variants`는 계약 예제이지 연구 알고리즘이 아니다.
 - ACE는 선택적 OpenCode **스킬 프로필** 데모다. 기본 3회 단순 LLM train 피드백 뒤 validation 선택을 한다.
   native ACE runner나 논문 재현과 동일하지 않으며 이 프로필을 모든 Agent의 확정 요구사항으로 승격하지 않는다.
