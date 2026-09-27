@@ -15,6 +15,7 @@ export default defineConfig({
       title: 'Agent Optimizer 가이드',
       description: 'Agent 최적화 실험을 시작하고 팀 컴포넌트를 연결하는 가이드',
       locales: { root: { label: '한국어', lang: 'ko' } },
+      customCss: ['./src/styles/mermaid.css'],
       sidebar: [
         { slug: 'index' },
         { label: '시작하기', items: [
