@@ -69,6 +69,7 @@ native `ace_agent_runner.py`/`ace_cvdp_native_runner.py`의 자체 역할·반�
 
 ## 검증 수준
 
+- **2026-09-28 후속 실환경 검사:** 고정 소스·driver·이미지를 준비한 Mac ARM64에서 호스트 모델 도구 호출과 Docker OpenCode 도구 호출, 공식 CVDP smoke 정답/오답이 통과했다. GEPA·Meta-Harness **각 1 iteration, 실제 4/최대 5 trial**에서 후보 파일 변경·실제 Harness 입력/실행·공식 raw 채점(각 test 1건 `result=0`)이 연결됐다. 두 validation은 baseline/후보가 1.0 동점이어서 baseline을 선택했고 최종 test는 없다. **성능 향상·기본 3회 반복·설치형 wheel의 해당 모델 연동** 검증은 아니다. [별도 실환경 근거](verification.md#2026-09-28-선택형-gepameta-harness-실모델공식-cvdp-후속-검증).
 - **2026-09-28 선택형 TUI 계약:** 최신 main 반영 후 `make test` 781건 중 766 통과·15 skip, Ruff·합성 데모·독립 wheel TUI·사이트 빌드 통과. `make doctor`는 이 워크트리의 ACE 자산/환경 lock 누락으로 exit 2였으므로 두 선택형 알고리즘의 **실모델/OpenCode·공식 CVDP 결과는 미검증**이다. [날짜별 근거](verification.md#2026-09-28-선택형-tuiace-후보-연결-계약-검증).
 - **2026-09-27 첫 실행 UX 검증:** Mac ARM64의 `make lint/test/demo`, 독립 wheel 사용자 CLI,
   Astro 사이트 빌드가 통과했다(최신 main 반영 후 734개 중 719 통과·15 skip, 합성 7 trial). 새 워크트리의

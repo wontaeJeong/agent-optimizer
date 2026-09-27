@@ -82,6 +82,13 @@ setup/offline/smoke·provider config 재검증은 통과했습니다. 첫 FROM �
 호스트 credential store를 마운트하거나 토큰을 이미지에 복사하지 않습니다.
 설정은 새 OpenCode 컨테이너 시작 시 적용됩니다. 별도로 실행 중인 OpenCode는 종료 후 다시 시작해야 합니다.
 `doctor --model`은 실제 모델 호출을 수행합니다. 일반 `doctor` 통과만으로 API 연결 성공을 주장하지 않습니다.
+GPT-5 계열 모델을 OpenAI Chat Completions와 고정 OpenCode 1.18.31로 연결할 때는 기본 URL에
+`/v1`이 필요합니다. 이 예제의 `endpoint-plugin.mjs`는 **OpenAI 호스트+GPT-5 요청에만**
+deprecated `max_tokens`를 `max_completion_tokens`로 바꾸고 함수 도구 요청의
+`reasoning_effort`를 현재 모델이 요구한 `none`으로 보냅니다. 다른 OpenAI-compatible 서버의
+본문은 바꾸지 않습니다. 실제 호스트·컨테이너 모델 검사는
+`AGENT_OPT_MODEL_BASE_URL=https://api.openai.com/v1 make doctor ARGS="--model"`로 별도 확인하며,
+고정 first-party commit을 복사한 wheel 작업공간에서는 이 예제 소스 수정이 자동 적용되지 않습니다.
 
 ## 평가
 

@@ -20,6 +20,28 @@ export default async () => ({
     const expected = options.baseURL + "/chat/completions";
     options.fetch = (url, init) => {
       if (String(url) !== expected) throw new Error("Unexpected model request path");
+      if (target.hostname === "api.openai.com" && /^gpt-5(?:[.-]|$)/.test(model) &&
+          typeof init?.body === "string") {
+        const payload = JSON.parse(init.body);
+        if (payload && typeof payload === "object") {
+          let changed = false;
+          if (Object.hasOwn(payload, "max_tokens")) {
+            if (!Object.hasOwn(payload, "max_completion_tokens")) {
+              payload.max_completion_tokens = payload.max_tokens;
+            }
+            delete payload.max_tokens;
+            changed = true;
+          }
+          if (Array.isArray(payload.tools) && payload.tools.length &&
+              payload.reasoning_effort !== "none") {
+            payload.reasoning_effort = "none";
+            changed = true;
+          }
+          if (changed) {
+            init = { ...init, body: JSON.stringify(payload) };
+          }
+        }
+      }
       return fetch(expected, { ...init, redirect: "error" });
     };
   },
