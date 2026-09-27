@@ -306,6 +306,34 @@ class ACEClaudeExampleTests(unittest.TestCase):
         registry.load_plugins(self.root, {"harnesses": claude["plugins"]["harnesses"]})
         self.assertTrue(issubclass(registry.resolve("harnesses", "ace_claude_code"), ClaudeCodeHarness))
 
+    def test_ace_claude_plan_requires_claude_binary(self):
+        plan = self.root / "examples/ace-rtl/experiment-claude.toml"
+        for available, expected in ((False, "error"), (True, "ok")):
+            with self.subTest(available=available), patch(
+                    "agent_optimizer.readiness.shutil.which",
+                    side_effect=lambda name: None if name == "claude" and not available else f"/usr/bin/{name}"):
+                report = collect_plan(plan, Registry())
+            checks = {row["id"]: row for row in report["checks"]}
+            self.assertEqual(checks["plan.schema"]["status"], "ok")
+            self.assertEqual(checks["runtime.binary"]["status"], expected)
+            if not available:
+                self.assertFalse(report["ready"])
+
+    def test_ace_claude_plan_rejects_docker_even_with_binaries(self):
+        profile = self.root / "examples/ace-rtl/harness-claude.toml"
+        profile.write_text(profile.read_text(encoding="utf-8").replace(
+            'kind = "local"', 'kind = "docker"\nimage = "test-image"'), encoding="utf-8")
+        plan = self.root / "examples/ace-rtl/experiment-claude.toml"
+        with patch("agent_optimizer.readiness.shutil.which", side_effect=lambda name: f"/usr/bin/{name}"):
+            report = collect_plan(plan, Registry())
+        checks = {row["id"]: row for row in report["checks"]}
+        self.assertEqual(checks["plan.schema"]["status"], "ok")
+        self.assertEqual(checks["runtime.binary"]["status"], "ok")
+        self.assertIn("harness.runtime", checks)
+        self.assertEqual(checks["harness.runtime"]["status"], "error")
+        self.assertIn("local", checks["harness.runtime"]["remedy"])
+        self.assertFalse(report["ready"])
+
     def test_claude_adapter_prepends_candidate_guidance_without_mutating_request(self):
         adapter = module("ace_claude_adapter_guidance", ROOT / "examples/ace-rtl/adapter.py")
         agent = self.root / "candidate"
