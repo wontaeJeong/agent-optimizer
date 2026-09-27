@@ -31,20 +31,23 @@ Mac ARM64 / Python 3.12.12 / Docker daemon `linux/arm64`. 아래 run ID는 UTC
 `cvdp_evaluation/work/raw_result.json`을 대조했다. trial ID의 마지막 번호가 아래
 `0000`~`0010`이다. **11/11 trial 모두** 공개 RTL 산출물이 비어 있지 않고
 공식 raw의 tests가 각각 1개·integer `result`·`error_msg=null`이었다. `0`은
-공식 통과, `1`은 공식 기능 오답이다(환경 실패·미채점 0점 아님).
+공식 통과, `1`은 공식 실패다. `0001`·`0003`·`0009`의 `1`은 공개 RTL의
+첫 줄에 모델 응답의 Markdown 코드 펜스가 남아 Icarus/iverilog가 구문 오류로
+컴파일에 실패한 결과다(`cvdp_evaluation/work/.../rundir/sim.log:1-3`).
+기능 불일치·환경 실패·미채점 0점으로 해석하지 않는다.
 
 | 순번 / stage · 후보 | split · 공개 과제 | 공식 raw `result` / `passed` | 실행 Agent SHA |
 |---|---|---|---|
 | `0000` baseline `c0001` | validation · bcd_counter | `0` / `1` | A |
-| `0001` gepa `c0001` | train · 16qam_mapper | `1` / `0` | A |
+| `0001` gepa `c0001` | train · 16qam_mapper | `1` / `0` (코드 펜스 컴파일 실패) | A |
 | `0002` gepa `c0001` | train · 64b66b_encoder | `0` / `1` | A |
-| `0003` gepa `c0002` | train · 16qam_mapper | `1` / `0` | A |
+| `0003` gepa `c0002` | train · 16qam_mapper | `1` / `0` (코드 펜스 컴파일 실패) | A |
 | `0004` gepa `c0002` | train · 64b66b_encoder | `0` / `1` | A |
 | `0005` gepa `c0002` | validation · bcd_counter | `0` / `1` | A |
 | `0006` meta `c0003` | train · 16qam_mapper | `0` / `1` | B |
 | `0007` meta `c0003` | train · 64b66b_encoder | `0` / `1` | B |
 | `0008` meta `c0003` | validation · bcd_counter | `0` / `1` | B |
-| `0009` ecdysis `c0004` | train · 16qam_mapper | `1` / `0` | C |
+| `0009` ecdysis `c0004` | train · 16qam_mapper | `1` / `0` (코드 펜스 컴파일 실패) | C |
 | `0010` ecdysis `c0004` | train · 64b66b_encoder | `0` / `1` | C |
 
 실제 trial의 `agent_workspace/agent/src/agent.py` SHA는 매번 해당 후보
@@ -62,7 +65,7 @@ C = Ecdysis 실행 코드 `e9ece2cb561cfc99f7077554e413d236f7ea32112c133e6e3c08a
 `c0002` validation 1.0이 baseline 1.0과 동점이라 `accepted=false`.
 Meta의 실행 Python 변경 `c0003`은 train 2/2·validation 1/1 공식 통과했지만
 validation 점수는 같은 1.0이므로 `accepted=false`. Ecdysis는 baseline의
-공식 QAM16 train 오답을 한 실패 그룹으로 묶고 analyst·moderator 검토 후
+공식 QAM16 train 컴파일 실패를 한 실패 그룹으로 묶고 analyst·moderator 검토 후
 `c0004`를 제안·실행했다. `c0004` train 1/2는 baseline 1/2에서 **엄격 개선이
 없어 거절**, 후보 validation은 실행하지 않았다. 세 stage 모두 `completed`이고
 각 stage의 선택은 baseline `c0001`. `frozen_selection.json`과 전체 요약도
@@ -77,7 +80,9 @@ Optimizer 모델 사용량은 GEPA 1회 input/output `305/194`, Meta 1회
 `agent_tokens`·`agent_cost_usd`도 `null`이고 Command Harness의 부분
 사용량도 미보고다. 모델 요청 횟수와 11개 공식 평가 trial은 서로 다른
 단위다. 이 한정 실행에서 처음의 60초 제한 QAM16 미평가는 재현되지 않았지만
-이는 동일 과제·모델의 일반 성능 향상이나 native ACE, Verilog-Eval/Ubuntu
+세 실패 출력에는 코드 펜스가 남아 있었고, 기본 Agent의 출력 정제 개선은
+수행·검증하지 않았다. Agent 출력 처리와 공식 평가 기준은 이번 사실 정정에서
+변경하지 않았다. 이 한정 실행은 동일 과제·모델의 일반 성능 향상이나 native ACE, Verilog-Eval/Ubuntu
 x86_64, 전체 사용량 검증이 아니다.
 
 ## 2026-09-27 연구 Optimizer 선택 CVDP 한정 실모델 실행 중단
