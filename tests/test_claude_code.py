@@ -340,14 +340,75 @@ class ACEClaudeExampleTests(unittest.TestCase):
         guidance = agent / "skills/ace-rtl/references/role-guidance.md"
         guidance.parent.mkdir(parents=True)
         guidance.write_text("candidate-guidance", encoding="utf-8")
-        request = RunRequest(self.root, agent, self.root / "task", "public task", 0, 30,
+        target = self.root / "task/rtl/qam16.v"
+        target.parent.mkdir(parents=True)
+        target.write_text("", encoding="utf-8")
+        prompt = "public task\nWrite target files: rtl/qam16.v"
+        request = RunRequest(self.root, agent, self.root / "task", prompt, 0, 30,
                              {"runtime": {"kind": "local"}}, self.root / "logs")
         with patch.object(ClaudeCodeHarness, "run", return_value="executed") as execute:
             self.assertEqual(adapter.ACEClaudeCode().run(request), "executed")
         submitted = execute.call_args.args[0]
         self.assertIn("candidate-guidance", submitted.prompt)
-        self.assertTrue(submitted.prompt.endswith("public task"))
-        self.assertEqual(request.prompt, "public task")
+        self.assertIn(prompt, submitted.prompt)
+        self.assertEqual(request.prompt, prompt)
+
+    def test_claude_guidance_uses_all_declared_public_targets_not_context_or_private_assets(self):
+        adapter = module("ace_claude_adapter_targets", ROOT / "examples/ace-rtl/adapter.py")
+        task = self.root / "task/rtl"
+        (task / "core").mkdir(parents=True)
+        (task / "qam16.v").write_text("", encoding="utf-8")
+        (task / "core/mapper.sv").write_text("", encoding="utf-8")
+        (task / "context.v").write_text("public context", encoding="utf-8")
+        private = self.root / "evaluation_workspace/rtl/qam16.v"
+        private.parent.mkdir(parents=True)
+        private.write_text("PRIVATE_REFERENCE", encoding="utf-8")
+        prompt = ("Implement the QAM16 mapper.\nWrite target files: rtl/qam16.v, rtl/core/mapper.sv\n"
+                  "Task files are in ./task. Modify only task outputs.")
+        request = RunRequest(self.root, self.root / "agent", self.root / "task", prompt, 0, 30,
+                             {"runtime": {"kind": "local"}}, self.root / "logs")
+        with patch.object(ClaudeCodeHarness, "run", return_value="executed") as execute:
+            self.assertEqual(adapter.ACEClaudeCode().run(request), "executed")
+        submitted = execute.call_args.args[0].prompt
+        self.assertIn("./task/rtl/qam16.v", submitted)
+        self.assertIn("./task/rtl/core/mapper.sv", submitted)
+        self.assertIn("Write/Edit", submitted)
+        self.assertIn("Implement the QAM16 mapper.", submitted)
+        self.assertIn("already", submitted)
+        self.assertNotIn("./task/rtl/context.v", submitted)
+        self.assertNotIn("PRIVATE_REFERENCE", submitted)
+        self.assertEqual(request.prompt, prompt)
+        self.assertEqual((task / "qam16.v").read_text(encoding="utf-8"), "")
+        self.assertEqual((task / "core/mapper.sv").read_text(encoding="utf-8"), "")
+
+    def test_claude_guidance_refuses_undeclared_or_missing_public_targets(self):
+        adapter = module("ace_claude_adapter_missing_target", ROOT / "examples/ace-rtl/adapter.py")
+        task = self.root / "task/rtl"
+        task.mkdir(parents=True)
+        (task / "context.v").write_text("public context", encoding="utf-8")
+        for prompt in ("Implement QAM16 without a target declaration",
+                       "Write target files: rtl/absent.v",
+                       "Write target files: ../evaluation_workspace/rtl/private.v"):
+            with self.subTest(prompt=prompt), patch.object(ClaudeCodeHarness, "run") as execute:
+                request = RunRequest(self.root, self.root / "agent", self.root / "task", prompt, 0, 30,
+                                     {"runtime": {"kind": "local"}}, self.root / "logs")
+                with self.assertRaises(ConfigurationError):
+                    adapter.ACEClaudeCode().run(request)
+                execute.assert_not_called()
+
+    def test_ace_opencode_guidance_remains_identical_for_same_public_task(self):
+        adapter = module("ace_claude_adapter_opencode_parity", ROOT / "examples/ace-rtl/adapter.py")
+        task = self.root / "task/rtl"
+        task.mkdir(parents=True)
+        (task / "qam16.v").write_text("", encoding="utf-8")
+        request = RunRequest(self.root, self.root / "agent", self.root / "task",
+                             "Implement QAM16\nWrite target files: rtl/qam16.v", 0, 30,
+                             {"runtime": {"kind": "local"}}, self.root / "logs")
+        original_guidance = adapter.with_ace_guidance(request).prompt
+        with patch.object(adapter.OpenCodeHarness, "run", return_value="executed") as execute:
+            self.assertEqual(adapter.ACEOpenCode().run(request), "executed")
+        self.assertEqual(execute.call_args.args[0].prompt, original_guidance)
+        self.assertEqual(request.prompt, "Implement QAM16\nWrite target files: rtl/qam16.v")
 
     def test_claude_launcher_rejects_unapproved_source_and_uses_selected_lifecycle(self):
         adapter = module("ace_claude_adapter_launcher", ROOT / "examples/ace-rtl/adapter.py")

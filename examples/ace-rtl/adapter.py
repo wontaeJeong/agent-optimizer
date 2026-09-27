@@ -2,6 +2,7 @@
 from dataclasses import replace
 import importlib.util
 from pathlib import Path
+import re
 from agent_optimizer.contracts import ConfigurationError
 from agent_optimizer.harnesses.claude_code import ClaudeCodeHarness
 from agent_optimizer.harnesses.opencode import OpenCodeHarness
@@ -60,4 +61,21 @@ class ACEClaudeCode(ClaudeCodeHarness):
         return lifecycle.run(root, experiment_file="experiment-claude.toml")
 
     def run(self, request):
-        return super().run(with_ace_guidance(request))
+        # The importer declares public targets in the task prompt; verify each against
+        # the materialized public task, never the private evaluation metadata.
+        declarations = re.findall(r"^Write target files: (.+)$", request.prompt, re.M)
+        if len(declarations) != 1 or request.task_dir != request.workspace / "task":
+            raise ConfigurationError("ACE Claude 공개 과제의 출력 대상 경로를 확인할 수 없습니다")
+        targets = [target.strip() for target in declarations[0].split(",")]
+        for target in targets:
+            if (not re.fullmatch(r"rtl/[A-Za-z0-9_./-]+\.(?:sv|v)", target)
+                    or any(part in {"", ".", ".."} for part in target.split("/"))
+                    or not safe_path(request.task_dir, target).is_file()):
+                raise ConfigurationError("ACE Claude 공개 과제의 출력 대상 파일을 확인할 수 없습니다")
+        guided = with_ace_guidance(request)
+        targets_in_workspace = "\n".join(f"- ./task/{target}" for target in targets)
+        return super().run(replace(guided, prompt=guided.prompt + "\n\n"
+            "The task description is already in this prompt; prioritize it over exploring upstream source. "
+            "Do not search for task.json or prompt.txt or run upstream benchmark runners. "
+            "Use Write/Edit on these existing public target files, relative to the workspace root:\n"
+            + targets_in_workspace + "\n"))
