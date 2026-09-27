@@ -1,0 +1,10 @@
+schema_version = 2
+id = "model-rtl-agent"
+description = "실행형 단일 공개 RTL 생성 Agent 예제"
+supported_harnesses = ["model_rtl_command"]
+editable = ["prompts/system.md", "src/agent.py"]
+prompt_file = "prompts/system.md"
+
+[source]
+kind = "local"
+path = "agent"

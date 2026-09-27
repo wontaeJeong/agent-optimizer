@@ -23,6 +23,164 @@ Mac ARM64, Docker daemon `linux/arm64`, Python 3.12.12, OpenCode 1.18.31. `feat/
 - `make doctor`는 Docker CLI/daemon/Compose 준비를 확인했지만 현재 워크트리의 ACE `environment.lock`, 고정 소스·데이터·driver·평가/Agent 이미지가 없어 exit 2였다. OpenCode의 `AGENT_OPT_MODEL` 선택자도 설정되어 있지 않았다. **이번 선택형 GEPA·Meta에 대한 Docker/OpenCode 실제 후보 실행 및 공식 CVDP 평가는 미검증**이다. 모델 API 자격증명 존재 확인은 연결 성공/성능 향상 근거가 아니다.
 - 코드 리뷰 후 `tests/test_preset_tui.py`는 설치형 연동 marker/pointer 검증 **전** tampered lifecycle import 금지, TUI 1번 재실행의 선택형 경로 재사용, OpenRouter/compatible별 `OPENCODE_CONFIG`와 Agent 이미지 lock 전달, 선택형 설정의 소스·평가기·예산·목표·scaffold seed 불일치를 차단한다. `tests/test_research.py`는 실패한 선행 scaffold를 `scaffold_used` 성공 근거로 남기지 않는 것도 확인한다. 이 항목들은 계약/모의 실행이며 실제 컨테이너나 모델 연결 검증은 아니다.
 
+## 2026-09-28 연구 Optimizer 선택 CVDP 두 번째 독립 실모델 실행
+
+Mac ARM64 / Python 3.12.12 / Docker daemon `linux/arm64`. 아래 run ID는 UTC
+2026-09-27이다. 첫 [9/16 trial 중단](#2026-09-27-연구-optimizer-선택-cvdp-한정-실모델-실행-중단)의
+파일·당시 판단을 소급 수정하지 않고, Agent 요청만 120초로 바꾼 HEAD `6c47f18`에서
+**새 실험 한 번**을 별도 승인받아 실행했다. Agent는 DeepSeek OpenAI 호환
+`https://api.deepseek.com` / `deepseek-flash`, Optimizer는 OpenAI
+`https://api.openai.com/v1` / `gpt-5.4`다. 승인된 로컬 키는 출력하지 않고
+실행 래퍼 메모리에서 자식 환경에만 분리 전달했다. 기존
+`AGENT_OPT_MODEL_ENDPOINT`는 자식에서 제거했으며 추가 유료 진단·자동 재시도·
+다른 dataset/provider 전환은 없었다.
+
+이 예제의 `runtime.kind="local"`은 신뢰한 로컬 Python 후보 코드에 한해 실행했다.
+후보는 호스트의 동일 사용자 권한으로 실행된다. 공개 Agent workspace와 private 평가
+파일의 분리는 논리적 경계이지 OS 격리가 아니며, 후보가 동일 사용자로 접근 가능한
+private 자산·Optimizer API 키를 읽을 수 있다. 아래 raw와 점수는 이 제한 아래의
+실행 사실이다.
+
+| 실제 명령·고정 범위 | exit / 관측 결과 |
+|---|---|
+| `git status --short --branch`; `git rev-parse HEAD`; `git worktree list`; `make doctor-core`; `.venv/bin/agent-opt doctor --dataset cvdp --json`; `make doctor`; `.venv/bin/agent-opt doctor --plan runs/configs/model-rtl-research/experiment.toml --json` | 모두 0. 작업 branch clean, core/선택 CVDP/전체 ACE 자산 진단과 정적 plan `ready=true`; `make doctor`의 live ready는 설정 존재만 뜻하며 실제 인증/추론 성공은 아니다. **이번에는 `make smoke`를 재실행하지 않았다**. 첫 실행의 별도 공식 LFSR 정답·오답 smoke는 이전 기록으로 유지한다. |
+| 기존 생성 설정·선택 공개 tasks·평가 전용 lock·예제 Agent AST를 모델 없이 대조 | CVDP source `8e894cf74414ab1eaea1e2b4e80a02f123df07b6`, HF revision `5b807d945f6a99aa645f7e43a64a2115e281b4bf`, 데이터 SHA-256 `cbcd81295561ebb16e4d857e096f4d9908d042c33aff3b58abf236e868411857`, provider tasks SHA-256 `96fe8a882db84e9fe88328c4eba0f08a6a74ba5f09355c07ff3c68050d372385`. 단일 target·독립 family: train `cvdp_copilot_16qam_mapper_0006`(`rtl/16qam_demapper.sv`), `cvdp_copilot_64b66b_encoder_0001`(`rtl/encoder_64b66b.sv`); validation `cvdp_copilot_bcd_counter_0001`(`rtl/bcd_counter.sv`). 평가 이미지 `agent-optimizer-cvdp-eval:8e894cf-arm64` / `sha256:ee167c7cd486111a2a807a703ae6bbb30debf2d26f5bb9d0d760ec07c96a58ec`. Agent 요청 120초, Optimizer GEPA/Meta/Ecdysis 각 60초, trial 180초·전체 최대 16 trial, `final_test=false`. |
+| 자격증명 출력 없는 자식 환경 래퍼에서 `.venv/bin/agent-opt run runs/configs/model-rtl-research/experiment.toml` **한 번** | **exit 0**, `runs/20260927T165230Z-67533d5b/summary.json`: `synthetic=false`, `status=completed`, **11/16 trial**, 실측 587.11초. 보고서·이벤트 `consistent`. 모델·공식 채점 성공은 아래 trial별 raw 확인 범위다. |
+
+새 run의 각 `model-rtl-research/model-rtl-command/trials/<trial-id>/result.json`,
+`harness_logs/stdout.log`, `agent_workspace/task/<공개 target>`,
+`cvdp_evaluation/work/raw_result.json`을 대조했다. trial ID의 마지막 번호가 아래
+`0000`~`0010`이다. **11/11 trial 모두** 공개 RTL 산출물이 비어 있지 않고
+공식 raw의 tests가 각각 1개·integer `result`·`error_msg=null`이었다. `0`은
+공식 통과, `1`은 공식 실패다. `0001`·`0003`·`0009`의 `1`은 공개 RTL의
+첫 줄에 모델 응답의 Markdown 코드 펜스가 남아 Icarus/iverilog가 구문 오류로
+컴파일에 실패한 결과다(`cvdp_evaluation/work/.../rundir/sim.log:1-3`).
+기능 불일치·환경 실패·미채점 0점으로 해석하지 않는다.
+
+| 순번 / stage · 후보 | split · 공개 과제 | 공식 raw `result` / `passed` | 실행 Agent SHA |
+|---|---|---|---|
+| `0000` baseline `c0001` | validation · bcd_counter | `0` / `1` | A |
+| `0001` gepa `c0001` | train · 16qam_mapper | `1` / `0` (코드 펜스 컴파일 실패) | A |
+| `0002` gepa `c0001` | train · 64b66b_encoder | `0` / `1` | A |
+| `0003` gepa `c0002` | train · 16qam_mapper | `1` / `0` (코드 펜스 컴파일 실패) | A |
+| `0004` gepa `c0002` | train · 64b66b_encoder | `0` / `1` | A |
+| `0005` gepa `c0002` | validation · bcd_counter | `0` / `1` | A |
+| `0006` meta `c0003` | train · 16qam_mapper | `0` / `1` | B |
+| `0007` meta `c0003` | train · 64b66b_encoder | `0` / `1` | B |
+| `0008` meta `c0003` | validation · bcd_counter | `0` / `1` | B |
+| `0009` ecdysis `c0004` | train · 16qam_mapper | `1` / `0` (코드 펜스 컴파일 실패) | C |
+| `0010` ecdysis `c0004` | train · 64b66b_encoder | `0` / `1` | C |
+
+실제 trial의 `agent_workspace/agent/src/agent.py` SHA는 매번 해당 후보
+`candidates/<id>/bundle/src/agent.py`와 일치했다. A = baseline 및 GEPA
+`e711213efc295872601294953c9428b81a2767e9c040e353a2ca719ba73e5419`,
+B = Meta 실행 코드 `b80ed9cd82b72e068037574e6266eb2f61e774e4bcd0fe52dca4c2be6938fc11`,
+C = Ecdysis 실행 코드 `e9ece2cb561cfc99f7077554e413d236f7ea32112c133e6e3c08a15be70b2c2c`.
+각 stdout의 모델은 `deepseek-flash`; 원본 A는 첫 실행 때의 60초 코드와 달리
+120초 코드다. `candidates/c0002/changes.diff`는 prompt만, `c0003`/`c0004`는
+각각 실제 호출된 `src/agent.py`만 수정했고 모두 baseline `c0001`에서 분기했다.
+수정 후보는 공식 evaluator/과제 입력/원본 Agent를 바꾸지 않았다.
+
+`events.jsonl`·`stages/*.json`의 결과: GEPA는 baseline train
+`solve_rate=0.5`에서 train 두 과제 minibatch를 근거로 prompt를 제안했지만
+`c0002` validation 1.0이 baseline 1.0과 동점이라 `accepted=false`.
+Meta의 실행 Python 변경 `c0003`은 train 2/2·validation 1/1 공식 통과했지만
+validation 점수는 같은 1.0이므로 `accepted=false`. Ecdysis는 baseline의
+공식 QAM16 train 컴파일 실패를 한 실패 그룹으로 묶고 analyst·moderator 검토 후
+`c0004`를 제안·실행했다. `c0004` train 1/2는 baseline 1/2에서 **엄격 개선이
+없어 거절**, 후보 validation은 실행하지 않았다. 세 stage 모두 `completed`이고
+각 stage의 선택은 baseline `c0001`. `frozen_selection.json`과 전체 요약도
+`c0001` validation `solve_rate=1.0`을 고정했으며 `final_test=[]`다.
+Meta의 train 2/2는 이번 단일 실행의 결과이며 전체 최종 선택·성능 향상으로
+표현하지 않는다. GEPA/Meta의 validation 수치 사용과 Ecdysis의 train-only
+수용을 구분하며 test/private 근거는 Optimizer 수정에 전달하지 않았다.
+
+Optimizer 모델 사용량은 GEPA 1회 input/output `305/194`, Meta 1회
+`987/1163`, Ecdysis analyst·moderator·editor 각 1회 `133/52`, `178/79`,
+`943/843` tokens. 모든 비용은 `null`. Agent의 11개 trial 전체
+`agent_tokens`·`agent_cost_usd`도 `null`이고 Command Harness의 부분
+사용량도 미보고다. 모델 요청 횟수와 11개 공식 평가 trial은 서로 다른
+단위다. 이 한정 실행에서 처음의 60초 제한 QAM16 미평가는 재현되지 않았지만
+세 실패 출력에는 코드 펜스가 남아 있었고, 기본 Agent의 출력 정제 개선은
+수행·검증하지 않았다. Agent 출력 처리와 공식 평가 기준은 이번 사실 정정에서
+변경하지 않았다. 이 한정 실행은 동일 과제·모델의 일반 성능 향상이나 native ACE, Verilog-Eval/Ubuntu
+x86_64, 전체 사용량 검증이 아니다.
+
+## 2026-09-27 연구 Optimizer 선택 CVDP 한정 실모델 실행 중단
+
+Mac ARM64 / Python 3.12.12 / Docker daemon `linux/arm64`에서 **한 번** 실행했다.
+실행 전 HEAD `d751a26`, DeepSeek OpenAI 호환 Agent `deepseek-flash`
+(`https://api.deepseek.com`), Optimizer OpenAI `gpt-5.4`
+(`https://api.openai.com/v1`). 승인된 기본 checkout의 Git 제외 로컬 `.env`는
+실행 래퍼 메모리에서만 읽고 DeepSeek 키→`DEMO_AGENT_MODEL_API_KEY`, `OPENAI_API_KEY`
+→`AGENT_OPT_MODEL_API_KEY`, `OPENAI_MODEL`→`AGENT_OPT_MODEL_ID`로 **자식 환경에만**
+매핑했다. 기존 `AGENT_OPT_MODEL_ENDPOINT`는 자식에서 제거했으며 키 값·원문을
+기록하지 않았다. 추가 유료 모델 진단·실패 뒤 재시도·provider 교체는 없었다.
+
+이 첫 실행도 신뢰한 로컬 Python 후보 코드에 한해 수행했다. 후보는 호스트의 동일
+사용자 권한으로 실행되므로 공개 workspace/private 평가 파일의 논리적 분리는 OS
+격리가 아니며, 동일 사용자로 접근 가능한 private 자산·Optimizer API 키를 읽을
+수 있다. 이 경계는 아래 실제 점수·상태 주장의 전제다.
+
+| 실제 명령 / 구별할 범위 | exit와 관측 결과 |
+|---|---|
+| `make doctor-core`; `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_research_cvdp_example.py -v`; 같은 명령 `-p test_model_rtl_agent.py` | 모두 0. 코어 ready, API-free 계약 각각 15/15·8/8. |
+| `.venv/bin/agent-opt datasets prepare cvdp`; `.venv/bin/agent-opt doctor --dataset cvdp --json` | 모두 0, 선택 provider 10개 체크 `ok`. 고정 CVDP `8e894cf74414ab1eaea1e2b4e80a02f123df07b6`, HF `5b807d945f6a99aa645f7e43a64a2115e281b4bf`, 데이터 SHA-256 `cbcd81295561ebb16e4d857e096f4d9908d042c33aff3b58abf236e868411857`; 평가 전용 lock `external/datasets/cvdp/evaluation-lock.json`, 이미지 tag `agent-optimizer-cvdp-eval:8e894cf-arm64`, ID `sha256:ee167c7cd486111a2a807a703ae6bbb30debf2d26f5bb9d0d760ec07c96a58ec`. simulator 버전 검사 통과, Docker layer cache 사용. |
+| `make setup`; `make smoke` | 모두 0. **별도 전체 ACE lock** `external/environment-lock.json`의 ACE `fead921f18bb57345b5a41ef93ba625be208e99c`·동일 CVDP/HF pin, 평가 tag `agent-optimizer-cvdp:8e894cf-arm64`(같은 이미지 ID), 별도 OpenCode Agent 이미지. `make setup`의 합성 최소 데모 7 trial `completed`; `runs/dev-smoke-c8b037be8170/summary.json` `passed`, 실제 도구·toy·공식 LFSR `cvdp_copilot_lfsr_0001` 정답/오답 raw 각 1 test에서 integer `result=0` / `result=1`, 모두 `error_msg=null`. 이 fixture는 연구 실험 trial에 포함되지 않는다. |
+| `.venv/bin/python examples/model-rtl-agent/prepare.py --dataset cvdp`; `.venv/bin/agent-opt doctor --plan runs/configs/model-rtl-research/experiment.toml --json` | 모두 0. 두 train `cvdp_copilot_16qam_mapper_0006`(`rtl/16qam_demapper.sv`), `cvdp_copilot_64b66b_encoder_0001`(`rtl/encoder_64b66b.sv`); 별도 validation `cvdp_copilot_bcd_counter_0001`(`rtl/bcd_counter.sv`), 각각 한 RTL target·서로 다른 family. `max_trials=16`, 독립 baseline 입력 GEPA 5 / Meta 4 / Ecdysis 4, `final_test=false`; 정적 plan `ready=true`는 Agent 인증·모델/API·공식 과제 점수가 아니다. |
+| 키를 출력하지 않는 자식 환경 래퍼의 `.venv/bin/agent-opt run runs/configs/model-rtl-research/experiment.toml` **1회** | **exit 2**. `runs/20260927T161048Z-0acbf977/summary.json`: `synthetic=false`, `status=error`, 실제 **9/16 trial**, `run_wall_time_seconds=277.59`, `error_type=UnavailableError`. 공유 baseline의 QAM16 train이 모델 요청 60초 제한에 걸려 집계 `solve_rate=null`; Ecdysis는 `valid finite train solve_rate`를 요구해 진입 직후 중단했다. 최종 선택 `[]`, `frozen_selection.json` 없음, test 0건. |
+
+다음 표의 각 행은 `runs/20260927T161048Z-0acbf977/model-rtl-research/model-rtl-command/trials/<trial-id>/result.json`과
+같은 폴더의 `harness_logs/stdout.log`, 존재할 때만
+`cvdp_evaluation/work/raw_result.json`을 대조한 것이다. `0000`~`0008`은
+trial ID의 마지막 순번이다. 공식 raw는 **6/9건**, 모두 비어 있지 않은
+1 test·integer result·`error_msg=null`; `—`는 공식 평가가 실행되지 않은 상태다.
+
+| 순번 / 후보 | split · 과제 | 실행·공식 raw result / `passed` | Agent 실행 코드 SHA-256 |
+|---|---|---|---|
+| `0000` `c0001` | validation · bcd_counter | DeepSeek 완료, `1` / `0` (`valid=true`) | `4be7a648…0657ef2` |
+| `0001` `c0001` | train · 16qam_mapper | 60초 요청 종료 `infrastructure_error`, — / `null` (`valid=false`) | `4be7a648…0657ef2` |
+| `0002` `c0001` | train · 64b66b_encoder | DeepSeek 완료, `0` / `1` | `4be7a648…0657ef2` |
+| `0003` `c0002` | train · 16qam_mapper | 60초 요청 종료 `infrastructure_error`, — / `null` (`valid=false`) | `4be7a648…0657ef2` |
+| `0004` `c0002` | train · 64b66b_encoder | DeepSeek 완료, `0` / `1` | `4be7a648…0657ef2` |
+| `0005` `c0002` | validation · bcd_counter | DeepSeek 완료, `0` / `1` | `4be7a648…0657ef2` |
+| `0006` `c0003` | train · 16qam_mapper | 모델 요청 60초 뒤 후보 자체 fallback으로 빈 target 유지, 출력 누락, — / `0` (`valid=true`, **공식 raw 아님**) | `79b6f6c0…5108e` |
+| `0007` `c0003` | train · 64b66b_encoder | DeepSeek 완료, `0` / `1` | `79b6f6c0…5108e` |
+| `0008` `c0003` | validation · bcd_counter | DeepSeek 완료, `0` / `1` | `79b6f6c0…5108e` |
+
+모든 trial의 `agent_workspace/agent/src/agent.py` 해시를 해당 후보
+`candidates/<id>/bundle/src/agent.py`와 대조했다(일치). 완전한 SHA는 baseline/
+GEPA `4be7a648d73446a6fd50cc5c4fb29a379bca3c58cc9d762944007bfe70657ef2`,
+Meta `79b6f6c0cab2161eee01f2ee6182731501b626b11760611404845c9e4915108e`.
+`c0002`는 `prompts/system.md`만 변경, `c0003`는 `src/agent.py`만 변경했고
+각 `changes.diff`/`candidate.json`에서 부모가 모두 `c0001`임을 확인했다.
+Meta 후보의 빈 입력 복사 fallback은 성공적인 모델 생성이 아니며 `0006`의
+`model=fallback_checked_in_target`·출력 누락/공식 raw 부재로 확인된다.
+
+`events.jsonl`과 stage checkpoint에서 GEPA는 baseline train의 유효하지 않은
+QAM16을 **0점으로 치환하지 않고**, train minibatch·반성 제안 1회 후
+validation 수치 1.0으로 `c0002`를 stage 내부 선택했다(기준 validation 0.0).
+Meta는 **자기 stage의 train**(QAM16 출력 누락 0, encoder 공식 1)과 baseline을
+기초로 코드 제안 1회 후 validation 1.0으로 `c0003`를 stage 내부 선택했다.
+Ecdysis는 다른 stage 후보 이력 대신 공유 baseline train을 검사하다 무효 집계로
+종료하여 검토·제안·train 수용·validation 선택이 없었다. 두 stage winner도
+전체 run의 선택 고정/개선 결과로 해석하지 않는다. Optimizer usage는 GEPA
+input/output **296/135**, Meta **980/998** tokens, 비용 `null`; Ecdysis는
+모델 제안 전 종료했다. Agent의 전체 `agent_tokens`·`agent_cost_usd`는 모든
+trial에서 `null`이고 Command Harness의 부분 사용량도 보고되지 않았다.
+
+원인 추적: `agent.py`는 Agent 모델 요청을 `timeout=60`으로 보내고, 실패를
+`model_unavailable`/exit 2로 표시한다. `adapter.py`는 이를 환경 실패/null로
+분류한다. 다만 이 marker는 수정 가능한 후보의 **자기보고 오류 유형**이므로
+`infrastructure_error`만으로 신뢰된 인프라의 인증 장애가 증명되지는 않는다.
+이 run의 60초 종료는 당시 실행 산출물에서 관측한 사실이며, 후보가 marker를
+위조하더라도 무효/`passed=null`로 남아 좋은 점수·공식 raw/모델 성공 기록이
+생기지는 않는다. Ecdysis의 `_train_score()`는 무효 train 집계를 거부하는 기존 계약이며
+이번 차단을 성공/합성 점수로 대체하지 않는다. 새로운 코어 코드 오류는 확인되지
+않아 회귀 코드 수정·RED/GREEN 단계는 해당 없음; 위 API-free 계약은 GREEN이다.
+추가 유료 실행 없이 기록을 보존했다. native ACE, Verilog-Eval/Ubuntu x86_64,
+세 연구 stage의 전체 완료와 성능 일반화·실제 Agent 전체 사용량은 미검증이다.
+
 ## 2026-09-27 공개 RTL target 안내 후 네 번째 독립 실실행
 
 Mac ARM64 / Docker daemon `linux/arm64`, Python 3.12.12, Claude Code 2.1.261.
