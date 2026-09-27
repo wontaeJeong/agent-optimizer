@@ -22,6 +22,22 @@ Mac ARM64 / Python 3.12 / Docker daemon `linux/arm64`, `fix/model-config-app-ux`
 `make doctor ARGS="--json"` → `sh scripts/bootstrap.sh setup --offline`을 **순서대로** 재실행해
 각각 준비됨·오프라인 통과를 확인했다. 두 작업공간의 동시 이미지 태그 격리는 이번 변경에서
 검증하거나 구현하지 않았다.
+## 2026-09-27 Claude Code 암묵적 MCP 설정 차단 계약 (실모델 미검증)
+
+앞선 [추가 4/4 trial](#2026-09-27-claude-code-추가-4-trial-공식-cvdp-부분-성공)은
+`--tools Read,Write,Edit`를 사용했지만 `--strict-mcp-config`는 **없었다**. baseline
+validation의 실제 trace에는 등록된 codegraph/Playwright MCP 도구 시도와 권한 거부가
+있었으며 `error_max_turns`·공식 raw 결과 없음은 당시 결과 그대로 보존한다.
+
+Claude Code **2.1.261**의 `claude --help`와 [공식 CLI reference](https://code.claude.com/docs/en/cli-reference)는
+`--strict-mcp-config`를 **`--mcp-config`에 지정한 서버만 사용하고 다른 MCP 설정을 무시**하는
+옵션으로 명시한다. 범용 `claude_code` 하네스의 argv에 이 flag만 추가했고 명시적
+`--mcp-config`는 추가하지 않았다. `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_claude_code.py -q`는
+변경 전 **25건 중 2 실패(RED: flag 누락)**,
+변경 후 **25/25 통과(GREEN, exit 0)**. `make lint`도 exit 0이다.
+CLI argv 계약만 확인했으며 flag 이후 **유료 실모델 실행·MCP 부재·baseline validation 채점은
+검증하지 않았다**. 승인된 추가 예산 4/4를 이미 사용했으므로 재실행하지 않았다.
+
 ## 2026-09-27 Claude Code 추가 4 trial: 공식 CVDP 부분 성공
 
 Mac ARM64 / Docker daemon `linux/arm64`, Python 3.12.12, Claude Code 2.1.261.
