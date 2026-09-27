@@ -47,8 +47,7 @@ make doctor-core
 
 터미널의 1번에서 `runs/configs/`의 최근 생성 설정을 번호로 고르거나 직접 `experiment.toml`
 경로를 입력하면 정적 계획 진단과 확인 뒤 실행합니다. 4번은 과거 실행의 보고서 경로만 보여줍니다.
-새 실험을
-선택하면 Agent·editable 범위·Optimizer·**데이터셋**을 차례로 고르며, 실행 명령은
+2번 새 실험에서는 Agent·editable 범위·Optimizer·**데이터셋**을 차례로 고르며, 실행 명령은
 `command` 하네스에서만 입력합니다. TUI는 데이터셋을 자동 추천하지 않습니다.
 **3번 ACE-RTL + CVDP 예제**를 직접 선택하면 Git 소스·driver·Docker 준비 내용을 보여주고
 승인을 받은 뒤 작업공간에 고정 버전 자산을 준비합니다. 모델 값이 없으면 현재 세션에서만
