@@ -16,7 +16,15 @@ ACE의 native runner / 자체 반복 루프 / 역할별 모델 호출과 동일�
 
 ## 준비
 
-앱 사용자는 `agent-opt tui`에서 **3번 ACE-RTL + CVDP 예제**를 선택하면 작업공간 준비,
+앱 사용자는 `agent-opt tui`에서 **5번 프리셋 선택형 새 최적화**를 선택하고
+`ACE-RTL → OpenCode → GEPA 또는 Meta-Harness → CVDP`를 한 항목씩 확정합니다.
+마지막 화면에서 수정 파일과 모델/자산/예산을 확인한 뒤 `y`를 누르면 준비·정적 진단·실행을 진행합니다.
+Agent의 OpenCode 모델 선택자는 `openrouter/<모델>` + `OPENROUTER_API_KEY` 또는
+`compatible/<모델>` + `AGENT_OPT_MODEL_BASE_URL`/`AGENT_OPT_MODEL_API_KEY`입니다.
+compatible을 쓰면 현재 고정 OpenCode plugin의 모델 등록 제약으로 `AGENT_OPT_MODEL_ID`와
+선택자의 모델명이 일치해야 합니다. Optimizer 모델 API와 Agent 모델의 역할/호출은 각각 표시하며
+OpenRouter Agent와 별도 Optimizer API 모델은 서로 다른 모델을 사용할 수 있습니다.
+기존 **3번 ACE-RTL + CVDP 예제**는 여전히 `simple_feedback` 고정 설정으로 작업공간 준비,
 필요한 모델 값의 세션 한정 입력, 실행 확인, 공식 CVDP 평가까지 진행할 수 있습니다.
 비대화형 앱은 `agent-opt init --profile ace-rtl --workspace PATH` →
 `agent-opt prepare PATH/experiment.toml` → `agent-opt run PATH/experiment.toml`을 사용합니다.
@@ -117,7 +125,15 @@ adapter가 지침 내용을 prompt에 직접 포함하므로 변경이 실제 Ha
 runner는 원본과 세 후보를 validation으로 비교합니다. 기본 8 trial, trial당 최대 600초이며 실제 소요 시간은 모델/과제에 따릅니다.
 `--iterations`는 반복 횟수와 그에 맞는 trial/시간 예산을 조정합니다. `runs/dev-live/<id>/report.md`에서
 baseline·선택 결과·Optimizer usage를, 후보별 `changes.diff`에서 변경을 확인합니다.
-연구 알고리즘은 팀 플러그인으로 교체합니다. 작은 train/validation 데모는 일반화 성능 근거가 아닙니다.
+선택형 5번의 GEPA는 `skills/ace-rtl/references/role-guidance.md`를 수정하며 후보별 내용은
+`adapter.py:with_ace_guidance`의 실제 OpenCode prompt에 들어갑니다. Meta-Harness는 upstream 역할
+Python 파일을 실행했다고 가정하지 않습니다. 고정 Git 원본은 그대로 두고 기준 후보에
+`skills/ace-rtl/scripts/agent_opt_scaffold.py`를 명시적으로 추가합니다. Meta-Harness는 이 editable 파일의
+`prepare_task(task_dir)`를 변경하고, **각 trial의 후보 복사본**에서 Python 빌드 단계를 실행해 공개 과제
+파일을 준비한 뒤 OpenCode를 호출합니다. `runner.py`의 `scaffold_used` 해시, 후보 diff, trial 평가를
+대조할 수 있습니다. `run-owned` 설정은 기존 고정 예제/연동 pointer를 변경하지 않으며
+`agent-opt run <생성된 experiment.toml>`도 같은 준비 lock·정적 진단을 거칩니다.
+두 자체 구현 모두 train/validation 작은 데모의 **연결 근거**이며 성능 향상·native ACE 재현 주장은 아닙니다.
 
 기본 timeout은 OpenCode + CVDP 평가 합산입니다. 첫 Docker 빌드는 setup에서 완료해야 합니다.
 토큰 전체 합산은 미지원이며 partial 지표만 관측됩니다. API 응답/trace에는 민감정보가 있을 수 있으므로

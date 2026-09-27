@@ -262,6 +262,26 @@ def _optimizer_options(spec: dict) -> dict:
                  "Declare an existing editable optimizer file, train tasks, and positive iteration allowance")
 
 
+def _seed_check(spec: dict) -> dict:
+    seeds = spec.get("candidate_seed_files", {})
+    valid = isinstance(seeds, dict)
+    if valid:
+        for path, source in seeds.items():
+            try:
+                valid = (isinstance(path, str) and isinstance(source, str)
+                         and bool(safe_path(Path("/schema-validation"), path))
+                         and safe_path(spec["_root"], source).is_file()
+                         and all(any(fnmatch.fnmatchcase(path, pattern) for pattern in agent.editable)
+                                 and "agent/" + path in agent.build for agent in spec["_agents"]))
+            except (ConfigurationError, OSError, TypeError, ValueError):
+                valid = False
+            if not valid:
+                break
+    return check("candidate.seed", "agent", valid,
+                 "Candidate scaffold seed is available and executed from editable snapshot",
+                 "Restore the declared candidate seed and active build entry")
+
+
 def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict:
     rows = []
     with _no_bytecode():
@@ -367,6 +387,8 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
                               "Task output files are declared", "Declare task output file paths in the benchmark"))
             rows.append(_budget_check(spec))
             rows.append(_optimizer_options(spec))
+            if "candidate_seed_files" in spec:
+                rows.append(_seed_check(spec))
             provider_id = spec["_benchmark_metadata"].get("dataset_provider")
             if provider_id:
                 rows.extend(_dataset(root, provider_id, registry))
@@ -384,7 +406,8 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
         research = any(isinstance(stage, dict) and stage.get("optimizer") in
                        {"gepa", "meta_harness", "ecdysis"} for stage in stages)
         harness_models = [profile.get("model_env", "AGENT_OPT_MODEL") for profile in profiles
-                          if profile.get("adapter") == "opencode"]
+                           if (profile.get("adapter") == "opencode" or
+                               profile.get("adapter") == "ace_opencode" and spec.get("preset_selection"))]
         if research or harness_models:
             try:
                 if research:

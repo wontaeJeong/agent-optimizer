@@ -120,7 +120,13 @@ train 자료만 후보 수정 근거로 사용하고, test는 선택을 고정�
 .venv/bin/agent-opt run runs/configs/my-fixture/experiment.toml
 ```
 
-실제 Agent는 `--agent <로컬 경로>` 또는 `--agent <Git URL> --revision <전체 commit>`을 연결하고 실행/평가 방식과 `--editable`을 지정합니다. `--command`는 `command` 하네스 전용 argv 문자열이며 셸 확장·파이프는 실행하지 않습니다. 비대화형 `init`에는 `--dataset`, `--optimizer`, `--yes`가 필요합니다. TTY에서는 `.venv/bin/agent-opt init`으로 새 설정만 만들거나 `.venv/bin/agent-opt tui`의 1번에서 최근 생성 설정/직접 경로 실행, 2번에서 새 실험, 3번에서 ACE-RTL + CVDP 예제, 4번에서 이전 보고서 열람을 선택할 수 있습니다. 1번 목록은 `runs/configs/`에 생성된 설정만 표시합니다.
+실제 Agent는 `--agent <로컬 경로>` 또는 `--agent <Git URL> --revision <전체 commit>`을 연결하고 실행/평가 방식과 `--editable`을 지정합니다. `--command`는 `command` 하네스 전용 argv 문자열이며 셸 확장·파이프는 실행하지 않습니다. 비대화형 `init`에는 `--dataset`, `--optimizer`, `--yes`가 필요합니다. TTY에서는 `.venv/bin/agent-opt init`으로 새 설정만 만들거나 `.venv/bin/agent-opt tui`의 **5번 프리셋 선택형 새 최적화**를 사용합니다. 기존 1번(설정 실행), 2번(고급 사용자 정의 설정), 3번(고정 `simple_feedback` ACE 예제), 4번(이전 보고서)도 유지됩니다. 1번 목록은 `runs/configs/`에 생성된 설정만 표시합니다.
+
+### 프리셋을 고르면서 새 실험 실행
+
+`uv run agent-opt tui`(또는 `.venv/bin/agent-opt tui`) → `5` → **Agent → Harness → Optimizer → Dataset** 순서로 각각 `↑/↓`로 초점을 이동하고 `Enter`로 확정합니다. 오른쪽 설명/상태는 초점에 따라 즉시 바뀌며 75열 미만에서는 항목 아래에 표시됩니다. `Esc`는 이전 단계(앞선 선택 유지), `Ctrl+C`는 취소입니다. ACE-RTL에서는 `OpenCode` → `GEPA` **또는** `Meta-Harness` → `CVDP`를 각각 선택합니다. 소스 checkout의 `rtl-solo`/`rtl-team` → `Fixture` → `Baseline`/`FileVariants` → `sample_text`는 모델·Docker가 없는 **합성** 경로입니다. 준비되지 않은 조합은 이유가 표시되며 실행 선택할 수 없습니다. 각 단계의 `내 … 연결하기` 또는 `기존 experiment.toml 선택`은 고급 입력/파일 선택 경로로 전환합니다(고급 마법사에서는 네 종류를 다시 명시합니다). 비TTY 자동화에는 위 `init`/`run`을 사용하세요.
+
+마지막 확인 화면에는 실제 수정 파일, Agent 실행 모델 `AGENT_OPT_MODEL`과 **별도** Optimizer 모델 `AGENT_OPT_MODEL_BASE_URL`/`AGENT_OPT_MODEL_ID`/`AGENT_OPT_MODEL_API_KEY`의 설정 여부, 공개 과제/평가기, 고정 자산·Docker 준비, 최대 trial/시간, 설정·`report.html` 위치가 나옵니다. Agent 모델은 `openrouter/<모델>`(`OPENROUTER_API_KEY` 필요) 또는 `compatible/<모델>`(설정한 모델 API 필요)을 선택합니다. 현재 고정 OpenCode 이미지의 compatible plugin은 `AGENT_OPT_MODEL_ID`로 모델을 등록하므로 `compatible/<모델>`과 이 ID는 일치해야 합니다. OpenRouter Agent와 Optimizer API 모델은 서로 다르게 둘 수 있습니다. **`y` 이전에는 다운로드·Docker 빌드·모델 probe·설정 쓰기를 하지 않습니다.** 확인 후 준비 → 정적 `doctor --plan` → 실행 순서이며 모델 입력은 이번 TUI 세션에서만 사용합니다. ACE 공개 데모는 train 1·validation 1, `final_test=false`; GEPA와 Meta-Harness는 각각 최대 9 trial·5760초(각 trial 최대 600초)로 구성합니다. 이 숫자는 예약 한도이지 소요 시간/성능의 예측값이 아닙니다. `runs/configs/<생성-ID>/experiment.toml`은 새로 만들며 기존 예제를 덮어쓰지 않습니다. 보고서·후보 변경과 평가 이벤트는 `runs/<run-id>/`에서 확인합니다.
 
 복수 Agent/하네스 프로필에서 일부 조합만 실행하려면 실험 TOML에 `[[pairs]]`를 명시하세요. `agent`는 Agent ID, `harness`는 **프로필 ID**입니다. 생략하면 전체 곱을 실행하며, 명시하면 선택한 쌍만 `plan`·`doctor --plan` 예산·`run`에 반영됩니다. [설정 예와 제약](docs/adding-components.md#harness)을 참고하세요. CLI 옵션과 TUI wizard 질문은 그대로이며 TUI의 기존 실험 경로로 열 수 있습니다.
 

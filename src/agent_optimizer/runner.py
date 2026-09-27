@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import fnmatch
 import hashlib
 import json
 import math
@@ -169,6 +170,8 @@ class GroupRunner:
         agent_dir, task_dir = workspace / "agent", workspace / "task"
         seed = self.spec.get("seed", 0) + repeat
         execution = None
+        scaffold_attempted = None
+        scaffold_used = None
         error = {}
         evaluation = Evaluation("error", {"passed": None})
         try:
@@ -187,8 +190,16 @@ class GroupRunner:
             self.budget.remaining()
             self.events.append({"event": "agent_started", "phase": "agent", **identity})
             if self.agent.build:
+                seeds = self.spec.get("candidate_seed_files", {})
+                if len(seeds) == 1:
+                    filename = next(iter(seeds))
+                    consumed = safe_path(agent_dir, filename)
+                    scaffold_attempted = {"file": filename,
+                                          "sha256": hashlib.sha256(consumed.read_bytes()).hexdigest()}
                 build = execute(list(self.agent.build), workspace, trial / "build_logs",
                                 max(0.001, trial_deadline-time.monotonic()), self.profile.get("runtime", {}))
+                if build.status == "completed":
+                    scaffold_used = scaffold_attempted
                 execution = build
                 self.budget.remaining()
                 if build.status == "completed" and time.monotonic() < trial_deadline:
@@ -243,7 +254,9 @@ class GroupRunner:
                       "valid": evaluation.status not in {"infrastructure_error", "unsupported", "agent_incomplete",
                                                          "interrupted", "error"},
                       "metrics": metrics, "feedback": evaluation.feedback,
-                      "execution": jsonable(execution), "artifacts": evaluation.artifacts, **error}
+                      "execution": jsonable(execution), "artifacts": evaluation.artifacts,
+                      **({"scaffold_attempted": scaffold_attempted} if scaffold_attempted is not None else {}),
+                      **({"scaffold_used": scaffold_used} if scaffold_used is not None else {}), **error}
             write_json(trial / "result.json", record)
             self.events.append({"event": "trial_completed", "dataset": identity["dataset"],
                                 "stage_id": identity["stage_id"], **record})
@@ -276,7 +289,9 @@ class GroupRunner:
         return row
 
     def run(self):
-        baseline = self.candidates.create()
+        seeds = self.spec.get("candidate_seed_files", {})
+        baseline = self.candidates.create(edits={path: safe_path(self.spec["_root"], source).read_text(
+            encoding="utf-8") for path, source in seeds.items()})
         self.events.append({"event": "candidate_created", "agent_id": self.agent.id,
                             "harness_id": self.profile["id"], "stage_id": "baseline",
                             "candidate_id": baseline.id, "parent_id": None,
@@ -348,6 +363,20 @@ def preflight(spec, registry):
     pairs = selected_pairs(spec)
     validate_objective(spec["objective"])
     validate_stages(spec)
+    seeds = spec.get("candidate_seed_files", {})
+    if not isinstance(seeds, dict) or not all(isinstance(path, str) and isinstance(source, str)
+                                              for path, source in seeds.items()):
+        raise ConfigurationError("candidate_seed_files must map editable paths to project files")
+    for path, source in seeds.items():
+        safe_path(spec["_root"], source)
+        safe_path(Path("/schema-validation"), path)
+        if not all(any(fnmatch.fnmatchcase(path, editable) for editable in agent.editable)
+                   for agent in spec["_agents"]):
+            raise ConfigurationError(f"Candidate seed is not editable: {path}")
+        if not safe_path(spec["_root"], source).is_file():
+            raise ConfigurationError(f"Candidate seed file missing: {source}")
+        if not all("agent/" + path in agent.build for agent in spec["_agents"]):
+            raise ConfigurationError(f"Candidate seed scaffold must run from the candidate: {path}")
     stages = spec.get("stages", [])
     if stages and all("max_trials" in stage for stage in stages):
         repetitions = spec.get("repetitions", 1)
@@ -423,6 +452,9 @@ def run_experiment(spec, registry, output: Path | None = None, on_event=None):
         manifest["plugin_sha256"] = {
             ref: hashlib.sha256(file.read_bytes()).hexdigest()
             for ref, file in registry.selected_files(spec["_root"], spec).items()}
+        manifest["candidate_seed_sha256"] = {
+            path: hashlib.sha256(safe_path(spec["_root"], source).read_bytes()).hexdigest()
+            for path, source in spec.get("candidate_seed_files", {}).items()}
         manifest["benchmark_sha256"] = hashlib.sha256(
             safe_path(spec["_root"], spec["benchmark"]).read_bytes()).hexdigest()
         write_json(root / "manifest.json", manifest)

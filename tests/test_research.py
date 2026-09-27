@@ -1,5 +1,6 @@
 """Research names must execute distinct, bounded train/validation searches."""
 import json
+import hashlib
 import os
 import tempfile
 import unittest
@@ -8,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from agent_optimizer.config import load_experiment
-from agent_optimizer.contracts import Candidate, UnavailableError
+from agent_optimizer.contracts import Candidate, ConfigurationError, UnavailableError
 from agent_optimizer.registry import Registry
 from agent_optimizer.runner import run_experiment
 from agent_optimizer.optimizers.ecdysis import _train_score, group_failures
@@ -24,6 +25,81 @@ class ResearchSearchTests(unittest.TestCase):
         self.spec["_agents"] = self.spec["_agents"][:1]
         self.spec["final_test"] = True
         self.spec["budget"]["max_trials"] = 20
+
+    def test_seeded_meta_scaffold_runs_from_each_candidate_before_harness(self):
+        source = self.root / "seed-scaffold.py"
+        source.write_text("from pathlib import Path\n"
+                          "def prepare_task(task_dir):\n"
+                          "    (task_dir / 'scaffold-used.txt').write_text('seed')\n"
+                          "    dut = task_dir / 'dut.sv'\n"
+                          "    dut.write_text(dut.read_text() + '\\n// seed\\n')\n")
+        relative = "src/scaffold.py"
+        agent = self.spec["_agents"][0]
+        script = ("import runpy,sys; from pathlib import Path; "
+                  "runpy.run_path(sys.argv[1])['prepare_task'](Path(sys.argv[2]))")
+        self.spec["_agents"] = [replace(agent, editable=(*agent.editable, relative),
+                                        build=("python3", "-c", script,
+                                               f"agent/{relative}", "task"))]
+        self.spec["candidate_seed_files"] = {relative: "seed-scaffold.py"}
+        self.spec["stages"] = [{"id": "meta", "optimizer": "meta_harness", "max_trials": 4,
+                                "config": {"file": relative, "iterations": 1,
+                                           "required_symbol": "prepare_task", "metric": "passed"}}]
+        self.spec["final_stages"] = ["meta"]
+        changed = ("from pathlib import Path\n"
+                   "def prepare_task(task_dir):\n"
+                   "    (task_dir / 'scaffold-used.txt').write_text('candidate')\n"
+                   "    dut = task_dir / 'dut.sv'\n"
+                   "    dut.write_text(dut.read_text() + '\\n// candidate\\n')\n")
+        response = {"choices": [{"message": {"content": json.dumps({"content": changed})}}]}
+        environment = {"AGENT_OPT_MODEL_BASE_URL": "http://localhost:12345/v1",
+                       "AGENT_OPT_MODEL_API_KEY": "fixture-key"}
+        with patch.dict(os.environ, environment), patch("agent_optimizer.optimizers.research.complete",
+                                                        return_value=response):
+            root, summary = run_experiment(self.spec, Registry(), self.root / "runs")
+        records = [json.loads(line) for line in (root / "events.jsonl").read_text().splitlines()
+                   if '"event": "trial_completed"' in line]
+        self.assertEqual(summary["status"], "completed")
+        self.assertEqual({(r["candidate_id"], (root / "rtl-solo/fixture/trials" /
+                           r["trial_id"] / "agent_workspace/task/scaffold-used.txt").read_text())
+                          for r in records if r["split"] == "validation"},
+                         {("c0001", "seed"), ("c0002", "candidate")})
+        validation = {r["candidate_id"]: r for r in records if r["split"] == "validation"}
+        self.assertNotEqual(validation["c0001"]["content_hash"],
+                            validation["c0002"]["content_hash"])
+        for record in validation.values():
+            consumed = (root / "rtl-solo/fixture/trials" / record["trial_id"] /
+                        "agent_workspace/agent/src/scaffold.py")
+            self.assertEqual(record["scaffold_used"],
+                             {"file": relative, "sha256": hashlib.sha256(consumed.read_bytes()).hexdigest()})
+            public_input = consumed.parents[2] / "task/dut.sv"
+            self.assertIn(f"// {('seed' if record['candidate_id'] == 'c0001' else 'candidate')}",
+                          public_input.read_text())
+        self.assertFalse((self.root / "examples/minimal/agents/solo/src/scaffold.py").exists())
+
+    def test_seeded_scaffold_rejects_missing_or_uneditable_file_before_source(self):
+        self.spec["candidate_seed_files"] = {"src/scaffold.py": "seed-scaffold.py"}
+        with self.assertRaisesRegex(ConfigurationError, "seed|editable"):
+            run_experiment(self.spec, Registry(), self.root / "runs")
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_failed_scaffold_does_not_claim_used_file(self):
+        filename = "src/scaffold.py"
+        (self.root / "seed-scaffold.py").write_text(
+            "def prepare_task(task_dir):\n    raise RuntimeError('failed before harness')\n")
+        script = ("import runpy,sys; from pathlib import Path; "
+                  "runpy.run_path(sys.argv[1])['prepare_task'](Path(sys.argv[2]))")
+        agent = self.spec["_agents"][0]
+        self.spec["_agents"] = [replace(agent, editable=(*agent.editable, filename),
+                                        build=("python3", "-c", script, "agent/src/scaffold.py", "task"))]
+        self.spec["candidate_seed_files"] = {filename: "seed-scaffold.py"}
+        self.spec["stages"] = []
+        self.spec["final_stages"] = ["baseline"]
+        self.spec["final_test"] = False
+        root, _ = run_experiment(self.spec, Registry(), self.root / "runs")
+        record = json.loads(next(root.rglob("result.json")).read_text())
+        self.assertEqual(record["status"], "process_error")
+        self.assertNotIn("scaffold_used", record)
+        self.assertIn("scaffold_attempted", record)
 
     def test_gepa_changes_snapshot_and_freezes_selection_before_test(self):
         self.spec["stages"] = [{"id": "gepa", "optimizer": "gepa", "max_trials": 7,

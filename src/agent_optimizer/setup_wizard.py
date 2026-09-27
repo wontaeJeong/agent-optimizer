@@ -150,13 +150,16 @@ def _bounded_tasks(document: dict, max_tasks: int) -> dict:
 
 def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dataset: dict,
                      stages: list[dict], plugins: dict, dependencies: dict, name: str,
-                     editable: list[str], prompt_file: str = "prompts/system.md",
+                     editable: list[str], agent_id: str | None = None,
+                     prompt_file: str = "prompts/system.md",
                      max_tasks: int = 9, project_root: Path | None = None,
                      max_trials: int | None = None, wall_time: float = 3600,
                      trial_timeout: float = 120, objective_source: str = "passed",
                      objective_direction: str = "maximize") -> Path:
     """Create only run-owned configuration; never modify the original Agent."""
     identifier(name)
+    if agent_id is not None:
+        identifier(agent_id)
     if config_root.exists():
         raise ConfigurationError(f"Generated configuration already exists: {config_root}")
     if not editable or not all(isinstance(value, str) and value for value in editable):
@@ -193,7 +196,7 @@ def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dat
     config_root.mkdir(parents=True)
     try:
         write_json(config_root / "tasks.json", document)
-        agent_lines = ["schema_version = 2", f"id = {_literal(name)}",
+        agent_lines = ["schema_version = 2", f"id = {_literal(agent_id or name)}",
                        f"supported_harnesses = {_literal([harness.get('adapter', 'command')])}",
                        f"editable = {_literal(editable)}", f"prompt_file = {_literal(prompt_file)}", "",
                        "[source]", f"kind = {_literal(source_kind)}"]

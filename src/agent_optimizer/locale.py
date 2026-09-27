@@ -33,6 +33,10 @@ MESSAGES = {
     "Correct the API base path and model ID from the failure cause.": (
         "실패 원인에 따라 AGENT_OPT_MODEL_BASE_URL의 API 경로와 AGENT_OPT_MODEL_ID를 수정하세요.",
         "Correct the API path in AGENT_OPT_MODEL_BASE_URL and AGENT_OPT_MODEL_ID as indicated by the failure cause."),
+    "실험 시작: 5. 프리셋 선택형 새 최적화  1. 기존 실험 실행  2. 고급 새 실험 만들고 실행  3. ACE-RTL + CVDP 예제  4. 이전 실행 보기": (
+        "실험 시작: 5. 프리셋 선택형 새 최적화  1. 기존 실험 실행  2. 고급 새 실험 만들고 실행  3. ACE-RTL + CVDP 예제  4. 이전 실행 보기",
+        "Start an experiment: 5. New preset optimization  1. Run existing experiment  2. Advanced new experiment  3. Legacy ACE-RTL + CVDP example  4. View previous runs"),
+    "선택 [5/1/2/3/4]: ": ("선택 [5/1/2/3/4]: ", "Choice [5/1/2/3/4]: "),
     "세션 대기": ("대기", "queued"),
     "세션 실행 중": ("실행 중", "running"),
     "세션 완료": ("완료", "completed"),

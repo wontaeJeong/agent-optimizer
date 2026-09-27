@@ -65,8 +65,25 @@ make doctor-core
 .venv/bin/agent-opt run "$HOME/agent-opt-ace/experiment.toml"
 ```
 
-`prepare`는 선택한 고정 버전 자산을 준비하고 `run`은 부족한 자산을 자동 설치하지 않습니다. `doctor --plan`은 정적 검사이며 실제 모델·공식 CVDP 채점의 성공 여부는 **실행 근거와 보고서**에서 확인합니다. 이 ACE 예제는 OpenCode 스킬 프로필과 외부 공식 평가기 연결이지 native ACE 실행이 아닙니다. TTY에서는 `.venv/bin/agent-opt tui`에서 ACE-RTL + CVDP 예제를 **직접 선택**할 수도 있습니다. [실험 구성](/agent-optimizer/guides/experiment/)에서 자체 Agent·데이터셋을 명시적으로 선택하는 법을 확인하세요.
+`prepare`는 선택한 고정 버전 자산을 준비하고 `run`은 부족한 자산을 자동 설치하지 않습니다. `doctor --plan`은 정적 검사이며 실제 모델·공식 CVDP 채점의 성공 여부는 **실행 근거와 보고서**에서 확인합니다. 이 ACE 예제는 OpenCode 스킬 프로필과 외부 공식 평가기 연결이지 native ACE 실행이 아닙니다. TTY에서는 `.venv/bin/agent-opt tui`에서 **5번 프리셋 선택형 새 최적화**를 고르고 `ACE-RTL → OpenCode → GEPA 또는 Meta-Harness → CVDP`를 각각 확정할 수 있습니다. [실험 구성](/agent-optimizer/guides/experiment/)에서 자체 Agent·데이터셋을 명시적으로 선택하는 법을 확인하세요.
 
-TUI 1번은 `runs/configs/`에서 최근 생성한 설정을 번호로 고르거나 직접 `experiment.toml` 경로를
-입력해 정적 계획 진단·확인 후 실행합니다. 2번은 새 Agent·데이터셋·하네스·Optimizer 선택,
-3번은 위 ACE 예제이며, 4번은 과거 실행의 보고서 경로만 표시합니다. 데이터셋은 자동 추천하지 않습니다.
+5번의 `↑/↓`는 초점과 설명만 변경하고 `Enter`로 확정합니다. `Esc`/`b`는 이전 단계,
+`Ctrl+C`는 취소입니다. 마지막 확인 화면에서 수정 대상과 두 모델 역할(`AGENT_OPT_MODEL`과
+별도의 `AGENT_OPT_MODEL_BASE_URL`/`AGENT_OPT_MODEL_API_KEY`), 공식 evaluator, 준비 작업,
+최대 trial/시간, 설정·보고서 위치를 확인합니다. `y` 전에 다운로드·빌드·모델 호출은 하지 않습니다.
+ACE 두 알고리즘의 기본 예산은 각 9 trial/5760초, 공개 train 1·validation 1,
+`final_test=false`이며 결과는 `runs/<run-id>/report.html`에서 확인합니다. GEPA는 후보의
+`role-guidance.md`를 OpenCode prompt에 반영하고 Meta-Harness는 후보별 `agent_opt_scaffold.py`를
+공개 과제에 실제 실행합니다. 둘 모두 자체 구현이며 실제 공식 CVDP/모델 성공·성능 향상 주장은
+실환경 보고서로만 확인합니다.
+
+OpenCode Agent 모델을 `openrouter/<모델>`로 선택하면 `OPENROUTER_API_KEY`를 환경에서 전달합니다.
+`compatible/<모델>`이면 모델 API URL·키가 필요하며, 현재 고정 이미지의 plugin에서
+`AGENT_OPT_MODEL_ID`와 선택자의 모델명이 같아야 합니다. Optimizer 모델 호출은
+`AGENT_OPT_MODEL_BASE_URL`/`AGENT_OPT_MODEL_ID`/`AGENT_OPT_MODEL_API_KEY`를 사용합니다.
+
+같은 5번에서 `rtl-solo`/`rtl-team → Fixture → Baseline`/`FileVariants → sample_text`를 고르면
+모델·Docker 없는 합성 예제를 실행할 수 있습니다. 내 구성요소·기존 `experiment.toml`은
+각 종류의 보조 선택지로 진입하고 고급 입력에서 다시 명시합니다. TUI 1번은 기존 설정,
+2번은 고급 새 설정, 3번은 **고정 `simple_feedback` ACE 예제**, 4번은 과거 보고서 경로입니다.
+자동화에는 비대화형 `init`·`doctor --plan`·`run`을 사용하세요.
