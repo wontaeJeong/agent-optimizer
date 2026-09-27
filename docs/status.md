@@ -1,6 +1,6 @@
 # 현재 구현·검증 상태
 
-**2026-09-25 확장:** 코어 setup/doctor → 명시적 데이터셋·ACE 프로필 선택/준비 → CLI/TUI 최적화 → HTML 보고서.
+**2026-09-27 확장:** 코어 setup/doctor → 명시적 데이터셋·ACE 프로필 선택/준비 → CLI/TUI 최적화 → HTML 보고서.
 팀 개발의 API-free fixture → 파일 플러그인 경로도 유지한다.
 시작은 [README](../README.md#개발환경-빠른-시작)와 [역할별 템플릿](../experiments/README.md).
 번호 메뉴는 제공하며 1/2는 core, 7은 선택적 ACE 전체 준비, 8은 일반 Agent TUI다.
@@ -88,7 +88,8 @@ native `ace_agent_runner.py`/`ace_cvdp_native_runner.py`의 자체 역할·반�
 - **현재 Claude Code 도구 설정:** 첫 실행은 MCP 도구 목록 노출만 확인됐고 호출은 확인되지 않았다. 둘째 실행에는 등록된 codegraph/Playwright MCP 도구 시도·권한 거부가 있었다. 두 실행 모두 `--strict-mcp-config`가 없었다. flag 추가 직후에는 argv 회귀만 통과했다. [당시 계약](verification.md#2026-09-27-claude-code-암묵적-mcp-설정-차단-계약-실모델-미검증).
 - **strict MCP 세 번째 독립 실실행:** 4/4 trial에서 네 CLI 초기 도구 목록과 tool-use 모두 MCP 0건. baseline train 공식 raw 1/1 통과, 후보 train은 RTL 출력 누락으로 0점·공식 raw 없음, 두 validation은 `agent_incomplete`/raw 없음. `no_eligible_candidate`/선택 없음이며 개선 비교 불가. [실행 근거](verification.md#2026-09-27-strict-mcp-적용-후-세-번째-독립-4-trial-선택-없음).
 - **공개 RTL target 경로 안내 후 네 번째 독립 실실행:** DeepSeek Agent + 명시적 OpenAI Optimizer 한 번, 4/4 trial 모두 공식 raw 채점. baseline train/validation 및 후보 train은 1/1, 후보 validation은 기능 불일치로 0/1(모두 `valid=true`). `completed`지만 `c0001` baseline이 선택되어 성능 개선 근거는 없다. [새 실행 근거](verification.md#2026-09-27-공개-rtl-target-안내-후-네-번째-독립-실실행).
+- **연구 예제의 새 실모델 부분 검증:** [model-rtl-agent](../examples/model-rtl-agent/README.md)를 선택 CVDP의 공개 두 train family·별도 validation family와 DeepSeek Agent / OpenAI Optimizer로 한 번 실행했다. Mac ARM64의 공식 평가 raw 6건(정답 5·오답 1), **9/16 trial 뒤 `error`**. QAM16 train의 60초 Agent 요청 두 건이 `infrastructure_error`/raw 없음으로 끝나 baseline train 집계가 `null`이고, Ecdysis는 이를 거부했다. GEPA·Meta의 stage validation 각 1/1은 **전체 winner/선택 고정이 아니다**. Meta 후보의 fallback QAM16 train도 출력 누락 0점/raw 없음이다. [명령·trial별 근거](verification.md#2026-09-27-연구-optimizer-선택-cvdp-한정-실모델-실행-중단).
 - **선택형 wheel의 새 검증:** Mac ARM64에서 소스 밖 wheel 설치·사용자 Agent 합성 실행, 선택형 ACE 고정 Git/driver/이미지 준비와 읽기 전용 계획 진단, Docker 공식 LFSR 정답·오답을 확인했다. 모델 키 없는 `run`은 `blocked_auth`로 차단된다. [같은 날짜의 별도 기록](verification.md#2026-09-25-선택형-wheel-연동-검증).
-- **미검증:** 실제 배포 모델→실 Agent에 세 연구 알고리즘을 적용한 성능 향상, native ACE,
+- **미검증:** 세 연구 알고리즘의 동일 유효 train/validation 전체 완료·성능 향상, native ACE,
   Verilog-Eval의 전체 과제/Ubuntu x86_64 실행, 전체 sub-agent 사용량. 새 팀 컴포넌트도
   복사/fixture 검증과 실제 환경 실행을 각각 구분한다. plan doctor는 설정/등록·로컬 자산 수준 검사다.
