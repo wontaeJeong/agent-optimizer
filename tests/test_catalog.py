@@ -2,6 +2,7 @@
 import hashlib
 import json
 import unittest
+from dataclasses import replace
 from unittest.mock import patch
 
 from agent_optimizer.config import load_experiment
@@ -107,6 +108,7 @@ class ProjectRegistryTests(unittest.TestCase):
                 patch.dict(PROJECT_DEPENDENCIES, {"datasets/team": ["experiments/team/helper.py"]}):
             spec = load_experiment(self.root / "examples/minimal/experiment.toml")
             spec["_agents"] = spec["_agents"][:1]
+            spec["_agents"][0] = replace(spec["_agents"][0], supported_harnesses=("team",))
             spec.update(stages=[{"id": "team", "optimizer": "team"}], final_stages=["team"],
                         final_test=False, evaluator="text_fixture")
             spec["_profiles"][0]["adapter"] = "team"

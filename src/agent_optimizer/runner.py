@@ -11,7 +11,7 @@ from dataclasses import replace
 from pathlib import Path
 
 from agent_optimizer import __version__
-from agent_optimizer.config import validate_objective, validate_stages
+from agent_optimizer.config import selected_pairs, validate_objective, validate_stages
 from agent_optimizer.contracts import (
     BudgetExceeded, Candidate, ConfigurationError, Evaluation, RunRequest, StageBudgetExceeded,
     UnavailableError, jsonable,
@@ -355,7 +355,7 @@ def preflight(spec, registry):
         per_group = validation + sum(stage["max_trials"] for stage in stages)
         if spec.get("final_test", False):
             per_group += 2 * tests  # Baseline and one frozen winner; they may be the same.
-        required = per_group * len(spec["_agents"]) * len(spec["_profiles"])
+        required = per_group * len(selected_pairs(spec))
         if spec.get("budget", {}).get("max_trials", 100) < required:
             raise ConfigurationError(f"Trial budget must reserve at least {required} trials for "
                                      "baseline, stage allowances and final test")
@@ -387,7 +387,7 @@ def run_experiment(spec, registry, output: Path | None = None, on_event=None):
                "report_language": current_language(),
                "synthetic": spec["_benchmark_metadata"].get("synthetic", False),
                "groups": [], "trials_used": 0,
-               "planned_groups": len(spec["_agents"])*len(spec["_profiles"])}
+               "planned_groups": len(selected_pairs(spec))}
     resolved_agents, source_locks = [], []
     clean = {k: v for k, v in spec.items() if not k.startswith("_")}
     manifest = {"schema_version": 1, "run_id": run_id, "version": __version__,
@@ -423,16 +423,17 @@ def run_experiment(spec, registry, output: Path | None = None, on_event=None):
                                  "supported_harnesses": agent.supported_harnesses})
             budget.remaining()
         phase = "groups"
-        for agent in resolved_agents:
-            for profile in spec["_profiles"]:
-                budget.remaining()
-                summary["groups"].append({"agent_id": agent.id, "harness_id": profile["id"],
-                                          "baseline": None, "stages": [], "selected": [], "final_test": [],
-                                          "optimizer_usage": [], "trial_count": 0, "status": "running"})
-                group = GroupRunner(spec, agent, profile, root / agent.id / profile["id"],
-                                    registry, budget, events)
-                summary["groups"][-1] = group.summary
-                group.run()
+        resolved_by_id = {agent.id: agent for agent in resolved_agents}
+        for source, profile in selected_pairs(spec):
+            agent = resolved_by_id[source.id]
+            budget.remaining()
+            summary["groups"].append({"agent_id": agent.id, "harness_id": profile["id"],
+                                      "baseline": None, "stages": [], "selected": [], "final_test": [],
+                                      "optimizer_usage": [], "trial_count": 0, "status": "running"})
+            group = GroupRunner(spec, agent, profile, root / agent.id / profile["id"],
+                                registry, budget, events)
+            summary["groups"][-1] = group.summary
+            group.run()
         summary["status"] = ("completed" if all(g["status"] == "completed" for g in summary["groups"])
                              else "partial" if any(g["status"] == "partial" for g in summary["groups"])
                              else "no_eligible_candidate")

@@ -10,7 +10,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from agent_optimizer.config import load_experiment, read_toml
+from agent_optimizer.config import load_experiment, read_toml, selected_pairs
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer import models
 from agent_optimizer.registry import (PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, Registry,
@@ -224,7 +224,7 @@ def _budget_check(spec: dict) -> dict:
     per_group = validation + sum(stage.get("max_trials", 1) for stage in stages)
     if spec.get("final_test", False):
         per_group += 2 * tests
-    required = per_group * len(spec["_agents"]) * len(spec["_profiles"])
+    required = per_group * len(selected_pairs(spec))
     return check("budget.trials", "budget", spec.get("budget", {}).get("max_trials", 100) >= required,
                  f"Trial budget must reserve at least {required} trials",
                  f"Set budget.max_trials to at least {required} or reduce stage allowances")
