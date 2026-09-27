@@ -1,5 +1,20 @@
 # 검증 기록
 
+## 2026-09-28 선택형 GEPA·Meta-Harness 실모델/공식 CVDP 후속 검증
+
+Mac ARM64, Docker daemon `linux/arm64`, Python 3.12.12, OpenCode 1.18.31. `feat/preset-tui-flow` 병합 후 고정 ACE/CVDP/HF 출처 SHA는 바꾸지 않았다. 기존 프로젝트 워크트리에서 `make setup` → `make doctor` → `make smoke`를 실행해 lock·고정 소스/데이터/driver·두 Docker 이미지와 공식 CVDP 정답/오답 검사가 통과했다. `sh scripts/bootstrap.sh setup --offline`도 준비된 이미지·driver·데이터를 재검증했고, 변경한 Agent 이미지로 다시 `make smoke`를 통과했다. `make setup`의 7 trial은 별도 **합성** 데모다.
+
+첫 `make doctor ARGS="--model"`은 설정된 OpenAI URL에 `/v1`이 빠져 호스트 요청 HTTP 404로 중단됐다. URL을 **이번 명령의 환경에만** `https://api.openai.com/v1`로 지정하자 호스트 tool-call은 통과했으나, 컨테이너의 고정 OpenCode SDK는 해당 GPT-5 계열 모델에 `max_tokens`를 보내 HTTP 400(`unsupported_parameter`)을 받았다. `max_completion_tokens`로 옮긴 뒤에도 후속 function-tool 요청에서 `reasoning_effort=medium`으로 HTTP 400이 났다. 실제 오류 응답은 이 모델의 Chat Completions 함수 도구에 `reasoning_effort=none`을 요구했다. `examples/rtl-debugger/endpoint-plugin.mjs`의 **OpenAI 호스트+GPT-5 계열 요청만** 두 필드를 정규화한 뒤 이미지/lock을 다시 준비했고, `AGENT_OPT_MODEL_BASE_URL="https://api.openai.com/v1" make doctor ARGS="--model"`은 **호스트 API 및 컨테이너 OpenCode 실제 도구 호출 모두 통과**했다. 다른 URL·모델의 요청 본문은 유지한다(`node --test tests/endpoint-plugin.test.mjs`). 비밀 값과 원시 요청 본문은 진단 기록/커밋에 옮기지 않았다.
+
+| 실행 | 실제 결과 및 근거 |
+|---|---|
+| GEPA `runs/configs/ace-751783cb4073/experiment.toml` 및 Meta-Harness `runs/configs/ace-281c23923792/experiment.toml`을 **각각 별도로 생성**하고 무시된 run-owned 파일에서만 1 iteration, `max_trials=5`, `stage.max_trials=4`, trial당 240초/전체 1500초로 제한. 두 설정 모두 `agent-opt doctor --plan ... --json`에서 `ready=true` 확인 후 기존 `runner.run_experiment`에 고정 이미지 ID·플랫폼·평가 이미지 tag를 전달 | 각 run의 `summary.json`은 `status=completed`, `synthetic=false`, **실제 4 trial/상한 5**, train/validation 각 공개 과제와 공식 evaluator `cvdp`, `final_test=[]`. 기본 TUI 3-iteration/9-trial 경로를 실행했다는 뜻이 아니다. |
+| GEPA `runs/20260927T174602Z-c4265ae4/` | 후보 `c0002`의 `skills/ace-rtl/references/role-guidance.md` diff/원본과 다른 content_hash 확인; 각 후보의 지침이 해당 trial `request.json`의 OpenCode prompt에 포함됐다. 원본·후보 train/validation 총 4개 공식 `raw_result.json`은 각각 비어 있지 않은 test 1건 `result=0`, 이벤트 `passed=1.0`, 모두 `valid=true`. validation 동점(1.0)으로 **baseline `c0001` 선택**; 성능 향상 근거 아님. 보고서 `report.html`과 optimizer_usage 기록. |
+| Meta-Harness `runs/20260927T174941Z-0ff0eb0f/` | 후보 `c0002`의 `skills/ace-rtl/scripts/agent_opt_scaffold.py` diff/원본과 다른 content_hash 확인. 각 trial `scaffold_used.sha256`이 **복사된 후보 Python 파일**의 해시와 일치하고 build 선행 실행 후 OpenCode가 수행됐다. 4개 공식 raw test는 각각 1건 `result=0`, `passed=1.0`, `valid=true`; validation 동점(1.0)으로 **baseline `c0001` 선택**, `final_test=[]`. upstream ACE native 역할 코드 실행·성능 향상 주장은 아님. |
+| 기본 프리셋의 baseline 1 trial: `AGENT_OPT_MODEL_BASE_URL="https://api.openai.com/v1" AGENT_OPT_MODEL="compatible/<설정한 모델 ID>" agent-opt run runs/configs/ace-7e50733ef293/experiment.toml` | `runs/20260927T175431Z-0e5a2ae3/`, `status=completed`, `trials_used=1`, `report.html` 생성. 선택형 CLI의 고정 자산 검사→정적 계획→실제 OpenCode/공식 CVDP 평가 경로 확인. |
+
+실행 구성과 보고서는 Git에서 제외된 위 `runs/`에 남는다. 설치형 wheel은 별도 검토한 first-party **고정 commit**의 OpenCode plugin을 사용하므로, 이 워크트리의 GPT-5 요청 정규화가 설치형 연동에서도 동작한다고 주장하지 않는다. 설치형 지원을 넓히려면 고정 출처·무결성 계약을 별도로 검토하고 준비/실모델 검사를 다시 수행해야 한다.
+
 ## 2026-09-28 선택형 TUI·ACE 후보 연결 계약 검증
 
 - `origin/main` 기준 독립 워크트리, Mac ARM64/Python 3.12.12. `make setup-core`는 코어·합성 데모를 준비했다. 최신 `origin/main`의 오류 진단 변경에 재적용한 뒤 최종 `make test`: **781개 중 766 통과·15 skip·실패 0**. `make lint`, `make demo`(합성 7 trial, `status=completed`), `git diff --check` 통과. `.venv/bin/python -m build --wheel`과 `.venv/bin/python tests/test_installed_cli.py dist/agent_optimizer-0.3.0-py3-none-any.whl`은 독립 설치 TUI에서 네 개 선택 화면의 방향키·Meta-Harness 초점 설명·최종 취소 시 작업공간 미생성을 확인했다. 사이트 `website/`의 `npm ci && npm run build`는 9페이지·내부 링크 검사 통과(기존 Vite/404 경고).
