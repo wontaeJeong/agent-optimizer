@@ -56,7 +56,7 @@ make doctor-core
 | 구분 | 현재 구현 / 사용 조건 |
 |---|---|
 | 인터페이스 | `agent-opt` CLI·TTY TUI, `init` → `doctor --plan` → `run` → `report`; 데이터셋은 사용자가 직접 선택. |
-| 소스·실행 | 로컬/고정 commit Git 스냅샷, 복수 Agent × 호환 Harness 조합. `command`, `opencode`, `claude_code` 등록; `fixture`는 합성 데모용. `codex`, `openagent`는 미구현 예약 ID. |
+| 소스·실행 | 로컬/고정 commit Git 스냅샷, 복수 Agent × Harness 기본 전체 곱 또는 실험별 `[[pairs]]` 선택. `command`, `opencode`, `claude_code` 등록; `fixture`는 합성 데모용. `codex`, `openagent`는 미구현 예약 ID. |
 | 최적화 | `baseline`, `file_variants`(모델 없이 실행), 자체 구현 `gepa`, `meta_harness`, `ecdysis`(모델 설정·적합한 파일/과제 필요). GEPA의 후보 병합은 현재 명시적으로 실패; upstream 논문 재현을 뜻하지 않습니다. |
 | 데이터·평가 | 합성 `sample_text`, 선택형 고정 CVDP·Verilog-Eval(`verilog-spec`, `verilog-completion`), 또는 사용자 `tasks.json` + 명시적 evaluator. 후자의 채점기를 자동 추측하지 않습니다. |
 | 실행 환경 | 코어 fixture: Mac/Linux, Python 3.11+, Git, 모델·Docker 불필요. 선택형 ACE/CVDP·Verilog-Eval의 공식/도구 평가에는 별도 준비와 Docker 필요. 실제 통합·플랫폼별 검증 범위는 [현재 상태](docs/status.md)와 [검증 기록](docs/verification.md) 참고. |
@@ -121,6 +121,8 @@ train 자료만 후보 수정 근거로 사용하고, test는 선택을 고정�
 ```
 
 실제 Agent는 `--agent <로컬 경로>` 또는 `--agent <Git URL> --revision <전체 commit>`을 연결하고 실행/평가 방식과 `--editable`을 지정합니다. `--command`는 `command` 하네스 전용 argv 문자열이며 셸 확장·파이프는 실행하지 않습니다. 비대화형 `init`에는 `--dataset`, `--optimizer`, `--yes`가 필요합니다. TTY에서는 `.venv/bin/agent-opt init`으로 새 설정만 만들거나 `.venv/bin/agent-opt tui`에서 기존 실험·새 실험·ACE-RTL + CVDP 예제를 선택할 수 있습니다.
+
+복수 Agent/하네스 프로필에서 일부 조합만 실행하려면 실험 TOML에 `[[pairs]]`를 명시하세요. `agent`는 Agent ID, `harness`는 **프로필 ID**입니다. 생략하면 전체 곱을 실행하며, 명시하면 선택한 쌍만 `plan`·`doctor --plan` 예산·`run`에 반영됩니다. [설정 예와 제약](docs/adding-components.md#harness)을 참고하세요. CLI 옵션과 TUI wizard 질문은 그대로이며 TUI의 기존 실험 경로로 열 수 있습니다.
 
 모델 Optimizer에는 환경/credential store에 `AGENT_OPT_MODEL_BASE_URL`, `AGENT_OPT_MODEL_API_KEY`를 두고 필요하면 `AGENT_OPT_MODEL_ID`를 지정합니다. 앱은 `.env`를 자동 로딩하거나 키를 실험 설정에 저장하지 않습니다. OpenCode용 `AGENT_OPT_MODEL` 선택자는 이 API 설정과 별개입니다. 실제 모델/데이터 준비는 [ACE-RTL 예제](examples/ace-rtl/README.md), [사용자·팀 개발자 가이드](https://wontaeJeong.github.io/agent-optimizer/), [현재 구현 상태](docs/status.md)를 확인하세요.
 

@@ -11,17 +11,19 @@ private 자료를 제외한 validation 수치만 반환한다. baseline train �
 | `contracts.py` | Agent/Candidate/Task, RunRequest/ExecutionResult/Evaluation, Optimizer 계약 |
 | `config.py`, `registry.py`, `readiness.py` | TOML·과제·호환성 검사, 중앙 Python `file.py:Symbol` 등록, 선택 데이터셋/계획의 읽기 전용 진단 |
 | `datasets.py`, `examples/benchmarks/` | 고정 Git source·명시적 dataset 준비, CVDP/Verilog-Eval 평가 자료의 공개/비공개 경계 |
-| `runner.py` | Agent × Harness 그룹, 독립 stage, train/validation/test·예산 소유 |
+| `runner.py` | 기본 전체 곱 또는 실험의 선택된 Agent–Harness 그룹, 독립 stage, train/validation/test·예산 소유 |
 | `sources.py`, `workspace.py` | 원본 보존, editable 스냅샷·hash·diff·계보·산출물 경계 |
 | `process.py`, `models.py` | argv 프로세스/timeout, 모델 요청 전체 deadline worker |
 | `objectives.py`, `results.py`, `report_model.py`, `html_report.py` | lexicographic keep=1·mean/sum 집계, v1 기록의 보고서 정규화·Markdown/독립 HTML/CSV 출력 |
 | `setup_wizard.py`, `session.py`, `terminal_report.py`, `cli.py` | 사용자 dataset 선택·팀 컴포넌트 탐색·설정 생성·복수 데이터셋 독립 프로세스 실행·TUI/CLI 진행 화면 |
 
-복수 Agent/Harness 전체 조합을 유지하며 모든 Agent가 모든 adapter를 지원해야 한다.
-독립 Agent와 내부 sub-agent는 별개다. 조합별 후보·결과를 분리하며 임의 pair matrix는 없다.
+`[[pairs]]`가 없으면 Agent 우선 순서의 전체 곱이며 모든 Agent가 모든 프로필의 adapter를 지원해야 한다.
+명시하면 `agent`는 Agent ID, `harness`는 프로필 ID로 선택한 쌍만 선언 순서대로 실행한다.
+알 수 없는 ID·중복·미지원 쌍과 쌍에 사용하지 않은 Agent/프로필은 설정 로드에서 거부한다.
+`plan` matrix, `doctor`·실행 예산, 실제 그룹이 같은 선택을 사용한다. 독립 Agent와 내부 sub-agent는 별개이며 그룹별 후보·결과를 분리한다.
 팀 확장은 `experiments/<team>/`, 도메인 연결은 `examples/`에 둔다. 별도 pipeline/plugin manager는 없다.
 여러 dataset을 선택하면 서로 다른 evaluator를 가진 독립 run을 session 안에서 기본 최대 2개까지
-병렬 실행한다(`run-session --jobs N`). 단일 run의 Agent×Harness 조합·stage·과제/반복은 순차 실행한다.
+병렬 실행한다(`run-session --jobs N`). 단일 run의 선택된 Agent–Harness 쌍·stage·과제/반복은 순차 실행한다.
 session index는 각 `report.html`을 연결하지만 이질적 점수를 하나로 순위화하지 않는다.
 
 ## 격리와 평가
