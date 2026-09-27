@@ -53,7 +53,8 @@ Agent의 전체 토큰/비용은 미수집이면 `null`; Optimizer usage와 혼�
 ## 2026-09-27 한정 실행 결과
 
 Mac ARM64에서 승인된 DeepSeek `deepseek-flash` Agent와 OpenAI `gpt-5.4`
-Optimizer를 **한 번** 호출했습니다. `runs/20260927T161048Z-0acbf977`은
+Optimizer로 **실험을 한 번 실행**했습니다. Optimizer 모델 제안은 GEPA·Meta
+각 1회(총 2회)였고 Ecdysis 모델 호출은 없었습니다. `runs/20260927T161048Z-0acbf977`은
 `synthetic=false`, **9/16 trial 사용 후 `status=error`**입니다. QAM16 train의
 Agent 모델 요청 두 건은 60초 제한에서 `infrastructure_error`/`passed=null`,
 공식 raw 없음으로 종료됐습니다. GEPA/Meta의 개별 validation은 공식 raw 각 1/1
