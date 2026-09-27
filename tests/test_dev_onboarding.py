@@ -512,6 +512,36 @@ exit 2
         self.assertEqual(json.loads(result.stdout), {"ready": False})
         self.assertIn("arg:--json\narg:--platform\narg:linux/arm64\n", self.trace_text())
 
+    def test_make_args_never_execute_shell_or_nested_make_functions(self):
+        self.write_executable(self.root / ".venv/bin/python", '''
+case "$1" in -I) exit 0;; esac
+printf 'arg:%s\\n' "$@" >> "$TRACE"
+''')
+        marker = self.outside / "injected"
+        for value in (f'--core; /usr/bin/touch "{marker}"',
+                      f'--json $(shell /usr/bin/touch "{marker}")',
+                      '--platform "linux/arm64'):
+            with self.subTest(value=value):
+                result = self.invoke("doctor", "ARGS=" + value, make=True)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertEqual(self.trace_text(), "")
+
+    def test_make_args_preserve_quoted_platform_and_dataset_options(self):
+        self.write_executable(self.root / ".venv/bin/python", '''
+case "$1" in -I) exit 0;; esac
+printf 'arg:%s\\n' "$@" >> "$TRACE"
+''')
+        for value, expected in (('--json --platform "linux/arm64"',
+                                 'arg:--json\narg:--platform\narg:linux/arm64\n'),
+                                ("--dataset 'verilog-spec' --json",
+                                 'arg:--dataset\narg:verilog-spec\narg:--json\n')):
+            with self.subTest(value=value):
+                result = self.invoke("doctor", "ARGS=" + value, make=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(expected, self.trace_text())
+                self.trace.write_text("")
+
     def test_venv_symlink_identity_and_sentinel_survive_setup(self):
         venv.EnvBuilder(with_pip=False, symlinks=True).create(self.root / ".venv")
         sentinel = self.root / ".venv/keep"

@@ -174,6 +174,42 @@ stop_setup_progress() {
 command=${1:-help}
 [ "$#" -eq 0 ] || shift
 json_output=false
+if [ "${1:-}" = --make-args ]; then
+    [ "$#" -eq 2 ] || fail 'Make ARGS requires one argument string'
+    remaining=$2
+    set --
+    word=
+    quoted=
+    started=false
+    tab=$(printf '\t')
+    newline='
+'
+    # Parse only argument grouping; never hand the input back to a shell parser.
+    while [ -n "$remaining" ]; do
+        character=${remaining%"${remaining#?}"}
+        remaining=${remaining#?}
+        case "$character" in
+            '$'|'`'|';'|'|'|'&'|'<'|'>'|'('|')'|'\'|"$newline")
+                fail 'Make ARGS accepts options, not shell operations' ;;
+        esac
+        if [ -n "$quoted" ]; then
+            if [ "$character" = "$quoted" ]; then quoted=; else word=$word$character; fi
+        else
+            case "$character" in
+                "'"|'"') quoted=$character; started=true ;;
+                ' '|"$tab")
+                    if [ "$started" = true ]; then
+                        set -- "$@" "$word"
+                        word=
+                        started=false
+                    fi ;;
+                *) word=$word$character; started=true ;;
+            esac
+        fi
+    done
+    [ -z "$quoted" ] || fail 'Make ARGS has an unclosed quote'
+    if [ "$started" = true ]; then set -- "$@" "$word"; fi
+fi
 for option do
     if [ "$option" = --json ]; then json_output=true; fi
 done
