@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" viewBox="0 0 760 330">
+  <title id="title">팀 코드와 Agent·평가기의 컴포넌트 경계</title>
+  <desc id="desc">팀은 Dataset, Harness, Optimizer, Evaluator를 experiments 디렉터리에 구현하고 contracts.py의 공통 계약과 registry.py의 명시적 ID 등록을 사용한다. 두 경로가 Runner에 모인다. Runner가 공개 과제 입력을 Agent 작업공간에 전달하지만 별도 평가 자료는 Evaluator 작업공간으로 분리한다.</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#245d73"/></marker><style>.bg{fill:#f5f8fb}.box{fill:#fff;stroke:#31566b;stroke-width:2}.team{fill:#e1f4fa}.separate{fill:#e9f3e9}.label{font:600 17px system-ui,sans-serif;fill:#142b3b}.small{font:14px system-ui,sans-serif;fill:#263b49}.edge{fill:none;stroke:#245d73;stroke-width:2.5;marker-end:url(#arrow)}</style></defs>
+  <rect class="bg" width="760" height="330" rx="12"/>
+  <path class="edge" d="M200 72 H240"/><path class="edge" d="M110 160 V242 H240"/>
+  <path class="edge" d="M400 72 H425 V148 H450"/><path class="edge" d="M400 242 H425 V171 H450"/>
+  <path class="edge" d="M580 146 H590 V72 H610"/><path class="edge" d="M580 176 H590 V242 H610"/>
+  <rect class="box team" x="20" y="40" width="180" height="120" rx="9"/><text class="label" x="72" y="73">팀 코드</text><text class="small" x="36" y="102">Dataset · Harness</text><text class="small" x="36" y="125">Optimizer · Evaluator</text><text class="small" x="36" y="146">experiments/&lt;team&gt;</text>
+  <rect class="box" x="240" y="40" width="160" height="65" rx="9"/><text class="label" x="262" y="68">contracts.py</text><text class="small" x="283" y="90">공통 계약</text>
+  <rect class="box" x="240" y="210" width="160" height="65" rx="9"/><text class="label" x="269" y="237">registry.py</text><text class="small" x="249" y="259">ID → 구현 파일 등록</text>
+  <rect class="box" x="450" y="120" width="130" height="80" rx="9"/><text class="label" x="488" y="153">Runner</text><text class="small" x="461" y="177">실행·기록 조정</text>
+  <rect class="box team" x="610" y="40" width="140" height="65" rx="9"/><text class="label" x="633" y="68">Agent 공간</text><text class="small" x="637" y="90">공개 입력</text>
+  <rect class="box separate" x="610" y="210" width="140" height="65" rx="9"/><text class="label" x="622" y="237">Evaluator 공간</text><text class="small" x="624" y="259">채점 자료 분리</text>
+  <text class="small" x="20" y="312">로컬 팀 플러그인은 신뢰한 Python 코드이며 별도 OS 격리를 자동 제공하지 않습니다.</text>
+</svg>
