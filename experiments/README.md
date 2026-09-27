@@ -15,3 +15,8 @@
 먼저 [코어 개발환경](../README.md#개발환경-빠른-시작)을 준비하세요.
 공통 규칙은 [확장 계약](../docs/adding-components.md), 선택적 모델 예제는
 [simple-feedback](simple-feedback/README.md)입니다. 템플릿 stub은 구현 전 명시적으로 실패합니다.
+복사 후 등록 파일 경로와 ID를 변경한 다음 `agent-opt plan <실험.toml>` →
+`agent-opt doctor --plan <실험.toml> --json`으로 **선언만** 확인합니다. 작은 fixture 실행은
+`PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_plugin_contracts.py -v`로
+검사하고, 실제 연결은 해당 팀의 Agent/평가기/도구를 준비한 후 작은 `run`의 산출물과
+`report.html` 근거로 별도 검증합니다. 검증 종류별 명령은 [CONTRIBUTING](../CONTRIBUTING.md)을 따릅니다.

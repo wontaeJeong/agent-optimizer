@@ -42,7 +42,7 @@ MESSAGES = {
     "설정한 모델로 반복 최적화 실행(인증 필요)": ("설정한 모델로 반복 최적화 실행(인증 필요)", "Run optimization with a configured model (authentication required)"),
     "대화형 번호 메뉴 열기(TTY 필요, 모델 설정은 세션에서만 유지)": ("대화형 번호 메뉴 열기(TTY 필요, 모델 설정은 세션에서만 유지)", "Open numbered menu (TTY required; model settings remain in session)"),
     "도구 조회나 설치 없이 이 도움말 표시": ("도구 조회나 설치 없이 이 도움말 표시", "Show help without probing or installing tools"),
-    "코어 사전 준비: Git. ACE 전체 준비에는 Docker Engine/Compose도 필요합니다. Python이나 make가 없다면 sh scripts/bootstrap.sh setup --core를 사용하세요. make ARGS는 셸 구문이 아닌 공백 구분 옵션입니다. 따옴표가 필요하면 sh scripts/bootstrap.sh <명령> [옵션]을 사용하세요.": ("코어 사전 준비: Git. ACE 전체 준비에는 Docker Engine/Compose도 필요합니다. Python이나 make가 없다면 sh scripts/bootstrap.sh setup --core를 사용하세요. make ARGS는 셸 구문이 아닌 공백 구분 옵션입니다. 따옴표가 필요하면 sh scripts/bootstrap.sh <명령> [옵션]을 사용하세요.", "Core prerequisite: Git. Full ACE also needs Docker Engine/Compose. Without Python or make use sh scripts/bootstrap.sh setup --core. make ARGS uses whitespace-separated data, not shell syntax. For quoted arguments use sh scripts/bootstrap.sh <command> [options]."),
+    "코어 사전 준비: Git. ACE 전체 준비에는 Docker Engine/Compose도 필요합니다. Python이나 make가 없다면 sh scripts/bootstrap.sh setup --core를 사용하세요. make ARGS는 인용된 옵션 값을 허용하지만 셸 코드를 실행하지 않습니다. 복잡한 인수는 sh scripts/bootstrap.sh <명령> [옵션]으로 전달하세요.": ("코어 사전 준비: Git. ACE 전체 준비에는 Docker Engine/Compose도 필요합니다. Python이나 make가 없다면 sh scripts/bootstrap.sh setup --core를 사용하세요. make ARGS는 인용된 옵션 값을 허용하지만 셸 코드를 실행하지 않습니다. 복잡한 인수는 sh scripts/bootstrap.sh <명령> [옵션]으로 전달하세요.", "Core prerequisite: Git. Full ACE also needs Docker Engine/Compose. Without Python or make use sh scripts/bootstrap.sh setup --core. make ARGS accepts quoted option values without running shell code. For complex arguments use sh scripts/bootstrap.sh <command> [options]."),
     "--core/--dataset 없이: ACE 전체 준비; --core: 코어와 합성 fixture; --dataset ID: 선택한 데이터셋 준비. --offline도 캐시 동기화·진단을 수행하며 코어/전체는 데모도 실행합니다.": ("--core/--dataset 없이: ACE 전체 준비; --core: 코어와 합성 fixture; --dataset ID: 선택한 데이터셋 준비. --offline도 캐시 동기화·진단을 수행하며 코어/전체는 데모도 실행합니다.", "Default: full ACE setup; --core: core and synthetic fixture; --dataset ID: selected assets. --offline still syncs and checks; core/full setup also runs the demo."),
     "--core/--dataset 없이: ACE 전체 읽기 전용 진단; --core: 코어 진단; --dataset ID: 선택한 데이터셋 읽기 전용 진단; --model: 실제 API·컨테이너 도구 호출(ACE 전체 전용)": ("--core/--dataset 없이: ACE 전체 읽기 전용 진단; --core: 코어 진단; --dataset ID: 선택한 데이터셋 읽기 전용 진단; --model: 실제 API·컨테이너 도구 호출(ACE 전체 전용)", "Default: read-only full ACE checks; --core: core; --dataset ID: read-only selected assets; --model: real API/container tool calls (full ACE only)"),
     "다운로드·빌드 없이 캐시 재사용; 동기화·진단 및 코어/전체 데모 결과 생성": ("다운로드·빌드 없이 캐시 재사용; 동기화·진단 및 코어/전체 데모 결과 생성", "Reuse caches without download/build; sync, diagnose and generate a demo for core/full setup"),
@@ -61,6 +61,9 @@ MESSAGES = {
     "0. 종료": ("0. 종료", "0. Exit"),
     "│  Agent Optimizer   ·   new optimization experiment     │": ("│  Agent Optimizer   ·   새 최적화 실험             │", "│  Agent Optimizer   ·   new optimization experiment     │"),
     "Experiment name": ("실험 이름", "Experiment name"),
+    "실험 이름은 영문·숫자로 시작하고 영문·숫자·_·.·-만 사용할 수 있습니다": (
+        "실험 이름은 영문·숫자로 시작하고 영문·숫자·_·.·-만 사용할 수 있습니다",
+        "Experiment name must start with a letter/digit and contain only letters, digits, _, . or -"),
     "Agent source directory or pinned Git URL": ("Agent 소스 디렉터리 또는 고정 Git URL", "Agent source directory or pinned Git URL"),
     "Git commit (leave blank for local source)": ("Git commit (로컬 소스이면 빈칸)", "Git commit (leave blank for local source)"),
     "Agent execution argv (e.g. python agent.py {task_dir})": ("Agent 실행 인수 (예: python agent.py {task_dir})", "Agent execution argv (e.g. python agent.py {task_dir})"),
@@ -81,6 +84,97 @@ MESSAGES = {
     "Choose one or more listed optimizer numbers": ("목록에서 Optimizer 번호를 하나 이상 고르세요", "Choose one or more listed optimizer numbers"),
     "Choose one or more listed optimizers": ("목록에서 Optimizer를 하나 이상 고르세요", "Choose one or more listed optimizers"),
     "Choose a listed harness number": ("목록의 하네스 번호를 고르세요", "Choose a listed harness number"),
+    "목록의 데이터셋 번호 또는 로컬 tasks.json 경로를 입력하세요": (
+        "목록의 데이터셋 번호 또는 로컬 tasks.json 경로를 입력하세요",
+        "Choose a listed dataset number or a local tasks.json path"),
+    "잘못된 Agent 실행 명령": ("잘못된 Agent 실행 명령", "Invalid Agent execution command"),
+    "결과: runs/<run-id>/report.html. 의존성 다운로드가 가능하며 ACE 전체는 Docker 자산도 준비합니다.": (
+        "결과: runs/<run-id>/report.html. 의존성 다운로드가 가능하며 ACE 전체는 Docker 자산도 준비합니다.",
+        "Result: runs/<run-id>/report.html. Dependencies may download; full ACE prepares Docker assets."),
+    "실제 모델 API 호출은 --model에서만 수행합니다. ready는 Agent 실행 성공이 아닙니다; 설치하지 않습니다.": (
+        "실제 모델 API 호출은 --model에서만 수행합니다. ready는 Agent 실행 성공이 아닙니다; 설치하지 않습니다.",
+        "Actual model API calls require --model. Ready does not prove Agent execution; no installation."),
+    "unittest를 기존 .venv에서 실행합니다. 설치 없이 실패하면 setup --core로 복구하세요.": (
+        "unittest를 기존 .venv에서 실행합니다. 설치 없이 실패하면 setup --core로 복구하세요.",
+        "Run unittest in the existing .venv. No installation; repair with setup --core."),
+    "Ruff를 기존 .venv에서 실행합니다. 설치 없이 실패하면 setup --core로 복구하세요.": (
+        "Ruff를 기존 .venv에서 실행합니다. 설치 없이 실패하면 setup --core로 복구하세요.",
+        "Run Ruff in the existing .venv. No installation; repair with setup --core."),
+    "합성 fixture의 report.html을 runs/<run-id>/에 생성합니다. 실제 모델·공식 평가가 아닙니다.": (
+        "합성 fixture의 report.html을 runs/<run-id>/에 생성합니다. 실제 모델·공식 평가가 아닙니다.",
+        "Write a synthetic fixture report.html in runs/<run-id>/; not actual model/official evaluation."),
+    "공식 CVDP 정답·오답과 실도구를 검사합니다. 모델 호출은 없으며 전체 setup이 먼저 필요합니다.": (
+        "공식 CVDP 정답·오답과 실도구를 검사합니다. 모델 호출은 없으며 전체 setup이 먼저 필요합니다.",
+        "Check official CVDP positive/negative cases and real tools; no model calls; requires full setup."),
+    "실제 모델·Agent·공식 평가를 실행합니다. 전체 setup과 모델 인증이 필요합니다.": (
+        "실제 모델·Agent·공식 평가를 실행합니다. 전체 setup과 모델 인증이 필요합니다.",
+        "Run the actual model, Agent and official evaluation; requires full setup and credentials."),
+    "TTY에서만 실행하며 시작만으로 설치·모델 호출을 하지 않습니다.": (
+        "TTY에서만 실행하며 시작만으로 설치·모델 호출을 하지 않습니다.",
+        "Requires TTY; starting the menu does not install or call a model."),
+    "도구 조회·설치 없이 도움말만 표시합니다.": (
+        "도구 조회·설치 없이 도움말만 표시합니다.", "Show help without probing or installing tools."),
+    "고정 Git·데이터·Python driver·Docker 공식 채점 필요": (
+        "고정 Git·데이터·Python driver·Docker 공식 채점 필요",
+        "Pinned Git/data, Python driver, Docker official scorer required"),
+    "고정 Git·데이터·Docker/Icarus 평가 필요": (
+        "고정 Git·데이터·Docker/Icarus 평가 필요", "Pinned Git/data and Docker/Icarus evaluation required"),
+    "합성 fixture · 모델/Docker 불필요 · 내장 과제·채점기": (
+        "합성 fixture · 모델/Docker 불필요 · 내장 과제·채점기",
+        "Synthetic fixture · no model/Docker · bundled tasks/scorer"),
+    "팀 제공 데이터·채점기/준비 조건 확인": (
+        "팀 제공 데이터·채점기/준비 조건 확인", "Team dataset · check scorer/preparation requirements"),
+    "로컬 tasks.json은 별도 evaluator.py:Symbol이 필요합니다": (
+        "로컬 tasks.json은 별도 evaluator.py:Symbol이 필요합니다",
+        "Local tasks.json requires a separate evaluator.py:Symbol"),
+    "변경 없음 · 모델 API 불필요": ("변경 없음 · 모델 API 불필요", "No mutation · no model API"),
+    "변형 파일/설정 필요 · 모델 API 불필요": (
+        "변형 파일/설정 필요 · 모델 API 불필요", "Variant files/config needed · no model API"),
+    "모델 API·train 과제·수정 가능 텍스트 파일 필요": (
+        "모델 API·train 과제·수정 가능 텍스트 파일 필요", "Model API, train tasks and editable text file required"),
+    "모델 API·train 과제·수정 가능 .py 파일 필요": (
+        "모델 API·train 과제·수정 가능 .py 파일 필요", "Model API, train tasks and editable .py file required"),
+    "팀 구현 · 의존성/추가 파일 확인": (
+        "팀 구현 · 의존성/추가 파일 확인", "Team implementation · check dependencies/extra files"),
+    "합성 예제 전용 · 외부 모델/도구 불필요": (
+        "합성 예제 전용 · 외부 모델/도구 불필요", "Synthetic example only · no external model/tool"),
+    "Agent 실행 argv 입력 · 외부 도구/모델은 지정한 명령에 따름": (
+        "Agent 실행 argv 입력 · 외부 도구/모델은 지정한 명령에 따름",
+        "Supply Agent argv · external tool/model depends on your command"),
+    "OpenCode CLI·모델 선택자/인증 필요": (
+        "OpenCode CLI·모델 선택자/인증 필요", "OpenCode CLI and model selector/credentials required"),
+    "Claude Code CLI·인증/모델 필요": (
+        "Claude Code CLI·인증/모델 필요", "Claude Code CLI, credentials and model required"),
+    "팀 구현 · 전용 프로필/도구 확인": (
+        "팀 구현 · 전용 프로필/도구 확인", "Team implementation · check dedicated profile/tools"),
+    "수정 가능 경로": ("수정 가능 경로", "Editable paths"),
+    "준비 작업": ("준비 작업", "Preparation"),
+    "선택한 합성 fixture·채점기 사용; 고정 데이터셋 다운로드 없음": (
+        "선택한 합성 fixture·채점기 사용; 고정 데이터셋 다운로드 없음",
+        "No pinned dataset download for the selected fixture; use bundled tasks/scorer"),
+    "로컬 tasks.json·명시적 채점기를 확인; 팀 provider가 있으면 추가 조건 확인": (
+        "로컬 tasks.json·명시적 채점기를 확인; 팀 provider가 있으면 추가 조건 확인",
+        "Check local tasks.json and explicit scorer; check any team provider requirements"),
+    "선택한 과제·채점기 준비; 팀 provider의 다운로드/도구 조건은 구현 확인": (
+        "선택한 과제·채점기 준비; 팀 provider의 다운로드/도구 조건은 구현 확인",
+        "Prepare selected tasks/scorer; check team provider download/tool requirements"),
+    "선택한 데이터셋의 과제·채점기 준비; 고정 데이터셋에는 다운로드·Docker 빌드 가능": (
+        "선택한 데이터셋의 과제·채점기 준비; 고정 데이터셋에는 다운로드·Docker 빌드 가능",
+        "Prepare selected tasks/scorer; pinned datasets may download data and build Docker images"),
+    "기본 예산": ("기본 예산", "Default budget"),
+    "예약 trial 수": ("예약 trial 수", "reserved trials"),
+    "모델·도구 호출": ("모델·도구 호출", "Model/tool calls"),
+    "합성 fixture는 외부 모델/도구를 호출하지 않음": (
+        "합성 fixture는 외부 모델/도구를 호출하지 않음",
+        "Synthetic fixture does not call an external model/tool"),
+    "실행 시 모델/외부 도구 호출 가능; 설정 생성만으로는 호출하지 않음": (
+        "실행 시 모델/외부 도구 호출 가능; 설정 생성만으로는 호출하지 않음",
+        "Run may call a model/external tool; config generation alone does not"),
+    "Agent 실행 명령에 따라 외부 도구/모델 호출 가능; 설정 생성만으로는 호출하지 않음": (
+        "Agent 실행 명령에 따라 외부 도구/모델 호출 가능; 설정 생성만으로는 호출하지 않음",
+        "Agent command may call an external tool/model; config generation alone does not"),
+    "설정 위치": ("설정 위치", "Configuration path"),
+    "예상 보고서": ("예상 보고서", "Expected report"),
     "Experiment cancelled without preparing data": ("데이터 준비 전에 실험을 취소했습니다", "Experiment cancelled without preparing data"),
     "Docker·ACE 평가/모델 실행 자산이 필요하면 먼저 7번 ACE 전체 환경 준비를 선택하세요.": ("Docker·ACE 평가/모델 실행 자산이 필요하면 먼저 7번 ACE 전체 환경 준비를 선택하세요.", "If you need Docker and ACE evaluation/model assets, choose full ACE setup (option 7) first."),
     "이 작업은 doctor --model로 실제 모델 API·컨테이너 도구를 호출합니다. 설정은 현재 세션에만 유지됩니다.": ("이 작업은 doctor --model로 실제 모델 API·컨테이너 도구를 호출합니다. 설정은 현재 세션에만 유지됩니다.", "This runs doctor --model against the actual model API and container tools. Settings remain in this session only."),
@@ -225,6 +319,12 @@ MESSAGES = {
                                            "Prepare the ACE-RTL integration? [y/N]: "),
     "실험 준비를 취소했습니다": ("실험 준비를 취소했습니다", "Experiment preparation cancelled"),
     "기존 experiment.toml 경로: ": ("기존 experiment.toml 경로: ", "Existing experiment.toml path: "),
+    "최근 생성된 실험 설정 (번호 또는 경로 직접 입력):": (
+        "최근 생성된 실험 설정 (번호 또는 경로 직접 입력):",
+        "Recently created experiment configs (number or explicit path):"),
+    "최근 생성 설정이 없습니다. 경로를 직접 입력하세요.": (
+        "최근 생성 설정이 없습니다. 경로를 직접 입력하세요.", "No recent generated config; enter a path."),
+    "목록의 설정 번호를 선택하세요": ("목록의 설정 번호를 선택하세요", "Choose a listed config number"),
     "실험 설정 경로를 입력하세요": ("실험 설정 경로를 입력하세요", "Enter an experiment configuration path"),
     "실험 설정": ("실험 설정", "Experiment config"),
     "계획 진단": ("계획 진단", "Plan readiness"),
@@ -247,6 +347,16 @@ MESSAGES = {
     "설정 만들기가 중단되었습니다": ("설정 만들기가 중단되었습니다", "Configuration creation interrupted"),
     "설정 생성": ("설정 생성", "Configuration created"),
     "다음": ("다음", "Next"),
+    "결과 HTML": ("결과 HTML", "Result HTML"),
+    "정적 계획 확인; 실행 성공 아님": ("정적 계획 확인; 실행 성공 아님", "Static plan check; not an execution result"),
+    "계획 진단은 정적 검사입니다. Agent·채점기·모델 실행은 확인하지 않았습니다.": (
+        "계획 진단은 정적 검사입니다. Agent·채점기·모델 실행은 확인하지 않았습니다.",
+        "Plan diagnosis is static; Agent, scorer and model execution were not checked."),
+    "--model은 모델 API 연결을 호출하지만 Agent 실행 성공은 확인하지 않습니다.": (
+        "--model은 모델 API 연결을 호출하지만 Agent 실행 성공은 확인하지 않습니다.",
+        "--model calls the model API but does not verify Agent execution."),
+    "저장된 자료로 재생성할 때만": (
+        "저장된 자료로 재생성할 때만", "Only when rebuilding from stored data"),
     "각 데이터셋의 계획 진단": ("각 데이터셋의 계획 진단", "check each dataset plan"),
     "final doctor": ("최종 진단", "final doctor"),
     "minimal demo": ("최소 데모", "minimal demo"),
@@ -464,6 +574,7 @@ _DEVELOPMENT_KO = {
     "Agent argv must be a nonempty string array": "Agent 실행 인수는 비어 있지 않은 문자열 배열이어야 합니다",
     "Inspect the choices then pass --yes to confirm preparation": "선택 항목을 확인한 뒤 --yes로 준비를 승인하세요",
     "A pinned Git Agent requires a revision": "고정 Git Agent에는 commit revision이 필요합니다",
+    "git source requires url and a full commit SHA; branch/tag names are not accepted": "Git 소스에는 전체 commit SHA가 필요합니다. branch/tag 이름은 사용할 수 없습니다",
     "--model requires --plan": "--model에는 --plan이 필요합니다",
     "run-session requires at least two prepared experiments": "run-session에는 준비된 실험이 최소 두 개 필요합니다",
     "TUI cancelled:": "TUI 취소:",

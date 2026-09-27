@@ -136,7 +136,7 @@ class TerminalLanguageTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Development commands:", result.stdout)
         self.assertIn("Default: read-only full ACE checks", result.stdout)
-        self.assertIn("make ARGS uses whitespace-separated data", result.stdout)
+        self.assertIn("make ARGS accepts quoted option values without running shell code", result.stdout)
         self.assertNotIn("개발 명령:", result.stdout)
 
     def test_english_developer_setup_option_help(self):
