@@ -564,6 +564,44 @@ printf 'arg:%s\\n' "$@" >> "$TRACE"
                 self.assertIn(expected, self.trace_text())
                 self.trace.write_text("")
 
+    def test_run_demo_uses_project_venv_or_points_to_setup(self):
+        shutil.copyfile(ROOT / "scripts/run_demo.sh", self.root / "scripts/run_demo.sh")
+        script = self.root / "scripts/run_demo.sh"
+        environment = {**self.environment, "PATH": self.environment["PATH"] + os.pathsep + os.defpath}
+        missing = subprocess.run(["bash", str(script)], cwd=self.outside, env=environment,
+                                 capture_output=True, text=True, timeout=10)
+        self.assertEqual(missing.returncode, 2)
+        self.assertIn("setup-core", missing.stderr)
+        self.write_executable(self.root / ".venv/bin/python", '''
+printf 'arg:%s\\n' "$@" >> "$TRACE"
+''')
+        available = subprocess.run(["bash", str(script)], cwd=self.outside, env=environment,
+                                   capture_output=True, text=True, timeout=10)
+        self.assertEqual(available.returncode, 0, available.stderr)
+        self.assertIn("arg:-m\narg:agent_optimizer\narg:run\narg:examples/minimal/experiment.toml",
+                      self.trace_text())
+
+    def test_wheel_selection_rejects_absent_stale_and_multiple_builds(self):
+        import zipfile
+
+        installed = module("installed_cli_wheel", ROOT / "tests/test_installed_cli.py")
+        with tempfile.TemporaryDirectory() as directory:
+            wheels = Path(directory)
+            with self.assertRaises(ValueError):
+                installed.current_wheel(wheels)
+            version = installed.expected_version()
+            current = wheels / f"agent_optimizer-{version}-py3-none-any.whl"
+            with zipfile.ZipFile(current, "w") as archive:
+                archive.writestr(f"agent_optimizer-{version}.dist-info/METADATA",
+                                 f"Name: agent-optimizer\nVersion: {version}\n")
+            self.assertEqual(installed.current_wheel(wheels), current)
+            stale = wheels / "agent_optimizer-0.0.0-py3-none-any.whl"
+            with zipfile.ZipFile(stale, "w") as archive:
+                archive.writestr("agent_optimizer-0.0.0.dist-info/METADATA",
+                                 "Name: agent-optimizer\nVersion: 0.0.0\n")
+            with self.assertRaises(ValueError):
+                installed.current_wheel(wheels)
+
     def test_venv_symlink_identity_and_sentinel_survive_setup(self):
         venv.EnvBuilder(with_pip=False, symlinks=True).create(self.root / ".venv")
         sentinel = self.root / ".venv/keep"

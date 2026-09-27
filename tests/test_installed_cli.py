@@ -8,11 +8,40 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import venv
+import zipfile
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def expected_version() -> str:
+    with (ROOT / "pyproject.toml").open("rb") as stream:
+        return tomllib.load(stream)["project"]["version"]
+
+
+def current_wheel(directory: Path) -> Path:
+    """Require exactly one wheel built for the current project version."""
+    candidates = list(directory.glob("*.whl"))
+    version = expected_version()
+    if len(candidates) != 1 or not candidates[0].name.startswith(f"agent_optimizer-{version}-"):
+        raise ValueError(f"{directory}에 현재 버전 {version}의 wheel 하나만 있어야 합니다")
+    wheel = candidates[0]
+    try:
+        with zipfile.ZipFile(wheel) as archive:
+            names = [name for name in archive.namelist()
+                     if name.endswith(".dist-info/METADATA")]
+            if len(names) != 1:
+                raise ValueError("wheel METADATA가 정확히 하나여야 합니다")
+            metadata = archive.read(names[0]).decode("utf-8")
+            if (f"Name: agent-optimizer\n" not in metadata + "\n" or
+                    f"Version: {version}\n" not in metadata + "\n"):
+                raise ValueError(f"wheel 이름/버전이 pyproject.toml의 {version}과 다릅니다")
+    except (OSError, zipfile.BadZipFile, UnicodeError) as exc:
+        raise ValueError(f"읽을 수 없는 wheel: {wheel}") from exc
+    return wheel
 
 
 def invoke(cli: Path, project: Path, environment: dict, *args: str) -> dict:
@@ -121,4 +150,5 @@ def main(wheel: Path) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(main(Path(sys.argv[1])))
+    argument = Path(sys.argv[1])
+    raise SystemExit(main(current_wheel(argument) if argument.is_dir() else argument))
