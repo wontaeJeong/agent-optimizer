@@ -1,9 +1,12 @@
 """API-free checks for the explicitly selected research CVDP example."""
 import json
+import hashlib
 import os
 import shutil
+import threading
 import unittest
-from contextlib import redirect_stderr, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -11,12 +14,69 @@ from unittest.mock import patch
 
 from agent_optimizer.cli import main as agent_opt
 from agent_optimizer.config import load_experiment
-from agent_optimizer.contracts import ConfigurationError, RunRequest
+from agent_optimizer.contracts import ConfigurationError, RunRequest, UnavailableError
 from agent_optimizer.registry import Registry
+from agent_optimizer.runner import run_experiment
 from support import ROOT, module, test_project
 
 
 EXAMPLE = ROOT / "examples/model-rtl-agent/prepare.py"
+RTL = "module example(output logic ready); assign ready = 1'b1; endmodule\n"
+
+
+@contextmanager
+def loopback_model(*, invalid_agent=False, invalid_optimizer=False):
+    requests = []
+    original_code = (ROOT / "examples/model-rtl-agent/agent/src/agent.py").read_text()
+    repaired_code = original_code.replace(
+        "output.write_text(text, encoding=\"utf-8\")",
+        f"output.write_text(text.replace('module broken', {RTL!r}), encoding=\"utf-8\")",
+    )
+    assert repaired_code != original_code
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_args):
+            pass
+
+        def do_POST(self):
+            body = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
+            requests.append({"path": self.path, "auth": self.headers.get("Authorization"), **body})
+            system = body["messages"][0]["content"]
+            user = body["messages"][1]["content"]
+            if body["model"] == "fixture-agent":
+                content = (None if invalid_agent else RTL if "REPAIRED_PROMPT" in system
+                           or "rtl/first.v" in user else "module broken")
+            elif invalid_optimizer:
+                content = json.dumps({"content": ""})
+            elif "Ecdysis analyst:" in system:
+                content = json.dumps({"spec": "Repair the shared train RTL failure."})
+            elif "Ecdysis moderator:" in system:
+                content = json.dumps({"spec": "Keep the public target interface."})
+            elif "GEPA reflection:" in system:
+                content = json.dumps({"content": system_prompt + "\nREPAIRED_PROMPT\n"})
+            elif "Meta-Harness:" in system or "Ecdysis editor:" in system:
+                content = json.dumps({"content": repaired_code})
+            else:
+                content = json.dumps({"content": ""})
+            payload = json.dumps({"id": "fixture-chat", "object": "chat.completion",
+                                  "choices": [{"index": 0, "message": {"role": "assistant", "content": content},
+                                               "finish_reason": "stop"}]}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+    system_prompt = (ROOT / "examples/model-rtl-agent/agent/prompts/system.md").read_text()
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker.start()
+    try:
+        yield f"http://127.0.0.1:{server.server_port}/v1", requests
+    finally:
+        server.shutdown()
+        server.server_close()
+        worker.join()
 
 
 def task(identifier, split, family, targets):
@@ -72,6 +132,188 @@ class ResearchCVDPExampleTests(unittest.TestCase):
         selected.assert_called_once_with(self.root, "cvdp", offline=True)
         return result
 
+    def offline_spec(self):
+        spec = load_experiment(self.prepare())
+        evaluator = self.root / "experiments/public_rtl_fixture.py"
+        evaluator.write_text('''from pathlib import Path
+from agent_optimizer.contracts import Evaluation
+
+class PublicRTLEvaluator:
+    def __init__(self, config):
+        pass
+
+    def evaluate(self, task, output_dir: Path, timeout_seconds):
+        target, = task.evaluation["targets"]
+        files = [p.relative_to(output_dir).as_posix() for p in output_dir.rglob("*") if p.is_file()]
+        if files != [target]:
+            return Evaluation("failed", {"passed": 0.0}, "Unexpected public outputs")
+        good = (output_dir / target).read_text(encoding="utf-8") == "module example(output logic ready); assign ready = 1'b1; endmodule\\n"
+        return Evaluation("passed" if good else "failed", {"passed": float(good)},
+                          "Public RTL fixture exact match" if good else "Public RTL fixture mismatch")
+''', encoding="utf-8")
+        spec["evaluator"] = "public_rtl_fixture"
+        spec["plugins"].setdefault("evaluators", {})["public_rtl_fixture"] = (
+            "experiments/public_rtl_fixture.py:PublicRTLEvaluator")
+        return spec
+
+    @staticmethod
+    def fixture_environment(url):
+        return {"AGENT_OPT_MODEL_BASE_URL": url, "AGENT_OPT_MODEL_ID": "fixture-optimizer",
+                "AGENT_OPT_MODEL_API_KEY": "optimizer-fixture-token",
+                "DEMO_AGENT_MODEL_BASE_URL": url, "DEMO_AGENT_MODEL_ID": "fixture-agent",
+                "DEMO_AGENT_MODEL_API_KEY": "agent-fixture-token"}
+
+    def test_loopback_stages_run_snapshot_code_with_train_only_evidence(self):
+        spec = self.offline_spec()
+        original = {path: path.read_bytes() for path in (
+            self.root / "examples/model-rtl-agent/agent/src/agent.py",
+            self.root / "examples/model-rtl-agent/agent/prompts/system.md",
+            self.root / "experiments/public_rtl_fixture.py", self.benchmark, self.private)}
+        with loopback_model() as (url, requests), patch.dict(os.environ, self.fixture_environment(url), clear=True):
+            run, summary = run_experiment(spec, Registry(), self.root / "offline-runs")
+        group = summary["groups"][0]
+        self.assertEqual(summary["status"], "completed")
+        self.assertEqual([stage["id"] for stage in group["stages"]], ["gepa", "meta", "ecdysis"])
+        self.assertEqual([stage["status"] for stage in group["stages"]], ["completed"] * 3)
+        self.assertEqual(spec["budget"]["max_trials"], 16)
+        self.assertEqual(summary["trials_used"], 12)
+        self.assertEqual(summary["trials_used"], group["trial_count"])
+        self.assertFalse(spec["final_test"])
+        self.assertEqual(group["final_test"], [])
+        self.assertEqual(group["baseline"]["metrics"]["solve_rate"], 0.0)
+        self.assertEqual(group["selected"][0]["metrics"]["solve_rate"], 1.0)
+        self.assertEqual([stage["selected"][0]["metrics"]["solve_rate"]
+                          for stage in group["stages"]], [1.0, 1.0, 1.0])
+
+        events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
+        trials = [event for event in events if event["event"] == "trial_completed"]
+        self.assertEqual({row["split"] for row in trials}, {"train", "validation"})
+        baseline_train = [row for row in trials if row["split"] == "train" and row["candidate_id"] == "c0001"]
+        self.assertEqual({row["task_id"]: row["metrics"]["passed"] for row in baseline_train},
+                         {"a-train": 0.0, "z-train": 1.0})
+        self.assertTrue(all(row["valid"] for row in baseline_train))
+        self.assertEqual([row["event"] for row in events if row["event"] == "stage_started"],
+                         ["stage_started"] * 3)
+        self.assertEqual([stage["checkpoint"]["iterations"][0]["accepted"]
+                          for stage in group["stages"][:2]], [True, True])
+        ecdysis = group["stages"][2]["checkpoint"]["rounds"][0]
+        self.assertEqual(ecdysis["status"], "accepted")
+        self.assertEqual(ecdysis["groups"][0]["task_ids"], ["a-train"])
+        self.assertEqual(ecdysis["retained_score"], 1.0)
+
+        group_dir = run / group["agent_id"] / group["harness_id"]
+        candidates = group_dir / "candidates"
+        edits = {"gepa": "prompts/system.md", "meta": "src/agent.py", "ecdysis": "src/agent.py"}
+        baseline_code = (candidates / "c0001/bundle/src/agent.py").read_bytes()
+        for stage in group["stages"]:
+            checkpoint = stage["checkpoint"]
+            candidate_id = (checkpoint["iterations"][0]["candidate_id"] if stage["id"] != "ecdysis"
+                            else checkpoint["rounds"][0]["candidate_id"])
+            candidate = candidates / candidate_id
+            metadata = json.loads((candidate / "candidate.json").read_text())
+            self.assertEqual(metadata["parents"], ["c0001"])
+            self.assertEqual(metadata["changed_files"], [edits[stage["id"]]])
+            diff = (candidate / "changes.diff").read_text()
+            self.assertIn("--- a/" + edits[stage["id"]], diff)
+            self.assertIn("+++ b/" + edits[stage["id"]], diff)
+            self.assertNotIn("--- a/" + ("src/agent.py" if stage["id"] == "gepa"
+                                       else "prompts/system.md"), diff)
+            snapshot = (candidate / "bundle/src/agent.py").read_bytes()
+            if stage["id"] == "gepa":
+                self.assertEqual(snapshot, baseline_code)
+                self.assertIn("REPAIRED_PROMPT", (candidate / "bundle/prompts/system.md").read_text())
+            else:
+                self.assertNotEqual(snapshot, baseline_code)
+            candidate_trials = [row for row in trials if row["candidate_id"] == candidate_id]
+            self.assertEqual({row["split"] for row in candidate_trials}, {"train", "validation"})
+            for trial in candidate_trials:
+                trial_dir = group_dir / "trials" / trial["trial_id"]
+                self.assertEqual((trial_dir / "agent_workspace/agent/src/agent.py").read_bytes(), snapshot)
+                agent_file_sha256 = json.loads(Path(trial["execution"]["stdout_path"]).read_text())[
+                    "agent_file_sha256"]
+                self.assertEqual(agent_file_sha256, hashlib.sha256(snapshot).hexdigest())
+                self.assertEqual(trial["metrics"]["passed"], 1.0)
+                self.assertFalse((trial_dir / "agent_workspace/private").exists())
+                self.assertFalse((trial_dir / "agent_workspace/agent/.env").exists())
+        self.assertEqual(json.loads((group_dir / "frozen_selection.json").read_text()), group["selected"])
+        self.assertTrue(all(path.read_bytes() == content for path, content in original.items()))
+
+        optimizer_calls = [row for row in requests if row["model"] == "fixture-optimizer"]
+        agent_calls = [row for row in requests if row["model"] == "fixture-agent"]
+        self.assertEqual(len(optimizer_calls), 5)  # GEPA, Meta, Ecdysis reviews x2 + edit
+        self.assertEqual(len(agent_calls), len(trials))
+        self.assertTrue(all(row["path"] == "/v1/chat/completions" for row in requests))
+        self.assertEqual({row["auth"] for row in optimizer_calls}, {"Bearer optimizer-fixture-token"})
+        self.assertEqual({row["auth"] for row in agent_calls}, {"Bearer agent-fixture-token"})
+        self.assertNotIn("private-evaluation-fixture", json.dumps(requests))
+        self.assertNotIn("c-validation", json.dumps(optimizer_calls))
+        self.assertNotIn("e-test", json.dumps(optimizer_calls))
+        self.assertNotIn("c0002", json.dumps(optimizer_calls[1:]))
+        self.assertNotIn("c0003", json.dumps(optimizer_calls[2:]))
+        for call in optimizer_calls[:2]:
+            evidence = json.loads(call["messages"][1]["content"])["train"]
+            self.assertEqual(len(evidence), 2)
+            self.assertEqual({row["task_id"] for row in evidence}, {"a-train", "z-train"})
+            self.assertEqual({row.get("candidate_id") for row in evidence}, {None})
+        self.assertEqual([row["event"] for row in events if row["event"] == "optimizer_review_started"],
+                         ["optimizer_review_started"] * 2)
+
+    def test_missing_agent_env_after_static_plan_is_invalid_runner_trial(self):
+        spec = self.offline_spec()
+        spec["stages"] = []
+        spec["final_stages"] = ["baseline"]
+        with loopback_model() as (url, requests), patch.dict(os.environ, {
+                "AGENT_OPT_MODEL_BASE_URL": url, "AGENT_OPT_MODEL_ID": "fixture-optimizer",
+                "AGENT_OPT_MODEL_API_KEY": "optimizer-fixture-token"}, clear=True):
+            run, summary = run_experiment(spec, Registry(), self.root / "offline-runs")
+        records = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()
+                   if '"event": "trial_completed"' in line]
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["status"], "infrastructure_error",
+                         Path(records[0]["execution"]["stderr_path"]).read_text())
+        self.assertFalse(records[0]["valid"])
+        self.assertIsNone(records[0]["metrics"]["passed"])
+        self.assertEqual(records[0]["execution"]["returncode"], 2)
+        self.assertEqual(summary["groups"][0]["selected"], [])
+        self.assertEqual(requests, [])
+
+    def test_invalid_loopback_agent_or_optimizer_reply_never_becomes_a_score(self):
+        for invalid_agent, invalid_optimizer in ((True, False), (False, True)):
+            with self.subTest(agent=invalid_agent, optimizer=invalid_optimizer):
+                if self.config_root.exists():
+                    shutil.rmtree(self.config_root)
+                spec = self.offline_spec()
+                if invalid_agent:
+                    spec["stages"] = []
+                    spec["final_stages"] = ["baseline"]
+                with loopback_model(invalid_agent=invalid_agent, invalid_optimizer=invalid_optimizer) as (url, _), \
+                        patch.dict(os.environ, self.fixture_environment(url), clear=True):
+                    if invalid_optimizer:
+                        previous = set((self.root / "offline-runs").glob("*/summary.json"))
+                        with self.assertRaisesRegex(UnavailableError, "nonempty content"):
+                            run_experiment(spec, Registry(), self.root / "offline-runs")
+                    else:
+                        run, summary = run_experiment(spec, Registry(), self.root / "offline-runs")
+                        self.assertEqual(summary["groups"][0]["selected"], [])
+                if invalid_optimizer:
+                    created = set((self.root / "offline-runs").glob("*/summary.json")) - previous
+                    self.assertEqual(len(created), 1)
+                    run = created.pop().parent
+                    summary = json.loads((run / "summary.json").read_text())
+                    self.assertEqual(summary["status"], "error")
+                    self.assertEqual(summary["groups"][0]["selected"], [])
+                records = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()
+                           if '"event": "trial_completed"' in line]
+                if invalid_agent:
+                    self.assertEqual(len(records), 1)
+                    self.assertEqual(records[0]["status"], "infrastructure_error")
+                    self.assertFalse(records[0]["valid"])
+                    self.assertIsNone(records[0]["metrics"]["passed"])
+                else:
+                    self.assertEqual({row["task_id"] for row in records},
+                                     {"a-train", "z-train", "c-validation"})
+                    self.assertEqual(summary["groups"][0]["stages"][0]["status"], "error")
+
     def test_public_single_rtl_targets_keep_split_family_and_locked_provenance(self):
         original = self.benchmark.read_bytes()
         result = self.prepare()
@@ -88,6 +330,9 @@ class ResearchCVDPExampleTests(unittest.TestCase):
         self.assertNotIn("private-evaluation-fixture", json.dumps(generated))
         self.assertNotIn("row", generated["tasks"][0]["files"])
         self.assertEqual(generated["tasks"][0]["evaluation"]["row"]["id"], "a-train")
+        self.assertTrue(all(row["prompt"].endswith("\nWrite target files: " +
+                                                        row["evaluation"]["targets"][0])
+                            for row in generated["tasks"]))
         self.assertEqual(generated["dataset_provenance"], self.provider["provenance"])
         self.assertEqual(generated["dataset_provider"], "cvdp")
         self.assertFalse(self.subset.exists())
@@ -166,6 +411,8 @@ class ResearchCVDPExampleTests(unittest.TestCase):
         valid = task("a-train", "train", "first", ["rtl/first.v"])
         invalid = (
             {"tasks": None}, {"tasks": {}}, {"tasks": [None]},
+            {"tasks": [*self.tasks, {**valid, "prompt": None}]},
+            {"tasks": [*self.tasks, {key: value for key, value in valid.items() if key != "prompt"}]},
             {"tasks": [{**valid, "evaluation": None}]},
             {"tasks": [{**valid, "files": ["rtl/first.v"]}]},
             {"tasks": [{**valid, "evaluation": {"targets": None}}]},
