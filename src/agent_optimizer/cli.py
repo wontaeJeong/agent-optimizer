@@ -8,7 +8,9 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Literal
@@ -135,6 +137,99 @@ def _tui_model_environment(spec: dict, env: dict[str, str] | None = None) -> dic
     return staged
 
 
+def _history_run(runs_fd: int, parent: str, name: str) -> tuple[str, float] | None:
+    """Check a recorded run through directory-relative, non-following file descriptors."""
+    match = re.fullmatch(r"([0-9]{8}T[0-9]{6}Z)-[0-9a-f]{8}", name)
+    if match is None:
+        return None
+    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+    file_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
+    try:
+        created = datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        with contextlib.ExitStack() as opened:
+            parent_fd = runs_fd
+            if parent:
+                parent_fd = os.open(parent, directory_flags, dir_fd=runs_fd)
+                opened.callback(os.close, parent_fd)
+            run_fd = os.open(name, directory_flags, dir_fd=parent_fd)
+            opened.callback(os.close, run_fd)
+            with os.fdopen(os.open("summary.json", file_flags, dir_fd=run_fd), encoding="utf-8") as stream:
+                if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                    return None
+                summary = json.loads(stream.read(16 * 1024 * 1024 + 1))
+            with os.fdopen(os.open("report.html", file_flags, dir_fd=run_fd), "rb") as stream:
+                if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
+                    return None
+            if (not isinstance(summary, dict) or type(summary.get("schema_version")) is not int
+                    or summary["schema_version"] != 1 or summary.get("run_id") != name
+                    or not isinstance(summary.get("status"), str)
+                    or summary["status"] not in {"running", "completed", "partial",
+                                                 "no_eligible_candidate", "interrupted",
+                                                 "budget_exhausted", "source_error", "error"}
+                    or not isinstance(summary.get("groups"), list)
+                    or type(summary.get("trials_used")) is not int or summary["trials_used"] < 0):
+                return None
+            return summary["status"], created.timestamp()
+    except (OSError, ValueError, UnicodeError, RecursionError):
+        return None
+
+
+def _tui_run_history(project_root: Path) -> int | None:
+    runs = project_root.absolute() / "runs"
+    found = []
+    try:
+        runs_fd = os.open(runs, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError:
+        print(human("실행 기록이 없습니다."), file=sys.stderr)
+        return 0
+    with contextlib.ExitStack() as opened:
+        opened.callback(os.close, runs_fd)
+        for parent in ("", "dev-live"):
+            try:
+                parent_fd = runs_fd if not parent else os.open(
+                    parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=runs_fd)
+            except OSError:
+                continue
+            try:
+                with os.scandir(parent_fd) as children:
+                    for child in children:
+                        if child.name == "configs" or (not parent and child.name == "dev-live"):
+                            continue
+                        recorded = _history_run(runs_fd, parent, child.name)
+                        if recorded is not None:
+                            found.append((recorded[1], parent, child.name, recorded[0]))
+            finally:
+                if parent:
+                    os.close(parent_fd)
+    found.sort(key=lambda row: (-row[0], row[1], row[2]))
+    found = found[:10]
+    if not found:
+        print(human("실행 기록이 없습니다."), file=sys.stderr)
+        return 0
+    for number, (_, parent, name, status) in enumerate(found, 1):
+        report = runs / parent / name / "report.html"
+        print(f"{number}. {name} · {status} · {report}", file=sys.stderr)
+    print(human("실행 번호 (0: 돌아가기): "), end="", file=sys.stderr, flush=True)
+    choice = input().strip()
+    if choice == "0":
+        return None
+    if not choice.isascii() or not choice.isdecimal() or not 1 <= int(choice) <= len(found):
+        raise ConfigurationError(human("목록의 실행 번호를 선택하세요"))
+    _, parent, name, status = found[int(choice) - 1]
+    try:
+        runs_fd = os.open(runs, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    except OSError:
+        raise ConfigurationError(human("보고서를 안전하게 확인할 수 없습니다")) from None
+    try:
+        recorded = _history_run(runs_fd, parent, name)
+    finally:
+        os.close(runs_fd)
+    if recorded is None or recorded[0] != status:
+        raise ConfigurationError(human("보고서를 안전하게 확인할 수 없습니다"))
+    print(f"{human('보고서 경로')}: {runs / parent / name / 'report.html'}", file=sys.stderr)
+    return 0
+
+
 @app.command("plugins")
 def plugins_command(project_root: Path | None = None) -> int:
     """구현된 연동 목록 표시."""
@@ -240,7 +335,7 @@ def init_command(project_root: Path | None = None,
 
 @app.command("tui")
 def tui_command(project_root: Path | None = None) -> int:
-    """기존 실험 선택 또는 새 실험 생성 후 실행(TTY 필요)."""
+    """기존 실험·새 실험 실행 또는 이전 실행 보기(TTY 필요)."""
     return _invoke("tui", project_root=project_root or Path.cwd())
 
 
@@ -451,9 +546,15 @@ def _dispatch(args):
             if not sys.stdin.isatty() or not sys.stderr.isatty():
                 raise ConfigurationError(t("TUI requires a TTY for both input and output"))
             try:
-                print("\n" + human("실험 시작: 1. 기존 실험 실행  2. 새 실험 만들고 실행  3. ACE-RTL + CVDP 예제"), file=sys.stderr)
-                print(human("선택 [1/2/3]: "), end="", file=sys.stderr, flush=True)
-                choice = input().strip()
+                while True:
+                    print("\n" + human("실험 시작: 1. 기존 실험 실행  2. 새 실험 만들고 실행  3. ACE-RTL + CVDP 예제  4. 이전 실행 보기"), file=sys.stderr)
+                    print(human("선택 [1/2/3/4]: "), end="", file=sys.stderr, flush=True)
+                    choice = input().strip()
+                    if choice != "4":
+                        break
+                    history = _tui_run_history(args.project_root)
+                    if history is not None:
+                        return history
                 if choice in {"1", "3"}:
                     if choice == "3":
                         print(human("ACE-RTL 작업공간 경로: "), end="", file=sys.stderr, flush=True)
@@ -493,7 +594,7 @@ def _dispatch(args):
                 elif choice == "2":
                     init_args = wizard_arguments(args.project_root.absolute())
                 else:
-                    raise ConfigurationError(human("1, 2 또는 3을 선택하세요"))
+                    raise ConfigurationError(human("1, 2, 3 또는 4를 선택하세요"))
             except EOFError:
                 print(style(human("TUI cancelled:"), "warning", stream=sys.stderr) + " " + human("input ended"), file=sys.stderr)
                 return 2

@@ -213,7 +213,7 @@ class HTMLReportTests(unittest.TestCase):
         self.assertIn('우선순위', page)
         self.assertIn('class="landscape-point', page)
         progress = page.split('id="progress-0"', 1)[1].split('</section>', 1)[0]
-        self.assertIn('seconds 9.000', progress)
+        self.assertIn('seconds ↓ 9.000', progress)
         self.assertIn('search', progress)
         self.assertNotIn('Pareto', page)
         self.assertIn('long-' + 'X' * 240, page)
@@ -221,6 +221,69 @@ class HTMLReportTests(unittest.TestCase):
         self.assertIn('id="landscape-0"', english)
         self.assertIn('Objective trade-off', english)
         self.assertNotRegex(english.split('<main>', 1)[1].split('</main>', 1)[0], '[가-힣]')
+
+    def test_evidence_warnings_and_unknown_are_visible_near_summary_in_both_languages(self):
+        run = self.root / "missing-events"
+        run.mkdir()
+        summary = {"status": "partial", "trials_used": 3, "groups": [{
+            "agent_id": "solo", "harness_id": "fixture", "trial_count": 2,
+            "baseline": None, "selected": [], "stages": []}]}
+        page = write_html_report(run, summary).read_text()
+        first = page.split('id="scores"', 1)[1].split('</section>', 1)[0]
+        self.assertIn("근거 경고", first)
+        self.assertIn("이벤트 파일 없음", first)
+        self.assertIn("그룹 평가 건수 불일치", first)
+        self.assertIn("예약 예산과 완료 평가", first)
+        self.assertIn('href="#evaluations"', first)
+        self.assertNotIn('href="events.jsonl"', page)
+        english = write_html_report(run, summary, language="en").read_text()
+        summary_section = english.split('id="scores"', 1)[1].split('</section>', 1)[0]
+        self.assertIn("Event file missing", summary_section)
+        self.assertNotRegex(summary_section, '[가-힣]')
+
+        (run / "events.jsonl").write_text('{bad\n' + json.dumps({
+            "event": "trial_completed", "agent_id": "solo", "harness_id": "fixture",
+            "trial_id": "one", "status": "passed"}) + '\n')
+        page = write_html_report(run, summary).read_text()
+        self.assertIn("읽지 못한 이벤트", page.split('id="scores"', 1)[1])
+        self.assertIn('href="events.jsonl"', page)
+
+        (run / "events.jsonl").write_text("")
+        old = write_html_report(run, {"status": "partial", "groups": [{
+            "agent_id": "solo", "harness_id": "fixture", "baseline": None,
+            "selected": [], "stages": []}]}).read_text()
+        self.assertIn("대조 기준 미수집", old)
+
+    def test_lexicographic_progress_identifies_secondary_metric_and_first_metric_curve(self):
+        run = self.root / "secondary-winner"
+        run.mkdir()
+        (run / "manifest.json").write_text(json.dumps({"experiment": {"objective": {
+            "mode": "lexicographic", "metrics": [
+                {"name": "accuracy", "direction": "maximize"},
+                {"name": "latency", "direction": "minimize"}]}}}))
+        common = {"agent_id": "solo", "harness_id": "fixture", "split": "validation",
+                  "valid": True}
+        (run / "events.jsonl").write_text("\n".join(json.dumps({
+            "event": "candidate_evaluated", **common, "candidate_id": name,
+            "metrics": {"accuracy": 0.5, "latency": latency}})
+            for name, latency in (("base", 12), ("chosen", 8))) + "\n")
+        def row(name, latency):
+            return {**common, "candidate_id": name,
+                    "metrics": {"accuracy": 0.5, "latency": latency}}
+        summary = {"groups": [{"agent_id": "solo", "harness_id": "fixture",
+                              "baseline": row("base", 12), "selected": [row("chosen", 8)],
+                              "stages": [], "final_test": []}]}
+        page = write_html_report(run, summary).read_text()
+        progress = page.split('id="progress-0"', 1)[1].split('</section>', 1)[0]
+        self.assertIn("사전식 최고 후보의 첫 지표 값", progress)
+        self.assertIn("accuracy ↑", progress)
+        self.assertIn("latency ↓", progress)
+        self.assertIn("사전식 최고 후보 갱신", progress)
+        self.assertIn("latency", page.split('id="scores"', 1)[1].split('</section>', 1)[0])
+        english = write_html_report(run, summary, language="en").read_text()
+        graph = english.split('id="progress-0"', 1)[1].split('</section>', 1)[0]
+        self.assertIn("first metric of lexicographic leader", graph)
+        self.assertNotRegex(graph, '[가-힣]')
 
     def test_empty_and_one_trial_do_not_draw_invented_curve(self):
         run = self.root / "single"

@@ -23,6 +23,10 @@ def _s(label):
     return human(label, lang=_language.get())
 
 
+def _v(ko, en):
+    return ko if _language.get() == "ko" else en
+
+
 def render_group(group, objective, index, language):
     """하나의 그룹을 보고서 언어로 렌더링한다."""
     token = _language.set(language)
@@ -69,6 +73,7 @@ def render_progress(group, objective, index=0):
     specs = objective.get("metrics") or []
     if not specs or not isinstance(specs[0], dict):
         return ""
+    multiple = len(specs) > 1
     metric = specs[0].get("name")
     points = (group.get("visualization") or {}).get("progress") or []
     usable = [(position, point, _numeric((point.get("metrics") or {}).get(metric)),
@@ -117,22 +122,29 @@ def render_progress(group, objective, index=0):
     rows = []
     for position, point in enumerate(points):
         metrics = point.get("metrics") or {}
-        state = _text(_s(LABELS.get(point.get("improvement"), "미확인")))
+        state = (_text(_v("사전식 최고 후보 갱신", "Lexicographic leader updated"))
+                 if multiple and point.get("improvement") == "improved" else
+                 _text(_s(LABELS.get(point.get("improvement"), "미확인"))))
         selected = " · " + _text(_s("최종 선택")) if point.get("selected") else ""
         rows.append(f'<li class="progress-item"><span class="trail-index">{position + 1:02d}</span>'
                     f'<code title="{_text(point.get("candidate_id"))}">{_text(point.get("candidate_id"))}</code>'
                     f'<span class="trail-score">{_text(point.get("stage_id"))} · '
-                    + ' · '.join(f'{_text(spec["name"])} {_number(metrics.get(spec["name"]))}'
-                                 for spec in specs if isinstance(spec, dict) and "name" in spec)
+                    + ' · '.join(f'{_text(spec["name"])} '
+                                 f'{"↑" if spec.get("direction") == "maximize" else "↓" if spec.get("direction") == "minimize" else ""} '
+                                 f'{_number(metrics.get(spec["name"]))}'
+                                  for spec in specs if isinstance(spec, dict) and "name" in spec)
                     + '</span>'
                     f'<span class="trail-state">{state}{selected}</span></li>')
     best_at = next((i + 1 for i in range(len(points) - 1, -1, -1)
                     if points[i].get("improvement") == "improved"), None)
-    insight = (f'<p class="insight">{_text(_s("마지막 최고점 갱신: 후보 평가"))} {best_at}/{len(points)}. '
-               f'{_text(_s("이후"))} {len(points) - best_at}{_text(_s("건의 후보 평가에서 갱신 없음."))}</p>'
+    insight = (f'<p class="insight">{_text(_v("마지막 사전식 최고 후보 갱신: 후보 평가", "Last lexicographic leader update: candidate evaluation") if multiple else _s("마지막 최고점 갱신: 후보 평가"))} {best_at}/{len(points)}. '
+               f'{_text(_s("이후"))} {len(points) - best_at}{_text(_v("건의 후보 평가에서 사전식 최고 후보 교체 없음.", " candidate evaluations without a new lexicographic leader.") if multiple else _s("건의 후보 평가에서 갱신 없음."))}</p>'
                if best_at is not None and len(points) > best_at else "")
     if not insight and best_at is None and len(valid) > 1:
-        insight = (f'<p class="insight">{_text(_s("첫 후보 평가 이후 {count}건에서 최고점 갱신 없음.").format(count=len(points) - 1))}</p>')
+        note = (_v("첫 후보 평가 이후 {count}건에서 사전식 최고 후보 교체 없음.",
+                   "No new lexicographic leader in {count} evaluations after the first.")
+                if multiple else _s("첫 후보 평가 이후 {count}건에서 최고점 갱신 없음."))
+        insight = f'<p class="insight">{_text(note.format(count=len(points) - 1))}</p>'
     visible = (set(range(min(6, len(points)))) | set(range(max(0, len(points) - 6), len(points))) |
                {position for position, point in enumerate(points) if point.get("selected")}
                if len(points) > 12 else set(range(len(points))))
@@ -142,14 +154,21 @@ def render_progress(group, objective, index=0):
         trail += (f'<details><summary>{_text(_s("나머지 후보 평가"))} {remaining}{_text(_s("건"))}'
                   '</summary><ol class="progress-list">' + ''.join(
                       row for position, row in enumerate(rows) if position not in visible) + '</ol></details>')
+    description = (_v("점은 첫 지표의 후보 점수, 계단선은 사전식 최고 후보의 첫 지표 값입니다. "
+                      "선택은 전체 지표 우선순위·방향으로 결정되며 첫 지표 값이 같아도 후보가 바뀔 수 있습니다.",
+                      "Dots show candidate values of the first metric; the step line shows the first metric of lexicographic leader. "
+                      "Selection uses all metrics in priority order and their directions, even when the first metric is tied.")
+                   if multiple else _s("동일 그룹의 후보별 검증 집계만 비교합니다. 점은 후보 점수, 계단선은 지금까지의 최고점입니다. 최종 선택은 별도로 표시합니다."))
+    curve_label = (_v("사전식 최고 후보의 첫 지표 값", "first metric of lexicographic leader")
+                   if multiple else _s("최고점"))
     return (f'<section class="visual-section" id="progress-{index}"><div class="section-heading">'
-            f'<span class="eyebrow">{_text(_s("검증 집계"))}</span><h3>{_text(_s("최적화 개선 추이"))}</h3></div>'
-            f'<p class="subtle">{_text(_s("동일 그룹의 후보별 검증 집계만 비교합니다. 점은 후보 점수, 계단선은 지금까지의 최고점입니다. 최종 선택은 별도로 표시합니다."))}</p>'
+             f'<span class="eyebrow">{_text(_s("검증 집계"))}</span><h3>{_text(_s("최적화 개선 추이"))}</h3></div>'
+             f'<p class="subtle">{_text(description)}</p>'
             f'<svg class="chart progress-chart" viewBox="0 0 760 207" role="img" '
             f'aria-labelledby="progress-title-{index} progress-desc-{index}">'
             f'<title id="progress-title-{index}">{_text(_s("검증 점수 추이"))}</title>'
             f'<desc id="progress-desc-{index}">{_text(metric)} '
-            f'{_text(_s("후보 점수와 누적 최고점; 아래 목록에 각 후보의 실제 값과 선택 상태가 있습니다."))}</desc>'
+             f'{_text(_v("후보 점수와 사전식 최고 후보의 첫 지표 값; 아래 목록에 전체 지표와 선택 상태가 있습니다.", "Candidate values and first metric of lexicographic leader; all metrics and selection are listed below.") if multiple else _s("후보 점수와 누적 최고점; 아래 목록에 각 후보의 실제 값과 선택 상태가 있습니다."))}</desc>'
             f'<line class="chart-grid" x1="80" y1="24" x2="714" y2="24"/>'
             f'<line class="chart-grid" x1="80" y1="155" x2="714" y2="155"/>'
             f'<text class="axis-label" x="63" y="28" text-anchor="end">{_number(high)}</text>'
@@ -158,7 +177,7 @@ def render_progress(group, objective, index=0):
             + ''.join(dots) + f'<text class="axis-label" x="714" y="203" text-anchor="end">'
             f'{_text(_s("후보 평가 순서 →"))}</text></svg>'
             f'<div class="legend"><span><i class="legend-dot"></i> {_text(_s("후보 점수"))}</span>'
-            f'<span><i class="legend-line"></i> {_text(_s("최고점"))}</span>'
+             f'<span><i class="legend-line"></i> {_text(curve_label)}</span>'
             f'<span><i class="legend-dash"></i> {_text(_s("기준 점수"))}</span>'
             f'<span><i class="legend-dash"></i> {_text(_s("단계 경계"))}</span>'
             f'<span><i class="legend-ring"></i> {_text(_s("최종 선택"))}</span></div>'

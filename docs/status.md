@@ -5,7 +5,11 @@
 시작은 [README](../README.md#개발환경-빠른-시작)와 [역할별 템플릿](../experiments/README.md).
 번호 메뉴는 제공하며 1/2는 core, 7은 선택적 ACE 전체 준비, 8은 일반 Agent TUI다.
 옵션 없는 setup/doctor의 전체 ACE 경로와 `--dataset ID`의 선택 데이터셋 경로는 별개다.
-`agent-opt tui`는 기존 실험, 새 실험, ACE-RTL + CVDP 예제의 별도 선택·준비·실행을 지원하고,
+`agent-opt tui`는 기존 실험, 새 실험, ACE-RTL + CVDP 예제의 별도 선택·준비·실행을 지원한다.
+4번 이전 실행 보기는 현재 작업공간의 `runs/<run-id>`와 `runs/dev-live/<run-id>`에서 요약과
+HTML이 있는 실행을 run ID의 UTC 생성 시각순 최근 10개까지 읽기 전용으로 나열하고,
+선택한 보고서의 절대경로만 표시한다.
+symlink·손상된 요약은 제외하며 보고서를 생성하거나 브라우저를 열지 않는다.
 `agent-opt init`은 TTY에서 새 설정만 만들 수 있다. 복수 데이터셋 session은 독립 프로세스로
 기본 2개를 병렬 실행하며 `--jobs`로 동시 실행 수를 제한한다. 단일 실험 내부 병렬화·resume·native ACE는 [보류](FUTURE.md)다.
 고정 `examples/ace-rtl/experiment.toml`을 TUI/`agent-opt run`에서 선택하면 예제 어댑터가

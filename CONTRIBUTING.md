@@ -21,9 +21,9 @@ Optimizer는 propose/evaluate, Harness는 RunRequest/ExecutionResult, 외부 Age
 
 | 변경 | 필요한 검사 |
 |---|---|
-| 개발 명령·CLI UX | `test_dev_onboarding.py`·`test_cli_experience.py` → `make lint`, `make test`, `make demo`; 합성/명령 전달 성공은 ACE 실행 성공과 구분 |
+| 개발 명령·CLI UX | `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_dev_onboarding.py -v` 및 `test_menu.py`·`test_dev_doctor.py`·`test_cli_experience.py` 관련 회귀 → `make lint`, `make test`, `make demo`, `git diff --check`; 합성/명령 전달 성공은 ACE 실행 성공과 구분 |
 | 팀 플러그인·코어 | 관련 계약 회귀 → `.venv/bin/agent-opt datasets list` / `doctor --dataset ID` / `doctor --plan PATH` / 작은 fixture 실행 → `make lint`, `make test`, `make demo`, `git diff --check` |
-| 패키징·의존성·릴리즈 | 위 검사 + `.venv/bin/python -m build`; `.venv/bin/python tests/test_installed_cli.py dist/agent_optimizer-0.3.0-py3-none-any.whl`로 저장소 밖 wheel의 목록·TUI 거절·사용자 Agent/채점기 init/doctor/run/report 확인 |
+| 패키징·의존성·릴리즈 | 위 검사 + `.venv/bin/python -m build`; 아래 명령으로 wheel이 정확히 하나인지 확인하고 저장소 밖에서 목록·TUI 거절·사용자 Agent/채점기 init/doctor/run/report 검증 |
 | ACE·Docker·환경 연결 | 관련 회귀 + `make setup` → `make doctor` → `sh scripts/bootstrap.sh setup --offline` → `make smoke`; 수동 공식 CI는 모델 없이 평가 경로와 ACE CLI의 인증 실패를 검사. 실제 모델 E2E는 자격증명 준비 후 앱의 `agent-opt tui` 또는 `agent-opt run examples/ace-rtl/experiment.toml`로 확인하고, 개발 중에는 `sh scripts/bootstrap.sh doctor --model`로 연결만 별도 진단 |
 
 선택형 ACE의 wheel 실도구 검증은 저장소 밖 가상환경에 빌드된 wheel을 설치한 뒤
@@ -34,6 +34,14 @@ Docker Desktop이 파일을 공유하는 작업공간을 cwd로 하여 설치된
 `/path/to/agent-optimizer/tests/test_installed_ace.py`를 실행하면 공식 LFSR의 정답·오답 raw test를 각각 검사합니다.
 이 스크립트는 모델을 호출하지 않고, 참조 RTL은 신뢰한 검사 경로에서만 읽습니다.
 모델 키 없는 `agent-opt run`의 `blocked_auth`도 별도로 검사하세요.
+
+```bash
+wheel=$(.venv/bin/python scripts/select_wheel.py dist)
+.venv/bin/python tests/test_installed_cli.py "$wheel"
+```
+
+`dist/`에 이전 wheel이 남아 둘 이상이면 선택이 실패합니다. 기존 빌드 산출물을 확인해
+필요한 것만 명시적으로 치운 뒤 다시 빌드하세요. 고정 버전 파일명을 가정하지 않습니다.
 
 **작은 팀 플러그인 수정마다 이미지 rebuild나 wheel 설치는 필요 없습니다.** setup 없는 lint/test/demo는
 기존 `.venv`를 사용합니다. 문서 수정에는 링크·명령 대조를 수행하고 문구를 반복 검사하는 테스트를 만들지 않습니다.

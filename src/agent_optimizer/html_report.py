@@ -538,7 +538,41 @@ def _provenance(report):
             + _details(_s('소스 고정 버전 · 모델 · 플러그인 해시 원본'), _json(content)) + '</section>')
 
 
-def _hero(report):
+def _evidence_notice(root, report):
+    evidence = report.get('evidence') or {}
+    status = evidence.get('status', 'unknown')
+    if status == 'consistent':
+        return ''
+    if status == 'unknown':
+        message = ('완료 평가의 대조 기준 미수집' if _language.get() == 'ko' else
+                   'Source count for completed evaluations unavailable')
+        return f'<p class="subtle">{text(message)}</p>'
+
+    def phrase(ko, en):
+        return ko if _language.get() == 'ko' else en
+
+    labels = {
+        'events_missing': phrase('이벤트 파일 없음', 'Event file missing'),
+        'events_invalid_lines': phrase('읽지 못한 이벤트 줄', 'Unreadable event lines'),
+        'group_trial_count_mismatch': phrase('그룹 평가 건수 불일치', 'Group evaluation count mismatch'),
+        'reserved_completed_gap': phrase('예약 예산과 완료 평가의 차이 (유실 단정 불가)',
+                                          'Reserved/completed gap (not necessarily missing records)'),
+    }
+    rows = []
+    for warning in evidence.get('warnings', []):
+        scope = f' · {text(warning["group_key"])}' if warning.get('group_key') else ''
+        numbers = (f' · {text(phrase("기록", "expected"))} {_count(warning["expected"])} / '
+                   f'{text(phrase("관측", "observed"))} {_count(warning["observed"])}'
+                   if warning.get('expected') is not None else '')
+        rows.append(f'<li>{text(labels.get(warning["code"], warning["code"]))}{scope}{numbers}</li>')
+    source = (_link(root, 'events.jsonl', 'events.jsonl') or
+              f'<a href="#evaluations">{text(phrase("평가 근거", "Evaluation evidence"))}</a>')
+    return (f'<aside class="panel warning" aria-label="{text(phrase("근거 경고", "Evidence warning"))}">'
+            f'<strong>{text(phrase("근거 경고", "Evidence warning"))}</strong>'
+            + '<ul>' + ''.join(rows) + '</ul>' + source + '</aside>')
+
+
+def _hero(root, report):
     groups = []
     for index, group in enumerate(report['groups']):
         metric = (group.get('comparison') or [None])[0]
@@ -552,9 +586,15 @@ def _hero(report):
             percent = metric.get('delta_pp') is not None
             measured = (f'{metric["selected"] * 100:.0f}%' if percent else value(metric['selected']))
             baseline = (f'{metric["baseline"] * 100:.0f}%' if percent else value(metric.get('baseline')))
+            decisive = next((item for item in group['comparison']
+                             if item.get('trend') in ('improved', 'regressed')), None)
+            reason = (f' · {text(decisive["name"])} '
+                      f'{"↑" if decisive["direction"] == "maximize" else "↓"} '
+                      f'{value(decisive["baseline"])} → {value(decisive["selected"])}'
+                      if decisive and decisive is not metric else '')
             result = (f'<strong>{measured} <small>{text(metric["name"])}</small></strong>'
-                      f'<span>{delta} · {text(_s("기준"))} {baseline} · '
-                      f'{_display(group["comparison_trend"], STATES)}</span>')
+                       f'<span>{delta} · {text(_s("기준"))} {baseline} · '
+                       f'{_display(group["comparison_trend"], STATES)}{reason}</span>')
         groups.append(f'<div class="headline-group"><span class="eyebrow">{text(group["key"])}</span>'
                       f'{result}<a href="#group-{index}">{text(_s("검증 경로 보기 →"))}</a></div>')
     counts = report['counts']
@@ -564,7 +604,8 @@ def _hero(report):
              + (f' · {text(_s("실측 벽시계"))} {value(wall)}{text(_s("초"))}' if wall is not None else ''))
     return (f'<section id="scores" class="summary-section"><span class="eyebrow">{text(_s("실험 요약"))}</span>'
             f'<h2>{text(_s("최적화 결과"))}</h2><p class="subtle">'
-            f'{text(_s("그룹별 검증 선택을 독립적으로 표시합니다. 점수가 없는 경우 0으로 간주하지 않습니다."))}</p>'
+             f'{text(_s("그룹별 검증 선택을 독립적으로 표시합니다. 점수가 없는 경우 0으로 간주하지 않습니다."))}</p>'
+            + _evidence_notice(root, report)
             + ('<div class="headlines">' + ''.join(groups) + '</div>' if groups else
                f'<p class="subtle">{text(_s("기록된 그룹 없음"))}</p>')
             + f'<p class="summary-facts">{facts}</p></section>')
@@ -596,15 +637,15 @@ def _render_report(root: Path, report: dict) -> str:
               f'<a href="#evaluations">{text(_s("평가 근거"))}</a><a href="#candidates">{text(_s("후보 변경"))}</a>'
               f'<a href="#failures">{text(_s("실패 근거"))}</a><a href="#stages">{text(_s("단계와 사용량"))}</a>'
               f'<a href="#provenance">{text(_s("재현 정보"))}</a></nav></header><main>',
-               _hero(report)]
+                _hero(root, report)]
     parts.extend(_comparison(group, index, report.get('objective') or {})
                  for index, group in enumerate(report['groups']))
     parts.extend(('<div class="cards">' + cards + '</div>',
                   _test_results(report), _journey(report), _evaluations(root, report),
                   _candidates(root, report), _failures(report), _stages(report), _provenance(report)))
-    parts.extend(('</main><footer>' + text(_s('일부만 기록된 하네스 사용량을 전체 사용량으로 표시하지 않습니다. 데이터·모델·예산이 같은 실험끼리 비교하세요. ')) +
-                  '<a href="summary.json">summary.json</a> · <a href="events.jsonl">events.jsonl</a> · '
-                  '<a href="report.md">report.md</a></footer></body></html>',))
+    source_links = [_link(root, name, name) for name in ('summary.json', 'events.jsonl', 'report.md')]
+    parts.append('</main><footer>' + text(_s('일부만 기록된 하네스 사용량을 전체 사용량으로 표시하지 않습니다. 데이터·모델·예산이 같은 실험끼리 비교하세요. ')) +
+                 ' · '.join(link for link in source_links if link) + '</footer></body></html>')
     return '\n'.join(parts)
 
 

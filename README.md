@@ -17,6 +17,8 @@ make doctor-core
 
 `make`가 없다면 `sh scripts/bootstrap.sh setup --core`로 준비할 수 있습니다. 기본 CLI는 `.venv/bin/agent-opt --help`, 대화형 시작은 TTY에서 `.venv/bin/agent-opt tui`입니다. `make help`는 설치 없이 개발 명령을 보여줍니다.
 
+개발 명령의 **옵션 없는 `make setup`·`make doctor`는 ACE 전체 범위**입니다. 코어 준비·진단은 위 `-core` 명령을 쓰세요. 선택 데이터셋, ACE 전체 준비, 실제 모델 검사와 일상 검사의 준비 조건·부작용·복구 방법은 [개발 명령 기준](docs/development.md), 변경 유형별 검사는 [CONTRIBUTING.md](CONTRIBUTING.md)에 있습니다. 개발 명령 `doctor`와 사용자용 `.venv/bin/agent-opt doctor --plan ...`은 검사 범위가 다릅니다.
+
 ### 결과 확인
 
 위 `run` 출력의 `run_dir`을 아래의 `runs/<run-id>` 자리에 넣으세요. 브라우저에서 그 디렉터리의 `report.html`을 열면 별도 서버 없이 볼 수 있습니다.
@@ -32,9 +34,9 @@ make doctor-core
 | `report.html` | 실행 시 자동 생성되는 독립형 화면. 그룹별 기준/선택 검증 점수, 추이·과제·최종 테스트·실패·후보 변경·재현 정보를 확인합니다. |
 | `report.md` | 같은 보고서 모델의 텍스트 표. 그룹 비교·최적화 단계·사용량·재현 정보를 파일로 읽거나 공유할 때 사용합니다. |
 | `summary.json` | 실행 원본 요약: 상태, 그룹별 기준/선택/최종 테스트, 예약된 `trials_used` 등. 위 `agent-opt report RUN`의 출력입니다. |
-| `report.json` | 원본 요약·이벤트에서 파생한 **보고서 스키마 v2**. 시각화/후처리용 그룹·비교·평가 기록이며 선택 근거인 원본을 대체하지 않습니다. |
+| `report.json` | 원본 요약·이벤트에서 파생한 **보고서 스키마 v3**. 그룹·비교·평가·근거 완전성/불일치를 기록하며 선택 근거인 원본을 대체하지 않습니다. [버전과 필드 의미](docs/report-schema.md) |
 
-`report.md`와 `report.json`은 같은 실행 폴더에서 텍스트 편집기로 열고, `summary.json`은 위 `agent-opt report` 출력으로도 확인합니다. 같은 폴더의 `manifest.json`(설정·출처), `events.jsonl`(실행 이벤트), 그룹별 `candidates/*/changes.diff`(후보 변경)도 확인할 수 있습니다. 미수집 비용/토큰은 `null`이며 하네스가 보고한 일부 사용량을 전체 사용량으로 해석하지 않습니다. `--html`은 저장된 결과를 재생성하며 평가를 다시 실행하지 않습니다. 언어 기본값은 한국어이고 `AGENT_OPT_LANG=en`으로 실행·보고서 재생성 시 영어를 선택할 수 있습니다.
+`report.md`와 `report.json`은 같은 실행 폴더에서 텍스트 편집기로 열고, `summary.json`은 위 `agent-opt report` 출력으로도 확인합니다. 같은 폴더의 `manifest.json`(설정·출처), `events.jsonl`(실행 이벤트), 그룹별 `candidates/*/changes.diff`(후보 변경)도 확인할 수 있습니다. 이벤트 파일이 없거나 손상·건수 차이가 있으면 세 보고서에 경고를 표시합니다. 예약 예산과 완료 평가의 차이만으로 기록 유실을 단정하지 않습니다. 미수집 비용/토큰은 `null`이며 하네스가 보고한 일부 사용량을 전체 사용량으로 해석하지 않습니다. `--html`은 저장된 결과를 재생성하며 평가를 다시 실행하지 않습니다. 언어 기본값은 한국어이고 `AGENT_OPT_LANG=en`으로 실행·보고서 재생성 시 영어를 선택할 수 있습니다.
 
 ### 재현 가능한 최소 실행 화면
 

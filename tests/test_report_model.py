@@ -65,7 +65,54 @@ class ReportModelTests(unittest.TestCase):
         self.assertEqual([p["selected"] for p in points], [False, False, True, False, False])
         self.assertEqual(points[3]["source"], "candidate_evaluated")
         self.assertEqual(points[2]["trial_refs"], ["agent-a/harness/c"])
-        self.assertEqual(report["report_schema_version"], 2)
+        self.assertEqual(report["report_schema_version"], 3)
+
+    def test_missing_events_warns_without_discarding_saved_selection(self):
+        chosen = self.row({"score": 1}, candidate_id="chosen")
+        report = build_report(self.root, {"trials_used": 2, "groups": [
+            self.group(selected=[chosen], trial_count=2)]})
+        self.assertEqual(report["groups"][0]["selected"], [chosen])
+        self.assertEqual(report["counts"]["completed_evaluations"], 0)
+        self.assertEqual(report["evidence"]["status"], "warning")
+        self.assertFalse(report["evidence"]["events_file_present"])
+        self.assertEqual([warning["code"] for warning in report["evidence"]["warnings"]],
+                         ["events_missing", "group_trial_count_mismatch", "reserved_completed_gap"])
+
+    def test_corrupt_lines_keep_valid_evaluations_and_identify_group_mismatch(self):
+        good = lambda agent, trial: json.dumps({"event": "trial_completed", "agent_id": agent,
+            "harness_id": "harness", "trial_id": trial, "candidate_id": "base",
+            "split": "validation", "status": "passed"}).encode()
+        (self.root / "events.jsonl").write_bytes(good("agent-a", "a") + b"\n\xff\n" +
+            good("agent-b", "b") + b"\n{broken\n")
+        other = {**self.group(), "agent_id": "agent-b", "trial_count": 1}
+        report = build_report(self.root, {"trials_used": 3, "groups": [
+            self.group(trial_count=2), other]})
+        self.assertEqual(report["evidence"]["valid_lines"], 2)
+        self.assertEqual(report["evidence"]["invalid_lines"], 2)
+        self.assertEqual(report["evidence"]["completed_events"], 2)
+        self.assertEqual([g["counts"]["completed_evaluations"] for g in report["groups"]], [1, 1])
+        warnings = report["evidence"]["warnings"]
+        self.assertEqual([w["code"] for w in warnings],
+                         ["events_invalid_lines", "group_trial_count_mismatch", "reserved_completed_gap"])
+        self.assertEqual((warnings[1]["group_key"], warnings[1]["expected"], warnings[1]["observed"]),
+                         ("agent-a/harness", 2, 1))
+
+    def test_legacy_unknown_count_is_not_called_consistent(self):
+        self.events([{"event": "trial_completed", "agent_id": "agent-a",
+                      "harness_id": "harness", "trial_id": "one", "status": "passed"}])
+        report = build_report(self.root, {"groups": [self.group()]})
+        self.assertEqual(report["evidence"]["status"], "unknown")
+        self.assertEqual(report["evidence"]["warnings"], [])
+
+    def test_matching_group_counts_are_consistent_and_reserved_gap_is_distinct(self):
+        self.events([{"event": "trial_completed", "agent_id": "agent-a",
+                      "harness_id": "harness", "trial_id": "one", "status": "passed"}])
+        consistent = build_report(self.root, {"trials_used": 1,
+                                              "groups": [self.group(trial_count=1)]})
+        self.assertEqual(consistent["evidence"]["status"], "consistent")
+        gap = build_report(self.root, {"trials_used": 2, "groups": [self.group(trial_count=1)]})
+        self.assertEqual(gap["evidence"]["warnings"], [{"code": "reserved_completed_gap",
+            "group_key": None, "expected": 2, "observed": 1}])
 
     def test_conflicting_summary_and_aggregate_events_do_not_claim_a_progress_curve(self):
         self.manifest_objective([{"name": "score", "direction": "maximize"}])
@@ -647,7 +694,7 @@ class ReportModelTests(unittest.TestCase):
 
         report = build_report(self.root, summary)
 
-        self.assertEqual(report["report_schema_version"], 2)
+        self.assertEqual(report["report_schema_version"], 3)
         self.assertEqual(report["identity"], {"run_id": "run-1", "status": "completed",
                                                "synthetic": True})
         self.assertEqual(report["objective"], objective)
