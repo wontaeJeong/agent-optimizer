@@ -1538,6 +1538,56 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual(summary["status"], "completed")
         self.assertTrue((run / "manifest.json").is_file())
 
+    def test_wizard_rejects_empty_editable_before_confirmation_or_preparation(self):
+        from agent_optimizer.contracts import ConfigurationError
+
+        answers = ["empty-editable", str(self.agent), "", str(self.data),
+                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1",
+                   str(sorted(Registry().factories["harnesses"]).index("fixture") + 1), "y"]
+        with patch("builtins.input", side_effect=answers), \
+             patch("agent_optimizer.setup_wizard.prepare_selection", side_effect=AssertionError("prepared")), \
+             contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(ConfigurationError, "editable|수정"):
+                wizard_arguments(self.root, execute=False)
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_wizard_rejects_nonpositive_and_out_of_range_optimizer_numbers(self):
+        from agent_optimizer.contracts import ConfigurationError
+
+        for number in ("0", "-1", "999", ""):
+            with self.subTest(number=number), \
+                 patch("builtins.input", side_effect=["bad-index", str(self.agent),
+                       "configs/strategy.json", str(self.data),
+                       "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", number]), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaisesRegex(ConfigurationError, "Optimizer|optimizer"):
+                    wizard_arguments(self.root, execute=False)
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_wizard_rejects_invalid_dataset_numbers_instead_of_treating_them_as_paths(self):
+        from agent_optimizer.contracts import ConfigurationError
+
+        for number in ("0", "-1", "999", ""):
+            with self.subTest(number=number), \
+                 patch("builtins.input", side_effect=["bad-dataset", str(self.agent),
+                       "configs/strategy.json", number]), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaisesRegex(ConfigurationError, "데이터셋|dataset"):
+                    wizard_arguments(self.root, execute=False)
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_wizard_rejects_missing_name_and_unbalanced_command_without_traceback(self):
+        from agent_optimizer.contracts import ConfigurationError
+
+        for answers in (["", str(self.agent), "configs/strategy.json"],
+                        ["bad-command", str(self.agent), "configs/strategy.json",
+                         "sample_text", "1", self.command_harness_choice(), "'not closed"]):
+            with self.subTest(answers=answers), patch("builtins.input", side_effect=answers), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(ConfigurationError):
+                    wizard_arguments(self.root, execute=False)
+        self.assertFalse((self.root / "runs").exists())
+
     def test_wizard_prompts_follow_language_without_changing_options(self):
         for language, expected in (("ko", "실험 이름:"), ("en", "Experiment name:")):
             with self.subTest(language=language):

@@ -261,9 +261,12 @@ def wizard_arguments(project_root: Path, *, execute: bool = True) -> list[str]:
                 stream=sys.stderr), file=sys.stderr)
     print("╰─────────────────────────────────────────────────────────╯", file=sys.stderr)
     name = ask("Experiment name")
+    identifier(name)
     agent = ask("Agent source directory or pinned Git URL")
     revision = ask("Git commit (leave blank for local source)") if "://" in agent else ""
     editable = [item.strip() for item in ask("Editable files (comma separated)").split(",") if item.strip()]
+    if not agent or not editable:
+        raise ConfigurationError(human("--agent와 --editable을 지정하세요"))
     choices = sorted(registry.factories["datasets"])
     print("\n  " + style(human("Choose a dataset; there is no automatic recommendation:"), "heading",
                            stream=sys.stderr), file=sys.stderr)
@@ -275,8 +278,12 @@ def wizard_arguments(project_root: Path, *, execute: bool = True) -> list[str]:
     selected_datasets = []
     for item in dataset_choice.split(","):
         item = item.strip()
-        selected_datasets.append(choices[int(item) - 1] if item.isdigit()
-                                 and 1 <= int(item) <= len(choices) else item)
+        if not item or item.lstrip("+-").isdigit():
+            if not item or not item.isdecimal() or not 1 <= int(item) <= len(choices):
+                raise ConfigurationError(human("목록의 데이터셋 번호 또는 로컬 tasks.json 경로를 입력하세요"))
+            selected_datasets.append(choices[int(item) - 1])
+        else:
+            selected_datasets.append(item)
     evaluator = (ask("Evaluator file.py:Symbol or registered name")
                  if any(dataset not in choices for dataset in selected_datasets) else "")
     metric = (ask("Evaluator score metric (Enter for passed)") or "passed") if evaluator else "passed"
@@ -290,12 +297,12 @@ def wizard_arguments(project_root: Path, *, execute: bool = True) -> list[str]:
     for index, key in enumerate(optimizers, 1):
         print(f"    {style(f'{index}.', 'heading', stream=sys.stderr)} {key}", file=sys.stderr)
     numbers = ask("Optimizer numbers (comma separated)")
-    try:
-        selected = [optimizers[int(index.strip()) - 1] for index in numbers.split(",")]
-    except (ValueError, IndexError):
-        raise ConfigurationError(human("Choose one or more listed optimizer numbers")) from None
-    if not selected or not all(item in optimizers for item in selected):
-        raise ConfigurationError(human("Choose one or more listed optimizers"))
+    selected = []
+    for index in numbers.split(","):
+        index = index.strip()
+        if not index.isdecimal() or not 1 <= int(index) <= len(optimizers):
+            raise ConfigurationError(human("Choose one or more listed optimizer numbers"))
+        selected.append(optimizers[int(index) - 1])
     harnesses = sorted(registry.factories["harnesses"])
     print("\n  " + style(human("Select an Agent harness:"), "heading", stream=sys.stderr), file=sys.stderr)
     for index, key in enumerate(harnesses, 1):
@@ -307,8 +314,11 @@ def wizard_arguments(project_root: Path, *, execute: bool = True) -> list[str]:
     adapter = registry.resolve("harnesses", harness)
     if not supports_generated_profile(adapter):
         raise ConfigurationError(human("전용 하네스 프로필이 필요합니다. 기존 experiment.toml을 사용하세요"))
-    command = (shlex.split(ask("Agent execution argv (e.g. python agent.py {task_dir})"))
-               if requires_command(adapter) else None)
+    try:
+        command = (shlex.split(ask("Agent execution argv (e.g. python agent.py {task_dir})"))
+                   if requires_command(adapter) else None)
+    except ValueError as exc:
+        raise ConfigurationError(f"{human('잘못된 Agent 실행 명령')}: {exc}") from None
     if command is not None and not command:
         raise ConfigurationError(human("Agent 실행 명령을 입력하세요"))
     scaffold = (ask("Active runtime harness .py file (Enter to auto-detect one match)")
