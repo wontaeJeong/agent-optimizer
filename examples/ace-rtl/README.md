@@ -139,6 +139,12 @@ train 두 건과 후보 validation의 공식 raw 채점은 각각 1/1 통과했�
 나타났으므로 모든 외부 도구 격리를 보장하지 않는다.
 [추가 검증 근거](../../docs/verification.md#2026-09-27-claude-code-추가-4-trial-공식-cvdp-부분-성공).
 
+위 **실행 당시**에는 `--strict-mcp-config`가 없었다. 현재 범용 Claude Code 하네스는
+이 flag를 추가해 명시적 `--mcp-config` 외의 암묵적 user/project MCP 설정을 무시하도록
+요청한다. 이는 CLI 도움말과 argv 계약 테스트로만 확인했으며 **flag 적용 후의 모델 호출,
+MCP 부재, baseline validation의 공식 채점은 아직 검증하지 않았다**.
+[현재 계약 근거](../../docs/verification.md#2026-09-27-claude-code-암묵적-mcp-설정-차단-계약-실모델-미검증).
+
 과제 공개/비공개 분리와 공식 결과 형식 처리는 오프라인 테스트합니다.
 Mac Docker ARM64와 native Ubuntu x86_64에서 evaluator-only 정답/오답을 확인했습니다.
 `deepseek-flash`로 Mac ARM64에서 이 OpenCode 스킬 프로필의 실제 모델→공식 CVDP 두 과제·4 trial을 실행했습니다.
