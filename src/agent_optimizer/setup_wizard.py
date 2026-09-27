@@ -256,6 +256,26 @@ def wizard_arguments(project_root: Path, *, execute: bool = True) -> list[str]:
               end="", file=sys.stderr, flush=True)
         return input().strip()
 
+    dataset_notes = {
+        "cvdp": "고정 Git·데이터·Python driver·Docker 공식 채점 필요",
+        "verilog-spec": "고정 Git·데이터·Docker/Icarus 평가 필요",
+        "verilog-completion": "고정 Git·데이터·Docker/Icarus 평가 필요",
+        "sample_text": "합성 fixture · 모델/Docker 불필요 · 내장 과제·채점기",
+    }
+    optimizer_notes = {
+        "baseline": "변경 없음 · 모델 API 불필요",
+        "file_variants": "변형 파일/설정 필요 · 모델 API 불필요",
+        "gepa": "모델 API·train 과제·수정 가능 텍스트 파일 필요",
+        "meta_harness": "모델 API·train 과제·수정 가능 .py 파일 필요",
+        "ecdysis": "모델 API·train 과제·수정 가능 .py 파일 필요",
+    }
+    harness_notes = {
+        "fixture": "합성 예제 전용 · 외부 모델/도구 불필요",
+        "command": "Agent 실행 argv 입력 · 외부 도구/모델은 지정한 명령에 따름",
+        "opencode": "OpenCode CLI·모델 선택자/인증 필요",
+        "claude_code": "Claude Code CLI·인증/모델 필요",
+    }
+
     print("\n╭─────────────────────────────────────────────────────────╮", file=sys.stderr)
     print(style(human("│  Agent Optimizer   ·   new optimization experiment     │"), "heading",
                 stream=sys.stderr), file=sys.stderr)
@@ -273,7 +293,9 @@ def wizard_arguments(project_root: Path, *, execute: bool = True) -> list[str]:
     for index, key in enumerate(choices, 1):
         info = registry.factories["datasets"][key]().describe()
         print(f"    {style(f'{index}.', 'heading', stream=sys.stderr)} "
-              f"{key} · {info.get('task_form', 'custom')}", file=sys.stderr)
+              f"{key} · {info.get('task_form', 'custom')} · "
+              f"{human(dataset_notes.get(key, '팀 제공 데이터·채점기/준비 조건 확인'))}", file=sys.stderr)
+    print("  " + human("로컬 tasks.json은 별도 evaluator.py:Symbol이 필요합니다"), file=sys.stderr)
     dataset_choice = ask("Dataset numbers or local tasks.json paths (comma separated)")
     selected_datasets = []
     for item in dataset_choice.split(","):
@@ -295,7 +317,8 @@ def wizard_arguments(project_root: Path, *, execute: bool = True) -> list[str]:
     print("\n  " + style(human("Select optimizer algorithms:"), "heading", stream=sys.stderr),
           file=sys.stderr)
     for index, key in enumerate(optimizers, 1):
-        print(f"    {style(f'{index}.', 'heading', stream=sys.stderr)} {key}", file=sys.stderr)
+        print(f"    {style(f'{index}.', 'heading', stream=sys.stderr)} {key} · "
+              f"{human(optimizer_notes.get(key, '팀 구현 · 의존성/추가 파일 확인'))}", file=sys.stderr)
     numbers = ask("Optimizer numbers (comma separated)")
     selected = []
     for index in numbers.split(","):
@@ -306,7 +329,8 @@ def wizard_arguments(project_root: Path, *, execute: bool = True) -> list[str]:
     harnesses = sorted(registry.factories["harnesses"])
     print("\n  " + style(human("Select an Agent harness:"), "heading", stream=sys.stderr), file=sys.stderr)
     for index, key in enumerate(harnesses, 1):
-        print(f"    {style(f'{index}.', 'heading', stream=sys.stderr)} {key}", file=sys.stderr)
+        print(f"    {style(f'{index}.', 'heading', stream=sys.stderr)} {key} · "
+              f"{human(harness_notes.get(key, '팀 구현 · 전용 프로필/도구 확인'))}", file=sys.stderr)
     number = ask("Harness number")
     if not number.isdigit() or not 1 <= int(number) <= len(harnesses):
         raise ConfigurationError(human("Choose a listed harness number"))
@@ -326,7 +350,24 @@ def wizard_arguments(project_root: Path, *, execute: bool = True) -> list[str]:
     target_file = (ask("Editable text target (Enter to auto-detect one match)")
                    if "gepa" in selected else "")
     print(f"\n  {human('Agent')}: {agent}\n  {human('Datasets')}: {', '.join(selected_datasets)}\n  {human('Harness')}: {harness}"
-          f"\n  {human('Optimizers')}: {', '.join(selected)}",
+           f"\n  {human('Optimizers')}: {', '.join(selected)}",
+           file=sys.stderr)
+    print(f"  {human('수정 가능 경로')}: {', '.join(editable)}", file=sys.stderr)
+    print(f"  {human('준비 작업')}: {human('선택한 데이터셋의 과제·채점기 준비; 고정 데이터셋에는 다운로드·Docker 빌드 가능')}",
+          file=sys.stderr)
+    print(f"  {human('기본 예산')}: max_tasks=9, max_trials=max(80, {human('예약 trial 수')}), "
+          "max_wall_time_seconds=3600, trial_timeout_seconds=120", file=sys.stderr)
+    model_possible = (harness in {"opencode", "claude_code"} or
+                      any(key in {"gepa", "meta_harness", "ecdysis"} for key in selected))
+    print(f"  {human('모델·도구 호출')}: " + human(
+        "실행 시 모델/외부 도구 호출 가능; 설정 생성만으로는 호출하지 않음" if model_possible else
+        "Agent 실행 명령에 따라 외부 도구/모델 호출 가능; 설정 생성만으로는 호출하지 않음"),
+        file=sys.stderr)
+    config_dir = project_root / "runs" / "configs" / name
+    print(f"  {human('설정 위치')}: {config_dir / ('session.json' if len(selected_datasets) > 1 else 'experiment.toml')}",
+          file=sys.stderr)
+    print(f"  {human('예상 보고서')}: " + str(project_root / "runs" /
+          ("sessions/<session-id>/index.html" if len(selected_datasets) > 1 else "<run-id>/report.html")),
           file=sys.stderr)
     question = ("데이터셋을 준비하고 실행할까요? [y/N]" if execute else
                 "데이터셋을 준비하고 설정을 만들까요? [y/N]")

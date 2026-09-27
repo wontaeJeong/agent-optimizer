@@ -79,6 +79,59 @@ MESSAGES = {
     "Choose one or more listed optimizer numbers": ("목록에서 Optimizer 번호를 하나 이상 고르세요", "Choose one or more listed optimizer numbers"),
     "Choose one or more listed optimizers": ("목록에서 Optimizer를 하나 이상 고르세요", "Choose one or more listed optimizers"),
     "Choose a listed harness number": ("목록의 하네스 번호를 고르세요", "Choose a listed harness number"),
+    "목록의 데이터셋 번호 또는 로컬 tasks.json 경로를 입력하세요": (
+        "목록의 데이터셋 번호 또는 로컬 tasks.json 경로를 입력하세요",
+        "Choose a listed dataset number or a local tasks.json path"),
+    "잘못된 Agent 실행 명령": ("잘못된 Agent 실행 명령", "Invalid Agent execution command"),
+    "고정 Git·데이터·Python driver·Docker 공식 채점 필요": (
+        "고정 Git·데이터·Python driver·Docker 공식 채점 필요",
+        "Pinned Git/data, Python driver, Docker official scorer required"),
+    "고정 Git·데이터·Docker/Icarus 평가 필요": (
+        "고정 Git·데이터·Docker/Icarus 평가 필요", "Pinned Git/data and Docker/Icarus evaluation required"),
+    "합성 fixture · 모델/Docker 불필요 · 내장 과제·채점기": (
+        "합성 fixture · 모델/Docker 불필요 · 내장 과제·채점기",
+        "Synthetic fixture · no model/Docker · bundled tasks/scorer"),
+    "팀 제공 데이터·채점기/준비 조건 확인": (
+        "팀 제공 데이터·채점기/준비 조건 확인", "Team dataset · check scorer/preparation requirements"),
+    "로컬 tasks.json은 별도 evaluator.py:Symbol이 필요합니다": (
+        "로컬 tasks.json은 별도 evaluator.py:Symbol이 필요합니다",
+        "Local tasks.json requires a separate evaluator.py:Symbol"),
+    "변경 없음 · 모델 API 불필요": ("변경 없음 · 모델 API 불필요", "No mutation · no model API"),
+    "변형 파일/설정 필요 · 모델 API 불필요": (
+        "변형 파일/설정 필요 · 모델 API 불필요", "Variant files/config needed · no model API"),
+    "모델 API·train 과제·수정 가능 텍스트 파일 필요": (
+        "모델 API·train 과제·수정 가능 텍스트 파일 필요", "Model API, train tasks and editable text file required"),
+    "모델 API·train 과제·수정 가능 .py 파일 필요": (
+        "모델 API·train 과제·수정 가능 .py 파일 필요", "Model API, train tasks and editable .py file required"),
+    "팀 구현 · 의존성/추가 파일 확인": (
+        "팀 구현 · 의존성/추가 파일 확인", "Team implementation · check dependencies/extra files"),
+    "합성 예제 전용 · 외부 모델/도구 불필요": (
+        "합성 예제 전용 · 외부 모델/도구 불필요", "Synthetic example only · no external model/tool"),
+    "Agent 실행 argv 입력 · 외부 도구/모델은 지정한 명령에 따름": (
+        "Agent 실행 argv 입력 · 외부 도구/모델은 지정한 명령에 따름",
+        "Supply Agent argv · external tool/model depends on your command"),
+    "OpenCode CLI·모델 선택자/인증 필요": (
+        "OpenCode CLI·모델 선택자/인증 필요", "OpenCode CLI and model selector/credentials required"),
+    "Claude Code CLI·인증/모델 필요": (
+        "Claude Code CLI·인증/모델 필요", "Claude Code CLI, credentials and model required"),
+    "팀 구현 · 전용 프로필/도구 확인": (
+        "팀 구현 · 전용 프로필/도구 확인", "Team implementation · check dedicated profile/tools"),
+    "수정 가능 경로": ("수정 가능 경로", "Editable paths"),
+    "준비 작업": ("준비 작업", "Preparation"),
+    "선택한 데이터셋의 과제·채점기 준비; 고정 데이터셋에는 다운로드·Docker 빌드 가능": (
+        "선택한 데이터셋의 과제·채점기 준비; 고정 데이터셋에는 다운로드·Docker 빌드 가능",
+        "Prepare selected tasks/scorer; pinned datasets may download data and build Docker images"),
+    "기본 예산": ("기본 예산", "Default budget"),
+    "예약 trial 수": ("예약 trial 수", "reserved trials"),
+    "모델·도구 호출": ("모델·도구 호출", "Model/tool calls"),
+    "실행 시 모델/외부 도구 호출 가능; 설정 생성만으로는 호출하지 않음": (
+        "실행 시 모델/외부 도구 호출 가능; 설정 생성만으로는 호출하지 않음",
+        "Run may call a model/external tool; config generation alone does not"),
+    "Agent 실행 명령에 따라 외부 도구/모델 호출 가능; 설정 생성만으로는 호출하지 않음": (
+        "Agent 실행 명령에 따라 외부 도구/모델 호출 가능; 설정 생성만으로는 호출하지 않음",
+        "Agent command may call an external tool/model; config generation alone does not"),
+    "설정 위치": ("설정 위치", "Configuration path"),
+    "예상 보고서": ("예상 보고서", "Expected report"),
     "Experiment cancelled without preparing data": ("데이터 준비 전에 실험을 취소했습니다", "Experiment cancelled without preparing data"),
     "Docker·ACE 평가/모델 실행 자산이 필요하면 먼저 7번 ACE 전체 환경 준비를 선택하세요.": ("Docker·ACE 평가/모델 실행 자산이 필요하면 먼저 7번 ACE 전체 환경 준비를 선택하세요.", "If you need Docker and ACE evaluation/model assets, choose full ACE setup (option 7) first."),
     "이 작업은 doctor --model로 실제 모델 API·컨테이너 도구를 호출합니다. 설정은 현재 세션에만 유지됩니다.": ("이 작업은 doctor --model로 실제 모델 API·컨테이너 도구를 호출합니다. 설정은 현재 세션에만 유지됩니다.", "This runs doctor --model against the actual model API and container tools. Settings remain in this session only."),

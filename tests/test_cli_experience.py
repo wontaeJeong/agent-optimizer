@@ -1588,6 +1588,43 @@ class CLIExperienceTests(unittest.TestCase):
                     wizard_arguments(self.root, execute=False)
         self.assertFalse((self.root / "runs").exists())
 
+    def test_wizard_explains_requirements_and_budget_before_declined_preparation(self):
+        from agent_optimizer.contracts import ConfigurationError
+
+        datasets = sorted(("cvdp", "sample_text", "verilog-spec", "verilog-completion"))
+        optimizers = sorted(Registry().factories["optimizers"])
+        answers = ["preview", str(self.agent), "configs/strategy.json",
+                   str(datasets.index("sample_text") + 1), str(optimizers.index("gepa") + 1),
+                   self.command_harness_choice(), "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
+                   "configs/strategy.json", "n"]
+        terminal = io.StringIO()
+        with patch("builtins.input", side_effect=answers), \
+             patch("agent_optimizer.setup_wizard.prepare_selection", side_effect=AssertionError("prepared")), \
+             contextlib.redirect_stderr(terminal):
+            with self.assertRaises(ConfigurationError):
+                wizard_arguments(self.root, execute=False)
+        text = terminal.getvalue()
+        for phrase in ("cvdp", "Docker", "sample_text", "합성", "command", "argv", "gepa",
+                       "모델", "configs/strategy.json", "max_trials", "3600", "120",
+                       "runs/configs/preview", "report.html"):
+            self.assertIn(phrase, text)
+        self.assertLess(text.index("max_trials"), text.index("[y/N]"))
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_wizard_english_explains_synthetic_example_without_running(self):
+        from agent_optimizer.contracts import ConfigurationError
+
+        answers = ["english-preview", str(self.agent), "configs/strategy.json", "sample_text",
+                   "1", str(sorted(Registry().factories["harnesses"]).index("fixture") + 1), "n"]
+        terminal = io.StringIO()
+        with patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}), \
+             patch("builtins.input", side_effect=answers), contextlib.redirect_stderr(terminal):
+            with self.assertRaises(ConfigurationError):
+                wizard_arguments(self.root, execute=False)
+        self.assertIn("synthetic", terminal.getvalue().lower())
+        self.assertIn("configuration", terminal.getvalue().lower())
+        self.assertFalse((self.root / "runs").exists())
+
     def test_wizard_prompts_follow_language_without_changing_options(self):
         for language, expected in (("ko", "실험 이름:"), ("en", "Experiment name:")):
             with self.subTest(language=language):
