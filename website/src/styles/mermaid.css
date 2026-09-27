@@ -1,0 +1,9 @@
+@media (max-width: 50rem) {
+  main pre.mermaid {
+    justify-content: flex-start;
+  }
+
+  pre.mermaid svg {
+    min-width: 36rem;
+  }
+}
