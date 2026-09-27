@@ -285,8 +285,15 @@ class PresetNavigationTests(unittest.TestCase):
         from agent_optimizer.preset_tui import choose_preset, select_four
         self.assertEqual(choose_preset("Agent", [("ACE", "a", True), ("fixture", "b", True)],
                                        initial=1, read_key=lambda: "enter"), 1)
-        keys = iter([2, 0, 0, None, None, None, 0, 0, 0, 0])
-        self.assertEqual(select_four(self.root, choose=lambda title, options: next(keys)),
+        keys = iter(["rtl-solo", 0, 0, None, None, None, "ACE-RTL", 0, 0, 0])
+
+        def choose(title, options):
+            selection = next(keys)
+            if title == "Agent":
+                return next(index for index, row in enumerate(options) if row[0] == selection)
+            return selection
+
+        self.assertEqual(select_four(self.root, choose=choose),
                          ("ace-rtl", "ace-opencode", "gepa", "cvdp"))
 
     def test_confirmation_back_reopens_dataset_with_previous_choices(self):
