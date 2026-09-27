@@ -81,7 +81,8 @@ def check_preset_cancel(cli: Path, project: Path, environment: dict) -> None:
             deadline = time.monotonic() + 5
             while termios.tcgetattr(slave)[3] & termios.ICANON:
                 if time.monotonic() > deadline:
-                    raise AssertionError("선택형 TUI 키 입력 상태가 준비되지 않았습니다")
+                    raise AssertionError("선택형 TUI 키 입력 상태가 준비되지 않았습니다: "
+                                         f"rc={child.poll()}, 화면={transcript.decode(errors='replace')[-1200:]}")
                 time.sleep(0.005)
 
         until("선택 [5/1/2/3/4]")
