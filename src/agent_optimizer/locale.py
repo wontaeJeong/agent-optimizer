@@ -6,6 +6,78 @@ from pathlib import Path
 
 
 MESSAGES = {
+    "필요": ("필요", "Requires"),
+    "조합": ("조합", "Compatible with"),
+    "범위": ("범위", "Status scope"),
+    "도구·모델·평가 실행은 조회에서 검사하지 않습니다": (
+        "도구·모델·평가 실행은 조회에서 검사하지 않습니다",
+        "Tool, model and evaluator execution are not checked by catalog"),
+    "등록됨; 실행 환경은 별도 진단": (
+        "등록됨; 실행 환경은 별도 진단", "Registered; diagnose execution environment separately"),
+    "준비 확인 필요": ("준비 확인 필요", "Preparation required"),
+    "등록됨": ("등록됨", "Registered"),
+    "고정 ACE 스킬 소스; 자산 준비 및 모델 필요": (
+        "고정 ACE 스킬 소스; 자산 준비 및 모델 필요", "Pinned ACE skill source; assets and model required"),
+    "등록된 Harness adapter; 실행 프로필/도구는 별도 확인": (
+        "등록된 Harness adapter; 실행 프로필/도구는 별도 확인",
+        "Registered Harness adapter; check profile and tools separately"),
+    "등록된 Harness 프로필; Agent 지원과 실행 도구 확인 필요": (
+        "등록된 Harness 프로필; Agent 지원과 실행 도구 확인 필요",
+        "Registered Harness profile; verify Agent support and runtime tools"),
+    "ACE-RTL 전용 프로필; 고정 자산·도구·모델 준비 필요": (
+        "ACE-RTL 전용 프로필; 고정 자산·도구·모델 준비 필요",
+        "Dedicated ACE-RTL profile; pinned assets, tools and model required"),
+    "수정 없는 기준 평가; Optimizer 모델 불필요": (
+        "수정 없는 기준 평가; Optimizer 모델 불필요", "Unchanged baseline evaluation; no optimizer model"),
+    "train 피드백으로 텍스트 후보 생성, validation 비교; merge 미지원": (
+        "train 피드백으로 텍스트 후보 생성, validation 비교; merge 미지원",
+        "Use training feedback to edit text candidates and compare on validation; merge unavailable"),
+    "후보별 활성 Python scaffold 수정·실행; train/validation 필요": (
+        "후보별 활성 Python scaffold 수정·실행; train/validation 필요",
+        "Edit and execute each candidate Python scaffold; train/validation tasks required"),
+    "등록된 Optimizer; 필요한 파일·모델·과제는 설정에서 확인": (
+        "등록된 Optimizer; 필요한 파일·모델·과제는 설정에서 확인",
+        "Registered Optimizer; check required files, model and tasks in its configuration"),
+    "선택 후 데이터·평가기 준비 확인 필요": (
+        "선택 후 데이터·평가기 준비 확인 필요", "Check selected data and evaluator preparation"),
+    "1, 2, 3, 4 또는 5를 선택하세요": (
+        "1, 2, 3, 4 또는 5를 선택하세요", "Choose 1, 2, 3, 4 or 5"),
+    "준비된 실험 실행 및 보고서 작성(후보·Harness·평가기 외부 호출 가능).": (
+        "준비된 실험 실행 및 보고서 작성(후보·Harness·평가기 외부 호출 가능).",
+        "Run an experiment with prepared candidates, Harness and evaluator; write a report (may call external services)."),
+    '저장소에서 시작: make setup-core. 기존 실험을 선택하려면 agent-opt tui의 "기존 실험 실행", 새 설정은 agent-opt init(대화형)을 사용하세요. 네 구성요소는 agent-opt catalog에서 조회, 비대화형 선택은 init --help. 데이터셋은 직접 선택하며 모델 없는 합성 예제는 README.md를 참고하세요.': (
+        '저장소에서 시작: make setup-core. 기존 실험을 선택하려면 agent-opt tui의 "기존 실험 실행", 새 설정은 agent-opt init(대화형)을 사용하세요. 네 구성요소는 agent-opt catalog에서 조회, 비대화형 선택은 init --help. 데이터셋은 직접 선택하며 모델 없는 합성 예제는 README.md를 참고하세요.',
+        'Start in the repository: make setup-core. Select an existing experiment in agent-opt tui, use agent-opt catalog for choices, and init --help for noninteractive setup. Select a dataset explicitly; README.md has a model-free fixture.'),
+    "준비·모델 호출 없이 등록된 네 구성요소 조회": (
+        "준비·모델 호출 없이 등록된 네 구성요소 조회", "Browse the four registered components without preparation or model calls"),
+    "구현된 구성요소와 준비 상태 조회(읽기 전용).": (
+        "구현된 구성요소와 준비 상태 조회(읽기 전용).", "List implemented components and preparation status (read-only)."),
+    "등록 ID의 역할·제약과 준비 조건 표시(읽기 전용).": (
+        "등록 ID의 역할·제약과 준비 조건 표시(읽기 전용).", "Show a registered component's role and requirements (read-only)."),
+    "단일 JSON 목록": ("단일 JSON 목록", "One JSON list"),
+    "단일 JSON 객체": ("단일 JSON 객체", "One JSON object"),
+    "선택한 ACE/CVDP 고정 자산 준비·재사용(다운로드·Docker 빌드 가능).": (
+        "선택한 ACE/CVDP 고정 자산 준비·재사용(다운로드·Docker 빌드 가능).",
+        "Prepare or reuse selected pinned ACE/CVDP assets (may download or build Docker images)."),
+    "Agent 경로/프리셋 설정 생성; --yes는 선택 자산 준비를 승인합니다.": (
+        "Agent 경로/프리셋 설정 생성; --yes는 선택 자산 준비를 승인합니다.",
+        "Create an experiment from an Agent path or preset; --yes approves asset preparation."),
+    "등록된 Agent 프리셋 ID(--agent와 배타)": (
+        "등록된 Agent 프리셋 ID(--agent와 배타)", "Registered Agent preset ID (exclusive with --agent)"),
+    "전용 Harness 프로필 ID(--harness와 배타)": (
+        "전용 Harness 프로필 ID(--harness와 배타)", "Harness profile ID (exclusive with --harness)"),
+    "일반 Harness adapter ID(기본 command; --harness-profile과 배타)": (
+        "일반 Harness adapter ID(기본 command; --harness-profile과 배타)",
+        "Generic Harness adapter ID (default command; exclusive with --harness-profile)"),
+    "선택 데이터·고정 소스 다운로드/Docker 빌드 가능성을 승인": (
+        "선택 데이터·고정 소스 다운로드/Docker 빌드 가능성을 승인",
+        "Approve downloads of selected data/pinned sources and possible Docker builds"),
+    "명시적으로 선택할 Optimizer ID(필수, 반복 가능; 예: baseline)": (
+        "명시적으로 선택할 Optimizer ID(필수, 반복 가능; 예: baseline)",
+        "Select a registered Optimizer ID (required, repeatable; e.g. baseline)"),
+    "ACE 준비: 고정 소스·데이터·driver 및 Docker 이미지 준비/재사용": (
+        "ACE 준비: 고정 소스·데이터·driver 및 Docker 이미지 준비/재사용",
+        "Preparing or reusing pinned ACE sources, data, driver and Docker images"),
     "OpenAI API 404 without version path at {endpoint}": (
         "OpenAI API에서 HTTP 404가 발생했습니다 (요청 경로: {endpoint}). API 기본 주소에 /v1이 누락됐습니다. AGENT_OPT_MODEL_BASE_URL=https://api.openai.com/v1로 설정하고 AGENT_OPT_MODEL_ID를 확인하세요.",
         "OpenAI API returned HTTP 404 at {endpoint}. The /v1 API path is missing. Set AGENT_OPT_MODEL_BASE_URL=https://api.openai.com/v1 and verify AGENT_OPT_MODEL_ID."),

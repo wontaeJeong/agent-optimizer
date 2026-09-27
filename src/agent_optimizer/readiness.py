@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import contextlib
 import fnmatch
+import json
 import os
 import re
 import shutil
@@ -259,7 +260,42 @@ def _optimizer_options(spec: dict) -> dict:
                   bool([task for task in spec["_tasks"] if task.split == "train"]))
     return check("optimizer.options", "optimizer", valid,
                  "Research optimizer options and editable source files are valid",
-                 "Declare an existing editable optimizer file, train tasks, and positive iteration allowance")
+                  "Declare an existing editable optimizer file, train tasks, and positive iteration allowance")
+
+
+def _ace_asset_check(spec: dict) -> dict:
+    """Read only the selected ACE lock and image identities; never run a container."""
+    root = spec["_root"]
+    if not is_source_checkout(root):
+        from agent_optimizer.integrations import verified_integration
+        try:
+            marker = verified_integration(root)
+            if marker is None or marker["id"] != "ace-rtl":
+                raise ConfigurationError("ACE integration marker missing")
+        except (ConfigurationError, OSError, ValueError):
+            return check("integration.assets", "integration", False,
+                         "Pinned ACE integration has not been prepared",
+                         f"agent-opt prepare {spec['_source']}")
+    try:
+        lock = json.loads((root / "external/environment-lock.json").read_text())
+        from agent_optimizer.preset_tui import _lifecycle
+        diagnostics = _lifecycle(root).load_example(
+            root, "examples/ace-rtl/environment/diagnostics.py", "ace_plan_diagnostics")
+        if not diagnostics.valid_lock(lock):
+            raise ValueError("Invalid ACE lock")
+        for name in ("agent", "evaluation"):
+            image = lock["images"][name]
+            identity = Runner(root, "integration").run(["docker", "image", "inspect", image["tag"]])
+            details = json.loads(identity)[0]
+            if (details["Id"] != image["id"] or
+                    f"{details['Os']}/{details['Architecture']}" != lock["platform"]):
+                raise ValueError("ACE image identity differs")
+    except (OSError, KeyError, TypeError, ValueError, IndexError, ConfigurationError, UnavailableError):
+        return check("integration.assets", "integration", False,
+                     "Pinned ACE lock or Docker images are unavailable",
+                     f"agent-opt prepare {spec['_source']}")
+    return check("integration.assets", "integration", True,
+                 "Pinned ACE lock and Docker image identities are available", "")
 
 
 def _seed_check(spec: dict) -> dict:
@@ -383,6 +419,8 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
                               "Select a registered optimizer"))
         if spec is not None:
             rows.extend(_source_checks(spec))
+            if spec.get("preset_selection"):
+                rows.append(_ace_asset_check(spec))
             rows.append(check("agent.output", "agent", all(task.files for task in spec["_tasks"]),
                               "Task output files are declared", "Declare task output file paths in the benchmark"))
             rows.append(_budget_check(spec))
@@ -406,8 +444,9 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
         research = any(isinstance(stage, dict) and stage.get("optimizer") in
                        {"gepa", "meta_harness", "ecdysis"} for stage in stages)
         harness_models = [profile.get("model_env", "AGENT_OPT_MODEL") for profile in profiles
-                           if (profile.get("adapter") == "opencode" or
-                               profile.get("adapter") == "ace_opencode" and spec.get("preset_selection"))]
+                          if profile.get("adapter") == "opencode" or
+                          (profile.get("adapter") == "ace_opencode" and spec is not None
+                           and spec.get("preset_selection"))]
         if research or harness_models:
             try:
                 if research:
