@@ -10,6 +10,7 @@ import shlex
 import shutil
 import stat
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Literal
@@ -136,13 +137,15 @@ def _tui_model_environment(spec: dict, env: dict[str, str] | None = None) -> dic
     return staged
 
 
-def _history_run(runs_fd: int, parent: str, name: str) -> tuple[str, int] | None:
+def _history_run(runs_fd: int, parent: str, name: str) -> tuple[str, float] | None:
     """Check a recorded run through directory-relative, non-following file descriptors."""
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", name):
+    match = re.fullmatch(r"([0-9]{8}T[0-9]{6}Z)-[0-9a-f]{8}", name)
+    if match is None:
         return None
     directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
     file_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
     try:
+        created = datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
         with contextlib.ExitStack() as opened:
             parent_fd = runs_fd
             if parent:
@@ -150,7 +153,6 @@ def _history_run(runs_fd: int, parent: str, name: str) -> tuple[str, int] | None
                 opened.callback(os.close, parent_fd)
             run_fd = os.open(name, directory_flags, dir_fd=parent_fd)
             opened.callback(os.close, run_fd)
-            modified = os.fstat(run_fd).st_mtime_ns
             with os.fdopen(os.open("summary.json", file_flags, dir_fd=run_fd), encoding="utf-8") as stream:
                 if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
                     return None
@@ -158,11 +160,16 @@ def _history_run(runs_fd: int, parent: str, name: str) -> tuple[str, int] | None
             with os.fdopen(os.open("report.html", file_flags, dir_fd=run_fd), "rb") as stream:
                 if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
                     return None
-            if (not isinstance(summary, dict) or summary.get("run_id") != name
+            if (not isinstance(summary, dict) or type(summary.get("schema_version")) is not int
+                    or summary["schema_version"] != 1 or summary.get("run_id") != name
                     or not isinstance(summary.get("status"), str)
-                    or not re.fullmatch(r"[A-Za-z][A-Za-z0-9_.-]*", summary["status"])):
+                    or summary["status"] not in {"running", "completed", "partial",
+                                                 "no_eligible_candidate", "interrupted",
+                                                 "budget_exhausted", "source_error", "error"}
+                    or not isinstance(summary.get("groups"), list)
+                    or type(summary.get("trials_used")) is not int or summary["trials_used"] < 0):
                 return None
-            return summary["status"], modified
+            return summary["status"], created.timestamp()
     except (OSError, ValueError, UnicodeError, RecursionError):
         return None
 
@@ -200,7 +207,7 @@ def _tui_run_history(project_root: Path) -> int | None:
         print(human("실행 기록이 없습니다."), file=sys.stderr)
         return 0
     for number, (_, parent, name, status) in enumerate(found, 1):
-        report = Path("runs") / parent / name / "report.html"
+        report = runs / parent / name / "report.html"
         print(f"{number}. {name} · {status} · {report}", file=sys.stderr)
     print(human("실행 번호 (0: 돌아가기): "), end="", file=sys.stderr, flush=True)
     choice = input().strip()
@@ -219,7 +226,7 @@ def _tui_run_history(project_root: Path) -> int | None:
         os.close(runs_fd)
     if recorded is None or recorded[0] != status:
         raise ConfigurationError(human("보고서를 안전하게 확인할 수 없습니다"))
-    print(f"{human('보고서 경로')}: {Path('runs') / parent / name / 'report.html'}", file=sys.stderr)
+    print(f"{human('보고서 경로')}: {runs / parent / name / 'report.html'}", file=sys.stderr)
     return 0
 
 
