@@ -138,6 +138,65 @@ class OpenCodeContractTests(unittest.TestCase):
             self.assertEqual(result.metrics["harness_reported_io_tokens"], 15)
             self.assertIsNone(result.metrics["agent_tokens"])
 
+    def test_http_404_reports_safe_endpoint_and_korean_repair(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output, err = root / "out.jsonl", root / "err.log"
+            event = {
+                "type": "error",
+                "error": {
+                    "name": "APIError",
+                    "data": {
+                        "message": "Not Found",
+                        "statusCode": 404,
+                        "responseHeaders": {"set-cookie": "session-cookie-secret"},
+                        "responseBody": "response-body-secret",
+                        "metadata": {"url": "https://api.openai.com/chat/completions?token=url-secret"},
+                    },
+                },
+            }
+            output.write_text(json.dumps(event))
+            err.write_text("")
+            request = RunRequest(root, root / "agent", root / "task", "prompt", 5, 3,
+                                 {"adapter": "opencode", "model_env": "TEST_AGENT_MODEL"}, root / "logs")
+            fixture = ExecutionResult("completed", 0, 0.1, str(output), str(err))
+            with patch.dict(os.environ, {"TEST_AGENT_MODEL": "compatible/example"}, clear=True), \
+                    patch("agent_optimizer.harnesses.command.execute", return_value=fixture):
+                result = OpenCodeHarness().run(request)
+
+        self.assertEqual(result.status, "infrastructure_error")
+        self.assertIn("HTTP 404", result.detail)
+        self.assertIn("api.openai.com/chat/completions", result.detail)
+        self.assertIn("AGENT_OPT_MODEL_BASE_URL", result.detail)
+        self.assertIn("https://api.openai.com/v1", result.detail)
+        for secret in ("session-cookie-secret", "response-body-secret", "url-secret"):
+            self.assertNotIn(secret, result.detail)
+
+    def test_api_credential_in_endpoint_path_is_redacted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output, err = root / "out.jsonl", root / "err.log"
+            event = {"type": "error", "error": {"data": {
+                "statusCode": 401,
+                "metadata": {"url": "https://gateway.invalid/v1/acct-7f9/opaquevalue123"},
+            }}}
+            output.write_text(json.dumps(event))
+            err.write_text("")
+            request = RunRequest(root, root / "agent", root / "task", "prompt", 5, 3,
+                                 {"adapter": "opencode", "model_env": "TEST_AGENT_MODEL"}, root / "logs")
+            fixture = ExecutionResult("completed", 0, 0.1, str(output), str(err))
+            with patch.dict(os.environ, {"TEST_AGENT_MODEL": "compatible/example",
+                                         "AGENT_OPT_MODEL_API_KEY": "opaquevalue123"}, clear=True), \
+                    patch("agent_optimizer.harnesses.command.execute", return_value=fixture):
+                result = OpenCodeHarness().run(request)
+
+        self.assertEqual(result.status, "infrastructure_error")
+        self.assertIn("HTTP 401", result.detail)
+        self.assertNotIn("acct-7f9", result.detail)
+        self.assertNotIn("opaquevalue123", result.detail)
+        self.assertIn("gateway.invalid/v1/[비공개]/[비공개]", result.detail)
+
+
 
 if __name__ == "__main__":
     unittest.main()

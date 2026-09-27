@@ -375,6 +375,25 @@ def preflight(spec, registry):
         evaluator.validate_benchmark(spec["_tasks"], spec["_benchmark_metadata"])
 
 
+def _failed_trial_diagnostic(records):
+    failed_statuses = {"error", "infrastructure_error", "unsupported", "agent_incomplete",
+                       "timeout", "interrupted", "process_error"}
+    for record in reversed(records):
+        execution = record.get("execution")
+        execution = execution if isinstance(execution, dict) else {}
+        if (record.get("status") not in failed_statuses
+                and execution.get("status") in {None, "completed"}):
+            continue
+        detail = execution.get("detail") or record.get("feedback") or record.get("error")
+        if not detail:
+            continue
+        return {key: record.get(key) for key in
+                ("trial_id", "agent_id", "harness_id", "task_id", "split")} | {
+                    "status": record.get("status"), "detail": str(detail),
+                }
+    return None
+
+
 def run_experiment(spec, registry, output: Path | None = None, on_event=None):
     preflight(spec, registry)
     base = output or safe_path(spec["_root"], spec.get("output_dir", "runs"))
@@ -445,9 +464,16 @@ def run_experiment(spec, registry, output: Path | None = None, on_event=None):
         summary["status"] = "budget_exhausted"
         events.append({"event": "budget_exhausted", "detail": str(exc)})
     except Exception as exc:
+        failure = _failed_trial_diagnostic(group.records) if group is not None else None
         summary.update(status="source_error" if phase == "source" else "error",
                        error_type=type(exc).__name__, error=str(exc))
-        events.append({"event": summary["status"], "error_type": type(exc).__name__, "detail": str(exc)})
+        error_event = {"event": summary["status"], "error_type": type(exc).__name__, "detail": str(exc)}
+        if failure is not None:
+            summary["failure"] = failure
+            error_event["failure"] = failure
+            exc.failure_diagnostic = failure
+            exc.run_root = str(root)
+        events.append(error_event)
         raise
     finally:
         if group is not None and group.summary["status"] == "running":

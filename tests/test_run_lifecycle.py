@@ -15,6 +15,7 @@ from agent_optimizer.cli import main
 from agent_optimizer.config import load_experiment, validate_objective
 from agent_optimizer.contracts import (
     BudgetExceeded, ConfigurationError, Evaluation, ExecutionResult, OptimizationResult,
+    UnavailableError,
 )
 from agent_optimizer.objectives import select
 from agent_optimizer.process import run_process
@@ -178,6 +179,49 @@ class LifecycleTests(unittest.TestCase):
                          ["status"], "error")
         self.assertFalse(any(e["event"] in {"stage_started", "stage_completed"} for e in events))
         self.assertTrue(any(e["event"] == "error" for e in events))
+
+    def test_summary_and_raised_error_preserve_failed_harness_diagnostic(self):
+        detail = ("OpenAI API에서 HTTP 404를 받았습니다. 요청 경로: "
+                  "api.openai.com/chat/completions. AGENT_OPT_MODEL_BASE_URL을 확인하세요.")
+
+        class FailedHarness:
+            def run(self, request):
+                return ExecutionResult("infrastructure_error", 1, 0.01, "stdout", "stderr", {}, detail)
+
+        self.registry.factories["harnesses"]["fixture"] = FailedHarness
+
+        def optimize(context, seeds, config):
+            row = context.evaluate(seeds[0])
+            if not row["valid"]:
+                raise UnavailableError("Optimizer needs a valid train evaluation; repair the execution environment")
+            return OptimizationResult(seeds)
+
+        self.optimizer(optimize)
+        with self.assertRaises(UnavailableError) as raised:
+            self.run_experiment()
+
+        run, summary, _ = self.persisted()
+        failure = summary["failure"]
+        self.assertEqual(failure["status"], "infrastructure_error")
+        self.assertEqual(failure["detail"], detail)
+        self.assertEqual(failure["split"], "train")
+        self.assertEqual(raised.exception.failure_diagnostic, failure)
+        self.assertEqual(Path(raised.exception.run_root).resolve(), run.resolve())
+
+    def test_summary_preserves_evaluator_exception_after_successful_harness(self):
+        detail = "Official evaluator raised an infrastructure error"
+
+        class BrokenEvaluator:
+            def evaluate(self, task, output_dir, timeout_seconds):
+                raise UnavailableError(detail)
+
+        self.registry.factories["evaluators"]["controlled"] = lambda config: BrokenEvaluator()
+        with self.assertRaises(UnavailableError):
+            self.run_experiment()
+
+        _, summary, _ = self.persisted()
+        self.assertEqual(summary["failure"]["status"], "error")
+        self.assertEqual(summary["failure"]["detail"], detail)
 
     def test_failed_reservation_does_not_count_a_trial(self):
         with patch("agent_optimizer.runner.time.monotonic", side_effect=lambda: self.now):
