@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -171,6 +172,28 @@ class TerminalLanguageTests(unittest.TestCase):
                 with contextlib.redirect_stderr(output):
                     self.assertEqual(main(["tui"]), 2)
                 self.assertIn(expected, output.getvalue())
+
+    def test_english_tui_history_displays_recorded_status_and_localized_navigation(self):
+        from agent_optimizer.cli import main
+
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory) / "runs" / "sample"
+            run.mkdir(parents=True)
+            (run / "summary.json").write_text(json.dumps({"run_id": "sample", "status": "error",
+                                                         "synthetic": True}))
+            (run / "report.html").write_text("<html>example</html>")
+            output, terminal = io.StringIO(), io.StringIO()
+            with patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}), \
+                    patch("sys.stdin.isatty", return_value=True), \
+                    patch.object(terminal, "isatty", return_value=True), \
+                    patch("builtins.input", side_effect=["4", "1"]), \
+                    contextlib.redirect_stdout(output), contextlib.redirect_stderr(terminal):
+                self.assertEqual(main(["tui", "--project-root", directory]), 0)
+            self.assertEqual(output.getvalue(), "")
+            self.assertIn("4. View previous runs", terminal.getvalue())
+            self.assertIn("sample · error · runs/sample/report.html", terminal.getvalue())
+            self.assertIn("Report path: runs/sample/report.html", terminal.getvalue())
+            self.assertNotIn("이전 실행", terminal.getvalue())
 
     def test_project_owned_init_error_is_translated_without_changing_option_name(self):
         for language, expected in (("ko", "데이터셋을 --dataset으로 직접 선택하세요"),
