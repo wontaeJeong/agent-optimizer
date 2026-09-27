@@ -1,0 +1,7 @@
+id = "model-rtl-command"
+adapter = "model_rtl_command"
+allow_local = true
+command = ["{python}", "{agent_dir}/src/agent.py", "{task_dir}"]
+
+[runtime]
+kind = "local"
