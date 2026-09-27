@@ -58,14 +58,18 @@ make doctor-core
 이 경로는 **선택형 실환경 실행**입니다. Python 3.11+, Git, uv, Docker Engine/Compose, 사용할 모델 설정·인증 및 공식 평가 환경이 필요합니다. macOS에서는 Docker Desktop에 공유 가능한 작업공간을 사용합니다. 코어 합성 결과로 대체되지 않습니다.
 
 ```bash
-.venv/bin/agent-opt init --profile ace-rtl --workspace "$HOME/agent-opt-ace"
-.venv/bin/agent-opt prepare "$HOME/agent-opt-ace/experiment.toml"
-.venv/bin/agent-opt doctor --plan "$HOME/agent-opt-ace/experiment.toml" --json
+.venv/bin/agent-opt catalog list --kind agent
+.venv/bin/agent-opt catalog show harness ace-opencode
+.venv/bin/agent-opt init --name ace-gepa-guide --agent-preset ace-rtl \
+  --harness-profile ace-opencode --optimizer gepa --dataset cvdp --yes
+.venv/bin/agent-opt prepare runs/configs/ace-gepa-guide/experiment.toml
+.venv/bin/agent-opt doctor --plan runs/configs/ace-gepa-guide/experiment.toml --json
+.venv/bin/agent-opt plan runs/configs/ace-gepa-guide/experiment.toml
 # 모델 설정과 인증을 환경/credential store에 준비한 후에만 실행:
-.venv/bin/agent-opt run "$HOME/agent-opt-ace/experiment.toml"
+.venv/bin/agent-opt run runs/configs/ace-gepa-guide/experiment.toml
 ```
 
-`prepare`는 선택한 고정 버전 자산을 준비하고 `run`은 부족한 자산을 자동 설치하지 않습니다. `doctor --plan`은 정적 검사이며 실제 모델·공식 CVDP 채점의 성공 여부는 **실행 근거와 보고서**에서 확인합니다. 이 ACE 예제는 OpenCode 스킬 프로필과 외부 공식 평가기 연결이지 native ACE 실행이 아닙니다. TTY에서는 `.venv/bin/agent-opt tui`에서 **5번 프리셋 선택형 새 최적화**를 고르고 `ACE-RTL → OpenCode → GEPA 또는 Meta-Harness → CVDP`를 각각 확정할 수 있습니다. [실험 구성](/agent-optimizer/guides/experiment/)에서 자체 Agent·데이터셋을 명시적으로 선택하는 법을 확인하세요.
+`init --yes`는 선택 CVDP 데이터와 고정 ACE 소스·driver·Docker 이미지를 준비합니다. `prepare`는 같은 자산을 검증해 재사용하며 `run`은 부족한 자산을 자동 설치하지 않습니다. `init` JSON의 `experiment`를 뒤 명령에 쓰고, `run` JSON의 `run_dir`에서 `agent-opt report <run_dir> --html`로 보고서를 다시 생성하세요. **Meta-Harness**는 다른 `--name ace-meta-guide --optimizer meta_harness`로 같은 단계를 실행합니다. 기존 `init --profile ace-rtl --workspace PATH` pointer 경로도 유지됩니다. `doctor --plan`은 정적 검사이며 실제 모델·공식 CVDP 채점의 성공 여부는 **실행 근거와 보고서**에서 확인합니다. 이 ACE 예제는 OpenCode 스킬 프로필과 외부 공식 평가기 연결이지 native ACE 실행이 아닙니다. TTY에서는 `.venv/bin/agent-opt tui`에서 **5번 프리셋 선택형 새 최적화**를 고르고 `ACE-RTL → OpenCode → GEPA 또는 Meta-Harness → CVDP`를 각각 확정할 수 있습니다. [실험 구성](/agent-optimizer/guides/experiment/)에서 자체 Agent·데이터셋을 명시적으로 선택하는 법을 확인하세요.
 
 5번의 `↑/↓`는 초점과 설명만 변경하고 `Enter`로 확정합니다. `Esc`/`b`는 이전 단계,
 `Ctrl+C`는 취소입니다. 마지막 확인 화면에서 수정 대상과 두 모델 역할(`AGENT_OPT_MODEL`과

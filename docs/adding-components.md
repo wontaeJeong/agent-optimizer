@@ -17,6 +17,32 @@ team_evaluator = "experiments/my-team/evaluator.py:Evaluator"
 필요한 종류만 등록하세요. `plan`과 CLI의 목록 조회도 신뢰한 Python 파일을 로딩합니다.
 등록 성공은 실제 구현·외부 실행 성공이 아니며 stub은 구현 전 명시적으로 실패합니다.
 
+### CLI/TUI 선택지와 프리셋
+
+`agent-opt catalog list --kind agent`는 설치 없이 읽기 전용으로 조회하며,
+`--kind`에는 `harness`, `optimizer`, `dataset`도 지정할 수 있습니다. 목록은
+선택 ID·표시 이름·필요 조건을 보여줍니다. Optimizer/Harness adapter는 `Registry.factories`,
+팀 구현은 아래 `PROJECT_COMPONENTS`, Dataset은 provider의 `describe()` 및 고정 카탈로그,
+Agent와 전용 Harness **프로필**은 `agent.toml`/`source.toml`과 `harness.toml`의
+`id`, `supported_harnesses`, `adapter`가 근거입니다. adapter `ace_opencode`와
+프로필 `ace-opencode`는 서로 다른 ID입니다. 읽기 전용 조회는 설정·캐시를 준비하지 않습니다.
+
+새 팀 컴포넌트는 아래처럼 등록한 뒤 `catalog show <kind> <id> --json`과
+`doctor --plan <실험.toml>`으로 설명·지원 조합을 확인하세요. 새 **고정 프리셋**처럼
+자동 설정 생성까지 지원하려면 `preset_tui.py`의 공통 선택/설정 경로에 활성 수정 파일·지원 조합·필요 환경을
+검증하고, CLI/TUI에서 동일한 설정 생성 함수를 호출하도록
+연결해야 합니다. 등록 ID만으로 전용 프로필·모델·채점기가 자동 추론되지는 않습니다.
+다음 계약 검사는 프리셋 조회·입력 배타·생성 파일의 `load_experiment`·후보 `.py`의
+trial 실행·고정 pin 거부를 외부 모델 없이 확인합니다:
+
+```bash
+PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_preset_cli.py -v
+.venv/bin/agent-opt catalog list --kind optimizer --json
+```
+
+`--agent <로컬/Git 경로>`와 `--harness <adapter>`는 기존 사용자 정의 계약으로 유지하며,
+실험 한정 `[plugins.*]`는 신뢰한 프로젝트 경로에 선언한 경우에만 로드합니다.
+
 ## Dataset provider / 팀 확장 목록
 
 [`experiments/dataset-template/`](../experiments/dataset-template/README.md)의 `provider.py`를 팀 폴더로 복사해
@@ -46,6 +72,9 @@ TUI의 5번 기본 선택 화면은 실제 지원 조합(`ACE-RTL/OpenCode/CVDP`
 실제 Agent manifest `supported_harnesses`, Harness profile/adapter, 데이터의 task 출력·evaluator,
 Optimizer 수정 파일에 맞춰 추가하고 확인 뒤의 설정 생성·실행 계약까지 검증해야 합니다. ID 등록만으로
 호환 또는 자산 준비 완료를 뜻하지 않습니다. 별도 `codex`/`agentic` 선택지는 구현 전 노출하지 않습니다.
+`catalog`의 `implemented`는 등록된 구현이며 `ready`는 **실행 성공 증거가 아닙니다.**
+고정 ACE source와 CVDP 공개 데이터는 별도 출처·pin이므로
+`catalog show dataset cvdp` → `init --yes` → `prepare EXPERIMENT` → `doctor --plan`으로 구분하세요.
 `.venv/bin/agent-opt datasets list`로 ID를 확인하고, 구현 전에는 이미 등록된 합성 예제로
 CLI/doctor/run 경로를 점검할 수 있습니다(실제 팀 ID로 교체하려면 먼저 provider/평가기 구현 필요):
 

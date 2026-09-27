@@ -1,5 +1,15 @@
 # 현재 구현·검증 상태
 
+**2026-09-28 CLI 선택형 경로:** `catalog list/show`는 등록 항목의 설명을 읽기 전용으로
+조회하고, `init --agent-preset ace-rtl --harness-profile ace-opencode --optimizer gepa|meta_harness
+--dataset cvdp --yes`는 독립된 run-owned 설정을 생성합니다. `tui` 5번도 네 항목을 순서대로
+선택하고 같은 설정 생성 함수를 사용합니다. `init --yes`는 선택 데이터셋과 ACE 고정 자산을 준비하고
+`prepare EXPERIMENT`는 준비된 자산을 검증·재사용합니다. GEPA의 후보 role-guidance는
+기존 ACE adapter의 prompt에, Meta-Harness의 후보 `.py`는 각 trial의 공개 과제
+`build`에 연결합니다. 새 설정은 원래 고정 simple_feedback 실험을 대체하지 않습니다.
+코어/합성·설치형·Docker/모델/공식 평가의 새 검증 수준은 [날짜별 기록](verification.md)을
+따르며 준비 여부만으로 점수나 개선을 주장하지 않습니다.
+
 **2026-09-27 확장:** 코어 setup/doctor → 명시적 데이터셋·ACE 프로필 선택/준비 → CLI/TUI 최적화 → HTML 보고서.
 팀 개발의 API-free fixture → 파일 플러그인 경로도 유지한다.
 시작은 [README](../README.md#개발환경-빠른-시작)와 [역할별 템플릿](../experiments/README.md).

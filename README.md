@@ -17,6 +17,22 @@ make doctor-core
 
 `make`가 없다면 `sh scripts/bootstrap.sh setup --core`로 준비할 수 있습니다. 기본 CLI는 `.venv/bin/agent-opt --help`, 대화형 시작은 TTY에서 `.venv/bin/agent-opt tui`입니다. `make help`는 설치 없이 개발 명령을 보여줍니다.
 
+### 네 선택을 CLI로 재현하기 (선택형 ACE/CVDP)
+
+`agent-opt tui`의 **5번**은 Agent → Harness → Optimizer → Dataset 설명을 보고 선택합니다. CLI는 같은 선택을 다음처럼 명시합니다. `init --yes`는 **선택한 CVDP 및 고정 ACE 소스·driver·Docker 이미지 준비**를 승인합니다. `prepare`는 같은 자산을 검증해 재사용할 수 있고 실제 모델/공식 평가는 `run`에서만 실행합니다.
+
+```bash
+.venv/bin/agent-opt catalog list --kind harness
+.venv/bin/agent-opt catalog show optimizer gepa
+.venv/bin/agent-opt init --name ace-gepa-demo --agent-preset ace-rtl --harness-profile ace-opencode --optimizer gepa --dataset cvdp --yes
+.venv/bin/agent-opt prepare runs/configs/ace-gepa-demo/experiment.toml
+.venv/bin/agent-opt doctor --plan runs/configs/ace-gepa-demo/experiment.toml --json
+.venv/bin/agent-opt plan runs/configs/ace-gepa-demo/experiment.toml
+.venv/bin/agent-opt run runs/configs/ace-gepa-demo/experiment.toml
+```
+
+Meta-Harness는 **다른 이름**으로 `--optimizer meta_harness`를 선택해 동일한 순서로 실행합니다. 각 `init` JSON의 `experiment`, `run` JSON의 `run_dir`을 뒤 명령에 사용하고 `agent-opt report <run_dir> --html`로 저장된 결과를 재생성하세요. Optimizer API(`AGENT_OPT_MODEL_BASE_URL`, `AGENT_OPT_MODEL_API_KEY`, 선택적 `AGENT_OPT_MODEL_ID`)와 OpenCode 선택자(`AGENT_OPT_MODEL`)는 **별도 환경 설정**이며 키는 설정 파일에 저장하지 않습니다. Docker/모델 없는 배선 확인은 위의 최소 합성 예제를 이용합니다.
+
 개발 명령의 **옵션 없는 `make setup`·`make doctor`는 ACE 전체 범위**입니다. 코어 준비·진단은 위 `-core` 명령을 쓰세요. 선택 데이터셋, ACE 전체 준비, 실제 모델 검사와 일상 검사의 준비 조건·부작용·복구 방법은 [개발 명령 기준](docs/development.md), 변경 유형별 검사는 [CONTRIBUTING.md](CONTRIBUTING.md)에 있습니다. 개발 명령 `doctor`와 사용자용 `.venv/bin/agent-opt doctor --plan ...`은 검사 범위가 다릅니다.
 
 ### 결과 확인
@@ -55,7 +71,7 @@ make doctor-core
 
 | 구분 | 현재 구현 / 사용 조건 |
 |---|---|
-| 인터페이스 | `agent-opt` CLI·TTY TUI, `init` → `doctor --plan` → `run` → `report`; 데이터셋은 사용자가 직접 선택. |
+| 인터페이스 | `agent-opt` CLI·TTY TUI, `catalog` → `init` → 선택형 `prepare` → `doctor --plan` → `plan` → `run` → `report`; 데이터셋은 사용자가 직접 선택. |
 | 소스·실행 | 로컬/고정 commit Git 스냅샷, 복수 Agent × Harness 기본 전체 곱 또는 실험별 `[[pairs]]` 선택. `command`, `opencode`, `claude_code` 등록; `fixture`는 합성 데모용. `codex`, `openagent`는 미구현 예약 ID. |
 | 최적화 | `baseline`, `file_variants`(모델 없이 실행), 자체 구현 `gepa`, `meta_harness`, `ecdysis`(모델 설정·적합한 파일/과제 필요). GEPA의 후보 병합은 현재 명시적으로 실패; upstream 논문 재현을 뜻하지 않습니다. |
 | 데이터·평가 | 합성 `sample_text`, 선택형 고정 CVDP·Verilog-Eval(`verilog-spec`, `verilog-completion`), 또는 사용자 `tasks.json` + 명시적 evaluator. 후자의 채점기를 자동 추측하지 않습니다. |

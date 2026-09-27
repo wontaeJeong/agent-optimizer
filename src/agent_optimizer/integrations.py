@@ -233,6 +233,20 @@ def prepare_pointer(path: Path, *, offline: bool = False) -> dict:
     return {"experiment": path.resolve(), "profile": integration["id"], "ready": True}
 
 
+def prepare_experiment(path: Path, *, offline: bool = False) -> dict:
+    """Prepare an explicit ACE selection or the unchanged installed pointer."""
+    raw = read_toml(path)
+    if "preset_selection" not in raw:
+        return prepare_pointer(path, offline=offline)
+    from agent_optimizer.config import load_experiment
+    from agent_optimizer.preset_tui import prepare_ace_selection, verify_ace_selection
+
+    spec = load_experiment(path)
+    verify_ace_selection(spec)
+    prepare_ace_selection(spec["_root"], offline=offline)
+    return {"experiment": path.resolve(), "profile": "ace-rtl", "ready": True}
+
+
 def publish_marker(workspace: Path, integration_id: str, obtained: dict) -> None:
     source = INTEGRATIONS[integration_id]
     if obtained["url"] != source["url"] or obtained["revision"] != source["revision"]:

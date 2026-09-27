@@ -157,6 +157,23 @@ def main(wheel: Path) -> int:
             raise AssertionError(f"설치형 CLI를 실행할 수 없습니다: {cli.read_text().splitlines()[0]}") from exc
         if {row["name"] for row in catalog} != {"cvdp", "verilog-spec", "verilog-completion"}:
             raise AssertionError(f"독립 설치 데이터셋 카탈로그 오류: {catalog}")
+        for kind, name in (("agent", "ace-rtl"), ("harness", "ace-opencode"),
+                           ("optimizer", "gepa"), ("optimizer", "meta_harness"),
+                           ("dataset", "cvdp")):
+            choices = invoke(cli, project, environment, "catalog", "list", "--kind", kind, "--json")
+            if name not in {row["id"] for row in choices}:
+                raise AssertionError(f"설치형 catalog {kind}/{name} 누락: {choices}")
+        unprepared = invoke(cli, project, environment, "catalog", "show", "agent", "ace-rtl", "--json")
+        if unprepared["ready"] or not unprepared["implemented"]:
+            raise AssertionError(f"미준비 ACE 상태를 성공으로 표현했습니다: {unprepared}")
+        invalid = subprocess.run([str(cli), "init", "--name", "invalid-ace",
+                                  "--agent-preset", "ace-rtl", "--harness-profile", "codex",
+                                  "--optimizer", "gepa", "--dataset", "cvdp", "--yes"],
+                                 cwd=project, env=environment, capture_output=True,
+                                 text=True, timeout=30)
+        if (invalid.returncode != 2 or invalid.stdout or (project / "external").exists()
+                or (project / "runs/configs/invalid-ace").exists()):
+            raise AssertionError(f"설치형 미구현 조합이 준비 전에 차단되지 않았습니다: {invalid}")
         check_tui_menu(cli, project, environment)
         check_preset_cancel(cli, project, environment)
         prepared = invoke(cli, project, environment, "init", "--name", "wheel-fixture",
@@ -178,7 +195,41 @@ def main(wheel: Path) -> int:
         summary = invoke(cli, project, environment, "report", str(run_dir))
         if summary["status"] != "completed" or (agent / "configs/strategy.json").read_bytes() != before:
             raise AssertionError("독립 설치 실행이 원본을 수정했거나 결과를 잃었습니다")
-        print("wheel-only catalog, TUI, custom init/doctor/run/report: passed")
+        # Installed package contract only: substitute the external ACE preparation
+        # while retaining the real wheel CLI, configuration loader, and pinned templates.
+        shutil.copytree(ROOT / "examples/ace-rtl", project / "examples/ace-rtl",
+                        ignore=shutil.ignore_patterns("__pycache__"))
+        ace_tasks = json.loads((source / "tasks.json").read_text())
+        ace_tasks["tasks"] = ace_tasks["tasks"][:2]
+        ace_data = project / "datasets/ace-demo/tasks.json"
+        ace_data.parent.mkdir(parents=True)
+        ace_data.write_text(json.dumps(ace_tasks))
+        script = '''import contextlib, io, json
+from pathlib import Path
+from unittest.mock import patch
+from agent_optimizer.cli import main
+from agent_optimizer.config import load_experiment
+from agent_optimizer.preset_tui import verify_ace_selection
+for optimizer in ("gepa", "meta_harness"):
+    output = io.StringIO()
+    with patch("agent_optimizer.preset_tui.prepare_ace_selection"), contextlib.redirect_stdout(output):
+        code = main(["init", "--name", "installed-" + optimizer, "--agent-preset", "ace-rtl",
+                     "--harness-profile", "ace-opencode", "--optimizer", optimizer,
+                     "--dataset", "cvdp", "--yes"])
+    assert code == 0, code
+    path = Path(json.loads(output.getvalue())["experiment"])
+    spec = load_experiment(path)
+    verify_ace_selection(spec)
+    assert spec["stages"][0]["optimizer"] == optimizer
+    with patch("agent_optimizer.preset_tui.prepare_ace_selection"), contextlib.redirect_stdout(io.StringIO()) as prepared:
+        assert main(["prepare", str(path), "--offline"]) == 0
+    assert json.loads(prepared.getvalue())["experiment"] == str(path)
+print("설치형 GEPA/Meta 설정 생성·고정 계약: 외부 자산 준비 모의 확인")'''
+        preset = subprocess.run([str(python), "-I", "-c", script], cwd=project,
+                                env=environment, capture_output=True, text=True, timeout=30)
+        if preset.returncode or "외부 자산 준비 모의 확인" not in preset.stdout:
+            raise AssertionError(f"설치형 프리셋 계약 실패: {preset.stdout} {preset.stderr}")
+        print("설치형 catalog/TUI/사용자 설정 실행 통과; ACE GEPA/Meta 생성·prepare는 외부 준비 모의 계약 통과")
     return 0
 
 

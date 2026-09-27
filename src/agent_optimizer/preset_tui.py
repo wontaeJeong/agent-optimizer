@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import importlib.util
+import math
 import os
 import select
 import shutil
@@ -13,7 +14,7 @@ import uuid
 from pathlib import Path
 
 from agent_optimizer.catalog import DATASETS
-from agent_optimizer.config import load_agent, load_experiment, load_tasks, read_toml
+from agent_optimizer.config import identifier, load_agent, load_experiment, load_tasks, read_toml
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.locale import current_language
 from agent_optimizer.registry import PROJECT_COMPONENTS, Registry, is_source_checkout
@@ -267,7 +268,9 @@ def select_four(root: Path, *, choose=choose_preset,
     return ("ace-rtl", "ace-opencode", ("gepa", "meta_harness", "baseline")[chosen[2]], "cvdp")
 
 
-def write_sample_selection(root: Path, agent_id: str, optimizer: str) -> Path:
+def write_sample_selection(root: Path, agent_id: str, optimizer: str, *, name: str | None = None,
+                           max_trials: int | None = None, wall_time: float | None = None,
+                           trial_timeout: float | None = None) -> Path:
     """등록된 합성 fixture와 evaluator를 기존 init 계약으로만 연결한다."""
     if agent_id not in {"rtl-solo", "rtl-team"} or optimizer not in {"baseline", "file_variants"}:
         raise ConfigurationError("지원하지 않는 합성 프리셋 조합입니다")
@@ -281,19 +284,58 @@ def write_sample_selection(root: Path, agent_id: str, optimizer: str) -> Path:
         stages = [{"id": "file-variants", "optimizer": "file_variants", "max_trials": 1,
                    "config": {"variants": [{"name": "repair", "files": {
                        "configs/strategy.json": '{"repair": true}\n'}}]}}]
-    return write_experiment(root / "runs/configs" / ("fixture-" + uuid.uuid4().hex[:12]),
+    return write_experiment(root / "runs/configs" / (identifier(name) if name else
+                                                   "fixture-" + uuid.uuid4().hex[:12]),
                             agent=agent, harness={"adapter": "fixture", "id": "fixture"},
                             dataset=dataset, stages=stages, plugins=plugins, dependencies=dependencies,
-                            name=f"{agent_id}-{optimizer.replace('_', '-')}-sample-text",
+                             name=name or f"{agent_id}-{optimizer.replace('_', '-')}-sample-text",
                             agent_id=agent_id,
                             editable=["configs/strategy.json"], project_root=root,
-                            max_tasks=3, max_trials=3 + len(stages), trial_timeout=120)
+                             max_tasks=3,
+                             max_trials=max_trials if max_trials is not None else 3 + len(stages),
+                             wall_time=wall_time if wall_time is not None else 3600,
+                             trial_timeout=trial_timeout if trial_timeout is not None else 120)
 
 
-def write_ace_selection(root: Path, optimizer: str) -> Path:
-    """고정 ACE 프리셋을 보존한 채 준비된 공개 두 과제의 독립 실험을 생성한다."""
+def ace_stage_config(optimizer: str, options: dict | None = None) -> dict:
+    """TUI defaults and explicit CLI options use one validated active edit surface."""
+    if options is None:
+        options = {}
     if optimizer not in {"gepa", "meta_harness", "baseline"}:
         raise ConfigurationError(f"지원하지 않는 ACE Optimizer: {optimizer}")
+    if optimizer == "baseline":
+        if options:
+            raise ConfigurationError("baseline에는 Optimizer 설정을 지정할 수 없습니다")
+        return {}
+    defaults = ({"file": ACE_GUIDANCE, "metric": "passed", "direction": "maximize",
+                 "iterations": 3, "batch_size": 4, "merge": False} if optimizer == "gepa" else
+                {"file": ACE_SCAFFOLD, "metric": "passed", "direction": "maximize",
+                 "iterations": 3, "required_symbol": "prepare_task"})
+    allowed = set(defaults) | {"request_timeout_seconds"} | ({"seed"} if optimizer == "gepa" else set())
+    if not isinstance(options, dict) or set(options) - allowed:
+        raise ConfigurationError(f"{optimizer}에 지원하지 않는 설정 키가 있습니다")
+    config = {**defaults, **options}
+    if (config["file"] != defaults["file"] or config["metric"] != "passed"
+            or config["direction"] != "maximize"
+            or optimizer == "gepa" and config["merge"] is not False
+            or optimizer == "meta_harness" and config["required_symbol"] != "prepare_task"):
+        raise ConfigurationError("ACE 활성 수정 파일·지표·symbol만 선택할 수 있습니다 (GEPA merge 미지원)")
+    for key in ("iterations", "batch_size", "seed"):
+        if key in config and (type(config[key]) is not int or
+                              (config[key] < 0 if key == "seed" else not 1 <= config[key] <= 100)):
+            raise ConfigurationError(f"{optimizer}.{key} 값이 허용 범위를 벗어났습니다")
+    if "request_timeout_seconds" in config:
+        value = config["request_timeout_seconds"]
+        if type(value) not in {int, float} or not math.isfinite(value) or value <= 0:
+            raise ConfigurationError("request_timeout_seconds는 양수여야 합니다")
+    return config
+
+
+def write_ace_selection(root: Path, optimizer: str, *, name: str | None = None,
+                        options: dict | None = None, max_trials: int | None = None,
+                        wall_time: float | None = None, trial_timeout: float | None = None) -> Path:
+    """고정 ACE 프리셋을 보존한 채 준비된 공개 두 과제의 독립 실험을 생성한다."""
+    stage_config = ace_stage_config(optimizer, options)
     root = root.resolve()
     original = root / "examples/ace-rtl/experiment.toml"
     template = read_toml(original)
@@ -305,14 +347,23 @@ def write_ace_selection(root: Path, optimizer: str) -> Path:
     validation = sum(task.split == "validation" for task in tasks)
     if train != 1 or validation != 1 or any(task.split == "test" for task in tasks):
         raise ConfigurationError("ACE 선택형 데모는 train 1·validation 1과 final_test=false를 사용합니다")
-    iterations = 3
-    allowance = train + validation + iterations * (min(train, 4) + validation)
-    maximum = validation + (0 if optimizer == "baseline" else allowance)
-    timeout = template["budget"]["trial_timeout_seconds"]
-    wall = maximum * timeout + iterations * 60 + 180
-    folder = root / "runs" / "configs" / ("ace-" + uuid.uuid4().hex[:12])
+    iterations = stage_config.get("iterations", 3)
+    allowance = (train + validation + iterations *
+                 (min(train, stage_config.get("batch_size", train)) + validation))
+    minimum = validation + (0 if optimizer == "baseline" else allowance)
+    maximum = max_trials if max_trials is not None else minimum
+    if type(maximum) is not int or maximum < minimum:
+        raise ConfigurationError(f"max_trials는 최소 {minimum}이어야 합니다")
+    timeout = trial_timeout if trial_timeout is not None else template["budget"]["trial_timeout_seconds"]
+    wall = wall_time if wall_time is not None else maximum * timeout + iterations * 60 + 180
+    if (type(timeout) not in {int, float} or not math.isfinite(timeout) or timeout <= 0 or
+            type(wall) not in {int, float} or not math.isfinite(wall) or wall <= 0):
+        raise ConfigurationError("ACE 실행 시간 예산은 유한한 양수여야 합니다")
+    folder = root / "runs" / "configs" / (identifier(name) if name else "ace-" + uuid.uuid4().hex[:12])
     if (root / "runs").is_symlink() or (root / "runs/configs").is_symlink():
         raise ConfigurationError("실험 설정 디렉터리는 symlink일 수 없습니다")
+    if folder.exists() or folder.is_symlink():
+        raise ConfigurationError(f"Generated configuration already exists: {folder}")
     folder.mkdir(parents=True, exist_ok=False)
     try:
         prefix = folder.relative_to(root).as_posix()
@@ -333,8 +384,8 @@ def write_ace_selection(root: Path, optimizer: str) -> Path:
             agent_lines += _section("source", source["source"])
             (folder / "agent.toml").write_text("\n".join(agent_lines), encoding="utf-8")
             seeds[ACE_SCAFFOLD] = prefix + "/ace_scaffold.py"
-        name = "ace-rtl-opencode-" + optimizer.replace("_", "-")
-        lines = ["schema_version = 1", f"name = {_literal(name)}",
+        experiment_name = name or "ace-rtl-opencode-" + optimizer.replace("_", "-")
+        lines = ["schema_version = 1", f"name = {_literal(experiment_name)}",
                  f"project_root = {_literal(os.path.relpath(root, folder))}",
                  f"agents = {_literal([agent_path])}",
                  f"harnesses = {_literal(template['harnesses'])}",
@@ -355,11 +406,6 @@ def write_ace_selection(root: Path, optimizer: str) -> Path:
                   "[[objective.metrics]]", 'name = "solve_rate"', 'source = "passed"',
                   'direction = "maximize"', 'aggregate = "mean"', ""]
         if optimizer != "baseline":
-            stage_config = ({"file": ACE_GUIDANCE, "metric": "passed", "direction": "maximize",
-                             "iterations": iterations, "batch_size": 4, "merge": False}
-                            if optimizer == "gepa" else
-                            {"file": ACE_SCAFFOLD, "metric": "passed", "direction": "maximize",
-                             "iterations": iterations, "required_symbol": "prepare_task"})
             lines += ["[[stages]]", f"id = {_literal(optimizer)}",
                       f"optimizer = {_literal(optimizer)}", 'inputs = ["baseline"]',
                       f"max_trials = {allowance}", ""]
@@ -383,18 +429,21 @@ def verify_ace_selection(spec: dict) -> None:
         profile = read_toml(root / "examples/ace-rtl/harness.toml")
         template = read_toml(root / "examples/ace-rtl/experiment.toml")
         agent = spec["_agents"][0]
+        optimizer_config = spec["stages"][0]["config"] if optimizer != "baseline" else {}
+        expected_config = ace_stage_config(optimizer, optimizer_config)
+        iterations = expected_config.get("iterations", 3)
+        tasks = spec["_tasks"]
+        train = sum(task.split == "train" for task in tasks)
+        validation = sum(task.split == "validation" for task in tasks)
+        allowance = (train + validation + iterations *
+                     (min(train, expected_config.get("batch_size", train)) + validation))
+        minimum = validation + (0 if optimizer == "baseline" else allowance)
         expected_editable = (*source.editable, *((ACE_SCAFFOLD,) if optimizer == "meta_harness" else ()))
         expected_build = (("python3", "-c", SCAFFOLD_CALL, f"agent/{ACE_SCAFFOLD}", "task")
                           if optimizer == "meta_harness" else ())
         expected_stage = ({} if optimizer == "baseline" else
-                          {"id": optimizer, "optimizer": optimizer, "inputs": ["baseline"],
-                           "max_trials": 8, "config": (
-                               {"file": ACE_GUIDANCE, "metric": "passed", "direction": "maximize",
-                                "iterations": 3, "batch_size": 4, "merge": False}
-                               if optimizer == "gepa" else
-                               {"file": ACE_SCAFFOLD, "metric": "passed", "direction": "maximize",
-                                "iterations": 3, "required_symbol": "prepare_task"})})
-        maximum = 1 if optimizer == "baseline" else 9
+                           {"id": optimizer, "optimizer": optimizer, "inputs": ["baseline"],
+                            "max_trials": allowance, "config": expected_config})
         expected_seed = ({ACE_SCAFFOLD: spec["_source"].parent.relative_to(root).as_posix()
                           + "/ace_scaffold.py"} if optimizer == "meta_harness" else {})
         valid = (
@@ -402,6 +451,15 @@ def verify_ace_selection(spec: dict) -> None:
                        "optimizer": optimizer, "dataset": "cvdp"}
             and optimizer in {"gepa", "meta_harness", "baseline"}
             and spec["_source"].is_relative_to(root / "runs/configs")
+            and source.source.kind == "git"
+            and source.source.revision == "fead921f18bb57345b5a41ef93ba625be208e99c"
+            and profile.get("adapter") == "ace_opencode"
+            and profile.get("id") == "ace-opencode"
+            and profile.get("model_env") == "AGENT_OPT_MODEL"
+            and profile.get("runtime", {}).get("kind") == "docker"
+            and profile["runtime"].get("network") == "bridge"
+            and {"AGENT_OPT_MODEL", "AGENT_OPT_MODEL_API_KEY", "OPENCODE_CONFIG"}.issubset(
+                profile["runtime"].get("env_passthrough", []))
             and len(spec["_agents"]) == len(spec["_profiles"]) == 1
             and agent.id == source.id and agent.source == source.source
             and agent.prompt_file == source.prompt_file
@@ -417,9 +475,14 @@ def verify_ace_selection(spec: dict) -> None:
                  safe_path(root, expected_seed[ACE_SCAFFOLD]).read_bytes()
                  == Path(__file__).with_name("ace_scaffold.py").read_bytes())
             and spec["plugins"] == {"harnesses": template["plugins"]["harnesses"]}
-            and spec["budget"] == {"max_trials": maximum,
-                                   "max_wall_time_seconds": maximum * template["budget"]["trial_timeout_seconds"] + 360,
-                                   "trial_timeout_seconds": template["budget"]["trial_timeout_seconds"]}
+            and type(spec["budget"]["max_trials"]) is int
+            and spec["budget"]["max_trials"] >= minimum
+            and type(spec["budget"]["trial_timeout_seconds"]) in {int, float}
+            and type(spec["budget"]["max_wall_time_seconds"]) in {int, float}
+            and math.isfinite(spec["budget"]["trial_timeout_seconds"])
+            and math.isfinite(spec["budget"]["max_wall_time_seconds"])
+            and spec["budget"]["trial_timeout_seconds"] > 0
+            and spec["budget"]["max_wall_time_seconds"] > 0
             and spec.get("final_test") is False
             and spec.get("final_stages") == (["baseline"] if optimizer == "baseline" else [optimizer])
             and spec.get("stages", []) == ([] if optimizer == "baseline" else [expected_stage])
@@ -446,17 +509,17 @@ def _lifecycle(root: Path):
     return module
 
 
-def prepare_ace_selection(root: Path) -> None:
+def prepare_ace_selection(root: Path, *, offline: bool = False) -> None:
     """확인 후 검증된 고정 연동 자산만 준비한다."""
     from agent_optimizer.registry import is_source_checkout
     if is_source_checkout(root):
-        _lifecycle(root).prepare(root)
+        _lifecycle(root).prepare(root, offline=offline)
     else:
         from agent_optimizer.integrations import prepare_pointer, write_pending_experiment
         pointer = root / "experiment.toml"
         if not pointer.exists():
             pointer = write_pending_experiment(root, "ace-rtl")
-        prepare_pointer(pointer)
+        prepare_pointer(pointer, offline=offline)
 
 
 def run_ace_selection(experiment: Path) -> int:

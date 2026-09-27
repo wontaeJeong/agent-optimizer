@@ -20,16 +20,15 @@ from typer._click import ClickException
 from typer._click.core import Abort, Exit
 
 from agent_optimizer.config import load_agent, load_experiment, selected_pairs
-from agent_optimizer.catalog import DATASETS as CATALOG_DATASETS
+from agent_optimizer.catalog import DATASETS as CATALOG_DATASETS, describe_choice, list_choices
 from agent_optimizer.contracts import ConfigurationError, SourceSpec, UnavailableError, jsonable
 from agent_optimizer.runner import preflight, run_experiment
 from agent_optimizer.sources import validate_source
 from agent_optimizer.registry import Registry
 from agent_optimizer.network import network_environment
 from agent_optimizer.setup_wizard import (component_inventory, prepare_selection,
-                                          _bounded_tasks, choose_editable_file, requires_command,
-                                          supports_generated_profile, wizard_arguments,
-                                          write_experiment)
+                                           _bounded_tasks, choose_editable_file, requires_command,
+                                           supports_generated_profile, wizard_arguments, write_experiment)
 from agent_optimizer.terminal_report import PreparationStatus, ProgressDisplay
 from agent_optimizer.terminal_report import SessionProgress
 from agent_optimizer.session import SessionInterrupted, run_session
@@ -59,7 +58,7 @@ def main(argv=None):
             "rerank is deferred; configure the objective for a new run. Stored reports and frozen selections remain available; see deferred/README.md"), file=sys.stderr)
         return 2
     previous = sys.dont_write_bytecode
-    if argv and argv[0] == "doctor":
+    if argv and argv[0] in {"doctor", "catalog"}:
         sys.dont_write_bytecode = True
     try:
         command = typer.main.get_command(app)
@@ -79,11 +78,14 @@ def main(argv=None):
 
 app = typer.Typer(help="여러 Agent의 최적화 실험을 위한 작업 도구", no_args_is_help=True,
                   add_completion=False,
-                  epilog=('저장소에서 시작: make setup-core. 기존 실험을 선택하려면 agent-opt tui의 '
-                          '"기존 실험 실행", 새 설정은 agent-opt init(대화형)을 사용하세요. '
-                          '데이터셋은 직접 선택하며 모델 없는 합성 예제는 README.md를 참고하세요.'))
+                   epilog=('저장소에서 시작: make setup-core. 기존 실험을 선택하려면 agent-opt tui의 '
+                           '"기존 실험 실행", 새 설정은 agent-opt init(대화형)을 사용하세요. '
+                           '네 구성요소는 agent-opt catalog에서 조회, 비대화형 선택은 init --help. '
+                           '데이터셋은 직접 선택하며 모델 없는 합성 예제는 README.md를 참고하세요.'))
 dataset_app = typer.Typer(help="데이터셋 목록 표시 및 명시적으로 선택한 데이터셋 준비", no_args_is_help=True)
 app.add_typer(dataset_app, name="datasets")
+catalog_app = typer.Typer(help="준비·모델 호출 없이 등록된 네 구성요소 조회", no_args_is_help=True)
+app.add_typer(catalog_app, name="catalog")
 
 
 def localize_click_help(command):
@@ -365,9 +367,26 @@ def plugins_command(project_root: Path | None = None) -> int:
     return _invoke("plugins", project_root=project_root or Path.cwd())
 
 
+@catalog_app.command("list")
+def catalog_list(kind: str = typer.Option(..., "--kind", help="agent|harness|optimizer|dataset"),
+                 project_root: Path | None = None,
+                 json_output: bool = typer.Option(False, "--json", help="단일 JSON 목록")) -> int:
+    """구현된 구성요소와 준비 상태 조회(읽기 전용)."""
+    return _invoke("catalog", kind=kind, identifier=None, project_root=project_root or Path.cwd(),
+                   json=json_output)
+
+
+@catalog_app.command("show")
+def catalog_show(kind: str, identifier: str, project_root: Path | None = None,
+                 json_output: bool = typer.Option(False, "--json", help="단일 JSON 객체")) -> int:
+    """등록 ID의 역할·제약과 준비 조건 표시(읽기 전용)."""
+    return _invoke("catalog", kind=kind, identifier=identifier,
+                   project_root=project_root or Path.cwd(), json=json_output)
+
+
 @app.command("prepare")
 def prepare_command(experiment: Path, offline: bool = False) -> int:
-    """직접 선택한 실험의 버전 고정 연동 자산을 준비합니다."""
+    """선택한 ACE/CVDP 고정 자산 준비·재사용(다운로드·Docker 빌드 가능)."""
     return _invoke("prepare", experiment=experiment, offline=offline)
 
 
@@ -403,7 +422,9 @@ def datasets_prepare(name: str | None = typer.Argument(None, help="등록된 데
 def init_command(project_root: Path | None = None,
                  profile: str | None = typer.Option(None, "--profile", help="명시적으로 선택하는 준비된 실험 프로필"),
                  workspace: Path | None = typer.Option(None, "--workspace", help="선택형 실험 작업공간"),
-                 agent: str | None = typer.Option(None, help="로컬 소스 경로 또는 Git URL(Git이면 --revision 지정)"),
+                  agent: str | None = typer.Option(None, help="로컬 소스 경로 또는 Git URL(Git이면 --revision 지정)"),
+                  agent_preset: str | None = typer.Option(None, "--agent-preset", help="등록된 Agent 프리셋 ID(--agent와 배타)"),
+                  harness_profile: str | None = typer.Option(None, "--harness-profile", help="전용 Harness 프로필 ID(--harness와 배타)"),
                  revision: str | None = None, name: str | None = None,
                  command: str | None = typer.Option(None, "--command", help="명령 하네스의 Agent argv: 인용을 분리하지만 셸 확장·파이프·리다이렉션은 실행하지 않음"),
                  editable: list[str] | None = typer.Option(None, "--editable", help="수정 허용 Agent 경로/패턴(반복 가능)"),
@@ -411,18 +432,21 @@ def init_command(project_root: Path | None = None,
                  dataset: list[str] | None = typer.Option(None, "--dataset", help="데이터셋 직접 선택: 등록 ID 또는 로컬 tasks.json(반복 가능)"),
                  evaluator: str | None = None, metric: str = "passed",
                  direction: Literal["maximize", "minimize"] = typer.Option("maximize", "--direction"),
-                 harness: str = "command", optimizer: list[str] | None = typer.Option(None, "--optimizer", help="명시적으로 선택할 Optimizer ID(필수, 반복 가능; 예: baseline)"),
+                  harness: str | None = typer.Option(None, "--harness", help="일반 Harness adapter ID(기본 command; --harness-profile과 배타)"), optimizer: list[str] | None = typer.Option(None, "--optimizer", help="명시적으로 선택할 Optimizer ID(필수, 반복 가능; 예: baseline)"),
                  optimizer_config: str | None = None, scaffold_file: str | None = None,
                  target_file: str | None = None, max_tasks: int = 9, max_trials: int | None = None,
-                 max_wall_time_seconds: float = 3600, trial_timeout_seconds: float = 120,
+                  max_wall_time_seconds: float | None = None,
+                  trial_timeout_seconds: float | None = None,
                  offline: bool = False,
-                 yes: bool = typer.Option(False, help="TTY 없이 준비를 확인하고 진행")) -> int:
-    """직접 선택한 데이터셋으로 실험 설정 생성."""
+                  yes: bool = typer.Option(False, help="선택 데이터·고정 소스 다운로드/Docker 빌드 가능성을 승인")) -> int:
+    """Agent 경로/프리셋 설정 생성; --yes는 선택 자산 준비를 승인합니다."""
     if profile is not None or workspace is not None:
+        if agent_preset or harness_profile:
+            raise typer.BadParameter("--profile/--workspace와 프리셋 선택은 섞을 수 없습니다")
         return _invoke("init-profile", profile=profile, workspace=workspace, agent=agent,
                        dataset=dataset, evaluator=evaluator, optimizer=optimizer, editable=editable,
                        command_text=command, revision=revision, name=name)
-    if (not any((agent, dataset, editable, command, name, revision, optimizer))
+    if (not any((agent, agent_preset, harness_profile, dataset, editable, command, name, revision, optimizer))
             and not yes and sys.stdin.isatty() and sys.stderr.isatty()):
         try:
             arguments = wizard_arguments((project_root or Path.cwd()).absolute(), execute=False)
@@ -445,13 +469,15 @@ def init_command(project_root: Path | None = None,
         print(f"{human('설정 생성')}: {prepared.get('experiment') or prepared['session']}", file=sys.stderr)
         return 0
     return _invoke("init", project_root=project_root or Path.cwd(), agent=agent,
+                    agent_preset=agent_preset, harness_profile=harness_profile,
                    revision=revision, name=name, command_text=command,
                    editable=editable, prompt_file=prompt_file, dataset=dataset,
                    evaluator=evaluator, metric=metric, direction=direction,
-                   harness=harness, optimizer=optimizer, optimizer_config=optimizer_config,
+                    harness=harness or "command", explicit_harness=harness is not None,
+                    optimizer=optimizer, optimizer_config=optimizer_config,
                    scaffold_file=scaffold_file, target_file=target_file, max_tasks=max_tasks,
-                   max_trials=max_trials, max_wall_time_seconds=max_wall_time_seconds,
-                   trial_timeout_seconds=trial_timeout_seconds, offline=offline, yes=yes)
+                    max_trials=max_trials, max_wall_time_seconds=max_wall_time_seconds,
+                    trial_timeout_seconds=trial_timeout_seconds, offline=offline, yes=yes)
 
 
 @app.command("tui")
@@ -481,7 +507,7 @@ def plan_command(experiment: Path) -> int:
 
 @app.command("run")
 def run_command(experiment: Path, output: Path | None = None) -> int:
-    """준비된 실험 실행 및 보고서 작성."""
+    """준비된 실험 실행 및 보고서 작성(후보·Harness·평가기 외부 호출 가능)."""
     return _invoke("run", experiment=experiment, output=output)
 
 
@@ -497,12 +523,29 @@ def _dispatch(args):
     try:
         if args.command != "doctor" or not (args.dataset or args.plan):
             os.environ.update(network_environment())
-        if args.command == "plugins":
+        if args.command == "catalog":
+            result = (describe_choice(args.kind, args.identifier, args.project_root)
+                      if args.identifier else list_choices(args.kind, args.project_root))
+            if args.json:
+                show(result)
+            else:
+                for row in result if isinstance(result, list) else [result]:
+                    print(f"{row['name']} [{row['id']}] · " +
+                          human("준비 확인 필요" if not row["ready"] else "등록됨"))
+                    print("  " + human(row["description"]))
+                    if args.identifier:
+                        if row["requirements"]:
+                            print(f"  {human('필요')}: " + ", ".join(row["requirements"]))
+                        if row["supported_with"]:
+                            print(f"  {human('조합')}: " + ", ".join(row["supported_with"]))
+                        print(f"  {human('범위')}: " + human(row["reason"]))
+        elif args.command == "plugins":
             registry.load_project(args.project_root.absolute())
             show(registry.describe())
         elif args.command == "prepare":
-            from agent_optimizer.integrations import prepare_pointer
-            show(prepare_pointer(args.experiment, offline=args.offline))
+            from agent_optimizer.integrations import prepare_experiment
+            print(human("ACE 준비: 고정 소스·데이터·driver 및 Docker 이미지 준비/재사용"), file=sys.stderr)
+            show(prepare_experiment(args.experiment, offline=args.offline))
         elif args.command == "datasets":
             root = args.project_root.absolute()
             inventory, _, _ = component_inventory(root)
@@ -534,6 +577,92 @@ def _dispatch(args):
             show({"experiment": target, "profile": args.profile, "ready": False})
             next_command(f"agent-opt prepare {shlex.quote(str(target))}")
         elif args.command == "init":
+            if args.agent_preset or args.harness_profile:
+                from agent_optimizer.config import identifier, positive
+                from agent_optimizer.preset_tui import (ACE_GUIDANCE, ACE_SCAFFOLD,
+                    ace_stage_config, prepare_ace_selection, write_ace_selection,
+                    write_sample_selection)
+                if args.agent or args.revision or args.editable or args.command_text or args.explicit_harness:
+                    raise ConfigurationError("--agent/--harness 경로 입력과 프리셋 선택은 배타적입니다")
+                if not args.agent_preset or not args.harness_profile:
+                    raise ConfigurationError("--agent-preset과 --harness-profile을 함께 지정하세요")
+                if not args.name:
+                    raise ConfigurationError("프리셋 설정에는 --name이 필요합니다")
+                identifier(args.name)
+                root = args.project_root.absolute()
+                folder = root / "runs/configs" / args.name
+                if (root / "runs").is_symlink() or (root / "runs/configs").is_symlink():
+                    raise ConfigurationError("실험 설정 디렉터리는 symlink일 수 없습니다")
+                if folder.exists() or folder.is_symlink():
+                    raise ConfigurationError(f"Generated configuration already exists: {folder}")
+                try:
+                    configs = json.loads(args.optimizer_config) if args.optimizer_config else {}
+                except json.JSONDecodeError as exc:
+                    raise ConfigurationError(f"--optimizer-config JSON 오류: {exc.msg}") from exc
+                if not isinstance(configs, dict) or not all(
+                        isinstance(key, str) and isinstance(value, dict)
+                        for key, value in configs.items()):
+                    raise ConfigurationError("--optimizer-config는 Optimizer ID → 옵션 JSON 객체여야 합니다")
+                if args.evaluator or args.metric != "passed" or args.direction != "maximize":
+                    raise ConfigurationError("프리셋은 등록된 평가기와 passed/maximize 지표를 사용합니다")
+                if args.prompt_file != "prompts/system.md":
+                    raise ConfigurationError("프리셋은 원본 Agent의 prompt_file을 사용합니다")
+                if args.trial_timeout_seconds is not None:
+                    positive(args.trial_timeout_seconds, "trial_timeout_seconds")
+                if args.max_wall_time_seconds is not None:
+                    positive(args.max_wall_time_seconds, "max_wall_time_seconds")
+                optimizers, datasets = args.optimizer or [], args.dataset or []
+                if (args.agent_preset == "ace-rtl" and args.harness_profile == "ace-opencode"
+                        and datasets == ["cvdp"] and len(optimizers) == 1
+                        and optimizers[0] in {"gepa", "meta_harness"}):
+                    optimizer = optimizers[0]
+                    if (args.max_tasks not in {2, 9}
+                            or args.target_file and (optimizer != "gepa" or args.target_file != ACE_GUIDANCE)
+                            or args.scaffold_file and (optimizer != "meta_harness" or
+                                                       args.scaffold_file != ACE_SCAFFOLD)):
+                        raise ConfigurationError("ACE 프리셋의 공개 두 과제와 활성 수정 파일을 확인하세요")
+                    if set(configs) - {optimizer}:
+                        raise ConfigurationError("--optimizer-config는 선택한 Optimizer만 지정하세요")
+                    options = ace_stage_config(optimizer, configs.get(optimizer))
+                    minimum = 3 + 2 * options["iterations"]
+                    if args.max_trials is not None and args.max_trials < minimum:
+                        raise ConfigurationError(f"ACE 프리셋 max_trials는 최소 {minimum}이어야 합니다")
+                elif (args.agent_preset in {"rtl-solo", "rtl-team"} and
+                      args.harness_profile == "fixture" and datasets == ["sample_text"] and
+                      len(optimizers) == 1 and optimizers[0] in {"baseline", "file_variants"}):
+                    optimizer = optimizers[0]
+                    if (configs or args.target_file or args.scaffold_file or args.max_tasks not in {3, 9}):
+                        raise ConfigurationError("합성 프리셋은 등록된 fixture 파일·예산을 사용합니다")
+                    minimum = 3 + (optimizer == "file_variants")
+                    if args.max_trials is not None and args.max_trials < minimum:
+                        raise ConfigurationError(f"합성 프리셋 max_trials는 최소 {minimum}이어야 합니다")
+                else:
+                    raise ConfigurationError("지원하지 않는 프리셋 조합입니다; "
+                                             "agent-opt catalog list --kind harness")
+                if not args.yes:
+                    raise ConfigurationError("선택 자산의 다운로드·빌드를 승인하려면 --yes를 지정하세요")
+                if args.agent_preset == "ace-rtl":
+                    print(human("ACE 준비: 고정 소스·데이터·driver 및 Docker 이미지 준비/재사용"),
+                          file=sys.stderr)
+                    prepare_ace_selection(root, offline=args.offline)
+                    target = write_ace_selection(root, optimizer, name=args.name, options=configs.get(optimizer),
+                                                 max_trials=args.max_trials,
+                                                 wall_time=args.max_wall_time_seconds,
+                                                 trial_timeout=args.trial_timeout_seconds)
+                else:
+                    target = write_sample_selection(root, args.agent_preset, optimizer, name=args.name,
+                                                    max_trials=args.max_trials,
+                                                    wall_time=args.max_wall_time_seconds,
+                                                    trial_timeout=args.trial_timeout_seconds)
+                spec = load_experiment(target)
+                show({"experiment": str(target), "dataset": datasets[0],
+                      "stages": [stage["id"] for stage in spec.get("stages", [])]})
+                if args.agent_preset == "ace-rtl":
+                    next_command(f"agent-opt prepare {shlex.quote(str(target))}")
+                next_command(f"agent-opt doctor --plan {shlex.quote(str(target))} --json")
+                next_command(f"agent-opt plan {shlex.quote(str(target))}")
+                next_command(f"agent-opt run {shlex.quote(str(target))}")
+                return 0
             if not args.dataset:
                 raise ConfigurationError("Select a dataset explicitly with --dataset")
             if not args.agent or not args.editable:
@@ -653,8 +782,10 @@ def _dispatch(args):
                                                   prompt_file=args.prompt_file, max_tasks=args.max_tasks,
                                                   project_root=root,
                                                   max_trials=args.max_trials,
-                                                  wall_time=args.max_wall_time_seconds,
-                                                  trial_timeout=args.trial_timeout_seconds,
+                                                  wall_time=(args.max_wall_time_seconds if
+                                                             args.max_wall_time_seconds is not None else 3600),
+                                                  trial_timeout=(args.trial_timeout_seconds if
+                                                                 args.trial_timeout_seconds is not None else 120),
                                                   objective_source=args.metric,
                                                   objective_direction=args.direction)
                     rollback.callback(shutil.rmtree, folder)
