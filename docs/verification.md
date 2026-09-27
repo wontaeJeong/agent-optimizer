@@ -22,6 +22,36 @@ Mac ARM64 / Python 3.12 / Docker daemon `linux/arm64`, `fix/model-config-app-ux`
 `make doctor ARGS="--json"` → `sh scripts/bootstrap.sh setup --offline`을 **순서대로** 재실행해
 각각 준비됨·오프라인 통과를 확인했다. 두 작업공간의 동시 이미지 태그 격리는 이번 변경에서
 검증하거나 구현하지 않았다.
+## 2026-09-27 strict MCP 적용 후 세 번째 독립 4 trial (선택 없음)
+
+Mac ARM64 / Docker daemon `linux/arm64`, Python 3.12.12, Claude Code 2.1.261.
+기존 [첫 2/4 실패](#2026-09-27-claude-codedeepseekcvdp-첫-실실행-차단)와
+[두 번째 4/4 실행](#2026-09-27-claude-code-추가-4-trial-공식-cvdp-부분-성공)의
+원시 기록은 그대로 보존했다. 이번은 `3945d1b`의 `--strict-mcp-config`를 사용한
+**새 독립 실행 한 번**, 최대/실제 **4/4 trial**, `final_test=false`다. 승인된 로컬 `.env`의
+값은 실행 래퍼에서만 읽어 자식 환경에 매핑했다: Claude Agent는
+`ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic` / `deepseek-flash`, Optimizer의
+후보 제안 1회는 `AGENT_OPT_MODEL_BASE_URL=https://api.openai.com/v1` /
+`AGENT_OPT_MODEL_ID`←`OPENAI_MODEL` 및 `AGENT_OPT_MODEL_API_KEY`←`OPENAI_API_KEY`.
+키·선택 모델의 실제 값과 `.env` 원문은 터미널·Git 추적 문서·argv에 출력/기록하지 않았다.
+
+| 실제 명령·산출물 | 관측 결과 |
+|---|---|
+| `git status --short --branch`; `claude --version`; `claude --help`; `make doctor`; `PYTHONPATH=src .venv/bin/python -m agent_optimizer doctor --plan examples/ace-rtl/experiment-claude.toml --json` | 작업 워크트리 clean, CLI 2.1.261의 `--strict-mcp-config` 계약 확인, 고정 CVDP driver/평가 이미지/실도구 및 정적 계획 `ready=true`. 이 단계의 모델 API 호출 없음. |
+| `.venv/bin/python -c '<메모리의 dotenv_values로 위 환경 매핑·ModelSettings 검증 후 subprocess.run([".venv/bin/python", "-m", "agent_optimizer", "run", "examples/ace-rtl/experiment-claude.toml"], env=env)>'` | **exit 3, `runs/dev-live/20260927T034531Z-db9e95ac/summary.json`: `synthetic=false`, `status=no_eligible_candidate`, `trials_used=4`**, 139.50초. 같은 명령 재시도·추가 유료 진단 없음. `events.jsonl`·`report.json`·`report.html`도 생성됐다. |
+| 네 trial의 `harness_logs/stdout.log` JSONL: `system/init.tools`, `assistant.message.content`, 최종 `result` | 실제 모델은 각 호출 `deepseek-flash`. **4개 init 모두 MCP 광고 0건, 네 trace에서 MCP tool-use 0건** (이전 두 번째 run은 init 4개에 MCP 28종 광고·MCP 4종 시도). 이번 실실행의 암묵적 MCP 미사용은 확인했지만 다른 설정/환경의 보장은 아니다. |
+| `c0001` validation QAM16 `result.json`·trace | Read 사용, `error_max_turns`/CLI exit 1, `agent_incomplete`, `valid=false`, `passed=null`, **공식 raw 없음**. 권한 거부 0. |
+| `c0001` train priority encoder `result.json` → `cvdp_evaluation/work/raw_result.json` | Read/Write, CLI `success`/exit 0, `valid=true`, `passed=1`; **공식 raw 1 test `result=0`, `error_msg=null`**. 실제 생성 RTL 파일을 채점했다. |
+| `c0002` train priority encoder `result.json`·과제 출력 | Read/Write, CLI `success`/exit 0이나 요구된 `rtl/priority_encoder.v`가 비어 있음. `status=failed`, `valid=true`, `passed=0`은 **출력 누락 판정**이며 공식 raw 파일은 없다. |
+| `c0002` validation QAM16 `result.json`·trace | Read 사용, `error_max_turns`/CLI exit 1, `agent_incomplete`, `valid=false`, `passed=null`, **공식 raw 없음**. |
+| `candidates/c0002/changes.diff`, `stages/feedback.json`, `frozen_selection.json`, `summary.json` | Optimizer가 `skills/ace-rtl/references/role-guidance.md`만 바꿨고 선택한 OpenAI 모델을 checkpoint에 기록. usage input 971 / output 816, 비용 `null`. 두 validation 모두 `valid=false`, `solve_rate=null`·`seconds=null`, `selected=[]`, `frozen_selection=[]`; baseline 대비 후보 점수·개선율·승자 없음. |
+
+네 Agent 호출의 전체 `agent_tokens`·`agent_cost_usd`는 `null`이며
+`harness_reported_io_tokens`/`harness_reported_cost_usd`는 호출별 **partial**이다.
+MCP 부재는 위 실행의 **광고된 목록과 실제 도구 호출**에서만 검증됐다. 8턴 한도에서
+두 validation이 미완료인 이유를 공식 평가 오답이나 인프라 실패로 대체하지 않는다.
+이번 실행 이후 flag/모델/채점 코드를 수정하거나 유료 재실행하지 않았다.
+
 ## 2026-09-27 Claude Code 암묵적 MCP 설정 차단 계약 (실모델 미검증)
 
 앞선 [추가 4/4 trial](#2026-09-27-claude-code-추가-4-trial-공식-cvdp-부분-성공)은
@@ -35,8 +65,9 @@ Claude Code **2.1.261**의 `claude --help`와 [공식 CLI reference](https://cod
 `--mcp-config`는 추가하지 않았다. `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_claude_code.py -q`는
 변경 전 **25건 중 2 실패(RED: flag 누락)**,
 변경 후 **25/25 통과(GREEN, exit 0)**. `make lint`도 exit 0이다.
-CLI argv 계약만 확인했으며 flag 이후 **유료 실모델 실행·MCP 부재·baseline validation 채점은
-검증하지 않았다**. 승인된 추가 예산 4/4를 이미 사용했으므로 재실행하지 않았다.
+이 단계에서는 CLI argv 계약만 확인했고 **당시** flag 이후 유료 실모델 실행·MCP 부재·
+baseline validation 채점은 미검증이었다. 이후 별도 승인으로 수행한
+[세 번째 실행](#2026-09-27-strict-mcp-적용-후-세-번째-독립-4-trial-선택-없음)과 구분한다.
 
 ## 2026-09-27 Claude Code 추가 4 trial: 공식 CVDP 부분 성공
 

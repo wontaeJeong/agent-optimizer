@@ -147,9 +147,16 @@ train 두 건과 후보 validation의 공식 raw 채점은 각각 1/1 통과했�
 
 위 **실행 당시**에는 `--strict-mcp-config`가 없었다. 현재 범용 Claude Code 하네스는
 이 flag를 추가해 명시적 `--mcp-config` 외의 암묵적 user/project MCP 설정을 무시하도록
-요청한다. 이는 CLI 도움말과 argv 계약 테스트로만 확인했으며 **flag 적용 후의 모델 호출,
-MCP 부재, baseline validation의 공식 채점은 아직 검증하지 않았다**.
+요청한다. flag를 추가한 시점에는 CLI 도움말과 argv 계약 테스트만 통과해 **실제 MCP 노출
+여부와 baseline validation 채점은 미검증**이었다.
 [현재 계약 근거](../../docs/verification.md#2026-09-27-claude-code-암묵적-mcp-설정-차단-계약-실모델-미검증).
+
+**새로 승인된 별도 4 trial**에서는 실제 Claude Code 2.1.261 trace 네 개 모두
+MCP 광고·도구 호출이 없었다. baseline train만 공식 CVDP raw 1/1 통과했고,
+후보 train은 RTL 출력 누락으로 0점(공식 raw 없음), 두 validation은 턴 한도로 무효였다.
+`no_eligible_candidate`이므로 후보 선택·성능 개선 근거는 없다. 이 결과는 앞선
+두 실행의 점수·실패를 소급 변경하지 않는다.
+[세 번째 실행 기록](../../docs/verification.md#2026-09-27-strict-mcp-적용-후-세-번째-독립-4-trial-선택-없음).
 
 과제 공개/비공개 분리와 공식 결과 형식 처리는 오프라인 테스트합니다.
 Mac Docker ARM64와 native Ubuntu x86_64에서 evaluator-only 정답/오답을 확인했습니다.
