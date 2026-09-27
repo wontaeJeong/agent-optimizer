@@ -69,7 +69,7 @@ native `ace_agent_runner.py`/`ace_cvdp_native_runner.py`의 자체 역할·반�
 
 ## 검증 수준
 
-- **2026-09-28 선택형 TUI 계약:** `make test` 776건 중 761 통과·15 skip, Ruff·합성 데모·독립 wheel TUI·사이트 빌드 통과. `make doctor`는 이 워크트리의 ACE 자산/환경 lock 누락으로 exit 2였으므로 두 선택형 알고리즘의 **실모델/OpenCode·공식 CVDP 결과는 미검증**이다. [날짜별 근거](verification.md#2026-09-28-선택형-tuiace-후보-연결-계약-검증).
+- **2026-09-28 선택형 TUI 계약:** 최신 main 반영 후 `make test` 781건 중 766 통과·15 skip, Ruff·합성 데모·독립 wheel TUI·사이트 빌드 통과. `make doctor`는 이 워크트리의 ACE 자산/환경 lock 누락으로 exit 2였으므로 두 선택형 알고리즘의 **실모델/OpenCode·공식 CVDP 결과는 미검증**이다. [날짜별 근거](verification.md#2026-09-28-선택형-tuiace-후보-연결-계약-검증).
 - **2026-09-27 첫 실행 UX 검증:** Mac ARM64의 `make lint/test/demo`, 독립 wheel 사용자 CLI,
   Astro 사이트 빌드가 통과했다(최신 main 반영 후 734개 중 719 통과·15 skip, 합성 7 trial). 새 워크트리의
   ACE/CVDP 자산은 미준비로 `make smoke`가 차단되었으며 공식 평가/외부 모델은 실행하지 않았다.
