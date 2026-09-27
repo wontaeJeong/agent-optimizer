@@ -62,17 +62,23 @@ def _evidence(summary: dict, events: list[dict], present: bool, invalid_lines: i
         warn("events_invalid_lines", expected=0, observed=invalid_lines)
     groups = summary.get("groups", [])
     comparable = bool(groups)
+    recorded_total = 0
+    group_mismatch = False
     for group in groups:
         expected = group.get("trial_count")
         if type(expected) is not int or expected < 0:
             comparable = False
             continue
+        recorded_total += expected
         observed = sum(event.get("event") == "trial_completed"
                        and event.get("agent_id") == group.get("agent_id")
                        and event.get("harness_id") == group.get("harness_id") for event in events)
         if observed != expected:
+            group_mismatch = True
             warn("group_trial_count_mismatch",
                  f'{group["agent_id"]}/{group["harness_id"]}', expected, observed)
+    if comparable and not group_mismatch and recorded_total != completed:
+        warn("group_trial_count_mismatch", expected=recorded_total, observed=completed)
     reserved = summary.get("trials_used")
     if type(reserved) is int and reserved >= 0 and reserved != completed:
         warn("reserved_completed_gap", expected=reserved, observed=completed)

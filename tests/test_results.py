@@ -9,6 +9,70 @@ from agent_optimizer.results import write_report
 
 
 class UsageReportTests(unittest.TestCase):
+    def test_incomparable_selection_note_does_not_split_later_group_validation_table(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "manifest.json").write_text(json.dumps({"experiment": {"objective": {
+                "metrics": [{"name": "score", "direction": "maximize"}]}}}))
+            def row(agent, candidate, score, valid=True):
+                return {"agent_id": agent, "harness_id": "fixture", "candidate_id": candidate,
+                        "split": "validation", "valid": valid, "metrics": {"score": score}}
+            write_report(root, {"groups": [
+                {"agent_id": "first", "harness_id": "fixture", "baseline": row("first", "base", 0),
+                 "selected": [row("first", "bad", 1, False)], "stages": [], "final_test": []},
+                {"agent_id": "second", "harness_id": "fixture", "baseline": row("second", "base", 0),
+                 "selected": [row("second", "chosen", 1)], "stages": [], "final_test": []}]})
+            validation = (root / "report.md").read_text().split("## 기준 → 선택 검증", 1)[1].split(
+                "## 최종 테스트", 1)[0]
+            self.assertLess(validation.index("| second | fixture | chosen |"),
+                            validation.index("비교 불가 선택 기록"))
+
+    def test_all_artifacts_warn_when_completed_events_exceed_recorded_group_trials(self):
+        from agent_optimizer.results import write_report_artifacts
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "manifest.json").write_text(json.dumps({"experiment": {"objective": {
+                "metrics": [{"name": "latency", "direction": "minimize"}]}}}))
+            def row(agent, candidate, number):
+                return {"agent_id": agent, "harness_id": "fixture", "candidate_id": candidate,
+                        "split": "validation", "valid": True, "trial_count": 1,
+                        "metrics": {"latency": number}}
+            summary = {"status": "partial", "trials_used": 3, "groups": [
+                {"agent_id": "a", "harness_id": "fixture", "trial_count": 1,
+                 "baseline": row("a", "base", 9), "selected": [row("a", "chosen", 7)],
+                 "final_test": [{**row("a", "chosen", 4), "split": "test"}], "stages": []},
+                {"agent_id": "b", "harness_id": "fixture", "trial_count": 1,
+                 "baseline": row("b", "base", 5), "selected": [row("b", "base", 5)],
+                 "final_test": [], "stages": []}]}
+            (root / "events.jsonl").write_text("\n".join(json.dumps({
+                "event": "trial_completed", "agent_id": agent, "harness_id": "fixture",
+                "trial_id": f"t{index}", "status": "passed"})
+                for index, agent in enumerate(("a", "b", "unknown"))) + "\n{broken\n")
+            write_report_artifacts(root, summary)
+            model = json.loads((root / "report.json").read_text())
+            markdown = (root / "report.md").read_text()
+            html = (root / "report.html").read_text()
+            self.assertEqual(model["report_schema_version"], 3)
+            self.assertEqual(model["evidence"]["completed_events"], 3)
+            self.assertEqual(model["counts"]["completed_evaluations"], 2)
+            self.assertIn({"code": "group_trial_count_mismatch", "group_key": None,
+                           "expected": 2, "observed": 3}, model["evidence"]["warnings"])
+            self.assertIn("읽지 못한 이벤트 줄", markdown)
+            self.assertIn("읽지 못한 이벤트 줄", html)
+            self.assertIn("그룹 평가 건수 불일치", markdown)
+            self.assertIn("그룹 평가 건수 불일치", html)
+            self.assertIn("| a | fixture | chosen | latency | minimize | 9 | 7 | -2 | improved |",
+                          markdown)
+            self.assertIn("| a | fixture | chosen | test | latency | 4 | 1 |", markdown)
+            self.assertIn("완료된 평가 2건", html)
+            self.assertIn("latency", html)
+            self.assertIn("chosen", html)
+            self.assertEqual([group["counts"]["completed_evaluations"] for group in model["groups"]],
+                             [1, 1])
+            self.assertEqual([group["comparison_trend"] for group in model["groups"]],
+                             ["improved", "unchanged"])
+
     def test_markdown_separates_validation_test_and_links_recorded_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

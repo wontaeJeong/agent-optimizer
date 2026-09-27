@@ -128,6 +128,7 @@ def write_report(root: Path, summary: dict, report: dict | None = None,
     lines += ["", f"## {phrase('기준 → 선택 검증', 'Baseline → selected validation')}", "",
               header('Agent', 'Harness', 'Candidate', 'Metric', 'Direction', 'Baseline', 'Selected', 'Delta', 'Trend'),
               "|---|---|---|---|---|---|---|---|---|"]
+    incomparable = []
     for group in groups:
         selected = next((row for row in group["selected"] if isinstance(row, dict)
                          and row.get("split") == "validation" and row.get("valid") is True
@@ -146,9 +147,11 @@ def write_report(root: Path, summary: dict, report: dict | None = None,
         invalid = [row.get("candidate_id") for row in group["selected"] if isinstance(row, dict)
                    and row is not selected]
         if invalid:
-            lines.append("")
-            lines.append(phrase("비교 불가 선택 기록: ", "Recorded incomparable selection: ")
-                         + _cell(", ".join(str(identifier) for identifier in invalid)))
+            incomparable.append(phrase("비교 불가 선택 기록: ", "Recorded incomparable selection: ")
+                                + _cell(group["key"]) + " · "
+                                + _cell(", ".join(str(identifier) for identifier in invalid)))
+    if incomparable:
+        lines += ["", *incomparable]
     lines += ["", f"## {phrase('최종 테스트', 'Final test')}", "",
               phrase("검증 선택을 확정한 뒤 기록된 별도 test 집계입니다.",
                      "Separate test aggregates recorded after validation selection."), "",
