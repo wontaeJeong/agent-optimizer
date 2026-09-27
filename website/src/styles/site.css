@@ -62,6 +62,24 @@
   height: 900px;
 }
 
+.report-budget {
+  width: min(100%, 19rem);
+  height: 115px;
+  overflow: hidden;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 0.5rem;
+  background: #f5f8fb;
+}
+
+.report-budget img {
+  display: block;
+  width: 1440px;
+  max-width: none;
+  height: 900px;
+  margin-top: -390px;
+  margin-left: -1080px;
+}
+
 .report-excerpt--summary {
   height: 495px;
 }
