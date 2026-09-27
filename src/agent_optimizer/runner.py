@@ -345,6 +345,7 @@ class GroupRunner:
 
 
 def preflight(spec, registry):
+    pairs = selected_pairs(spec)
     validate_objective(spec["objective"])
     validate_stages(spec)
     stages = spec.get("stages", [])
@@ -355,7 +356,7 @@ def preflight(spec, registry):
         per_group = validation + sum(stage["max_trials"] for stage in stages)
         if spec.get("final_test", False):
             per_group += 2 * tests  # Baseline and one frozen winner; they may be the same.
-        required = per_group * len(selected_pairs(spec))
+        required = per_group * len(pairs)
         if spec.get("budget", {}).get("max_trials", 100) < required:
             raise ConfigurationError(f"Trial budget must reserve at least {required} trials for "
                                      "baseline, stage allowances and final test")
