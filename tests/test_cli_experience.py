@@ -872,6 +872,137 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn("TTY", errors.getvalue())
         self.assertFalse((self.root / "runs").exists())
 
+    def history_run(self, name, *, parent="runs", status="completed", synthetic=False):
+        directory = self.root / parent / name
+        directory.mkdir(parents=True)
+        (directory / "summary.json").write_text(json.dumps({"schema_version": 1, "run_id": name,
+                                                               "status": status, "synthetic": synthetic}))
+        (directory / "report.html").write_text("<html>stored report</html>")
+        return directory
+
+    def view_history(self, answers):
+        output, terminal = io.StringIO(), io.StringIO()
+        with patch("sys.stdin.isatty", return_value=True), patch.object(terminal, "isatty", return_value=True), \
+                patch("builtins.input", side_effect=answers), \
+                contextlib.redirect_stdout(output), contextlib.redirect_stderr(terminal):
+            code = main(["tui", "--project-root", str(self.root)])
+        self.assertEqual(output.getvalue(), "")
+        return code, terminal.getvalue()
+
+    def test_tui_history_missing_runs_is_read_only_and_guides_user(self):
+        code, text = self.view_history(["4"])
+        self.assertEqual(code, 0)
+        self.assertIn("이전 실행", text)
+        self.assertIn("실행 기록이 없습니다", text)
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_tui_history_shows_latest_ten_real_runs_from_both_locations(self):
+        for number in range(12):
+            directory = self.history_run(f"run-{number:02}", parent="runs/dev-live" if number % 2 else "runs",
+                                         status="error" if number == 11 else "completed", synthetic=number == 10)
+            os.utime(directory, (1000 + number, 1000 + number))
+        (self.root / "runs/configs/config-only").mkdir(parents=True)
+        (self.root / "runs/configs/config-only/summary.json").write_text('{"run_id":"config-only"}')
+        (self.root / "runs/dev-live/summary.json").write_text('{"run_id":"dev-live","status":"completed"}')
+        (self.root / "runs/dev-live/report.html").write_text("not a run")
+        nested = self.root / "runs/run-10/task-output/nested"
+        nested.mkdir(parents=True)
+        (nested / "summary.json").write_text('{"run_id":"nested"}')
+        os.utime(self.root / "runs/run-10", (1010, 1010))
+        code, text = self.view_history(["4", "0", "4", "1"])
+        self.assertEqual(code, 0)
+        self.assertIn("1. run-11 · error · runs/dev-live/run-11/report.html", text)
+        self.assertIn("2. run-10 · completed · runs/run-10/report.html", text)
+        self.assertIn("10. run-02 · completed · runs/run-02/report.html", text)
+        self.assertNotIn("run-01", text)
+        self.assertNotIn("config-only", text)
+        self.assertNotIn("dev-live ·", text)
+        self.assertNotIn("nested", text)
+
+    def test_tui_history_selected_report_path_is_only_printed_not_opened_or_rebuilt(self):
+        directory = self.history_run("demo", status="error", synthetic=True)
+        before = (directory / "report.html").read_bytes()
+        code, text = self.view_history(["4", "1"])
+        self.assertEqual(code, 0)
+        self.assertIn("demo · error · runs/demo/report.html", text)
+        self.assertIn("보고서 경로: runs/demo/report.html", text)
+        self.assertNotIn("stored report", text)
+        self.assertEqual((directory / "report.html").read_bytes(), before)
+
+    def test_tui_history_invalid_number_or_path_is_rejected_without_opening(self):
+        self.history_run("valid")
+        for answer in ("2", "../valid", "/tmp/report.html", "١", "1/../1"):
+            with self.subTest(answer=answer):
+                code, text = self.view_history(["4", answer])
+                self.assertEqual(code, 2)
+                self.assertIn("목록의 실행 번호를 선택하세요", text)
+                self.assertNotIn("보고서 경로:", text)
+
+    def test_tui_history_skips_damaged_summaries_and_unsafe_entries(self):
+        good = self.history_run("good")
+        for name, content in (("broken", "{not json"), ("no-status", '{"run_id":"no-status"}'),
+                              ("wrong-id", '{"run_id":"../outside","status":"error"}'),
+                              ("control", '{"run_id":"control","status":"error\\nunsafe"}'),
+                              ("deep", "[" * 100000 + "0" + "]" * 100000)):
+            directory = self.history_run(name)
+            (directory / "summary.json").write_text(content)
+        (self.root / "runs/linked-run").symlink_to(good, target_is_directory=True)
+        linked_summary = self.history_run("linked-summary")
+        (linked_summary / "summary.json").unlink()
+        (linked_summary / "summary.json").symlink_to(good / "summary.json")
+        linked_report = self.history_run("linked-report")
+        (linked_report / "report.html").unlink()
+        (linked_report / "report.html").symlink_to(good / "report.html")
+        code, text = self.view_history(["4", "0", "4", "1"])
+        self.assertEqual(code, 0)
+        self.assertIn("good · completed · runs/good/report.html", text)
+        for name in ("broken", "no-status", "wrong-id", "control", "deep", "linked-run", "linked-summary", "linked-report"):
+            self.assertNotIn(name, text)
+
+    def test_tui_history_zero_returns_to_main_menu(self):
+        self.history_run("previous")
+        code, text = self.view_history(["4", "0", "4", "1"])
+        self.assertEqual(code, 0)
+        self.assertEqual(text.count("4. 이전 실행 보기"), 2)
+        self.assertIn("보고서 경로: runs/previous/report.html", text)
+
+    def test_tui_history_refuses_symlinked_runs_root_and_dev_live(self):
+        outside = self.root / "outside"
+        outside.mkdir()
+        external = outside / "external"
+        external.mkdir()
+        (external / "summary.json").write_text('{"run_id":"external","status":"completed"}')
+        (external / "report.html").write_text("private")
+        (self.root / "runs").symlink_to(outside, target_is_directory=True)
+        code, text = self.view_history(["4"])
+        self.assertEqual(code, 0)
+        self.assertNotIn("external", text)
+        (self.root / "runs").unlink()
+        (self.root / "runs").mkdir()
+        (self.root / "runs/dev-live").symlink_to(outside, target_is_directory=True)
+        code, text = self.view_history(["4"])
+        self.assertEqual(code, 0)
+        self.assertNotIn("external", text)
+
+    def test_tui_history_rechecks_selected_report_after_list(self):
+        directory = self.history_run("selected")
+        outside = self.root / "private.html"
+        outside.write_text("private report")
+        answers = iter(["4", "1"])
+
+        def swap_after_listing():
+            answer = next(answers)
+            if answer == "1":
+                (directory / "report.html").unlink()
+                (directory / "report.html").symlink_to(outside)
+            return answer
+
+        code, text = self.view_history(swap_after_listing)
+        self.assertEqual(code, 2)
+        self.assertIn("보고서를 안전하게 확인할 수 없습니다", text)
+        self.assertNotIn(str(outside), text)
+        self.assertNotIn("보고서 경로:", text)
+
     def test_tui_optional_ace_decline_creates_no_workspace_or_cache(self):
         workspace, cache = self.root / "declined-ace", self.root / "unused-cache"
         class Terminal(io.StringIO):
