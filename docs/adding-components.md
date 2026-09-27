@@ -96,12 +96,28 @@ metadata·경로·hash·스냅샷 변조는 cache 반환 전에도 거부합니�
 
 [전체 복사 배선](../experiments/harness-template/README.md)은 Agent/프로필/experiment와 public fixture를 포함합니다.
 실험의 `agents`/`harnesses`만 선언하면 Agent 우선 순서로 전체 곱을 실행합니다. 필요한 쌍만 실행하려면
-experiment TOML에 선택 목록을 추가하세요(각 선언된 Agent·프로필은 적어도 한 쌍에 포함):
+저장소 루트에서 다음 파일을 준비하세요. `experiments/my-team/fixture-alt.toml`은 저장소에 없으며
+테스트에서도 별도 임시 프로젝트에 만들어 사용합니다.
+
+```bash
+mkdir -p experiments/my-team
+cp examples/minimal/harness.toml experiments/my-team/fixture-alt.toml
+cp examples/minimal/experiment.toml examples/minimal/experiment-pairs.toml
+```
+
+새 `experiments/my-team/fixture-alt.toml`의 첫 줄을 `id = "fixture-alt"`로 수정하세요.
+`adapter = "fixture"`와 나머지 설정은 유지합니다. 복사한 `examples/minimal/experiment-pairs.toml`의
+기존 `harnesses` 줄을 아래처럼 바꾸고, `agents`와 `project_root = "../.."`는 그대로 두세요.
+`project_root`는 **실험 파일 위치**인 `examples/minimal/`을 기준으로 저장소 루트를 가리키며,
+`agents`/`harnesses` 파일 경로는 그 저장소 루트 기준 상대경로입니다.
 
 ```toml
-agents = ["examples/minimal/solo.toml", "examples/minimal/team.toml"]
 harnesses = ["examples/minimal/harness.toml", "experiments/my-team/fixture-alt.toml"]
+```
 
+복사한 실험 파일 **맨 끝**에 선택 목록을 추가하세요(각 선언된 Agent·프로필은 적어도 한 쌍에 포함):
+
+```toml
 [[pairs]]
 agent = "rtl-solo"
 harness = "fixture"
@@ -111,8 +127,7 @@ agent = "rtl-team"
 harness = "fixture-alt"
 ```
 
-`experiments/my-team/fixture-alt.toml`은 저장소에 포함된 파일이 아니라 사용자가 미리 작성한 프로필
-(`id = "fixture-alt"`, `adapter = "fixture"`)입니다. `agent`는 manifest의 ID, `harness`는
+`agent`는 manifest의 ID, `harness`는
 **프로필의 ID**이지 adapter ID나 파일 경로가 아닙니다. 알 수 없는 ID·중복·지원하지 않는 adapter 조합·
 사용하지 않는 Agent/프로필은 거부됩니다. `plan`의 matrix, `doctor --plan`의 예산 검사와 `run`은
 같은 선택을 사용하며, CLI 옵션과 TUI wizard 질문은 바뀌지 않습니다. TUI에서는 기존 실험 경로로 선택합니다.
