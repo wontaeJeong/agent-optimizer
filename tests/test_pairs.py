@@ -2,6 +2,7 @@ import contextlib
 import io
 import json
 import unittest
+from dataclasses import replace
 from unittest.mock import patch
 
 from agent_optimizer import config
@@ -120,6 +121,26 @@ class PairSelectionTests(unittest.TestCase):
         self.assertEqual([(agent.id, profile["id"]) for agent, profile in config.selected_pairs(spec)], [
             ("rtl-team", "fixture"), ("rtl-team", "fixture-alt"),
         ])
+
+    def test_selected_pairs_rechecks_mutated_agent_and_profile_ids(self):
+        for owner in ("agent", "profile"):
+            spec = self.load(self.sparse)
+            if owner == "agent":
+                spec["_agents"].append(spec["_agents"][0])
+            else:
+                spec["_profiles"].append(dict(spec["_profiles"][0], adapter="command"))
+            with self.subTest(owner=owner, issue="duplicate"), \
+                    self.assertRaisesRegex(ConfigurationError, "IDs must be present and unique"):
+                config.selected_pairs(spec)
+
+            spec = self.load(self.sparse)
+            if owner == "agent":
+                spec["_agents"][0] = replace(spec["_agents"][0], id="bad id")
+            else:
+                spec["_profiles"][0]["id"] = "bad id"
+            with self.subTest(owner=owner, issue="invalid"), \
+                    self.assertRaisesRegex(ConfigurationError, "Invalid identifier"):
+                config.selected_pairs(spec)
 
     def test_default_matrix_runs_and_persists_agent_major_full_product(self):
         spec = self.load(self.limited(self.matrix, 16))
@@ -282,6 +303,24 @@ class PairSelectionTests(unittest.TestCase):
         checks = {row["id"]: row for row in json.loads(output.getvalue())["checks"]}
         self.assertEqual(checks["budget.trials"]["status"], "error")
         self.assertIn("16", checks["budget.trials"]["message"])
+
+    def test_mutated_pairs_fail_before_plugins_or_run_directory_without_stage_limit(self):
+        spec = self.load(self.sparse)
+        spec["pairs"][0]["harness"] = "missing"
+        spec["plugins"] = {}
+        constructed = []
+
+        class FakeEvaluator:
+            def __init__(self, settings):
+                constructed.append(settings)
+
+        registry = Registry()
+        registry.factories["evaluators"]["text_fixture"] = FakeEvaluator
+        output = self.root / "invalid-run"
+        with patch.object(registry, "load_project") as load_project:
+            with self.assertRaisesRegex(ConfigurationError, "Duplicate or unknown"):
+                run_experiment(spec, registry, output)
+        self.assertEqual((constructed, load_project.call_count, output.exists()), ([], 0, False))
 
     def test_selected_groups_keep_stage_history_and_freeze_before_test(self):
         spec = self.load(self.sparse)

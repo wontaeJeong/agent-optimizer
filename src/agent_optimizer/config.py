@@ -143,6 +143,12 @@ def validate_stages(data: dict) -> None:
 
 def selected_pairs(spec: dict) -> list[tuple[AgentSpec, dict]]:
     agents, profiles = spec["_agents"], spec["_profiles"]
+    agent_ids = [identifier(agent.id) for agent in agents]
+    profile_ids = [identifier(profile.get("id")) for profile in profiles]
+    if not agents or len(set(agent_ids)) != len(agents):
+        raise ConfigurationError("Agent IDs must be present and unique")
+    if not profiles or len(set(profile_ids)) != len(profiles):
+        raise ConfigurationError("Harness profile IDs must be present and unique")
     if "pairs" not in spec:
         pairs = [(agent, profile) for agent in agents for profile in profiles]
     else:
