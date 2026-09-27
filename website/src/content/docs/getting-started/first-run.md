@@ -1,29 +1,43 @@
 ---
 title: 첫 실행
+description: make setup-core로 7-trial 합성 데모를 실행하고 상태와 HTML 보고서를 확인합니다.
 ---
 
-**목표:** 외부 모델·Docker 없이 설치, 코어 진단, 보고서 생성까지 확인합니다. 저장소에서 개발할 때는 Mac 또는 Ubuntu에서 Git과 `make`를 준비하고 저장소 루트에서 실행하세요. `make`가 없으면 `sh scripts/bootstrap.sh setup --core`로 시작할 수 있습니다. wheel만 설치한 사용자는 아래 대화형 경로의 선택형 예제를 별도로 준비할 수 있습니다.
+**목표:** 모델 키나 Docker 없이 코어 설치·정적 계획 진단·합성 보고서 읽기까지 확인합니다. 처음에는 아래 **7-trial 기본 경로**만 따라 하세요. 여기의 점수는 실제 모델이나 외부 Agent의 성능이 아닙니다.
 
-## 1. 코어 준비
+## 준비물
+
+- 저장소를 내려받은 **Mac 또는 Linux**, Git, `make`, 첫 설치에 필요한 네트워크. 명령은 **저장소 루트**에서 실행합니다.
+- `make`가 없다면 첫 명령 대신 `sh scripts/bootstrap.sh setup --core`를 사용합니다. Python과 uv·개발 의존성은 코어 준비 과정에서 설치합니다.
+
+## 1. 코어를 준비하고 데모 실행하기
 
 ```bash
 make setup-core
 make doctor-core
-.venv/bin/agent-opt --help
+.venv/bin/agent-opt doctor --plan examples/minimal/experiment.toml --json
+.venv/bin/agent-opt run examples/minimal/experiment.toml
 ```
 
-`setup --core`는 필요한 Python·개발 환경을 준비하고 **7 trial 합성 데모**를 실행합니다. 처음에는 의존성 다운로드가 필요할 수 있습니다. `make doctor-core`의 `코어 개발 환경: 준비됨`을 확인하세요(`AGENT_OPT_LANG=en`이면 `Core development environment: ready`). 코어 준비는 모델·공식 평가 데이터·Docker 이미지 준비 완료를 뜻하지 않습니다.
+`make setup-core`는 코어를 설치하면서 **첫 7-trial 합성 데모를 이미 한 번 실행**합니다. 마지막 `run`은 보고서를 직접 찾아보도록 같은 예제를 **별도 실행**으로 한 번 더 만드는 명령입니다. 각 실행의 `run_dir`은 다릅니다.
 
-:::tip[설치가 막히면]
-프록시·사내 CA가 필요한 환경은 저장소의 [네트워크 안내](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/network.md)를 확인하세요. `make doctor-core`로 부족한 코어 도구를 다시 진단할 수 있습니다.
+## 2. 예상 상태와 보고서 열기
+
+`make doctor-core`는 `코어 개발 환경: 준비됨`(`AGENT_OPT_LANG=en`이면 `Core development environment: ready`)을 표시합니다. `doctor --plan`의 JSON에서는 `"scope": "plan"`, `"ready": true`를 확인하세요. 이는 **선택 자산과 설정의 정적 검사**이며 모델 호출이나 실제 채점 성공의 보증이 아닙니다.
+
+마지막 `run`의 출력에서 `"status": "completed"`, `"trials_used": 7`, `"run_dir"`에 표시된 저장소의 절대 경로(`…/runs/<run-id>`)를 확인합니다. 표시된 **실제 `run_dir`** 폴더의 `report.html`을 파일 관리자에서 열거나 브라우저에 끌어놓으세요. 별도 웹 서버는 필요하지 않습니다. [결과 읽기](/agent-optimizer/getting-started/results/)의 화면도 이 **7-trial 합성 데모**이며 실행 ID와 실행 시간은 매번 달라집니다.
+
+:::note[점수의 범위]
+`examples/minimal/experiment.toml`은 두 합성 Agent와 `fixture` 하네스, 로컬 텍스트 과제로 배선을 확인합니다. `trials_used`는 예약된 평가 횟수이지 성공 횟수가 아닙니다. 점수 변화는 실제 Agent나 모델의 성능 향상이 아닙니다.
 :::
 
-## 2. 작은 실험 직접 만들기
+:::tip[설치가 막히면]
+프록시·사내 CA가 필요한 환경은 [네트워크 안내](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/network.md)를 확인하세요. `make doctor-core`로 부족한 코어 도구를 다시 진단합니다.
+:::
 
-아래 예제는 로컬 Agent와 직접 지정한 합성 과제·평가기만 사용합니다. TTY에서는
-`.venv/bin/agent-opt init`으로 질문에 답하면 **설정만** 만들 수 있습니다. 명시적 인수가
-필요한 자동화에서는 다음처럼 실행하세요. 동일한 이름으로 다시 만들 때는 `--name`과
-이후의 설정 경로를 함께 바꾸세요. 기존 설정을 덮어쓰지 않습니다.
+## 선택: 내 손으로 2-trial 설정 만들기
+
+위 7-trial 데모와 **다른 실행**입니다. 코어 준비 후 저장소 루트에서 아래 명령을 실행합니다. 예제 Agent·과제·평가기와 `baseline`만 사용하며 Docker·모델이 필요하지 않습니다. `init`은 같은 이름의 설정을 덮어쓰지 않으므로 재시도할 때 `--name` 및 뒤의 설정 경로를 함께 바꾸세요.
 
 ```bash
 .venv/bin/agent-opt init --name guide-fixture \
@@ -37,35 +51,18 @@ make doctor-core
 .venv/bin/agent-opt run runs/configs/guide-fixture/experiment.toml
 ```
 
-`doctor --plan`은 선언·선택 자산의 준비 상태를 읽기 전용으로 검사합니다. JSON의 `"scope": "plan", "ready": true`를 확인하세요. `run`이 완료되면 출력된 `run_dir`의 `report.html`을 브라우저에서 엽니다. 이 예제의 `trials_used`는 2입니다. 설정 점검 통과와 실제 Agent 실행 성공은 별개입니다.
+`doctor --plan`의 `"scope": "plan"`, `"ready": true`와 `run`의 `"trials_used": 2`를 확인하세요. 이 실행의 `run_dir/report.html`은 위 **7-trial 캡처와 내용이 다릅니다.** 자신의 Agent를 연결하려면 [실험 구성](/agent-optimizer/guides/experiment/)으로 이동하세요.
 
-## 3. 대화형 경로
+## 선택: 실제 ACE-RTL/CVDP 경로
 
-```bash
-.venv/bin/agent-opt tui
-```
-
-터미널에서 기존 `experiment.toml`을 선택하면 정적 계획 진단과 확인 뒤 실행합니다. 새 실험을
-선택하면 Agent·editable 범위·Optimizer·**데이터셋**을 차례로 고르며, 실행 명령은
-`command` 하네스에서만 입력합니다. TUI는 데이터셋을 자동 추천하지 않습니다.
-**3번 ACE-RTL + CVDP 예제**를 직접 선택하면 Git 소스·driver·Docker 준비 내용을 보여주고
-승인을 받은 뒤 작업공간에 고정 버전 자산을 준비합니다. 모델 값이 없으면 현재 세션에서만
-숨김 입력을 받고, 계획 진단 뒤 실행을 다시 확인합니다. 저장소 없는 wheel 사용자도 같은 경로를 사용합니다.
+이 경로는 **선택형 실환경 실행**입니다. Python 3.11+, Git, uv, Docker Engine/Compose, 사용할 모델 설정·인증 및 공식 평가 환경이 필요합니다. macOS에서는 Docker Desktop에 공유 가능한 작업공간을 사용합니다. 코어 합성 결과로 대체되지 않습니다.
 
 ```bash
-agent-opt init --profile ace-rtl --workspace "$HOME/agent-opt-ace"
-agent-opt prepare "$HOME/agent-opt-ace/experiment.toml"
-# 모델 설정/키를 환경에서 제공한 경우에만:
-agent-opt run "$HOME/agent-opt-ace/experiment.toml"
+.venv/bin/agent-opt init --profile ace-rtl --workspace "$HOME/agent-opt-ace"
+.venv/bin/agent-opt prepare "$HOME/agent-opt-ace/experiment.toml"
+.venv/bin/agent-opt doctor --plan "$HOME/agent-opt-ace/experiment.toml" --json
+# 모델 설정과 인증을 환경/credential store에 준비한 후에만 실행:
+.venv/bin/agent-opt run "$HOME/agent-opt-ace/experiment.toml"
 ```
 
-Python 3.11+, Git, uv, Docker Engine/Compose가 필요하고, macOS에서는 작업공간을
-Docker Desktop에 공유할 수 있는 경로에 둡니다. `prepare --offline`은 검증된 캐시만
-재사용하며 `run`은 자산을 자동 설치하지 않습니다.
-선택적 `agent-opt doctor --plan "$HOME/agent-opt-ace/experiment.toml" --json`은
-실제 모델/채점이 아닌 정적 계획을 진단합니다.
-사용자 Agent와 자체 과제는
-`--agent`·`--dataset <tasks.json>`·`--evaluator <file.py:Symbol>`로 연결합니다.
-ACE 선택형 경로는 OpenCode 스킬 프로필의 실제 준비·공식 CVDP 평가이며 native ACE 실행은
-아닙니다. [실험 구성](/agent-optimizer/guides/experiment/)과
-[결과 읽기](/agent-optimizer/getting-started/results/)를 참고하세요.
+`prepare`는 선택한 고정 버전 자산을 준비하고 `run`은 부족한 자산을 자동 설치하지 않습니다. `doctor --plan`은 정적 검사이며 실제 모델·공식 CVDP 채점의 성공 여부는 **실행 근거와 보고서**에서 확인합니다. 이 ACE 예제는 OpenCode 스킬 프로필과 외부 공식 평가기 연결이지 native ACE 실행이 아닙니다. TTY에서는 `.venv/bin/agent-opt tui`에서 ACE-RTL + CVDP 예제를 **직접 선택**할 수도 있습니다. [실험 구성](/agent-optimizer/guides/experiment/)에서 자체 Agent·데이터셋을 명시적으로 선택하는 법을 확인하세요.

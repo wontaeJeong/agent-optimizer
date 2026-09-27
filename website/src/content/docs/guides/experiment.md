@@ -1,40 +1,42 @@
 ---
 title: 실험 구성
+description: 내 Agent의 소스와 실행 명령, 수정 범위, 데이터셋과 별도 평가기를 명시적으로 연결합니다.
 ---
 
-**직접 지정할 항목:** Agent 소스, 수정 가능한 파일, 데이터셋과 채점 기준, 선택한 하네스의
-실행 방법. 기존 실험은 `.venv/bin/agent-opt tui`에서 설정 파일을 선택하고, 새 설정만
-만들려면 `.venv/bin/agent-opt init`을 TTY에서 실행하세요. 비대화형 설정 생성은 저장소
-루트에서 명시적 옵션과 `--yes`로 수행합니다.
+**먼저:** [첫 실행](/agent-optimizer/getting-started/first-run/)의 코어를 준비하고, 대상 Agent의 실행법과 과제·채점 기준을 정하세요. 직접 실행할 때는 로컬 Agent·과제·평가기의 위치가 필요합니다. 이 페이지의 `<경로>` 표기는 설명용이므로 실제 실행에는 자신의 값으로 바꿔야 합니다.
 
-## Agent와 실행 범위
+## 1. Agent 소스와 실행 범위 정하기
 
-- 로컬 소스는 `--agent <로컬 Agent 경로>`, 외부 소스는 `--agent <Git URL> --revision <전체 commit SHA>`로 고정합니다. 원본은 수정하지 않고 스냅샷에서 후보를 만듭니다.
-- `command` 하네스의 실행은 `--command 'python3 agent.py --input {task_dir}'`처럼 적습니다.
-  인용을 분리한 argv 배열로 저장하며 셸 변수 확장·파이프·리다이렉션을 실행하지 않습니다.
-  OpenCode 등 자체 실행 하네스에는 명령을 전달하지 않습니다. ACE-RTL은 준비된
-  `examples/ace-rtl/experiment.toml`의 하네스 프로필을 재사용합니다.
-- `--editable configs/strategy.json`은 실제로 바꿀 수 있는 파일만 적습니다. 허용 범위 밖 파일, 테스트, 평가 기준은 Optimizer가 수정할 수 없습니다. 지침 파일을 쓰는 경우 `--prompt-file`도 지정할 수 있습니다.
+| 선택 | 지정 방법 | 경계 |
+|---|---|---|
+| 로컬 Agent | `--agent <로컬 Agent 경로>` | 원본을 보존하고 후보 스냅샷 생성 |
+| 외부 Agent | `--agent <Git URL> --revision <전체 commit SHA>` | 전체 commit으로 소스 고정 |
+| 실행 방법 | `--command 'python3 agent.py --input {task_dir}'` | `command` 하네스 전용 argv; 셸 확장·파이프·리다이렉션 없음 |
+| 변경 범위 | `--editable configs/strategy.json` | 실제 허용 파일만; 테스트·평가 기준 변경 불가 |
 
-## 데이터셋과 평가기
+지침 파일을 사용하는 구성은 `--prompt-file`도 지정합니다. OpenCode 등의 전용 하네스에는 `--command`를 전달하지 않습니다. ACE-RTL은 준비된 [프로필](https://github.com/wontaeJeong/agent-optimizer/blob/main/examples/ace-rtl/experiment.toml)을 이용합니다. 역할별 데이터 흐름은 [동작 원리](/agent-optimizer/concepts/overview/)에서 볼 수 있습니다.
 
-데이터셋은 **사용자가 명시적으로 고릅니다.** 다음은 가능한 입력 형태를 보여 주는 예이며 자동 추천 목록이 아닙니다.
+## 2. 데이터셋과 평가기 선택하기
 
-| 입력 | 준비/채점 |
+**데이터셋은 사용자가 직접 선택**하며 자동 추천하지 않습니다. 아래 표는 선택 가능한 입력의 예시이지, 그대로 한꺼번에 실행할 명령이 아닙니다.
+
+| 입력 예시 | 준비물과 채점 |
 |---|---|
-| `--dataset cvdp` | 고정 버전 CVDP 자산을 선택적으로 준비. Docker 기반 평가 환경 필요 |
-| `--dataset verilog-spec` 또는 `--dataset verilog-completion` | 고정 버전 Verilog-Eval 선택 자산 준비. 전용 평가 환경 필요 |
-| `--dataset path/to/tasks.json --evaluator path/to/evaluator.py:Evaluator` | 사용자가 과제와 별도 채점기를 제공 |
+| `--dataset cvdp` | 고정 버전 CVDP 자산, Docker 기반 공식 평가 환경 |
+| `--dataset verilog-spec` 또는 `--dataset verilog-completion` | 고정 버전 Verilog-Eval 자산, 별도 평가 환경 |
+| `--dataset path/to/tasks.json --evaluator path/to/evaluator.py:Evaluator` | 사용자 과제와 **별도 구현한** 채점기 |
 
-공개 과제와 private 평가 자료는 Agent workspace에서 분리합니다. 사용자 evaluator가 `passed` 이외 지표를 반환하면 `--metric <이름> --direction maximize|minimize`도 지정하세요. 두 개 이상의 데이터셋을 선택하면 각각 독립 실험으로 실행하며 서로 다른 채점기의 점수를 하나의 순위로 합치지 않습니다.
+공개 과제 입력과 private 평가 자료는 Agent 작업공간에서 분리합니다. 사용자 evaluator가 `passed` 외의 지표를 반환하면 `--metric <이름> --direction maximize|minimize`를 지정합니다. 두 개 이상의 데이터셋은 **각각 독립된 실험·보고서**를 만들며 점수를 한 순위로 합치지 않습니다.
 
-## Optimizer와 모델
+## 3. Optimizer·모델 지정하기
 
-`--optimizer baseline`으로 연결을 확인한 다음 필요하면 `--optimizer gepa --optimizer meta_harness`처럼 여러 독립 stage를 지정합니다. GEPA·Meta-Harness·Ecdysis는 저장소의 **자체 구현**이며 논문 실험을 그대로 재현한 것은 아닙니다. 각 stage는 공통 baseline에서 출발합니다.
+먼저 `--optimizer baseline`으로 연결을 확인하고 필요할 때 `--optimizer gepa --optimizer meta_harness`처럼 독립 stage를 추가합니다. GEPA·Meta-Harness·Ecdysis는 저장소의 **자체 메서드 구현**으로 upstream 논문 재현 결과가 아닙니다. stage는 모두 공통 baseline에서 시작합니다.
 
-모델을 사용하는 구성에는 `AGENT_OPT_MODEL_BASE_URL`(기본 URL; `/chat/completions` 제외)과 `AGENT_OPT_MODEL_API_KEY`를 환경 또는 credential store에 설정합니다. TUI에서는 값이 없을 때 URL·모델 ID·키를 현재 세션에만 묻습니다. `AGENT_OPT_MODEL_ID`를 생략하면 `glm5.3-flash`가 사용됩니다. OpenCode 하네스의 `AGENT_OPT_MODEL` 선택자는 별도 설정입니다. 키를 실험 설정이나 Git에 저장하지 마세요. 모델 없는 합성 예제에는 필요하지 않습니다.
+모델을 쓰는 구성은 환경/credential store에 `AGENT_OPT_MODEL_BASE_URL`(기본 URL, `/chat/completions` 제외)과 `AGENT_OPT_MODEL_API_KEY`를 설정합니다. 필요하면 `AGENT_OPT_MODEL_ID`를 지정하세요(생략 시 `glm5.3-flash`). TUI는 없는 값을 세션에서만 묻습니다. OpenCode 하네스의 `AGENT_OPT_MODEL`은 별도 선택자입니다. 키를 설정 파일이나 Git에 저장하지 마세요. [첫 실행](/agent-optimizer/getting-started/first-run/)의 합성 예제에는 모델이 필요하지 않습니다.
 
-## 실행 전에 확인
+## 4. 계획 진단 → 실행 → 결과 확인
+
+아래는 **첫 실행 페이지에서 `guide-fixture`를 만든 뒤에만** 복사해 실행할 수 있는 예시입니다. 새 설정을 만들지 않았다면 먼저 [2-trial 설정 만들기](/agent-optimizer/getting-started/first-run/#선택-내-손으로-2-trial-설정-만들기)를 완료하세요.
 
 ```bash
 .venv/bin/agent-opt datasets list
@@ -42,4 +44,6 @@ title: 실험 구성
 .venv/bin/agent-opt run runs/configs/guide-fixture/experiment.toml
 ```
 
-위 `guide-fixture`는 [첫 실행](/agent-optimizer/getting-started/first-run/)에서 만든 설정의 예입니다. 새 데이터셋을 고른 경우 해당 자산의 준비/진단 상태를 별도로 확인하세요. `doctor --plan`은 실제 모델 호출이나 채점 성공을 보증하지 않습니다. 시간·trial 수가 필요한 경우 `init`의 `--max-wall-time-seconds`, `--max-trials`, `--trial-timeout-seconds`를 조정할 수 있습니다. 결과는 [결과 읽기](/agent-optimizer/getting-started/results/)에서 확인합니다.
+**예상 결과:** `doctor --plan`은 선언과 선택 자산을 읽기 전용으로 점검하고 JSON에 `"scope": "plan"`과 준비 여부를 표시합니다. 이는 실제 모델 호출·채점 성공과 별개입니다. `run`의 `run_dir`에서 [결과 읽기](/agent-optimizer/getting-started/results/) 순서로 보고서를 확인하세요. 새 데이터셋은 선택 자산의 준비 상태를 따로 확인합니다. 시간과 횟수는 `init`의 `--max-wall-time-seconds`, `--max-trials`, `--trial-timeout-seconds`로 지정합니다.
+
+TTY에서는 `.venv/bin/agent-opt init`으로 설정만 만들거나 `.venv/bin/agent-opt tui`에서 기존/새 실험 또는 ACE 예제를 직접 선택할 수 있습니다. 팀 구현을 추가하려면 [컴포넌트 연결](/agent-optimizer/developer/components/)로 이동하세요.
