@@ -101,6 +101,28 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
         self.assertFalse((self.root / ".venv").exists())
         self.assertEqual(self.trace_text(), "")
 
+    def test_each_shell_command_help_names_only_its_options_without_installing(self):
+        expectations = {
+            "setup": ("--core", "--dataset", "--offline", "--platform", "Docker"),
+            "doctor": ("--core", "--dataset", "--json", "--model", "읽기 전용"),
+            "test": (".venv", "unittest"),
+            "lint": (".venv", "Ruff"),
+            "demo": (".venv", "report.html", "합성"),
+            "smoke": ("--platform", "공식", "모델"),
+            "live": ("--iterations", "--platform", "모델"),
+            "menu": ("TTY", "menu"),
+        }
+        for command, phrases in expectations.items():
+            with self.subTest(command=command):
+                result = self.invoke(command, "--help")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for phrase in phrases:
+                    self.assertIn(phrase, result.stdout)
+                if command != "live":
+                    self.assertNotIn("live: --iterations", result.stdout)
+                self.assertEqual(self.trace_text(), "")
+        self.assertFalse((self.root / ".venv").exists())
+
     def test_model_and_iteration_flags_reach_python_without_installing(self):
         self.tool("python3", 'case "$1" in -I) exit 0;; esac\nprintf "arg:%s\\n" "$@" >> "$TRACE"\n')
         for args in (("doctor", "--model", "--json"), ("live", "--iterations", "3")):
@@ -512,27 +534,36 @@ exit 2
         self.assertEqual(json.loads(result.stdout), {"ready": False})
         self.assertIn("arg:--json\narg:--platform\narg:linux/arm64\n", self.trace_text())
 
-    def test_make_args_are_data_even_with_shell_and_make_metacharacters(self):
+    def test_make_args_never_execute_shell_or_nested_make_functions(self):
         self.write_executable(self.root / ".venv/bin/python", '''
 case "$1" in -I) exit 0;; esac
 printf 'arg:%s\\n' "$@" >> "$TRACE"
-printf '{"ready":false}\\n'
-exit 2
 ''')
         marker = self.outside / "injected"
-        for value in ('--json $(shell touch injected)',
-                      f'--json; touch "{marker}"',
-                      f'--json $(touch "{marker}")',
-                      f'--json $$(touch "{marker}")',
-                      f'--json --platform "linux/arm64"'):
+        for value in (f'--core; /usr/bin/touch "{marker}"',
+                      f'--json $(shell /usr/bin/touch "{marker}")',
+                      '--platform "linux/arm64'):
             with self.subTest(value=value):
-                if self.trace.exists():
-                    self.trace.write_text("")
                 result = self.invoke("doctor", "ARGS=" + value, make=True)
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertFalse(marker.exists())
                 self.assertEqual(self.trace_text(), "")
                 self.assertIn("sh scripts/bootstrap.sh doctor --help", result.stderr)
+
+    def test_make_args_preserve_quoted_platform_and_dataset_options(self):
+        self.write_executable(self.root / ".venv/bin/python", '''
+case "$1" in -I) exit 0;; esac
+printf 'arg:%s\\n' "$@" >> "$TRACE"
+''')
+        for value, expected in (('--json --platform "linux/arm64"',
+                                 'arg:--json\narg:--platform\narg:linux/arm64\n'),
+                                ("--dataset 'verilog-spec' --json",
+                                 'arg:--dataset\narg:verilog-spec\narg:--json\n')):
+            with self.subTest(value=value):
+                result = self.invoke("doctor", "ARGS=" + value, make=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(expected, self.trace_text())
+                self.trace.write_text("")
 
     def test_shell_command_help_is_scoped_and_has_no_tool_probes_or_writes(self):
         for command, expected in (("setup", "--offline"), ("doctor", "--model"),
@@ -791,6 +822,17 @@ class DeveloperCommandsTests(unittest.TestCase):
                 self.assertIn("--model", help_text)
             else:
                 self.assertIn("등록 데이터셋 하나 준비", help_text)
+
+    def test_direct_python_command_help_explains_results_and_execution_scope(self):
+        for command, expected in (("setup", "report.html"), ("doctor", "실제 모델 API"),
+                                  ("test", "unittest"), ("demo", "합성"),
+                                  ("smoke", "공식"), ("live", "모델")):
+            with self.subTest(command=command):
+                self.output = io.StringIO()
+                with self.assertRaises(SystemExit) as exit_code:
+                    self.main([command, "--help"])
+                self.assertEqual(exit_code.exception.code, 0)
+                self.assertIn(expected, self.output.getvalue())
 
     def test_python_help_explains_offline_writes_and_read_only_vs_real_model(self):
         for command, required in (("setup", ("동기화", "데모", "--offline")),
@@ -1156,7 +1198,12 @@ class PreparationProgressTests(unittest.TestCase):
 
 
 class WheelSelectionTests(unittest.TestCase):
-    def test_selector_rejects_zero_or_multiple_wheels_and_returns_only_build_artifact(self):
+    def test_selector_requires_exactly_one_current_version_wheel_with_metadata(self):
+        import tomllib
+        import zipfile
+
+        with (ROOT / "pyproject.toml").open("rb") as stream:
+            version = tomllib.load(stream)["project"]["version"]
         with tempfile.TemporaryDirectory() as directory:
             dist = Path(directory)
             command = [sys.executable, str(ROOT / "scripts/select_wheel.py"), str(dist)]
@@ -1167,16 +1214,22 @@ class WheelSelectionTests(unittest.TestCase):
             missing = select()
             self.assertEqual(missing.returncode, 2)
             self.assertIn("wheel", missing.stderr)
-            first = dist / "agent_optimizer-1.2.3-py3-none-any.whl"
-            first.touch()
+            first = dist / f"agent_optimizer-{version}-py3-none-any.whl"
+            with zipfile.ZipFile(first, "w") as archive:
+                archive.writestr(f"agent_optimizer-{version}.dist-info/METADATA",
+                                 f"Name: agent-optimizer\nVersion: {version}\n")
             found = select()
             self.assertEqual(found.returncode, 0, found.stderr)
             self.assertEqual(found.stdout.strip(), str(first))
-            (dist / "agent_optimizer-4.5.6-py3-none-any.whl").touch()
+            stale = dist / "agent_optimizer-0.0.0-py3-none-any.whl"
+            with zipfile.ZipFile(stale, "w") as archive:
+                archive.writestr("agent_optimizer-0.0.0.dist-info/METADATA",
+                                 "Name: agent-optimizer\nVersion: 0.0.0\n")
             duplicate = select()
             self.assertEqual(duplicate.returncode, 2)
             self.assertIn("wheel", duplicate.stderr)
             first.unlink()
-            (dist / "agent_optimizer-4.5.6-py3-none-any.whl").unlink()
+            self.assertEqual(select().returncode, 2)
+            stale.unlink()
             (dist / "unrelated-1.0-py3-none-any.whl").touch()
             self.assertEqual(select().returncode, 2)

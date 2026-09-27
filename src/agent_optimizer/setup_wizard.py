@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import shlex
 import shutil
 import sys
@@ -13,7 +14,7 @@ import itertools
 from pathlib import Path
 
 from agent_optimizer.config import identifier, load_experiment, load_tasks, positive
-from agent_optimizer.contracts import ConfigurationError
+from agent_optimizer.contracts import ConfigurationError, SourceSpec
 from agent_optimizer.catalog import DATASETS as CATALOG_DATASETS
 from agent_optimizer.datasets import CustomDataset
 from agent_optimizer.harnesses.command import CommandHarness, FixtureHarness
@@ -21,6 +22,7 @@ from agent_optimizer.harnesses.claude_code import ClaudeCodeHarness
 from agent_optimizer.harnesses.opencode import OpenCodeHarness
 from agent_optimizer.registry import PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, Registry
 from agent_optimizer.results import write_json
+from agent_optimizer.sources import validate_source
 from agent_optimizer.terminal_report import PreparationStatus
 from agent_optimizer.terminal_style import style
 from agent_optimizer.locale import human
@@ -256,27 +258,64 @@ def wizard_arguments(project_root: Path, *, execute: bool = True) -> list[str]:
               end="", file=sys.stderr, flush=True)
         return input().strip()
 
+    dataset_notes = {
+        "cvdp": "고정 Git·데이터·Python driver·Docker 공식 채점 필요",
+        "verilog-spec": "고정 Git·데이터·Docker/Icarus 평가 필요",
+        "verilog-completion": "고정 Git·데이터·Docker/Icarus 평가 필요",
+        "sample_text": "합성 fixture · 모델/Docker 불필요 · 내장 과제·채점기",
+    }
+    optimizer_notes = {
+        "baseline": "변경 없음 · 모델 API 불필요",
+        "file_variants": "변형 파일/설정 필요 · 모델 API 불필요",
+        "gepa": "모델 API·train 과제·수정 가능 텍스트 파일 필요",
+        "meta_harness": "모델 API·train 과제·수정 가능 .py 파일 필요",
+        "ecdysis": "모델 API·train 과제·수정 가능 .py 파일 필요",
+    }
+    harness_notes = {
+        "fixture": "합성 예제 전용 · 외부 모델/도구 불필요",
+        "command": "Agent 실행 argv 입력 · 외부 도구/모델은 지정한 명령에 따름",
+        "opencode": "OpenCode CLI·모델 선택자/인증 필요",
+        "claude_code": "Claude Code CLI·인증/모델 필요",
+    }
+
     print("\n╭─────────────────────────────────────────────────────────╮", file=sys.stderr)
     print(style(human("│  Agent Optimizer   ·   new optimization experiment     │"), "heading",
                 stream=sys.stderr), file=sys.stderr)
     print("╰─────────────────────────────────────────────────────────╯", file=sys.stderr)
     name = ask("Experiment name")
+    try:
+        identifier(name)
+    except ConfigurationError:
+        raise ConfigurationError(human("실험 이름은 영문·숫자로 시작하고 영문·숫자·_·.·-만 사용할 수 있습니다")) from None
     agent = ask("Agent source directory or pinned Git URL")
-    revision = ask("Git commit (leave blank for local source)") if "://" in agent else ""
+    git_source = "://" in agent or bool(re.fullmatch(r"(?:[\w.-]+@)?[\w.-]+:[^\s]+", agent))
+    revision = ask("Git commit (leave blank for local source)") if git_source else ""
+    if git_source:
+        if not revision:
+            raise ConfigurationError("A pinned Git Agent requires a revision")
+        validate_source(SourceSpec(kind="git", url=agent, revision=revision))
     editable = [item.strip() for item in ask("Editable files (comma separated)").split(",") if item.strip()]
+    if not agent or not editable:
+        raise ConfigurationError(human("--agent와 --editable을 지정하세요"))
     choices = sorted(registry.factories["datasets"])
     print("\n  " + style(human("Choose a dataset; there is no automatic recommendation:"), "heading",
                            stream=sys.stderr), file=sys.stderr)
     for index, key in enumerate(choices, 1):
         info = registry.factories["datasets"][key]().describe()
         print(f"    {style(f'{index}.', 'heading', stream=sys.stderr)} "
-              f"{key} · {info.get('task_form', 'custom')}", file=sys.stderr)
+              f"{key} · {info.get('task_form', 'custom')} · "
+              f"{human(dataset_notes.get(key, '팀 제공 데이터·채점기/준비 조건 확인'))}", file=sys.stderr)
+    print("  " + human("로컬 tasks.json은 별도 evaluator.py:Symbol이 필요합니다"), file=sys.stderr)
     dataset_choice = ask("Dataset numbers or local tasks.json paths (comma separated)")
     selected_datasets = []
     for item in dataset_choice.split(","):
         item = item.strip()
-        selected_datasets.append(choices[int(item) - 1] if item.isdigit()
-                                 and 1 <= int(item) <= len(choices) else item)
+        if not item or item.lstrip("+-").isdigit():
+            if not item or not item.isdecimal() or not 1 <= int(item) <= len(choices):
+                raise ConfigurationError(human("목록의 데이터셋 번호 또는 로컬 tasks.json 경로를 입력하세요"))
+            selected_datasets.append(choices[int(item) - 1])
+        else:
+            selected_datasets.append(item)
     evaluator = (ask("Evaluator file.py:Symbol or registered name")
                  if any(dataset not in choices for dataset in selected_datasets) else "")
     metric = (ask("Evaluator score metric (Enter for passed)") or "passed") if evaluator else "passed"
@@ -288,18 +327,20 @@ def wizard_arguments(project_root: Path, *, execute: bool = True) -> list[str]:
     print("\n  " + style(human("Select optimizer algorithms:"), "heading", stream=sys.stderr),
           file=sys.stderr)
     for index, key in enumerate(optimizers, 1):
-        print(f"    {style(f'{index}.', 'heading', stream=sys.stderr)} {key}", file=sys.stderr)
+        print(f"    {style(f'{index}.', 'heading', stream=sys.stderr)} {key} · "
+              f"{human(optimizer_notes.get(key, '팀 구현 · 의존성/추가 파일 확인'))}", file=sys.stderr)
     numbers = ask("Optimizer numbers (comma separated)")
-    try:
-        selected = [optimizers[int(index.strip()) - 1] for index in numbers.split(",")]
-    except (ValueError, IndexError):
-        raise ConfigurationError(human("Choose one or more listed optimizer numbers")) from None
-    if not selected or not all(item in optimizers for item in selected):
-        raise ConfigurationError(human("Choose one or more listed optimizers"))
+    selected = []
+    for index in numbers.split(","):
+        index = index.strip()
+        if not index.isdecimal() or not 1 <= int(index) <= len(optimizers):
+            raise ConfigurationError(human("Choose one or more listed optimizer numbers"))
+        selected.append(optimizers[int(index) - 1])
     harnesses = sorted(registry.factories["harnesses"])
     print("\n  " + style(human("Select an Agent harness:"), "heading", stream=sys.stderr), file=sys.stderr)
     for index, key in enumerate(harnesses, 1):
-        print(f"    {style(f'{index}.', 'heading', stream=sys.stderr)} {key}", file=sys.stderr)
+        print(f"    {style(f'{index}.', 'heading', stream=sys.stderr)} {key} · "
+              f"{human(harness_notes.get(key, '팀 구현 · 전용 프로필/도구 확인'))}", file=sys.stderr)
     number = ask("Harness number")
     if not number.isdigit() or not 1 <= int(number) <= len(harnesses):
         raise ConfigurationError(human("Choose a listed harness number"))
@@ -307,8 +348,11 @@ def wizard_arguments(project_root: Path, *, execute: bool = True) -> list[str]:
     adapter = registry.resolve("harnesses", harness)
     if not supports_generated_profile(adapter):
         raise ConfigurationError(human("전용 하네스 프로필이 필요합니다. 기존 experiment.toml을 사용하세요"))
-    command = (shlex.split(ask("Agent execution argv (e.g. python agent.py {task_dir})"))
-               if requires_command(adapter) else None)
+    try:
+        command = (shlex.split(ask("Agent execution argv (e.g. python agent.py {task_dir})"))
+                   if requires_command(adapter) else None)
+    except ValueError as exc:
+        raise ConfigurationError(f"{human('잘못된 Agent 실행 명령')}: {exc}") from None
     if command is not None and not command:
         raise ConfigurationError(human("Agent 실행 명령을 입력하세요"))
     scaffold = (ask("Active runtime harness .py file (Enter to auto-detect one match)")
@@ -316,7 +360,35 @@ def wizard_arguments(project_root: Path, *, execute: bool = True) -> list[str]:
     target_file = (ask("Editable text target (Enter to auto-detect one match)")
                    if "gepa" in selected else "")
     print(f"\n  {human('Agent')}: {agent}\n  {human('Datasets')}: {', '.join(selected_datasets)}\n  {human('Harness')}: {harness}"
-          f"\n  {human('Optimizers')}: {', '.join(selected)}",
+           f"\n  {human('Optimizers')}: {', '.join(selected)}",
+           file=sys.stderr)
+    print(f"  {human('수정 가능 경로')}: {', '.join(editable)}", file=sys.stderr)
+    if all(dataset == "sample_text" for dataset in selected_datasets):
+        preparation = "선택한 합성 fixture·채점기 사용; 고정 데이터셋 다운로드 없음"
+    elif any(dataset in {"cvdp", "verilog-spec", "verilog-completion"}
+             for dataset in selected_datasets):
+        preparation = "선택한 데이터셋의 과제·채점기 준비; 고정 데이터셋에는 다운로드·Docker 빌드 가능"
+    elif any(dataset not in choices for dataset in selected_datasets):
+        preparation = "로컬 tasks.json·명시적 채점기를 확인; 팀 provider가 있으면 추가 조건 확인"
+    else:
+        preparation = "선택한 과제·채점기 준비; 팀 provider의 다운로드/도구 조건은 구현 확인"
+    print(f"  {human('준비 작업')}: {human(preparation)}", file=sys.stderr)
+    print(f"  {human('기본 예산')}: max_tasks=9, max_trials=max(80, {human('예약 trial 수')}), "
+          "max_wall_time_seconds=3600, trial_timeout_seconds=120", file=sys.stderr)
+    model_possible = (harness in {"opencode", "claude_code"} or
+                      any(key in {"gepa", "meta_harness", "ecdysis"} for key in selected))
+    if harness == "fixture" and set(selected) <= {"baseline", "file_variants"}:
+        calls = "합성 fixture는 외부 모델/도구를 호출하지 않음"
+    elif model_possible:
+        calls = "실행 시 모델/외부 도구 호출 가능; 설정 생성만으로는 호출하지 않음"
+    else:
+        calls = "Agent 실행 명령에 따라 외부 도구/모델 호출 가능; 설정 생성만으로는 호출하지 않음"
+    print(f"  {human('모델·도구 호출')}: {human(calls)}", file=sys.stderr)
+    config_dir = project_root / "runs" / "configs" / name
+    print(f"  {human('설정 위치')}: {config_dir / ('session.json' if len(selected_datasets) > 1 else 'experiment.toml')}",
+          file=sys.stderr)
+    print(f"  {human('예상 보고서')}: " + str(project_root / "runs" /
+          ("sessions/<session-id>/index.html" if len(selected_datasets) > 1 else "<run-id>/report.html")),
           file=sys.stderr)
     question = ("데이터셋을 준비하고 실행할까요? [y/N]" if execute else
                 "데이터셋을 준비하고 설정을 만들까요? [y/N]")

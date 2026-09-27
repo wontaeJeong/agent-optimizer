@@ -6,6 +6,7 @@
 번호 메뉴는 제공하며 1/2는 core, 7은 선택적 ACE 전체 준비, 8은 일반 Agent TUI다.
 옵션 없는 setup/doctor의 전체 ACE 경로와 `--dataset ID`의 선택 데이터셋 경로는 별개다.
 `agent-opt tui`는 기존 실험, 새 실험, ACE-RTL + CVDP 예제의 별도 선택·준비·실행을 지원한다.
+1번 기존 실험은 `runs/configs/`의 최근 생성 설정 최대 5개를 번호로 선택하거나 직접 경로를 입력한다.
 4번 이전 실행 보기는 현재 작업공간의 `runs/<run-id>`와 `runs/dev-live/<run-id>`에서 요약과
 HTML이 있는 실행을 run ID의 UTC 생성 시각순 최근 10개까지 읽기 전용으로 나열하고,
 선택한 보고서의 절대경로만 표시한다.
@@ -37,7 +38,7 @@ wheel 단독 설치에서 로컬 Agent·사용자 데이터셋/명시적 evaluat
 | 사용자 CLI/TUI | 데이터셋·비대화형 `init` Optimizer 명시적 선택, 선택 데이터셋 자동 준비, argv/editable 검증, 중앙 Python 등록 팀 목록, 읽기 전용 `doctor --dataset/--plan`, 과제·iteration 실시간 경과, 복수 데이터셋 병렬 session 상태 행 |
 | Dataset | CVDP reviewed no-commercial importer/공식 평가기, 고정 Verilog-Eval v2 + 별도 Icarus v12 private 평가기, 사용자 tasks.json + 지정 evaluator |
 | GEPA/Meta-Harness/Ecdysis | 원본을 복제하지 않은 자체 메서드 구현: train 반성·validation Pareto, scaffold 탐색, 반복 실패/협업 검토/strict train 개선. GEPA 병합은 비활성화; 실제 배포 모델 검증과 분리 |
-| 결과 UX | 항상 `report.html`/summary/events/Markdown, dataset session별 독립 보고서 연결. `report.json` v2는 기록된 validation 집계·trial·과제 비교를 시각화용으로 정규화하며, HTML은 그룹별 개선 추이·기준 대비 선택·탐색 계보·과제·시간/실패를 독립 SVG/CSS로 표시. 없는 비용/집계는 추정하지 않음 |
+| 결과 UX | 항상 `report.html`/summary/events/Markdown, dataset session별 독립 보고서 연결. `report.json` v3는 기록된 validation 집계·trial·과제 비교와 근거 완전성/불일치를 시각화용으로 정규화하며, HTML은 그룹별 개선 추이·기준 대비 선택·탐색 계보·과제·시간/실패를 독립 SVG/CSS로 표시. 없는 비용/집계는 추정하지 않음 |
 
 코어/연구 구현 근거는 [2026-09-24 검증](verification.md#2026-09-24-cli-tui-and-research-method-integration), 후속 작업은
 [NEXT_STEPS](NEXT_STEPS.md). 보류한 chaining/gates/공통 objective의 weighted/Pareto/constraints/rerank/설치 entry point는
@@ -64,6 +65,10 @@ native `ace_agent_runner.py`/`ace_cvdp_native_runner.py`의 자체 역할·반�
 
 ## 검증 수준
 
+- **2026-09-27 첫 실행 UX 검증:** Mac ARM64의 `make lint/test/demo`, 독립 wheel 사용자 CLI,
+  Astro 사이트 빌드가 통과했다(최신 main 반영 후 734개 중 719 통과·15 skip, 합성 7 trial). 새 워크트리의
+  ACE/CVDP 자산은 미준비로 `make smoke`가 차단되었으며 공식 평가/외부 모델은 실행하지 않았다.
+  [명령별 근거](verification.md).
 - **현재 로컬 계약 검증:** copied Harness의 실제 fixture 실행과 파일 fingerprint, 원본 stub 실패,
   여러 독립 Optimizer/Agent의 history·선택·usage를 검사한다. API-free 회귀는 외부 CLI/모델 성공이 아니다.
 - **2026-09-27 선택 쌍 계약 검증:** 두 Agent×두 fixture 프로필에서 생략 시 4그룹, 명시 시 2그룹의

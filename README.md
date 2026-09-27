@@ -13,7 +13,7 @@ make doctor-core
 .venv/bin/agent-opt run examples/minimal/experiment.toml
 ```
 
-`make setup-core`만으로도 데모 보고서 하나가 생성됩니다. 마지막 `run`은 새 실행을 한 번 더 만들어 결과 확인 과정을 따라가기 위한 명령입니다. `doctor --plan`의 `"scope": "plan", "ready": true`는 **정적 계획 검사** 결과이지 외부 모델·평가기의 성공 보장은 아닙니다. `run`은 완료 시 `"status": "completed", "trials_used": 7`과 `run_dir`을 출력합니다. `runs/`는 Git에서 제외되며 실행마다 `<run-id>`가 달라집니다.
+`make setup-core`만으로도 데모 보고서 하나가 생성됩니다. 마지막 `run`은 새 실행을 한 번 더 만들어 결과 확인 과정을 따라가기 위한 명령입니다. `doctor --plan`의 `"scope": "plan", "ready": true`는 **정적 계획 검사** 결과이지 외부 모델·평가기의 성공 보장은 아닙니다. `run`은 완료 시 `"status": "completed", "trials_used": 7`, `run_dir`, `report_html`을 출력합니다. `runs/`는 Git에서 제외되며 실행마다 `<run-id>`가 달라집니다.
 
 `make`가 없다면 `sh scripts/bootstrap.sh setup --core`로 준비할 수 있습니다. 기본 CLI는 `.venv/bin/agent-opt --help`, 대화형 시작은 TTY에서 `.venv/bin/agent-opt tui`입니다. `make help`는 설치 없이 개발 명령을 보여줍니다.
 
@@ -21,7 +21,7 @@ make doctor-core
 
 ### 결과 확인
 
-위 `run` 출력의 `run_dir`을 아래의 `runs/<run-id>` 자리에 넣으세요. 브라우저에서 그 디렉터리의 `report.html`을 열면 별도 서버 없이 볼 수 있습니다.
+위 `run` 출력의 **`report_html`을 브라우저에서 열면** 별도 서버 없이 볼 수 있습니다. `make setup-core`의 자동 데모 결과는 출력 중 `run_dir`의 `report.html`에 있습니다. 결과를 터미널에서 다시 읽으려면 그 `run_dir`을 아래 `runs/<run-id>` 자리에 넣으세요.
 
 ```bash
 .venv/bin/agent-opt report "runs/<run-id>"
@@ -120,7 +120,7 @@ train 자료만 후보 수정 근거로 사용하고, test는 선택을 고정�
 .venv/bin/agent-opt run runs/configs/my-fixture/experiment.toml
 ```
 
-실제 Agent는 `--agent <로컬 경로>` 또는 `--agent <Git URL> --revision <전체 commit>`을 연결하고 실행/평가 방식과 `--editable`을 지정합니다. `--command`는 `command` 하네스 전용 argv 문자열이며 셸 확장·파이프는 실행하지 않습니다. 비대화형 `init`에는 `--dataset`, `--optimizer`, `--yes`가 필요합니다. TTY에서는 `.venv/bin/agent-opt init`으로 새 설정만 만들거나 `.venv/bin/agent-opt tui`에서 기존 실험·새 실험·ACE-RTL + CVDP 예제를 선택할 수 있습니다.
+실제 Agent는 `--agent <로컬 경로>` 또는 `--agent <Git URL> --revision <전체 commit>`을 연결하고 실행/평가 방식과 `--editable`을 지정합니다. `--command`는 `command` 하네스 전용 argv 문자열이며 셸 확장·파이프는 실행하지 않습니다. 비대화형 `init`에는 `--dataset`, `--optimizer`, `--yes`가 필요합니다. TTY에서는 `.venv/bin/agent-opt init`으로 새 설정만 만들거나 `.venv/bin/agent-opt tui`의 1번에서 최근 생성 설정/직접 경로 실행, 2번에서 새 실험, 3번에서 ACE-RTL + CVDP 예제, 4번에서 이전 보고서 열람을 선택할 수 있습니다. 1번 목록은 `runs/configs/`에 생성된 설정만 표시합니다.
 
 복수 Agent/하네스 프로필에서 일부 조합만 실행하려면 실험 TOML에 `[[pairs]]`를 명시하세요. `agent`는 Agent ID, `harness`는 **프로필 ID**입니다. 생략하면 전체 곱을 실행하며, 명시하면 선택한 쌍만 `plan`·`doctor --plan` 예산·`run`에 반영됩니다. [설정 예와 제약](docs/adding-components.md#harness)을 참고하세요. CLI 옵션과 TUI wizard 질문은 그대로이며 TUI의 기존 실험 경로로 열 수 있습니다.
 

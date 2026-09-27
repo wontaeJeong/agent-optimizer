@@ -865,6 +865,33 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn("fixture-validation", progress.getvalue())
         self.assertIn("evaluation", progress.getvalue())
 
+    def test_init_run_and_report_explain_next_command_without_changing_json(self):
+        args = ["init", "--project-root", str(self.root), "--name", "next-step",
+                "--agent", str(self.agent), "--dataset", "sample_text", "--harness", "fixture",
+                "--editable", "configs/strategy.json", "--optimizer", "baseline", "--yes"]
+        output, hint = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(hint):
+            self.assertEqual(main(args), 0)
+        init = json.loads(output.getvalue())
+        self.assertIn("doctor --plan", hint.getvalue())
+        self.assertIn(init["experiment"], hint.getvalue())
+
+        output, hint = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(hint):
+            self.assertEqual(main(["run", init["experiment"]]), 0)
+        run = json.loads(output.getvalue())
+        self.assertEqual(run["status"], "completed")
+        self.assertEqual(run["report_html"], str(Path(run["run_dir"]) / "report.html"))
+        self.assertTrue(Path(run["report_html"]).is_file())
+        self.assertIn("agent-opt report", hint.getvalue())
+
+        output, hint = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(hint):
+            self.assertEqual(main(["report", run["run_dir"]]), 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "completed")
+        self.assertIn(run["report_html"], hint.getvalue())
+        self.assertIn("--html", hint.getvalue())
+
     def test_tui_rejects_non_terminal_without_creating_files(self):
         errors = io.StringIO()
         with patch("sys.stdin.isatty", return_value=False), contextlib.redirect_stderr(errors):
@@ -1165,7 +1192,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["status"], "completed")
         self.assertTrue((self.root / "runs/configs/wizard-demo/experiment.toml").is_file())
         self.assertIn("fixture-validation", terminal.getvalue())
-        self.assertIn("데이터셋:", terminal.getvalue().split("선택한 데이터셋 준비 중", 1)[0][-500:])
+        self.assertIn(f"데이터셋: {self.data}", terminal.getvalue().split("선택한 데이터셋 준비 중", 1)[0])
 
     def test_interactive_init_creates_a_config_without_running_agent(self):
         class Terminal(io.StringIO):
@@ -1528,6 +1555,7 @@ class CLIExperienceTests(unittest.TestCase):
 
         with patch("builtins.input", side_effect=answer), contextlib.redirect_stderr(terminal):
             arguments = wizard_arguments(self.root)
+        self.assertIn("로컬 tasks.json·명시적 채점기를 확인", terminal.getvalue())
         self.assertEqual(arguments[arguments.index("--harness") + 1], "fixture")
         self.assertNotIn("--command-json", arguments)
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -1537,6 +1565,129 @@ class CLIExperienceTests(unittest.TestCase):
         run, summary = run_experiment(spec, Registry(), self.root / "runs")
         self.assertEqual(summary["status"], "completed")
         self.assertTrue((run / "manifest.json").is_file())
+
+    def test_wizard_rejects_empty_editable_before_confirmation_or_preparation(self):
+        from agent_optimizer.contracts import ConfigurationError
+
+        answers = ["empty-editable", str(self.agent), "", str(self.data),
+                   "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1",
+                   str(sorted(Registry().factories["harnesses"]).index("fixture") + 1), "y"]
+        with patch("builtins.input", side_effect=answers), \
+             patch("agent_optimizer.setup_wizard.prepare_selection", side_effect=AssertionError("prepared")), \
+             contextlib.redirect_stderr(io.StringIO()):
+            with self.assertRaisesRegex(ConfigurationError, "editable|수정"):
+                wizard_arguments(self.root, execute=False)
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_wizard_rejects_nonpositive_and_out_of_range_optimizer_numbers(self):
+        from agent_optimizer.contracts import ConfigurationError
+
+        for number in ("0", "-1", "999", ""):
+            with self.subTest(number=number), \
+                 patch("builtins.input", side_effect=["bad-index", str(self.agent),
+                       "configs/strategy.json", str(self.data),
+                       "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", number]), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaisesRegex(ConfigurationError, "Optimizer|optimizer"):
+                    wizard_arguments(self.root, execute=False)
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_wizard_rejects_invalid_dataset_numbers_instead_of_treating_them_as_paths(self):
+        from agent_optimizer.contracts import ConfigurationError
+
+        for number in ("0", "-1", "999", ""):
+            with self.subTest(number=number), \
+                 patch("builtins.input", side_effect=["bad-dataset", str(self.agent),
+                       "configs/strategy.json", number]), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaisesRegex(ConfigurationError, "데이터셋|dataset"):
+                    wizard_arguments(self.root, execute=False)
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_wizard_rejects_missing_name_and_unbalanced_command_without_traceback(self):
+        from agent_optimizer.contracts import ConfigurationError
+
+        for answers in (["", str(self.agent), "configs/strategy.json"],
+                        ["bad-command", str(self.agent), "configs/strategy.json",
+                         "sample_text", "1", self.command_harness_choice(), "'not closed"]):
+            with self.subTest(answers=answers), patch("builtins.input", side_effect=answers), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaises(ConfigurationError):
+                    wizard_arguments(self.root, execute=False)
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_wizard_invalid_name_explains_allowed_characters_in_korean(self):
+        from agent_optimizer.contracts import ConfigurationError
+
+        for name in ("", "invalid name"):
+            with self.subTest(name=name), patch("builtins.input", side_effect=[name]), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaisesRegex(ConfigurationError, "실험 이름|영문"):
+                    wizard_arguments(self.root, execute=False)
+
+    def test_wizard_rejects_unpinned_git_source_before_dataset_selection(self):
+        from agent_optimizer.contracts import ConfigurationError
+
+        for revision in ("", "main"):
+            with self.subTest(revision=revision), \
+                 patch("builtins.input", side_effect=["pinned", "https://example.invalid/team/agent.git",
+                       revision]), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaisesRegex(ConfigurationError, "commit|Git"):
+                    wizard_arguments(self.root, execute=False)
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_init_rejects_unpinned_git_agent_before_preparing_selected_dataset(self):
+        args = ["init", "--project-root", str(self.root), "--name", "unpinned",
+                "--agent", "https://example.invalid/team/agent.git", "--dataset", "sample_text",
+                "--editable", "configs/strategy.json", "--optimizer", "baseline",
+                "--harness", "fixture", "--yes"]
+        for revision in ([], ["--revision", "main"]):
+            error = io.StringIO()
+            with self.subTest(revision=revision), \
+                 patch("agent_optimizer.cli.prepare_selection", side_effect=AssertionError("prepared")), \
+                 contextlib.redirect_stderr(error), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(main([*args, *revision]), 2)
+            self.assertIn("commit", error.getvalue())
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_wizard_explains_requirements_and_budget_before_declined_preparation(self):
+        from agent_optimizer.contracts import ConfigurationError
+
+        datasets = sorted(("cvdp", "sample_text", "verilog-spec", "verilog-completion"))
+        optimizers = sorted(Registry().factories["optimizers"])
+        answers = ["preview", str(self.agent), "configs/strategy.json",
+                   str(datasets.index("sample_text") + 1), str(optimizers.index("gepa") + 1),
+                   self.command_harness_choice(), "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
+                   "configs/strategy.json", "n"]
+        terminal = io.StringIO()
+        with patch("builtins.input", side_effect=answers), \
+             patch("agent_optimizer.setup_wizard.prepare_selection", side_effect=AssertionError("prepared")), \
+             contextlib.redirect_stderr(terminal):
+            with self.assertRaises(ConfigurationError):
+                wizard_arguments(self.root, execute=False)
+        text = terminal.getvalue()
+        for phrase in ("cvdp", "Docker", "sample_text", "합성", "command", "argv", "gepa",
+                       "모델", "configs/strategy.json", "max_trials", "3600", "120",
+                       "runs/configs/preview", "report.html"):
+            self.assertIn(phrase, text)
+        self.assertLess(text.index("max_trials"), text.index("[y/N]"))
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_wizard_english_explains_synthetic_example_without_running(self):
+        from agent_optimizer.contracts import ConfigurationError
+
+        answers = ["english-preview", str(self.agent), "configs/strategy.json", "sample_text",
+                   "1", str(sorted(Registry().factories["harnesses"]).index("fixture") + 1), "n"]
+        terminal = io.StringIO()
+        with patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}), \
+             patch("builtins.input", side_effect=answers), contextlib.redirect_stderr(terminal):
+            with self.assertRaises(ConfigurationError):
+                wizard_arguments(self.root, execute=False)
+        self.assertIn("synthetic", terminal.getvalue().lower())
+        self.assertIn("configuration", terminal.getvalue().lower())
+        self.assertIn("Synthetic fixture does not call an external model/tool", terminal.getvalue())
+        self.assertIn("No pinned dataset download for the selected fixture", terminal.getvalue())
+        self.assertFalse((self.root / "runs").exists())
 
     def test_wizard_prompts_follow_language_without_changing_options(self):
         for language, expected in (("ko", "실험 이름:"), ("en", "Experiment name:")):
@@ -1559,6 +1710,73 @@ class CLIExperienceTests(unittest.TestCase):
             self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
         self.assertFalse((self.root / "runs").exists())
         self.assertEqual((self.agent / "configs/strategy.json").read_bytes(), before)
+
+    def test_tui_existing_experiment_selects_latest_generated_config_by_number(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["init", "--project-root", str(self.root), "--name", "first",
+                                   "--agent", str(self.agent), "--dataset", "sample_text",
+                                   "--editable", "configs/strategy.json", "--optimizer", "baseline",
+                                   "--harness", "fixture", "--yes"]), 0)
+        first = Path(json.loads(output.getvalue())["experiment"])
+        second = self.root / "runs/configs/second/experiment.toml"
+        shutil.copytree(first.parent, second.parent)
+        os.utime(first, (100, 100))
+        os.utime(second, (200, 200))
+
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        terminal = Terminal()
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", side_effect=["1", "1", "n"]), \
+             patch("agent_optimizer.cli.run_experiment", side_effect=AssertionError("started")), \
+             contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
+        self.assertIn(str(second), terminal.getvalue())
+        self.assertIn(f"실험 설정: {second.resolve()}", terminal.getvalue())
+
+    def test_tui_recent_configs_do_not_follow_symlink_or_treat_bad_number_as_path(self):
+        config = self.root / "runs/configs/missing/experiment.toml"
+        config.parent.mkdir(parents=True)
+        config.symlink_to(self.root / "examples/minimal/experiment.toml")
+
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        for selection in ("99", "examples/minimal/experiment.toml"):
+            terminal = Terminal()
+            with self.subTest(selection=selection), patch("sys.stdin.isatty", return_value=True), \
+                 patch("builtins.input", side_effect=["1", selection, "n"]), \
+                 patch("agent_optimizer.cli.run_experiment", side_effect=AssertionError("started")), \
+                 contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
+            self.assertNotIn("1. " + str(config), terminal.getvalue())
+            if selection == "99":
+                self.assertIn("번호", terminal.getvalue())
+            else:
+                self.assertIn("실험 설정: ", terminal.getvalue())
+
+    def test_tui_recent_configs_ignore_symlinked_runs_root(self):
+        with tempfile.TemporaryDirectory() as outside:
+            external = Path(outside) / "configs/escape"
+            external.mkdir(parents=True)
+            (external / "experiment.toml").write_text("untrusted")
+            (self.root / "runs").symlink_to(Path(outside), target_is_directory=True)
+
+            class Terminal(io.StringIO):
+                def isatty(self):
+                    return True
+
+            terminal = Terminal()
+            with patch("sys.stdin.isatty", return_value=True), \
+                 patch("builtins.input", side_effect=["1", "99"]), \
+                 contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
+            self.assertIn("최근 생성 설정이 없습니다", terminal.getvalue())
+            self.assertNotIn(str(external), terminal.getvalue())
 
     def test_wizard_accepts_glob_with_one_real_runtime_harness_file(self):
         # The minimal fixture has one Python runtime scaffold under src/**.
@@ -2015,6 +2233,7 @@ class CLIExperienceTests(unittest.TestCase):
         summary = json.loads(output.getvalue())
         self.assertEqual(summary["status"], "completed")
         self.assertEqual(len(summary["reports"]), 2)
+        self.assertIn(summary["index_html"], progress.getvalue())
         self.assertIn("[1/2] same", progress.getvalue())
         self.assertIn("[2/2] same", progress.getvalue())
         self.assertTrue(all(Path(report).is_file() for report in summary["reports"]))

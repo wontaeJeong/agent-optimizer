@@ -1,7 +1,8 @@
 .DEFAULT_GOAL := help
 .PHONY: help setup doctor test lint demo smoke live menu setup-core doctor-core
+unexport ARGS
 
-# Preserve literal command-line data; never expand ARGS in a recipe or as Make syntax.
+# Preserve literal command-line data; do not export recursive ARGS or re-evaluate it.
 export AGENT_OPT_MAKE_ARGS := $(value ARGS)
 # Keep MAKEFILE_LIST whole: Make's dir/abspath/lastword split filenames with spaces.
 help setup doctor test lint demo smoke live menu:

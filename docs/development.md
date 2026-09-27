@@ -23,11 +23,10 @@ JSON 키·상태 코드·`doctor --json`의 단일 stdout 문서는 바꾸지 �
 `smoke`/`live`의 자식 실패는 해당 종료 코드를 전달합니다. `doctor --json`은 stdout에 JSON 하나만
 출력하며 진단 진행 메시지는 stderr로 갑니다. 명령별 사용법은 `sh scripts/bootstrap.sh <명령> --help`입니다.
 
-`make <명령> ARGS="--core --json"`은 계속 동작합니다. **ARGS는 공백 구분 인수 데이터**로만
-전달되며 셸 인용부호·와일드카드·메타문자를 해석하지 않습니다. 예전
-`make doctor ARGS='--json --platform "linux/arm64"'`는
-`make doctor ARGS='--json --platform linux/arm64'`로 바꾸거나, 따옴표가 필요한 실제 인수는
-`sh scripts/bootstrap.sh doctor --json --platform 'linux/arm64'`로 직접 전달하세요.
+`make <명령> ARGS="--core --json"`은 계속 동작합니다. **ARGS는 공백/짝지은 따옴표로 구분한 옵션 데이터**로만
+전달됩니다. `make doctor ARGS='--json --platform "linux/arm64"'`도 작동하지만 `$`, `;`, 파이프,
+리다이렉션 등 셸 연산은 준비 전에 거부합니다. 복잡한 인수는
+`sh scripts/bootstrap.sh doctor --json --platform 'linux/arm64'`처럼 직접 전달하세요.
 `make setup-core`·`make doctor-core`는 기존 `make setup ARGS="--core"`·
 `make doctor ARGS="--core"`와 같은 범위이며 옵션 없는 명령의 기본 ACE 동작은 유지합니다.
 

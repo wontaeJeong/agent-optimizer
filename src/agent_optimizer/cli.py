@@ -21,8 +21,9 @@ from typer._click.core import Abort, Exit
 
 from agent_optimizer.config import load_agent, load_experiment, selected_pairs
 from agent_optimizer.catalog import DATASETS as CATALOG_DATASETS
-from agent_optimizer.contracts import ConfigurationError, UnavailableError, jsonable
+from agent_optimizer.contracts import ConfigurationError, SourceSpec, UnavailableError, jsonable
 from agent_optimizer.runner import preflight, run_experiment
+from agent_optimizer.sources import validate_source
 from agent_optimizer.registry import Registry
 from agent_optimizer.network import network_environment
 from agent_optimizer.setup_wizard import (component_inventory, prepare_selection,
@@ -40,6 +41,10 @@ from agent_optimizer.readiness import collect_dataset, collect_plan
 
 def show(value):
     print(json.dumps(jsonable(value), indent=2, ensure_ascii=False, allow_nan=False))
+
+
+def next_command(command: str) -> None:
+    print(f"{human('다음')}: {command}", file=sys.stderr)
 
 
 def main(argv=None):
@@ -135,6 +140,26 @@ def _tui_model_environment(spec: dict, env: dict[str, str] | None = None) -> dic
         if profile["adapter"] == "opencode":
             staged = ensure_model_selector(staged, profile.get("model_env", "AGENT_OPT_MODEL"))
     return staged
+
+
+def _recent_configurations(project_root: Path) -> list[Path]:
+    """List only generated experiment files, without following configuration symlinks."""
+    base = project_root / "runs" / "configs"
+    if (project_root / "runs").is_symlink() or base.is_symlink() or not base.is_dir():
+        return []
+    entries = []
+    for path in base.rglob("experiment.toml"):
+        relative = path.relative_to(base)
+        if path.is_symlink() or any((base / Path(*relative.parts[:index])).is_symlink()
+                                   for index in range(1, len(relative.parts))):
+            continue
+        try:
+            if path.is_file() and path.resolve().is_relative_to(base.resolve()):
+                entries.append((path.stat().st_mtime_ns, str(path), path))
+        except OSError:
+            continue
+    entries.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    return [path for _, _, path in entries[:5]]
 
 
 def _history_run(runs_fd: int, parent: str, name: str) -> tuple[str, float] | None:
@@ -313,15 +338,7 @@ def init_command(project_root: Path | None = None,
             return code
         print(output.getvalue(), end="")
         prepared = json.loads(output.getvalue())
-        target = prepared.get("experiment") or prepared["session"]
-        if "session" in prepared:
-            checks = "\n".join(f"       agent-opt doctor --plan {item['experiment']}"
-                               for item in prepared["experiments"])
-            print(f"{human('설정 생성')}: {target}\n{human('다음')}: {human('각 데이터셋의 계획 진단')}\n{checks}\n"
-                  f"       agent-opt run-session {target}", file=sys.stderr)
-        else:
-            print(f"{human('설정 생성')}: {target}\n{human('다음')}: agent-opt doctor --plan {target}\n"
-                  f"       agent-opt run {target}", file=sys.stderr)
+        print(f"{human('설정 생성')}: {prepared.get('experiment') or prepared['session']}", file=sys.stderr)
         return 0
     return _invoke("init", project_root=project_root or Path.cwd(), agent=agent,
                    revision=revision, name=name, command_text=command,
@@ -411,6 +428,7 @@ def _dispatch(args):
             from agent_optimizer.integrations import write_pending_experiment
             target = write_pending_experiment(args.workspace, args.profile)
             show({"experiment": target, "profile": args.profile, "ready": False})
+            next_command(f"agent-opt prepare {shlex.quote(str(target))}")
         elif args.command == "init":
             if not args.dataset:
                 raise ConfigurationError("Select a dataset explicitly with --dataset")
@@ -429,6 +447,12 @@ def _dispatch(args):
                 raise ConfigurationError("Inspect the choices then pass --yes to confirm preparation")
             if not args.optimizer:
                 raise ConfigurationError("Optimizer를 --optimizer ID로 명시하세요 (예: --optimizer baseline)")
+            git_source = ("://" in args.agent or
+                          bool(re.fullmatch(r"(?:[\w.-]+@)?[\w.-]+:[^\s]+", args.agent)))
+            if git_source and not args.revision:
+                raise ConfigurationError("A pinned Git Agent requires a revision")
+            if args.revision is not None:
+                validate_source(SourceSpec(kind="git", url=args.agent, revision=args.revision))
             root = args.project_root.absolute()
             agent = args.agent if args.revision else Path(args.agent)
             if isinstance(agent, Path) and not agent.is_absolute():
@@ -538,9 +562,14 @@ def _dispatch(args):
                     rollback.callback(target.unlink, missing_ok=True)
                     write_json(target, {"schema_version": 1, "name": name, "experiments": experiments})
                     show({"session": target, "experiments": experiments})
+                    for item in experiments:
+                        next_command(f"agent-opt doctor --plan {shlex.quote(item['experiment'])}")
+                    next_command(f"agent-opt run-session {shlex.quote(str(target))}")
                 else:
                     show({"experiment": experiments[0]["experiment"], "dataset": args.dataset[0],
                           "stages": [s["id"] for s in stages]})
+                    next_command(f"agent-opt doctor --plan {shlex.quote(experiments[0]['experiment'])}")
+                    next_command(f"agent-opt run {shlex.quote(experiments[0]['experiment'])}")
                 rollback.pop_all()
         elif args.command == "tui":
             if not sys.stdin.isatty() or not sys.stderr.isatty():
@@ -582,11 +611,23 @@ def _dispatch(args):
                         if code:
                             return code
                     else:
+                        recent = _recent_configurations(args.project_root)
+                        if recent:
+                            print(human("최근 생성된 실험 설정 (번호 또는 경로 직접 입력):"), file=sys.stderr)
+                            for index, path in enumerate(recent, 1):
+                                print(f"  {index}. {path}", file=sys.stderr)
+                        else:
+                            print(human("최근 생성 설정이 없습니다. 경로를 직접 입력하세요."), file=sys.stderr)
                         print(human("기존 experiment.toml 경로: "), end="", file=sys.stderr, flush=True)
                         selected = input().strip()
                         if not selected:
                             raise ConfigurationError(human("실험 설정 경로를 입력하세요"))
-                        experiment = Path(selected).expanduser()
+                        if selected.lstrip("+-").isdecimal():
+                            if not selected.isdecimal() or not 1 <= int(selected) <= len(recent):
+                                raise ConfigurationError(human("목록의 설정 번호를 선택하세요"))
+                            experiment = recent[int(selected) - 1]
+                        else:
+                            experiment = Path(selected).expanduser()
                         if not experiment.is_absolute():
                             experiment = args.project_root / experiment
                         experiment = experiment.resolve()
@@ -651,6 +692,8 @@ def _dispatch(args):
                         root, summary = run_experiment(spec, Registry(), on_event=progress)
                     show({"run_dir": root, "status": summary["status"], "trials_used": summary["trials_used"],
                           "report_html": root / "report.html"})
+                    print(f"{human('결과 HTML')}: {root / 'report.html'}", file=sys.stderr)
+                    next_command(f"agent-opt report {shlex.quote(str(root))}")
                     return 0 if summary["status"] == "completed" else 3
             except EOFError:
                 print(style(human("TUI cancelled:"), "warning", stream=sys.stderr) + " " + human("input ended"), file=sys.stderr)
@@ -687,6 +730,10 @@ def _dispatch(args):
                                                        "report_language": current_language()})
             show({"session_dir": session_root, "status": status, "index_html": index,
                    "reports": [session_root / e["report"] for e in entries if e["report"]]})
+            print(f"{human('결과 HTML')}: {index}", file=sys.stderr)
+            for entry in entries:
+                if entry["report"]:
+                    next_command(f"agent-opt report {shlex.quote(str((session_root / entry['report']).parent))}")
             return 130 if interrupted else 0 if status == "completed" else 3
         elif args.command == "doctor":
             if args.model and not args.plan:
@@ -712,6 +759,13 @@ def _dispatch(args):
                         print(f"[{style(row['status'], tone)}] {row['id']}: {message}")
                         if remedy:
                             print(f"  {style(t('remedy') + ':', 'warning')} {remedy}")
+                    if args.plan:
+                        if args.model:
+                            print(human("--model은 모델 API 연결을 호출하지만 Agent 실행 성공은 확인하지 않습니다."),
+                                  file=sys.stderr)
+                        else:
+                            print(human("계획 진단은 정적 검사입니다. Agent·채점기·모델 실행은 확인하지 않았습니다."),
+                                  file=sys.stderr)
                 return 0 if report["ready"] else 2
             raise ConfigurationError("agent-opt doctor --plan PATH 또는 --dataset ID를 지정하세요")
         elif args.command == "agents":
@@ -725,7 +779,10 @@ def _dispatch(args):
                 with ProgressDisplay() as progress:
                     progress.configure_budget(spec.get("budget", {}).get("max_trials", 100))
                     root, summary = run_experiment(spec, registry, args.output, on_event=progress)
-                show({"run_dir": root, "status": summary["status"], "trials_used": summary["trials_used"]})
+                show({"run_dir": root, "status": summary["status"], "trials_used": summary["trials_used"],
+                      "report_html": root / "report.html"})
+                print(f"{human('결과 HTML')}: {root / 'report.html'}", file=sys.stderr)
+                next_command(f"agent-opt report {shlex.quote(str(root))}")
                 return 0 if summary["status"] == "completed" else 3
             available, detail = True, ""
             try:
@@ -737,7 +794,9 @@ def _dispatch(args):
                   "sources": {a.id: a.source for a in spec["_agents"]},
                   "stages": spec.get("stages", []), "objective": spec["objective"],
                   "tasks_by_split": {s: sum(t.split == s for t in spec["_tasks"]) for s in ["train", "validation", "test"]},
-                  "note": "Schema/registry validation only. Run doctor and environment checks before real execution."})
+                   "note": "Schema/registry validation only. Run doctor and environment checks before real execution."})
+            print(human("정적 계획 확인; 실행 성공 아님"), file=sys.stderr)
+            next_command(f"agent-opt doctor --plan {shlex.quote(str(args.experiment))}")
         elif args.command == "report":
             data = json.loads((args.run_dir / "summary.json").read_text())
             if args.html:
@@ -747,6 +806,7 @@ def _dispatch(args):
                                                override=os.environ.get("AGENT_OPT_LANG") or None)
                     target = write_report_artifacts(args.run_dir, data, language=language)
                 show({"html": target, "status": data["status"]})
+                print(f"{human('결과 HTML')}: {target}", file=sys.stderr)
                 return 0
             if args.csv:
                 with PreparationStatus("csv", action="report", subject="check"):
@@ -761,6 +821,9 @@ def _dispatch(args):
                         for r in records:
                             writer.writerow({**{k: r[k] for k in fixed}, **r["metrics"]})
             show(data)
+            print(f"{human('결과 HTML')}: {args.run_dir / 'report.html'}", file=sys.stderr)
+            print(human("저장된 자료로 재생성할 때만"), file=sys.stderr)
+            next_command(f"agent-opt report {shlex.quote(str(args.run_dir))} --html")
     except (ConfigurationError, UnavailableError, KeyError, TypeError, ValueError, OSError) as exc:
         print(f"{style('error:', 'error', stream=sys.stderr)} {human(str(exc))}", file=sys.stderr)
         return 2

@@ -25,7 +25,7 @@ make doctor-core
 
 `make doctor-core`는 `코어 개발 환경: 준비됨`(`AGENT_OPT_LANG=en`이면 `Core development environment: ready`)을 표시합니다. `doctor --plan`의 JSON에서는 `"scope": "plan"`, `"ready": true`를 확인하세요. 이는 **선택 자산과 설정의 정적 검사**이며 모델 호출이나 실제 채점 성공의 보증이 아닙니다.
 
-마지막 `run`의 출력에서 `"status": "completed"`, `"trials_used": 7`, `"run_dir"`에 표시된 저장소의 절대 경로(`…/runs/<run-id>`)를 확인합니다. 표시된 **실제 `run_dir`** 폴더의 `report.html`을 파일 관리자에서 열거나 브라우저에 끌어놓으세요. 별도 웹 서버는 필요하지 않습니다. [결과 읽기](/agent-optimizer/getting-started/results/)의 화면도 이 **7-trial 합성 데모**이며 실행 ID와 실행 시간은 매번 달라집니다.
+마지막 `run`의 출력에서 `"status": "completed"`, `"trials_used": 7`, `"report_html"`에 표시된 경로(`…/runs/<run-id>/report.html`)를 확인합니다. 해당 파일을 파일 관리자에서 열거나 브라우저에 끌어놓으세요. 별도 웹 서버는 필요하지 않습니다. [결과 읽기](/agent-optimizer/getting-started/results/)의 화면도 이 **7-trial 합성 데모**이며 실행 ID와 실행 시간은 매번 달라집니다.
 
 :::note[점수의 범위]
 `examples/minimal/experiment.toml`은 두 합성 Agent와 `fixture` 하네스, 로컬 텍스트 과제로 배선을 확인합니다. `trials_used`는 예약된 평가 횟수이지 성공 횟수가 아닙니다. 점수 변화는 실제 Agent나 모델의 성능 향상이 아닙니다.
@@ -51,7 +51,7 @@ make doctor-core
 .venv/bin/agent-opt run runs/configs/guide-fixture/experiment.toml
 ```
 
-`doctor --plan`의 `"scope": "plan"`, `"ready": true`와 `run`의 `"trials_used": 2`를 확인하세요. 이 실행의 `run_dir/report.html`은 위 **7-trial 캡처와 내용이 다릅니다.** 자신의 Agent를 연결하려면 [실험 구성](/agent-optimizer/guides/experiment/)으로 이동하세요.
+`doctor --plan`의 `"scope": "plan"`, `"ready": true`와 `run`의 `"trials_used": 2`를 확인하세요. JSON의 **`report_html`**을 열면 위 **7-trial 캡처와 내용이 다른** 이 실행의 보고서를 볼 수 있습니다. 계획 진단은 정적 검사이며 실제 Agent 실행 성공과 별개입니다. 자신의 Agent를 연결하려면 [실험 구성](/agent-optimizer/guides/experiment/)으로 이동하세요.
 
 ## 선택: 실제 ACE-RTL/CVDP 경로
 
@@ -66,3 +66,7 @@ make doctor-core
 ```
 
 `prepare`는 선택한 고정 버전 자산을 준비하고 `run`은 부족한 자산을 자동 설치하지 않습니다. `doctor --plan`은 정적 검사이며 실제 모델·공식 CVDP 채점의 성공 여부는 **실행 근거와 보고서**에서 확인합니다. 이 ACE 예제는 OpenCode 스킬 프로필과 외부 공식 평가기 연결이지 native ACE 실행이 아닙니다. TTY에서는 `.venv/bin/agent-opt tui`에서 ACE-RTL + CVDP 예제를 **직접 선택**할 수도 있습니다. [실험 구성](/agent-optimizer/guides/experiment/)에서 자체 Agent·데이터셋을 명시적으로 선택하는 법을 확인하세요.
+
+TUI 1번은 `runs/configs/`에서 최근 생성한 설정을 번호로 고르거나 직접 `experiment.toml` 경로를
+입력해 정적 계획 진단·확인 후 실행합니다. 2번은 새 Agent·데이터셋·하네스·Optimizer 선택,
+3번은 위 ACE 예제이며, 4번은 과거 실행의 보고서 경로만 표시합니다. 데이터셋은 자동 추천하지 않습니다.
