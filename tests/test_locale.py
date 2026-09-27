@@ -177,9 +177,11 @@ class TerminalLanguageTests(unittest.TestCase):
         from agent_optimizer.cli import main
 
         with tempfile.TemporaryDirectory() as directory:
-            run = Path(directory) / "runs" / "sample"
+            name = "20260927T120000Z-abcdef12"
+            run = Path(directory) / "runs" / name
             run.mkdir(parents=True)
-            (run / "summary.json").write_text(json.dumps({"run_id": "sample", "status": "error",
+            (run / "summary.json").write_text(json.dumps({"schema_version": 1, "run_id": name,
+                                                         "status": "error", "groups": [], "trials_used": 0,
                                                          "synthetic": True}))
             (run / "report.html").write_text("<html>example</html>")
             output, terminal = io.StringIO(), io.StringIO()
@@ -191,8 +193,8 @@ class TerminalLanguageTests(unittest.TestCase):
                 self.assertEqual(main(["tui", "--project-root", directory]), 0)
             self.assertEqual(output.getvalue(), "")
             self.assertIn("4. View previous runs", terminal.getvalue())
-            self.assertIn("sample · error · runs/sample/report.html", terminal.getvalue())
-            self.assertIn("Report path: runs/sample/report.html", terminal.getvalue())
+            self.assertIn(f"{name} · error · {run / 'report.html'}", terminal.getvalue())
+            self.assertIn(f"Report path: {run / 'report.html'}", terminal.getvalue())
             self.assertNotIn("이전 실행", terminal.getvalue())
 
     def test_project_owned_init_error_is_translated_without_changing_option_name(self):

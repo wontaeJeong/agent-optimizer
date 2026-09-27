@@ -876,7 +876,8 @@ class CLIExperienceTests(unittest.TestCase):
         directory = self.root / parent / name
         directory.mkdir(parents=True)
         (directory / "summary.json").write_text(json.dumps({"schema_version": 1, "run_id": name,
-                                                               "status": status, "synthetic": synthetic}))
+                                                               "status": status, "synthetic": synthetic,
+                                                               "groups": [], "trials_used": 0}))
         (directory / "report.html").write_text("<html>stored report</html>")
         return directory
 
@@ -898,39 +899,79 @@ class CLIExperienceTests(unittest.TestCase):
 
     def test_tui_history_shows_latest_ten_real_runs_from_both_locations(self):
         for number in range(12):
-            directory = self.history_run(f"run-{number:02}", parent="runs/dev-live" if number % 2 else "runs",
+            name = f"20260927T{number:02}0000Z-{number:08x}"
+            directory = self.history_run(name, parent="runs/dev-live" if number % 2 else "runs",
                                          status="error" if number == 11 else "completed", synthetic=number == 10)
             os.utime(directory, (1000 + number, 1000 + number))
         (self.root / "runs/configs/config-only").mkdir(parents=True)
         (self.root / "runs/configs/config-only/summary.json").write_text('{"run_id":"config-only"}')
         (self.root / "runs/dev-live/summary.json").write_text('{"run_id":"dev-live","status":"completed"}')
         (self.root / "runs/dev-live/report.html").write_text("not a run")
-        nested = self.root / "runs/run-10/task-output/nested"
+        nested = self.root / "runs/20260927T100000Z-0000000a/task-output/nested"
         nested.mkdir(parents=True)
         (nested / "summary.json").write_text('{"run_id":"nested"}')
-        os.utime(self.root / "runs/run-10", (1010, 1010))
+        os.utime(self.root / "runs/20260927T100000Z-0000000a", (1010, 1010))
         code, text = self.view_history(["4", "0", "4", "1"])
         self.assertEqual(code, 0)
-        self.assertIn("1. run-11 · error · runs/dev-live/run-11/report.html", text)
-        self.assertIn("2. run-10 · completed · runs/run-10/report.html", text)
-        self.assertIn("10. run-02 · completed · runs/run-02/report.html", text)
-        self.assertNotIn("run-01", text)
+        self.assertIn(f"1. 20260927T110000Z-0000000b · error · "
+                      f"{self.root / 'runs/dev-live/20260927T110000Z-0000000b/report.html'}", text)
+        self.assertIn("2. 20260927T100000Z-0000000a · completed", text)
+        self.assertIn("10. 20260927T020000Z-00000002 · completed", text)
+        self.assertNotIn("20260927T010000Z-00000001 ·", text)
         self.assertNotIn("config-only", text)
         self.assertNotIn("dev-live ·", text)
         self.assertNotIn("nested", text)
 
+    def test_tui_history_uses_utc_run_id_not_report_regeneration_mtime(self):
+        for hour in range(12):
+            name = f"20260927T{hour:02}0000Z-{hour:08x}"
+            directory = self.history_run(name, parent="runs/dev-live" if hour % 2 else "runs",
+                                         status="error" if hour == 11 else "completed")
+            os.utime(directory, (2000 - hour, 2000 - hour))
+        code, text = self.view_history(["4", "1"])
+        self.assertEqual(code, 0)
+        newest = "20260927T110000Z-0000000b"
+        self.assertIn(f"1. {newest} · error", text)
+        self.assertIn("10. 20260927T020000Z-00000002 · completed", text)
+        self.assertNotIn("20260927T000000Z-00000000 ·", text)
+        self.assertNotIn("20260927T010000Z-00000001 ·", text)
+
+    def test_tui_history_skips_unparseable_or_legacy_run_ids(self):
+        kept = "20260927T120000Z-abcdef12"
+        self.history_run(kept)
+        for name in ("legacy", "20261327T120000Z-abcdef12", "20260927T990000Z-abcdef12",
+                     "20260927T130000Z-nothex00"):
+            self.history_run(name)
+        code, text = self.view_history(["4", "1"])
+        self.assertEqual(code, 0)
+        self.assertIn(f"{kept} · completed", text)
+        for name in ("legacy", "20261327T120000Z-abcdef12", "20260927T990000Z-abcdef12",
+                     "20260927T130000Z-nothex00"):
+            self.assertNotIn(f"{name} ·", text)
+
     def test_tui_history_selected_report_path_is_only_printed_not_opened_or_rebuilt(self):
-        directory = self.history_run("demo", status="error", synthetic=True)
+        name = "20260927T120000Z-abcdef12"
+        directory = self.history_run(name, status="error", synthetic=True)
         before = (directory / "report.html").read_bytes()
         code, text = self.view_history(["4", "1"])
         self.assertEqual(code, 0)
-        self.assertIn("demo · error · runs/demo/report.html", text)
-        self.assertIn("보고서 경로: runs/demo/report.html", text)
+        self.assertIn(f"{name} · error · {directory / 'report.html'}", text)
+        self.assertIn(f"보고서 경로: {directory / 'report.html'}", text)
         self.assertNotIn("stored report", text)
         self.assertEqual((directory / "report.html").read_bytes(), before)
 
+    def test_tui_history_report_paths_resolve_from_project_root_not_cwd(self):
+        name = "20260927T120000Z-abcdef12"
+        directory = self.history_run(name)
+        self.assertNotEqual(Path.cwd().resolve(), self.root.resolve())
+        code, text = self.view_history(["4", "1"])
+        self.assertEqual(code, 0)
+        report = directory / "report.html"
+        self.assertIn(f"{name} · completed · {report}", text)
+        self.assertIn(f"보고서 경로: {report}", text)
+
     def test_tui_history_invalid_number_or_path_is_rejected_without_opening(self):
-        self.history_run("valid")
+        self.history_run("20260927T120000Z-abcdef12")
         for answer in ("2", "../valid", "/tmp/report.html", "١", "1/../1"):
             with self.subTest(answer=answer):
                 code, text = self.view_history(["4", answer])
@@ -939,53 +980,85 @@ class CLIExperienceTests(unittest.TestCase):
                 self.assertNotIn("보고서 경로:", text)
 
     def test_tui_history_skips_damaged_summaries_and_unsafe_entries(self):
-        good = self.history_run("good")
-        for name, content in (("broken", "{not json"), ("no-status", '{"run_id":"no-status"}'),
-                              ("wrong-id", '{"run_id":"../outside","status":"error"}'),
-                              ("control", '{"run_id":"control","status":"error\\nunsafe"}'),
-                              ("deep", "[" * 100000 + "0" + "]" * 100000)):
+        good = self.history_run("20260927T120000Z-abcdef12")
+        rejected = []
+        for hour, content in enumerate(("{not json", '{"run_id":"no-status"}',
+                                        '{"run_id":"../outside","status":"error"}',
+                                        '{"run_id":"control","status":"error\\nunsafe"}',
+                                        "[" * 100000 + "0" + "]" * 100000)):
+            name = f"20260927T{hour:02}0000Z-{hour:08x}"
             directory = self.history_run(name)
             (directory / "summary.json").write_text(content)
-        (self.root / "runs/linked-run").symlink_to(good, target_is_directory=True)
-        linked_summary = self.history_run("linked-summary")
+            rejected.append(name)
+        linked = "20260927T050000Z-00000005"
+        (self.root / "runs" / linked).symlink_to(good, target_is_directory=True)
+        linked_summary = self.history_run("20260927T060000Z-00000006")
         (linked_summary / "summary.json").unlink()
         (linked_summary / "summary.json").symlink_to(good / "summary.json")
-        linked_report = self.history_run("linked-report")
+        linked_report = self.history_run("20260927T070000Z-00000007")
         (linked_report / "report.html").unlink()
         (linked_report / "report.html").symlink_to(good / "report.html")
         code, text = self.view_history(["4", "0", "4", "1"])
         self.assertEqual(code, 0)
-        self.assertIn("good · completed · runs/good/report.html", text)
-        for name in ("broken", "no-status", "wrong-id", "control", "deep", "linked-run", "linked-summary", "linked-report"):
-            self.assertNotIn(name, text)
+        self.assertIn(f"{good.name} · completed · {good / 'report.html'}", text)
+        for name in (*rejected, linked, linked_summary.name, linked_report.name):
+            self.assertNotIn(f"{name} ·", text)
+
+    def test_tui_history_rejects_incomplete_or_invalid_persisted_summary(self):
+        old_name = "20260927T120000Z-abcdef12"
+        older = self.history_run(old_name)
+        (older / "summary.json").write_text(json.dumps({"schema_version": 1, "run_id": old_name,
+                                                         "status": "budget_exhausted", "groups": [],
+                                                         "trials_used": 0}))
+        valid = {"schema_version": 1, "status": "completed", "groups": [], "trials_used": 0}
+        broken = ({"schema_version": None}, {"schema_version": 2}, {"schema_version": True},
+                  {"groups": None}, {"groups": {}}, {"trials_used": None},
+                  {"trials_used": True}, {"status": ["completed"]}, {"status": "fictional"})
+        for hour, update in enumerate(broken):
+            name = f"20260927T{hour:02}0000Z-{hour:08x}"
+            directory = self.history_run(name)
+            summary = {**valid, "run_id": name}
+            for key, value in update.items():
+                if value is None:
+                    summary.pop(key)
+                else:
+                    summary[key] = value
+            (directory / "summary.json").write_text(json.dumps(summary))
+        code, text = self.view_history(["4", "1"])
+        self.assertEqual(code, 0)
+        self.assertIn(f"{old_name} · budget_exhausted", text)
+        for hour in range(len(broken)):
+            name = f"20260927T{hour:02}0000Z-{hour:08x}"
+            self.assertNotIn(f"{name} ·", text)
 
     def test_tui_history_zero_returns_to_main_menu(self):
-        self.history_run("previous")
+        directory = self.history_run("20260927T120000Z-abcdef12")
         code, text = self.view_history(["4", "0", "4", "1"])
         self.assertEqual(code, 0)
         self.assertEqual(text.count("4. 이전 실행 보기"), 2)
-        self.assertIn("보고서 경로: runs/previous/report.html", text)
+        self.assertIn(f"보고서 경로: {directory / 'report.html'}", text)
 
     def test_tui_history_refuses_symlinked_runs_root_and_dev_live(self):
         outside = self.root / "outside"
         outside.mkdir()
-        external = outside / "external"
+        external = outside / "20260927T120000Z-abcdef12"
         external.mkdir()
-        (external / "summary.json").write_text('{"run_id":"external","status":"completed"}')
+        (external / "summary.json").write_text(json.dumps({"schema_version": 1, "run_id": external.name,
+                                                            "status": "completed", "groups": [], "trials_used": 0}))
         (external / "report.html").write_text("private")
         (self.root / "runs").symlink_to(outside, target_is_directory=True)
         code, text = self.view_history(["4"])
         self.assertEqual(code, 0)
-        self.assertNotIn("external", text)
+        self.assertNotIn(f"{external.name} ·", text)
         (self.root / "runs").unlink()
         (self.root / "runs").mkdir()
         (self.root / "runs/dev-live").symlink_to(outside, target_is_directory=True)
         code, text = self.view_history(["4"])
         self.assertEqual(code, 0)
-        self.assertNotIn("external", text)
+        self.assertNotIn(f"{external.name} ·", text)
 
     def test_tui_history_rechecks_selected_report_after_list(self):
-        directory = self.history_run("selected")
+        directory = self.history_run("20260927T120000Z-abcdef12")
         outside = self.root / "private.html"
         outside.write_text("private report")
         answers = iter(["4", "1"])
