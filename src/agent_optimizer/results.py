@@ -128,13 +128,15 @@ def write_report(root: Path, summary: dict, report: dict | None = None,
     lines += ["", f"## {phrase('기준 → 선택 검증', 'Baseline → selected validation')}", "",
               header('Agent', 'Harness', 'Candidate', 'Metric', 'Direction', 'Baseline', 'Selected', 'Delta', 'Trend'),
               "|---|---|---|---|---|---|---|---|---|"]
+    additional = []
     incomparable = []
     for group in groups:
-        selected = next((row for row in group["selected"] if isinstance(row, dict)
-                         and row.get("split") == "validation" and row.get("valid") is True
-                         and not row.get("partial", False)
-                         and row.get("agent_id") == group["agent_id"]
-                         and row.get("harness_id") == group["harness_id"]), None)
+        eligible = [row for row in group["selected"] if isinstance(row, dict)
+                    and row.get("split") == "validation" and row.get("valid") is True
+                    and not row.get("partial", False)
+                    and row.get("agent_id") == group["agent_id"]
+                    and row.get("harness_id") == group["harness_id"]]
+        selected = eligible[0] if eligible else None
         for item in group["comparison"] or [None]:
             lines.append(_table_row(group["agent_id"], group["harness_id"],
                                     selected.get("candidate_id") if selected else "—",
@@ -144,14 +146,18 @@ def write_report(root: Path, summary: dict, report: dict | None = None,
                                     item["selected"] if item else None,
                                     item["delta"] if item else None,
                                     item["trend"] if item else "unknown"))
+        if len(eligible) > 1:
+            additional.append(phrase("추가 유효 선택 기록: ", "Additional valid selections: ")
+                              + _cell(group["key"]) + " · "
+                              + _cell(", ".join(str(row.get("candidate_id")) for row in eligible[1:])))
         invalid = [row.get("candidate_id") for row in group["selected"] if isinstance(row, dict)
-                   and row is not selected]
+                   and all(row is not item for item in eligible)]
         if invalid:
             incomparable.append(phrase("비교 불가 선택 기록: ", "Recorded incomparable selection: ")
                                 + _cell(group["key"]) + " · "
                                 + _cell(", ".join(str(identifier) for identifier in invalid)))
-    if incomparable:
-        lines += ["", *incomparable]
+    if additional or incomparable:
+        lines += ["", *additional, *incomparable]
     lines += ["", f"## {phrase('최종 테스트', 'Final test')}", "",
               phrase("검증 선택을 확정한 뒤 기록된 별도 test 집계입니다.",
                      "Separate test aggregates recorded after validation selection."), "",
