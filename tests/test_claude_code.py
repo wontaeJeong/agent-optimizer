@@ -53,8 +53,8 @@ class ClaudeCodeContractTests(unittest.TestCase):
     def test_argv_keeps_prompt_separate_and_refuses_docker(self):
         self.assertEqual(self.harness.argv(self.request),
                          ["claude", "-p", self.request.prompt, "--output-format", "stream-json",
-                          "--verbose", "--max-turns", "8", "--tools", "Read,Write,Edit",
-                          "--allowedTools", "Read,Write,Edit"])
+                          "--verbose", "--max-turns", "8", "--strict-mcp-config",
+                          "--tools", "Read,Write,Edit", "--allowedTools", "Read,Write,Edit"])
         docker = RunRequest(self.workspace, self.request.agent_dir, self.request.task_dir,
                             self.request.prompt, 5, 3, {"runtime": {"kind": "docker"}}, self.logs)
         with self.assertRaises(UnavailableError):
@@ -63,6 +63,11 @@ class ClaudeCodeContractTests(unittest.TestCase):
             with self.assertRaises(UnavailableError):
                 self.harness.run(docker)
             version.assert_not_called()
+
+    def test_argv_ignores_implicit_mcp_configs_without_explicit_servers(self):
+        argv = self.harness.argv(self.request)
+        self.assertIn("--strict-mcp-config", argv)
+        self.assertNotIn("--mcp-config", argv)
 
     def test_success_records_only_partial_usage_and_observed_version(self):
         result = self.run_events([SUCCESS])
