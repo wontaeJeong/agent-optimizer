@@ -203,6 +203,16 @@ class PublicRTLEvaluator:
 
         group_dir = run / group["agent_id"] / group["harness_id"]
         candidates = group_dir / "candidates"
+        optimizer_calls = [row for row in requests if row["model"] == "fixture-optimizer"]
+        agent_calls = [row for row in requests if row["model"] == "fixture-agent"]
+        self.assertEqual(len(agent_calls), len(trials))
+        # The runner executes these trials sequentially; the user message identifies each request.
+        trial_requests = {}
+        for trial, call in zip(trials, agent_calls, strict=True):
+            trial_dir = group_dir / "trials" / trial["trial_id"]
+            request_prompt = json.loads((trial_dir / "agent_workspace/request.json").read_text())["prompt"]
+            self.assertEqual(call["messages"][1], {"role": "user", "content": request_prompt})
+            trial_requests[trial["trial_id"]] = call
         edits = {"gepa": "prompts/system.md", "meta": "src/agent.py", "ecdysis": "src/agent.py"}
         baseline_code = (candidates / "c0001/bundle/src/agent.py").read_bytes()
         for stage in group["stages"]:
@@ -228,6 +238,10 @@ class PublicRTLEvaluator:
             self.assertEqual({row["split"] for row in candidate_trials}, {"train", "validation"})
             for trial in candidate_trials:
                 trial_dir = group_dir / "trials" / trial["trial_id"]
+                actual_prompt = (trial_dir / "agent_workspace/agent/prompts/system.md").read_text()
+                self.assertEqual(actual_prompt, (candidate / "bundle/prompts/system.md").read_text())
+                self.assertEqual(trial_requests[trial["trial_id"]]["messages"][0],
+                                 {"role": "system", "content": actual_prompt})
                 self.assertEqual((trial_dir / "agent_workspace/agent/src/agent.py").read_bytes(), snapshot)
                 agent_file_sha256 = json.loads(Path(trial["execution"]["stdout_path"]).read_text())[
                     "agent_file_sha256"]
@@ -238,10 +252,7 @@ class PublicRTLEvaluator:
         self.assertEqual(json.loads((group_dir / "frozen_selection.json").read_text()), group["selected"])
         self.assertTrue(all(path.read_bytes() == content for path, content in original.items()))
 
-        optimizer_calls = [row for row in requests if row["model"] == "fixture-optimizer"]
-        agent_calls = [row for row in requests if row["model"] == "fixture-agent"]
         self.assertEqual(len(optimizer_calls), 5)  # GEPA, Meta, Ecdysis reviews x2 + edit
-        self.assertEqual(len(agent_calls), len(trials))
         self.assertTrue(all(row["path"] == "/v1/chat/completions" for row in requests))
         self.assertEqual({row["auth"] for row in optimizer_calls}, {"Bearer optimizer-fixture-token"})
         self.assertEqual({row["auth"] for row in agent_calls}, {"Bearer agent-fixture-token"})
@@ -255,8 +266,37 @@ class PublicRTLEvaluator:
             self.assertEqual(len(evidence), 2)
             self.assertEqual({row["task_id"] for row in evidence}, {"a-train", "z-train"})
             self.assertEqual({row.get("candidate_id") for row in evidence}, {None})
+        for role, call in zip(("analyst", "moderator"), optimizer_calls[2:4], strict=True):
+            self.assertIn(f"Ecdysis {role}:", call["messages"][0]["content"])
+            review = json.loads(call["messages"][1]["content"])
+            self.assertEqual(review["evidence"], [{
+                "pattern": "failed:passed", "task_ids": ["a-train"],
+                "examples": [{"task_id": "a-train", "feedback": "Public RTL fixture mismatch"}],
+                "failure_count": 1, "distinct_tasks": 1}])
+            self.assertEqual(review["previous_spec"],
+                             "" if role == "analyst" else "Repair the shared train RTL failure.")
+        editor = optimizer_calls[4]
+        self.assertIn("Ecdysis editor:", editor["messages"][0]["content"])
+        edit_request = json.loads(editor["messages"][1]["content"])
+        self.assertEqual(edit_request["file"], "src/agent.py")
+        self.assertEqual(edit_request["content"], baseline_code.decode())
+        self.assertEqual(edit_request["train"], {
+            "groups": review["evidence"], "specification": "Keep the public target interface."})
+        for call in optimizer_calls[2:]:
+            payload = call["messages"][1]["content"]
+            self.assertNotIn("z-train", payload)  # A successful baseline train is not failure evidence.
+            self.assertNotIn("c0002", payload)
+            self.assertNotIn("c0003", payload)
+            self.assertNotIn("c-validation", payload)
+            self.assertNotIn("e-test", payload)
+            self.assertNotIn("private-evaluation-fixture", payload)
         self.assertEqual([row["event"] for row in events if row["event"] == "optimizer_review_started"],
                          ["optimizer_review_started"] * 2)
+        for artifact in run.rglob("*"):
+            if artifact.is_file():
+                content = artifact.read_bytes()
+                for secret in ("agent-fixture-token", "optimizer-fixture-token"):
+                    self.assertNotIn(secret.encode(), content, artifact.relative_to(run))
 
     def test_missing_agent_env_after_static_plan_is_invalid_runner_trial(self):
         spec = self.offline_spec()
@@ -338,6 +378,18 @@ class PublicRTLEvaluator:
         self.assertFalse(self.subset.exists())
         self.assertEqual(self.benchmark.read_bytes(), original)
         self.assertEqual(self.private.read_text(encoding="utf-8"), "private-evaluation-fixture")
+
+    def test_importer_style_target_declaration_is_preserved_once(self):
+        # ace-rtl/prepare.py:convert supplies this trailing declaration in public task prompts.
+        for row in self.tasks:
+            target = row["evaluation"]["targets"][0]
+            row["prompt"] += "\nWrite target files: " + target
+        self.benchmark.write_text(json.dumps(self.document), encoding="utf-8")
+        generated = json.loads((self.prepare().parent / "tasks.json").read_text(encoding="utf-8"))
+        by_id = {row["id"]: row for row in self.tasks}
+        for row in generated["tasks"]:
+            self.assertEqual(row["prompt"], by_id[row["id"]]["prompt"])
+            self.assertEqual(row["prompt"].count("\nWrite target files: "), 1)
 
     def test_subset_is_transient_and_removed_on_success(self):
         original_writer = self.example.write_experiment
