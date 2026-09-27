@@ -9,6 +9,72 @@ from agent_optimizer.results import write_report
 
 
 class UsageReportTests(unittest.TestCase):
+    def test_markdown_separates_validation_test_and_links_recorded_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "manifest.json").write_text(json.dumps({"experiment": {"objective": {
+                "metrics": [{"name": "accuracy", "direction": "maximize"},
+                            {"name": "latency", "direction": "minimize"}]}}}))
+            group_root = root / "a" / "h"
+            for relative in ("stages/search.json", "candidates/chosen/changes.diff",
+                             "trials/trial-1/result.json"):
+                path = group_root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("{}")
+            (group_root / "candidates/chosen/candidate.json").write_text(json.dumps({
+                "id": "chosen", "parents": ["base"], "changed_files": ["prompt.txt"]}))
+            (root / "events.jsonl").write_text(json.dumps({
+                "event": "trial_completed", "agent_id": "a", "harness_id": "h",
+                "trial_id": "trial-1", "candidate_id": "chosen", "split": "validation",
+                "status": "failed", "feedback": "bad"}) + "\n")
+            (root / "summary.json").write_text("{}")
+            def row(candidate, split, accuracy, latency):
+                return {"agent_id": "a", "harness_id": "h", "candidate_id": candidate,
+                        "split": split, "valid": True, "trial_count": 1,
+                        "metrics": {"accuracy": accuracy, "latency": latency}}
+            summary = {"status": "completed", "trials_used": 1, "groups": [{
+                "agent_id": "a", "harness_id": "h", "trial_count": 1,
+                "baseline": row("base", "validation", 0.5, 9),
+                "selected": [row("chosen", "validation", 0.5, 7)],
+                "final_test": [row("base", "test", 0.4, 10),
+                               row("chosen", "test", 0.9, 6)],
+                "stages": [{"id": "search", "status": "completed",
+                            "selected": [row("chosen", "validation", 0.5, 7)],
+                            "checkpoint": {"private": "X" * 300}}]}]}
+            write_report(root, summary)
+            markdown = (root / "report.md").read_text()
+            validation = markdown.split("## 기준 → 선택 검증", 1)[1].split("## 최종 테스트", 1)[0]
+            test = markdown.split("## 최종 테스트", 1)[1].split("## ", 1)[0]
+            self.assertIn("chosen", validation)
+            self.assertIn("latency", validation)
+            self.assertIn("minimize", validation)
+            self.assertNotIn("| test |", validation)
+            self.assertIn("| chosen | test |", test)
+            self.assertIn("[changes.diff](a/h/candidates/chosen/changes.diff)", markdown)
+            self.assertIn("[search.json](a/h/stages/search.json)", markdown)
+            self.assertIn("[trial-1](a/h/trials/trial-1/result.json)", markdown)
+            self.assertIn("실패 [trial-1](a/h/trials/trial-1/result.json)", markdown)
+            self.assertIn("[events.jsonl](events.jsonl)", markdown)
+            self.assertNotIn("X" * 100, markdown)
+
+    def test_markdown_escapes_html_fences_and_long_untrusted_identifiers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            malicious = "a|<img src=x> **bold** [link](javascript:alert(1)) ```\n# heading"
+            summary = {"status": "error", "error_type": "RuntimeError",
+                       "error": malicious + "L" * 1000, "groups": [{
+                "agent_id": malicious, "harness_id": "h", "baseline": None,
+                "selected": [], "final_test": [], "stages": []}]}
+            write_report(root, summary)
+            markdown = (root / "report.md").read_text()
+            self.assertNotIn("<img", markdown)
+            self.assertNotIn("**bold**", markdown)
+            self.assertNotIn("[link](javascript:", markdown)
+            self.assertNotIn("\n# heading", markdown)
+            self.assertNotIn("```", markdown)
+            self.assertIn(r"a\|&lt;img", markdown)
+            self.assertLess(len(markdown), 6000)
+
     def test_markdown_title_follows_language_without_changing_summary(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
@@ -207,15 +273,14 @@ class UsageReportTests(unittest.TestCase):
             markdown = (root / "report.md").read_text()
             optimization = markdown.split("## 최적화\n\n", 1)[1].split("## 재현 정보", 1)[0]
             self.assertTrue(optimization.startswith(
-                "| Agent | 하네스 | 단계 | 상태 | 체크포인트 |\n"
+                "| Agent | 하네스 | 단계 | 상태 | 후보 |\n"
                 "|---|---|---|---|---|\n"
-                "| alpha | fixture | prepare | completed | {} |\n"
-                "| alpha | fixture | polish | completed | {} |\n"
-                "| beta | fixture | inspect | completed | {} |\n\n"), optimization)
-            self.assertIn("Optimizer 사용량 (alpha/fixture):", optimization)
-            self.assertIn("Optimizer 사용량 (beta/fixture):", optimization)
+                "| alpha | fixture | prepare | completed | — |\n"
+                "| alpha | fixture | polish | completed | — |\n"
+                "| beta | fixture | inspect | completed | — |\n\n"), optimization)
+            self.assertIn("단계별 선택·체크포인트 원본", optimization)
             self.assertIn("실패 alpha/fixture/failed-alpha: scored_failure — first group failed", optimization)
-            self.assertIn("후보 변경 내역: 이 그룹의 candidates/*/changes.diff를 확인하세요.", optimization)
+            self.assertIn("## 최종 테스트", markdown)
             self.assertIn("| alpha | fixture | c1 | test |", markdown)
             self.assertIn("하네스 보고 사용량은 일부일 수 있습니다.", markdown)
 
@@ -228,10 +293,13 @@ class UsageReportTests(unittest.TestCase):
                                "metrics": {"label": "x|y"}}], "final_test": [],
                  "stages": [{"id": "s|t", "status": "completed", "checkpoint": {"key": "a|b"}}]}]}
 
-            write_report(root, summary)
+            from agent_optimizer.results import write_report_artifacts
+            write_report_artifacts(root, summary)
             markdown = (root / "report.md").read_text()
             self.assertIn(r"| a\|b | fixture | c\|d | validation |", markdown)
-            self.assertIn(r"x\|y", markdown)
+            self.assertNotIn(r"x\|y", markdown)
+            self.assertIn('"x|y"', (root / "report.json").read_text())
+            self.assertIn("[report.json](report.json)", markdown)
             self.assertIn(r"| a\|b | fixture | c\|d | validation | null | null |", markdown)
             self.assertIn(r"s\|t", markdown)
 
