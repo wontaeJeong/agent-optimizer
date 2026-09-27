@@ -27,7 +27,7 @@ class BootstrapTests(unittest.TestCase):
         self.outside = Path(temporary.name).resolve()
         self.root = self.outside / "repo with spaces"
         (self.root / "scripts").mkdir(parents=True)
-        for name in ("scripts/bootstrap.sh", "Makefile"):
+        for name in ("scripts/bootstrap.sh", "scripts/make_args.sh", "Makefile"):
             if (ROOT / name).exists():
                 shutil.copyfile(ROOT / name, self.root / name)
         self.bin = self.outside / "bin"
@@ -506,11 +506,48 @@ printf 'arg:%s\\n' "$@" >> "$TRACE"
 printf '{"ready":false}\\n'
 exit 2
 ''')
-        result = self.invoke("doctor", 'ARGS=--json --platform "linux/arm64"', make=True)
+        result = self.invoke("doctor", 'ARGS=--json --platform linux/arm64', make=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(result.stdout.strip(), result.stderr)
         self.assertEqual(json.loads(result.stdout), {"ready": False})
         self.assertIn("arg:--json\narg:--platform\narg:linux/arm64\n", self.trace_text())
+
+    def test_make_args_are_data_even_with_shell_and_make_metacharacters(self):
+        self.write_executable(self.root / ".venv/bin/python", '''
+case "$1" in -I) exit 0;; esac
+printf 'arg:%s\\n' "$@" >> "$TRACE"
+printf '{"ready":false}\\n'
+exit 2
+''')
+        marker = self.outside / "injected"
+        for value in ('--json $(shell touch injected)',
+                      f'--json; touch "{marker}"',
+                      f'--json $(touch "{marker}")',
+                      f'--json $$(touch "{marker}")',
+                      f'--json --platform "linux/arm64"'):
+            with self.subTest(value=value):
+                if self.trace.exists():
+                    self.trace.write_text("")
+                result = self.invoke("doctor", "ARGS=" + value, make=True)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertFalse(marker.exists())
+                self.assertEqual(self.trace_text(), "")
+                self.assertIn("sh scripts/bootstrap.sh doctor --help", result.stderr)
+
+    def test_shell_command_help_is_scoped_and_has_no_tool_probes_or_writes(self):
+        for command, expected in (("setup", "--offline"), ("doctor", "--model"),
+                                  ("live", "--iterations"), ("demo", "기존 .venv")):
+            for language in ("ko", "en"):
+                with self.subTest(command=command, language=language):
+                    self.environment["AGENT_OPT_LANG"] = language
+                    result = self.invoke(command, "--help")
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    phrase = expected if language == "ko" or expected.startswith("--") else "existing .venv"
+                    self.assertIn(phrase, result.stdout)
+                    self.assertIn(command, result.stdout)
+                    self.assertEqual(self.trace_text(), "")
+                    self.assertFalse((self.root / "external").exists())
+        self.environment.pop("AGENT_OPT_LANG")
 
     def test_venv_symlink_identity_and_sentinel_survive_setup(self):
         venv.EnvBuilder(with_pip=False, symlinks=True).create(self.root / ".venv")
@@ -731,6 +768,14 @@ class DeveloperCommandsTests(unittest.TestCase):
                 with self.subTest(command=command), self.assertRaises(SystemExit):
                     self.main([command, "--core"])
 
+    def test_model_doctor_rejects_invalid_platform_before_loading_or_api(self):
+        with patch.object(self.dev, "load", side_effect=AssertionError("external loader")), \
+                patch("subprocess.run", side_effect=AssertionError("external call")):
+            with self.assertRaises(SystemExit) as code:
+                self.main(["doctor", "--model", "--platform", "linux/invalid"])
+        self.assertEqual(code.exception.code, 2)
+        self.assertIn("linux/amd64", self.output.getvalue())
+
     def test_setup_and_doctor_help_explain_dataset_scope_and_legal_flags(self):
         for command in ("setup", "doctor"):
             self.output = io.StringIO()
@@ -746,6 +791,16 @@ class DeveloperCommandsTests(unittest.TestCase):
                 self.assertIn("--model", help_text)
             else:
                 self.assertIn("등록 데이터셋 하나 준비", help_text)
+
+    def test_python_help_explains_offline_writes_and_read_only_vs_real_model(self):
+        for command, required in (("setup", ("동기화", "데모", "--offline")),
+                                  ("doctor", ("읽기 전용", "실제", "--model"))):
+            self.output = io.StringIO()
+            with self.subTest(command=command), self.assertRaises(SystemExit) as code:
+                self.main([command, "--help"])
+            self.assertEqual(code.exception.code, 0)
+            for phrase in required:
+                self.assertIn(phrase, self.output.getvalue())
 
     def test_core_setup_stops_before_example_and_requires_doctor_then_demo(self):
         for ready, demo_code, expected in ((True, 0, 0), (False, 0, 2), (True, 5, 2)):
@@ -1098,3 +1153,30 @@ class PreparationProgressTests(unittest.TestCase):
                     else:
                         setup.run(["uv", "pip", "sync"], log=log)
                 self.assertEqual("완료" in output.getvalue(), code == 0)
+
+
+class WheelSelectionTests(unittest.TestCase):
+    def test_selector_rejects_zero_or_multiple_wheels_and_returns_only_build_artifact(self):
+        with tempfile.TemporaryDirectory() as directory:
+            dist = Path(directory)
+            command = [sys.executable, str(ROOT / "scripts/select_wheel.py"), str(dist)]
+
+            def select():
+                return subprocess.run(command, capture_output=True, text=True)
+
+            missing = select()
+            self.assertEqual(missing.returncode, 2)
+            self.assertIn("wheel", missing.stderr)
+            first = dist / "agent_optimizer-1.2.3-py3-none-any.whl"
+            first.touch()
+            found = select()
+            self.assertEqual(found.returncode, 0, found.stderr)
+            self.assertEqual(found.stdout.strip(), str(first))
+            (dist / "agent_optimizer-4.5.6-py3-none-any.whl").touch()
+            duplicate = select()
+            self.assertEqual(duplicate.returncode, 2)
+            self.assertIn("wheel", duplicate.stderr)
+            first.unlink()
+            (dist / "agent_optimizer-4.5.6-py3-none-any.whl").unlink()
+            (dist / "unrelated-1.0-py3-none-any.whl").touch()
+            self.assertEqual(select().returncode, 2)

@@ -1,4 +1,35 @@
-# 개발환경 온보딩
+# 개발 명령 기준
+
+이 문서는 **저장소 개발자 명령**(`make` / `sh scripts/bootstrap.sh`)을 설명합니다.
+사용자용 `.venv/bin/agent-opt`의 `init`·`doctor --plan`·`run`과는 범위가 다릅니다.
+설치 전에도 `make help`, `sh scripts/bootstrap.sh help`, `sh scripts/bootstrap.sh setup --help`가
+Git·Python·Docker 조회나 파일 생성 없이 동작합니다. `AGENT_OPT_LANG=en`은 사람용 안내만 영어로 바꾸며
+JSON 키·상태 코드·`doctor --json`의 단일 stdout 문서는 바꾸지 않습니다.
+
+| 개발 명령 | 범위·필요 도구 | 변경·호출과 실패 시 조치 |
+|---|---|---|
+| `setup-core` / `setup --core` | Mac/Ubuntu·Git, uv(없으면 curl/wget으로 설치), Python 3.11+ 가상환경(새로 준비할 때 3.12) | frozen 개발 의존성·`.venv` 동기화, 코어 진단, `runs/` 합성 데모 생성. 실패 시 `external/setup-logs/project-uv.log` 확인 후 같은 명령 재실행 |
+| `doctor-core` / `doctor --core [--json]` | 코어 도구·기존 `.venv` | 읽기 전용 코어 검사, Docker/ACE·API 검사 없음. 미준비면 `setup-core` 실행 |
+| `setup --dataset ID [--offline]` / `doctor --dataset ID [--json]` | 코어 + **사용자가 고른** 등록 데이터셋의 자산·도구 | setup은 선택 자산을 설치/생성 후 진단, doctor는 읽기 전용. 데이터셋별 복구 메시지/`external/setup-logs/` 확인; ACE Agent 이미지 준비와 별개 |
+| 옵션 없는 `setup` / `doctor` | **ACE 전체**: 코어 + Docker Engine/Compose·고정 ACE/CVDP 자산 | setup은 소스·데이터·driver·Docker 이미지·lock·로그 준비 후 doctor·합성 데모 실행. doctor는 읽기 전용 점검(준비된 이미지에 임시 컨테이너 실행·정리). 실패 시 아래 진단 ID·로그 확인 |
+| `setup [--core\|--dataset ID] --offline` | 해당 범위의 준비된 uv/Python/패키지·자산 캐시 | 다운로드·빌드 없이 **동기화·진단·데모(코어/전체) 및 결과 생성**. 누락 캐시는 해당 온라인 setup으로 복구. 읽기 전용 아님 |
+| `test` / `lint` / `demo` | 설치된 프로젝트 `.venv`, Docker/API 불필요 | 설치 없이 unittest/Ruff/합성 데모 실행; demo만 `runs/` 생성. `.venv`가 없거나 불완전하면 `setup-core` |
+| `smoke [--platform ...]` | ACE 전체 준비·Docker | 공식 RTL/CVDP 실도구·정답/오답 검사, `runs/dev-smoke-*/` 생성. 실패 시 `setup`과 해당 로그·lock 점검; 모델 호출 없음 |
+| `doctor --model` / `live [--iterations 1..20]` | ACE 전체 준비·모델 환경변수·API·Docker | **실제 모델 호출**; doctor는 연결/컨테이너 도구를 검사하며 로그를 남길 수 있고 live는 최적화/공식 평가·`runs/dev-live/` 결과 생성. 키/URL·이미지·평가 로그 확인 |
+| `menu` | Python 3.11+·TTY | 메뉴 시작은 설치·진단 없음; 선택 항목은 위 명령 실행. 실패는 표시되고 종료 시 마지막 선택 작업의 종료 코드 반환 |
+
+준비된 명령은 성공 시 0, 옵션·준비 오류는 2, 중단은 130입니다. `make`는 실패한 셸 레시피의
+종료 코드를 자체 오류 코드 2로 반환할 수 있으므로 자식 실패 코드는 출력에서도 확인하세요. `test`/`lint`/`demo`와
+`smoke`/`live`의 자식 실패는 해당 종료 코드를 전달합니다. `doctor --json`은 stdout에 JSON 하나만
+출력하며 진단 진행 메시지는 stderr로 갑니다. 명령별 사용법은 `sh scripts/bootstrap.sh <명령> --help`입니다.
+
+`make <명령> ARGS="--core --json"`은 계속 동작합니다. **ARGS는 공백 구분 인수 데이터**로만
+전달되며 셸 인용부호·와일드카드·메타문자를 해석하지 않습니다. 예전
+`make doctor ARGS='--json --platform "linux/arm64"'`는
+`make doctor ARGS='--json --platform linux/arm64'`로 바꾸거나, 따옴표가 필요한 실제 인수는
+`sh scripts/bootstrap.sh doctor --json --platform 'linux/arm64'`로 직접 전달하세요.
+`make setup-core`·`make doctor-core`는 기존 `make setup ARGS="--core"`·
+`make doctor ARGS="--core"`와 같은 범위이며 옵션 없는 명령의 기본 ACE 동작은 유지합니다.
 
 프로젝트 루트에서 **코어 개발 환경부터** 준비합니다. Mac/Ubuntu와 Git이 필요하고,
 uv가 없으면 installer 다운로드용 curl 또는 wget도 필요합니다. Docker·Compose·Buildx와 모델 키는 필요 없습니다.
@@ -23,7 +54,7 @@ ACE/CVDP 소스·데이터·driver·이미지는 준비하지 않습니다. 여�
 | 검증 단계 | 명령 | 완료 의미 |
 |---|---|---|
 | 개발환경 | `make setup-core`, `make doctor-core`, `make lint`, `make test`, `make demo` | CLI/계약 회귀와 합성 연결 확인 |
-| ACE 평가 실행환경 | `make setup`, `make doctor`, `make smoke` | 고정 Docker 자산·driver·실도구·공식 CVDP 정답/오답 확인; 모델 호출 없음 |
+| ACE 평가 실행환경 | `make setup`, `make doctor`, `make smoke` | 고정 Docker 자산·driver 준비 후 smoke에서 실도구·공식 CVDP 정답/오답 확인; 모델 호출 없음 |
 | ACE 모델·최적화 | `.venv/bin/agent-opt tui`에서 ACE 예제 선택(부족한 모델 값은 세션 입력) 또는 환경변수 준비 후 `.venv/bin/agent-opt run examples/ace-rtl/experiment.toml` | 실제 모델 호출·Agent 산출물·공식 평가·후보 선택 결과 |
 
 ACE 고정 프로필을 앱에서 실행하면 기존 예제 `live`가 lock·플랫폼·모델 연결을 검사합니다.
@@ -72,6 +103,7 @@ sh scripts/bootstrap.sh menu
 실패해도 완료된 세션 설정은 남으므로 4번에서 수정할 수 있습니다. 메뉴 종료 시 설정은 사라집니다.
 
 잘못된 번호는 작업 없이 다시 묻고, 명령 실패는 종료 코드와 함께 표시한 뒤 메뉴로 돌아옵니다.
+0으로 종료할 때는 마지막 선택 작업의 성공·실패 코드를 반환합니다.
 실패를 성공으로 표시하거나 자동 재시도하지 않습니다. 3번의 데모가 실패하면 회귀 테스트도 시작하지
 않습니다. 파이프 입력/출력은 exit 2로 거부하므로 자동화에는 기존 명시적 명령을 사용하세요.
 
@@ -122,7 +154,7 @@ uv 신규 설치 로그는 `bootstrap-uv.log`입니다. 실패하면 해당 단�
 setup을 재실행합니다. 기존 checkout/venv를 강제로 초기화하지 않습니다.
 
 완료 시 표시한 `runs/<run-id>/report.html`, `report.md`, `summary.json`, `events.jsonl`이 첫 결과입니다.
-터미널과 리포트는 한국어를 기본으로 하며 `AGENT_OPT_LANG=en make setup ARGS="--core"`처럼
+터미널과 리포트는 한국어를 기본으로 하며 `AGENT_OPT_LANG=en make setup-core`처럼
 환경 변수를 설정하면 영어로 표시합니다. 보고서는 실행 당시 언어를 기억하고, 재생성 명령에
 `AGENT_OPT_LANG=ko` 또는 `AGENT_OPT_LANG=en`을 명시하면 해당 재생성에만 그 언어를 적용합니다. `--json`의 키·상태 코드는
 언어와 무관하며, Git/Docker/uv·외부 Agent 출력은 원문 그대로 남습니다.

@@ -108,6 +108,7 @@ class DoctorTests(unittest.TestCase):
         shutil.copytree(ROOT / "examples/ace-rtl/environment", self.root / "examples/ace-rtl/environment",
                         ignore=shutil.ignore_patterns("__pycache__"))
         shutil.copyfile(ROOT / "Makefile", self.root / "Makefile")
+        shutil.copyfile(ROOT / "scripts/make_args.sh", self.root / "scripts/make_args.sh")
         tools = self.root / "bin"
         tools.mkdir()
         for name in ("dirname", "sh", "sleep", "ps", "awk"):
