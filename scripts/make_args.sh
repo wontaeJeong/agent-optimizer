@@ -13,8 +13,8 @@ case "${AGENT_OPT_MAKE_ARGS:-}" in
         exit 2 ;;
 esac
 set -f
-IFS=' 	
-'
+IFS=$(printf ' \t\n_')
+IFS=${IFS%_}
 # Deliberate word splitting: shell quotes inside ARGS stay literal and fail CLI validation.
 # shellcheck disable=SC2086
 set -- ${AGENT_OPT_MAKE_ARGS:-}
