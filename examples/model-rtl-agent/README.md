@@ -70,8 +70,10 @@ Agent 요청 120초, Optimizer 제안·검토 60초, trial 180초, 전체 최대
 유지한 채 승인된 실험을 **새로 한 번** 실행했습니다. 첫 run은 그대로 보존됩니다.
 `runs/20260927T165230Z-67533d5b`는 Mac ARM64에서 `synthetic=false`,
 **11/16 trial `completed`**이며 모두 실제 공식 CVDP raw를 가집니다(통과 8,
-오답 3). GEPA·Meta·Ecdysis는 각각 baseline에서 출발해 끝났고, 최종 고정
-선택은 baseline `c0001`(validation `solve_rate=1.0`)입니다. Meta의 수정 코드
+실패 3). 실패 3건은 모델 응답의 Markdown 코드 펜스가 RTL에 남아 발생한
+Icarus 컴파일 구문 오류입니다. GEPA·Meta·Ecdysis는 각각 baseline에서 출발해
+끝났고, 최종 고정 선택은 baseline `c0001`(validation `solve_rate=1.0`)입니다.
+Meta의 수정 코드
 후보는 train 2/2·validation 1/1 통과했어도 baseline과 동점이라 선택되지
 않았습니다. Ecdysis 후보는 train 1/2로 baseline보다 나아지지 않아 후보
 validation을 실행하지 않았습니다. 최종 test는 설정대로 실행하지 않았습니다.
