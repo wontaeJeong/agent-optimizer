@@ -232,6 +232,30 @@ class LifecycleTests(unittest.TestCase):
         self.assertTrue(summary["groups"][0]["baseline"]["valid"])
         self.assertEqual(summary["groups"][0]["baseline"]["metrics"]["solve_rate"], 0)
 
+    def test_agent_turn_limit_is_invalid_without_scoring_or_running_evaluator(self):
+        class IncompleteHarness:
+            def run(self, request):
+                return ExecutionResult("agent_incomplete", 1, 0.01, "", "",
+                                       {"agent_tokens": None}, "Agent reached turn limit")
+
+        class NeverEvaluate:
+            def evaluate(self, task, output_dir, timeout_seconds):
+                raise AssertionError("Incomplete Agent must not enter the evaluator")
+
+        self.registry.factories["harnesses"]["fixture"] = IncompleteHarness
+        self.registry.factories["evaluators"]["controlled"] = lambda config: NeverEvaluate()
+        run, summary = self.run_experiment()
+        record = json.loads(next(run.rglob("result.json")).read_text())
+        self.assertEqual(record["status"], "agent_incomplete")
+        self.assertFalse(record["valid"])
+        self.assertIsNone(record["metrics"]["passed"])
+        self.assertEqual(record["execution"]["status"], "agent_incomplete")
+        self.assertFalse(summary["groups"][0]["baseline"]["valid"])
+        self.assertEqual(summary["groups"][0]["baseline"]["metrics"],
+                         {"solve_rate": None})
+        self.assertEqual(summary["groups"][0]["selected"], [])
+        self.assertEqual(summary["trials_used"], 1)
+
     def test_last_evaluation_cannot_finish_after_global_deadline(self):
         owner = self
 

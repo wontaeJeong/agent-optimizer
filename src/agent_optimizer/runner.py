@@ -203,7 +203,7 @@ class GroupRunner:
                 raise BudgetExceeded("Experiment wall-time budget interrupted execution")
             remaining = trial_deadline-time.monotonic()
             if execution is not None and execution.status != "completed":
-                invalid = execution.status in {"infrastructure_error", "unsupported"}
+                invalid = execution.status in {"infrastructure_error", "unsupported", "agent_incomplete"}
                 evaluation = Evaluation(execution.status, {"passed": None if invalid else 0.0}, execution.detail)
             elif remaining <= 0:
                 evaluation = Evaluation("timeout", {"passed": 0.0}, "Per-trial timeout exhausted")
@@ -240,7 +240,8 @@ class GroupRunner:
                       "harness_id": self.profile["id"], "candidate_id": candidate.id,
                       "content_hash": candidate.content_hash, "task_id": task.id, "split": task.split,
                       "repeat": repeat, "seed_requested": seed, "status": evaluation.status,
-                      "valid": evaluation.status not in {"infrastructure_error", "unsupported", "interrupted", "error"},
+                      "valid": evaluation.status not in {"infrastructure_error", "unsupported", "agent_incomplete",
+                                                         "interrupted", "error"},
                       "metrics": metrics, "feedback": evaluation.feedback,
                       "execution": jsonable(execution), "artifacts": evaluation.artifacts, **error}
             write_json(trial / "result.json", record)

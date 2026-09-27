@@ -167,4 +167,6 @@ BUILTIN_HARNESSES = {
     "command": HarnessCapabilities("stdout_only", False, False, True, "Wrapper-defined protocol"),
     "opencode": HarnessCapabilities("json_events", False, False, True,
                                      "Child-session usage totals not verified; requested seed is not a model seed"),
+    "claude_code": HarnessCapabilities("json_events", False, False, False,
+                                        "부분 이벤트 로그와 입출력 사용량만 수집; 전체 사용량 미검증"),
 }

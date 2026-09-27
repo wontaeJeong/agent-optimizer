@@ -125,6 +125,39 @@ runs를 Git에 추가하지 마세요.
 
 ## 현재 검증 범위
 
+Claude Code 선택 프로필은 `experiment-claude.toml` (`harness-claude.toml`의 외부 CLI
+2.1.261 요구)이다. 로컬 셸에 `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic`,
+`ANTHROPIC_AUTH_TOKEN`(DeepSeek 키), `ANTHROPIC_MODEL=deepseek-flash` 및 같은 모델의 Claude
+기본 모델 변수를 명시적으로 전달한다. 앱은 `.env`를 자동 로딩하지 않는다. `make setup` →
+`make doctor` → `make smoke` → `agent-opt doctor --plan examples/ace-rtl/experiment-claude.toml --json`
+후 `agent-opt run examples/ace-rtl/experiment-claude.toml` 순서다. 이 프로필은 4 trial 상한,
+test 미실행이며 OpenCode/ACE native runner와 별도다. 2026-09-27 첫 실제 DeepSeek 호출은
+**2 trial 뒤 max-turn 종료**로 공식 train/validation 평가 없이 차단되었다. 첫 실행 시점에는
+파일 도구 가용 범위 수정이 계약 테스트만 통과했고 실모델 재검증·최적화 성공은 미검증이었다.
+[실제 실행 근거](../../docs/verification.md#2026-09-27-claude-codedeepseekcvdp-첫-실실행-차단).
+
+이후 **별도 승인한 추가 4 trial**에서는 Claude Agent의 DeepSeek 설정과 Optimizer의
+OpenAI `AGENT_OPT_MODEL_BASE_URL=https://api.openai.com/v1`·`AGENT_OPT_MODEL_ID`(명시된
+`OPENAI_MODEL`)·`AGENT_OPT_MODEL_API_KEY`(OpenAI 키)를 **실행 자식 환경에서만** 분리했다.
+train 두 건과 후보 validation의 공식 raw 채점은 각각 1/1 통과했다. baseline validation은
+턴 한도로 `agent_incomplete`/null이어서 `c0002`가 선택되었더라도 baseline 대비 성능
+향상은 증명되지 않는다. `--tools`는 내장 도구 제한이며 등록된 MCP 도구가 trace에
+나타났으므로 모든 외부 도구 격리를 보장하지 않는다.
+[추가 검증 근거](../../docs/verification.md#2026-09-27-claude-code-추가-4-trial-공식-cvdp-부분-성공).
+
+위 **실행 당시**에는 `--strict-mcp-config`가 없었다. 현재 범용 Claude Code 하네스는
+이 flag를 추가해 명시적 `--mcp-config` 외의 암묵적 user/project MCP 설정을 무시하도록
+요청한다. flag를 추가한 시점에는 CLI 도움말과 argv 계약 테스트만 통과해 **실제 MCP 노출
+여부와 baseline validation 채점은 미검증**이었다.
+[현재 계약 근거](../../docs/verification.md#2026-09-27-claude-code-암묵적-mcp-설정-차단-계약-실모델-미검증).
+
+**새로 승인된 별도 4 trial**에서는 실제 Claude Code 2.1.261 trace 네 개 모두
+MCP 광고·도구 호출이 없었다. baseline train만 공식 CVDP raw 1/1 통과했고,
+후보 train은 RTL 출력 누락으로 0점(공식 raw 없음), 두 validation은 턴 한도로 무효였다.
+`no_eligible_candidate`이므로 후보 선택·성능 개선 근거는 없다. 이 결과는 앞선
+두 실행의 점수·실패를 소급 변경하지 않는다.
+[세 번째 실행 기록](../../docs/verification.md#2026-09-27-strict-mcp-적용-후-세-번째-독립-4-trial-선택-없음).
+
 과제 공개/비공개 분리와 공식 결과 형식 처리는 오프라인 테스트합니다.
 Mac Docker ARM64와 native Ubuntu x86_64에서 evaluator-only 정답/오답을 확인했습니다.
 `deepseek-flash`로 Mac ARM64에서 이 OpenCode 스킬 프로필의 실제 모델→공식 CVDP 두 과제·4 trial을 실행했습니다.

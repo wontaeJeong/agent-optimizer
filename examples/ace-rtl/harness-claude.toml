@@ -1,0 +1,6 @@
+id = "ace-claude-code"
+adapter = "ace_claude_code"
+allow_local = true
+required_cli_version = "2.1.261"
+[runtime]
+kind = "local"
