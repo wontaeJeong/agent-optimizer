@@ -37,6 +37,7 @@ def _subset(document: dict) -> dict:
                 or not isinstance(task.get("id"), str) or not task["id"]
                 or not isinstance(task.get("split"), str)
                 or task["split"] not in {"train", "validation", "test"}
+                or not isinstance(task.get("prompt"), str)
                 or not isinstance(task.get("family"), str) or not task["family"]
                 or not isinstance(task.get("evaluation"), dict)
                 or not isinstance(task["evaluation"].get("targets"), list)
@@ -55,7 +56,9 @@ def _subset(document: dict) -> dict:
         validation = next((task for task in validations
                            if task["family"] not in {first["family"], second["family"]}), None)
         if validation is not None:
-            return {**document, "tasks": [first, second, validation]}
+            return {**document, "tasks": [
+                {**task, "prompt": task["prompt"] + "\nWrite target files: " + task["evaluation"]["targets"][0]}
+                for task in (first, second, validation)]}
     if len({task["family"] for task in trains}) < 2:
         raise ConfigurationError("CVDP needs two distinct public RTL train families")
     raise ConfigurationError("CVDP needs a public RTL validation family distinct from train")

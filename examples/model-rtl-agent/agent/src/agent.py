@@ -47,8 +47,9 @@ def main():
         print(json.dumps({"status": "model_unavailable"}))
         raise SystemExit(2) from None
     output.write_text(text, encoding="utf-8")
-    print(json.dumps({"agent_sha256": hashlib.sha256(source.read_bytes()).hexdigest(),
-                      "target": target, "model": settings.model}))
+    agent_file_sha256 = hashlib.sha256(source.read_bytes()).hexdigest()
+    print(json.dumps({"agent_sha256": agent_file_sha256, "agent_file_sha256": agent_file_sha256,
+                       "target": target, "model": settings.model}))
 
 
 if __name__ == "__main__":
