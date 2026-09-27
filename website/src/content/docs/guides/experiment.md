@@ -3,7 +3,7 @@ title: 실험 구성
 ---
 
 **직접 지정할 항목:** Agent 소스, 수정 가능한 파일, 데이터셋과 채점 기준, 선택한 하네스의
-실행 방법. 기존 실험은 `.venv/bin/agent-opt tui`에서 설정 파일을 선택하고, 새 설정만
+실행 방법. 기존 실험은 `.venv/bin/agent-opt tui`의 1번에서 최근 생성 설정 또는 직접 경로로 선택하고, 새 설정만
 만들려면 `.venv/bin/agent-opt init`을 TTY에서 실행하세요. 비대화형 설정 생성은 저장소
 루트에서 명시적 옵션과 `--yes`로 수행합니다.
 
@@ -30,7 +30,7 @@ title: 실험 구성
 
 ## Optimizer와 모델
 
-`--optimizer baseline`으로 연결을 확인한 다음 필요하면 `--optimizer gepa --optimizer meta_harness`처럼 여러 독립 stage를 지정합니다. GEPA·Meta-Harness·Ecdysis는 저장소의 **자체 구현**이며 논문 실험을 그대로 재현한 것은 아닙니다. 각 stage는 공통 baseline에서 출발합니다.
+`--optimizer baseline`으로 연결을 확인한 다음 필요하면 `--optimizer gepa --optimizer meta_harness`처럼 여러 독립 stage를 지정합니다. GEPA·Meta-Harness·Ecdysis는 저장소의 **자체 구현**이며 논문 실험을 그대로 재현한 것은 아닙니다. train 과제와 수정할 텍스트/.py 파일, 모델 API가 필요합니다. `file_variants`에는 사용할 변형 파일/설정이 필요합니다. 각 stage는 공통 baseline에서 출발합니다.
 
 모델을 사용하는 구성에는 `AGENT_OPT_MODEL_BASE_URL`(기본 URL; `/chat/completions` 제외)과 `AGENT_OPT_MODEL_API_KEY`를 환경 또는 credential store에 설정합니다. TUI에서는 값이 없을 때 URL·모델 ID·키를 현재 세션에만 묻습니다. `AGENT_OPT_MODEL_ID`를 생략하면 `glm5.3-flash`가 사용됩니다. OpenCode 하네스의 `AGENT_OPT_MODEL` 선택자는 별도 설정입니다. 키를 실험 설정이나 Git에 저장하지 마세요. 모델 없는 합성 예제에는 필요하지 않습니다.
 

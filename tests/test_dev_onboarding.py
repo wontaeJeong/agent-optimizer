@@ -27,7 +27,7 @@ class BootstrapTests(unittest.TestCase):
         self.outside = Path(temporary.name).resolve()
         self.root = self.outside / "repo with spaces"
         (self.root / "scripts").mkdir(parents=True)
-        for name in ("scripts/bootstrap.sh", "Makefile"):
+        for name in ("scripts/bootstrap.sh", "scripts/make_args.sh", "Makefile"):
             if (ROOT / name).exists():
                 shutil.copyfile(ROOT / name, self.root / name)
         self.bin = self.outside / "bin"
@@ -528,7 +528,7 @@ printf 'arg:%s\\n' "$@" >> "$TRACE"
 printf '{"ready":false}\\n'
 exit 2
 ''')
-        result = self.invoke("doctor", 'ARGS=--json --platform "linux/arm64"', make=True)
+        result = self.invoke("doctor", 'ARGS=--json --platform linux/arm64', make=True)
         self.assertNotEqual(result.returncode, 0)
         self.assertTrue(result.stdout.strip(), result.stderr)
         self.assertEqual(json.loads(result.stdout), {"ready": False})
@@ -548,6 +548,7 @@ printf 'arg:%s\\n' "$@" >> "$TRACE"
                 self.assertEqual(result.returncode, 2, result.stderr)
                 self.assertFalse(marker.exists())
                 self.assertEqual(self.trace_text(), "")
+                self.assertIn("sh scripts/bootstrap.sh doctor --help", result.stderr)
 
     def test_make_args_preserve_quoted_platform_and_dataset_options(self):
         self.write_executable(self.root / ".venv/bin/python", '''
@@ -564,43 +565,20 @@ printf 'arg:%s\\n' "$@" >> "$TRACE"
                 self.assertIn(expected, self.trace_text())
                 self.trace.write_text("")
 
-    def test_run_demo_uses_project_venv_or_points_to_setup(self):
-        shutil.copyfile(ROOT / "scripts/run_demo.sh", self.root / "scripts/run_demo.sh")
-        script = self.root / "scripts/run_demo.sh"
-        environment = {**self.environment, "PATH": self.environment["PATH"] + os.pathsep + os.defpath}
-        missing = subprocess.run(["bash", str(script)], cwd=self.outside, env=environment,
-                                 capture_output=True, text=True, timeout=10)
-        self.assertEqual(missing.returncode, 2)
-        self.assertIn("setup-core", missing.stderr)
-        self.write_executable(self.root / ".venv/bin/python", '''
-printf 'arg:%s\\n' "$@" >> "$TRACE"
-''')
-        available = subprocess.run(["bash", str(script)], cwd=self.outside, env=environment,
-                                   capture_output=True, text=True, timeout=10)
-        self.assertEqual(available.returncode, 0, available.stderr)
-        self.assertIn("arg:-m\narg:agent_optimizer\narg:run\narg:examples/minimal/experiment.toml",
-                      self.trace_text())
-
-    def test_wheel_selection_rejects_absent_stale_and_multiple_builds(self):
-        import zipfile
-
-        installed = module("installed_cli_wheel", ROOT / "tests/test_installed_cli.py")
-        with tempfile.TemporaryDirectory() as directory:
-            wheels = Path(directory)
-            with self.assertRaises(ValueError):
-                installed.current_wheel(wheels)
-            version = installed.expected_version()
-            current = wheels / f"agent_optimizer-{version}-py3-none-any.whl"
-            with zipfile.ZipFile(current, "w") as archive:
-                archive.writestr(f"agent_optimizer-{version}.dist-info/METADATA",
-                                 f"Name: agent-optimizer\nVersion: {version}\n")
-            self.assertEqual(installed.current_wheel(wheels), current)
-            stale = wheels / "agent_optimizer-0.0.0-py3-none-any.whl"
-            with zipfile.ZipFile(stale, "w") as archive:
-                archive.writestr("agent_optimizer-0.0.0.dist-info/METADATA",
-                                 "Name: agent-optimizer\nVersion: 0.0.0\n")
-            with self.assertRaises(ValueError):
-                installed.current_wheel(wheels)
+    def test_shell_command_help_is_scoped_and_has_no_tool_probes_or_writes(self):
+        for command, expected in (("setup", "--offline"), ("doctor", "--model"),
+                                  ("live", "--iterations"), ("demo", "기존 .venv")):
+            for language in ("ko", "en"):
+                with self.subTest(command=command, language=language):
+                    self.environment["AGENT_OPT_LANG"] = language
+                    result = self.invoke(command, "--help")
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    phrase = expected if language == "ko" or expected.startswith("--") else "existing .venv"
+                    self.assertIn(phrase, result.stdout)
+                    self.assertIn(command, result.stdout)
+                    self.assertEqual(self.trace_text(), "")
+                    self.assertFalse((self.root / "external").exists())
+        self.environment.pop("AGENT_OPT_LANG")
 
     def test_venv_symlink_identity_and_sentinel_survive_setup(self):
         venv.EnvBuilder(with_pip=False, symlinks=True).create(self.root / ".venv")
@@ -821,6 +799,14 @@ class DeveloperCommandsTests(unittest.TestCase):
                 with self.subTest(command=command), self.assertRaises(SystemExit):
                     self.main([command, "--core"])
 
+    def test_model_doctor_rejects_invalid_platform_before_loading_or_api(self):
+        with patch.object(self.dev, "load", side_effect=AssertionError("external loader")), \
+                patch("subprocess.run", side_effect=AssertionError("external call")):
+            with self.assertRaises(SystemExit) as code:
+                self.main(["doctor", "--model", "--platform", "linux/invalid"])
+        self.assertEqual(code.exception.code, 2)
+        self.assertIn("linux/amd64", self.output.getvalue())
+
     def test_setup_and_doctor_help_explain_dataset_scope_and_legal_flags(self):
         for command in ("setup", "doctor"):
             self.output = io.StringIO()
@@ -847,6 +833,16 @@ class DeveloperCommandsTests(unittest.TestCase):
                     self.main([command, "--help"])
                 self.assertEqual(exit_code.exception.code, 0)
                 self.assertIn(expected, self.output.getvalue())
+
+    def test_python_help_explains_offline_writes_and_read_only_vs_real_model(self):
+        for command, required in (("setup", ("동기화", "데모", "--offline")),
+                                  ("doctor", ("읽기 전용", "실제", "--model"))):
+            self.output = io.StringIO()
+            with self.subTest(command=command), self.assertRaises(SystemExit) as code:
+                self.main([command, "--help"])
+            self.assertEqual(code.exception.code, 0)
+            for phrase in required:
+                self.assertIn(phrase, self.output.getvalue())
 
     def test_core_setup_stops_before_example_and_requires_doctor_then_demo(self):
         for ready, demo_code, expected in ((True, 0, 0), (False, 0, 2), (True, 5, 2)):
@@ -1199,3 +1195,41 @@ class PreparationProgressTests(unittest.TestCase):
                     else:
                         setup.run(["uv", "pip", "sync"], log=log)
                 self.assertEqual("완료" in output.getvalue(), code == 0)
+
+
+class WheelSelectionTests(unittest.TestCase):
+    def test_selector_requires_exactly_one_current_version_wheel_with_metadata(self):
+        import tomllib
+        import zipfile
+
+        with (ROOT / "pyproject.toml").open("rb") as stream:
+            version = tomllib.load(stream)["project"]["version"]
+        with tempfile.TemporaryDirectory() as directory:
+            dist = Path(directory)
+            command = [sys.executable, str(ROOT / "scripts/select_wheel.py"), str(dist)]
+
+            def select():
+                return subprocess.run(command, capture_output=True, text=True)
+
+            missing = select()
+            self.assertEqual(missing.returncode, 2)
+            self.assertIn("wheel", missing.stderr)
+            first = dist / f"agent_optimizer-{version}-py3-none-any.whl"
+            with zipfile.ZipFile(first, "w") as archive:
+                archive.writestr(f"agent_optimizer-{version}.dist-info/METADATA",
+                                 f"Name: agent-optimizer\nVersion: {version}\n")
+            found = select()
+            self.assertEqual(found.returncode, 0, found.stderr)
+            self.assertEqual(found.stdout.strip(), str(first))
+            stale = dist / "agent_optimizer-0.0.0-py3-none-any.whl"
+            with zipfile.ZipFile(stale, "w") as archive:
+                archive.writestr("agent_optimizer-0.0.0.dist-info/METADATA",
+                                 "Name: agent-optimizer\nVersion: 0.0.0\n")
+            duplicate = select()
+            self.assertEqual(duplicate.returncode, 2)
+            self.assertIn("wheel", duplicate.stderr)
+            first.unlink()
+            self.assertEqual(select().returncode, 2)
+            stale.unlink()
+            (dist / "unrelated-1.0-py3-none-any.whl").touch()
+            self.assertEqual(select().returncode, 2)

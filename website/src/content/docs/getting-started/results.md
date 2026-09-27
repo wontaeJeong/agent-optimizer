@@ -2,7 +2,7 @@
 title: 결과 읽기
 ---
 
-`run`이 출력한 `run_dir`에서 **`report.html`**을 엽니다. 함께 생성되는 `summary.json`, `report.md`, `events.jsonl`은 상태와 근거를 다시 확인할 때 사용합니다. 이미 생성된 HTML을 다시 만들 때만 `.venv/bin/agent-opt report "runs/<run-id>" --html`을 실행하세요.
+`run`이 출력한 **`report_html`**을 엽니다(`run_dir/report.html`). 함께 생성되는 `summary.json`, `report.md`, `events.jsonl`은 상태와 근거를 다시 확인할 때 사용합니다. `agent-opt report RUN`은 저장된 summary를 JSON으로 읽으며, 이미 생성된 HTML을 다시 만들 때만 `.venv/bin/agent-opt report "runs/<run-id>" --html`을 실행하세요.
 
 ![합성 fixture 실험에서 생성된 report.html의 상단과 validation 비교](../../../assets/report-fixture.png)
 

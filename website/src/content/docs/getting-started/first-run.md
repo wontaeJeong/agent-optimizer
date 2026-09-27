@@ -37,7 +37,7 @@ make doctor-core
 .venv/bin/agent-opt run runs/configs/guide-fixture/experiment.toml
 ```
 
-`doctor --plan`은 선언·선택 자산의 준비 상태를 읽기 전용으로 검사합니다. JSON의 `"scope": "plan", "ready": true`를 확인하세요. `run`이 완료되면 출력된 `run_dir`의 `report.html`을 브라우저에서 엽니다. 이 예제의 `trials_used`는 2입니다. 설정 점검 통과와 실제 Agent 실행 성공은 별개입니다.
+`doctor --plan`은 선언·선택 자산의 준비 상태를 읽기 전용으로 검사합니다. JSON의 `"scope": "plan", "ready": true`를 확인하세요. `run`이 완료되면 JSON의 **`report_html` 경로**를 브라우저에서 엽니다. 이 예제의 `trials_used`는 2입니다. 설정 점검 통과와 실제 Agent 실행 성공은 별개입니다.
 
 ## 3. 대화형 경로
 
@@ -45,7 +45,9 @@ make doctor-core
 .venv/bin/agent-opt tui
 ```
 
-터미널에서 기존 `experiment.toml`을 선택하면 정적 계획 진단과 확인 뒤 실행합니다. 새 실험을
+터미널의 1번에서 `runs/configs/`의 최근 생성 설정을 번호로 고르거나 직접 `experiment.toml`
+경로를 입력하면 정적 계획 진단과 확인 뒤 실행합니다. 4번은 과거 실행의 보고서 경로만 보여줍니다.
+새 실험을
 선택하면 Agent·editable 범위·Optimizer·**데이터셋**을 차례로 고르며, 실행 명령은
 `command` 하네스에서만 입력합니다. TUI는 데이터셋을 자동 추천하지 않습니다.
 **3번 ACE-RTL + CVDP 예제**를 직접 선택하면 Git 소스·driver·Docker 준비 내용을 보여주고

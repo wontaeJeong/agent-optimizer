@@ -10,6 +10,11 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-27-mvp-first-run-clarity-design.md`.
 
+**실행 중 기준점 갱신:** `origin/main`의 `e470d2f`·`0727b54`가 계획 작성 뒤 합류했다.
+Task 1의 안전 파서는 기존 `scripts/make_args.sh`에서, Task 3의 wheel 검증은 기존
+`scripts/select_wheel.py`에서 구현한다. 참조처 없는 `scripts/run_demo.sh`는 main의 삭제를
+유지하고 `make demo`를 사용한다. 이 메모는 아래 최초 계획과 실제 수정 파일의 차이를 기록한다.
+
 ## Global Constraints
 
 - 최신 `origin/main`의 전용 워크트리에서 작업하고 기본 저장소의 main은 유지한다.

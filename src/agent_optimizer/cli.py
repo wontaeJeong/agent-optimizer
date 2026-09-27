@@ -21,8 +21,9 @@ from typer._click.core import Abort, Exit
 
 from agent_optimizer.config import load_agent, load_experiment
 from agent_optimizer.catalog import DATASETS as CATALOG_DATASETS
-from agent_optimizer.contracts import ConfigurationError, UnavailableError, jsonable
+from agent_optimizer.contracts import ConfigurationError, SourceSpec, UnavailableError, jsonable
 from agent_optimizer.runner import preflight, run_experiment
+from agent_optimizer.sources import validate_source
 from agent_optimizer.registry import Registry
 from agent_optimizer.network import network_environment
 from agent_optimizer.setup_wizard import (component_inventory, prepare_selection,
@@ -446,6 +447,12 @@ def _dispatch(args):
                 raise ConfigurationError("Inspect the choices then pass --yes to confirm preparation")
             if not args.optimizer:
                 raise ConfigurationError("Optimizer를 --optimizer ID로 명시하세요 (예: --optimizer baseline)")
+            git_source = ("://" in args.agent or
+                          bool(re.fullmatch(r"(?:[\w.-]+@)?[\w.-]+:[^\s]+", args.agent)))
+            if git_source and not args.revision:
+                raise ConfigurationError("A pinned Git Agent requires a revision")
+            if args.revision is not None:
+                validate_source(SourceSpec(kind="git", url=args.agent, revision=args.revision))
             root = args.project_root.absolute()
             agent = args.agent if args.revision else Path(args.agent)
             if isinstance(agent, Path) and not agent.is_absolute():

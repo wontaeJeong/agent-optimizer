@@ -1615,6 +1615,40 @@ class CLIExperienceTests(unittest.TestCase):
                     wizard_arguments(self.root, execute=False)
         self.assertFalse((self.root / "runs").exists())
 
+    def test_wizard_invalid_name_explains_allowed_characters_in_korean(self):
+        from agent_optimizer.contracts import ConfigurationError
+
+        for name in ("", "invalid name"):
+            with self.subTest(name=name), patch("builtins.input", side_effect=[name]), \
+                 contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaisesRegex(ConfigurationError, "실험 이름|영문"):
+                    wizard_arguments(self.root, execute=False)
+
+    def test_wizard_rejects_unpinned_git_source_before_dataset_selection(self):
+        from agent_optimizer.contracts import ConfigurationError
+
+        for revision in ("", "main"):
+            with self.subTest(revision=revision), \
+                 patch("builtins.input", side_effect=["pinned", "https://example.invalid/team/agent.git",
+                       revision]), contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaisesRegex(ConfigurationError, "commit|Git"):
+                    wizard_arguments(self.root, execute=False)
+        self.assertFalse((self.root / "runs").exists())
+
+    def test_init_rejects_unpinned_git_agent_before_preparing_selected_dataset(self):
+        args = ["init", "--project-root", str(self.root), "--name", "unpinned",
+                "--agent", "https://example.invalid/team/agent.git", "--dataset", "sample_text",
+                "--editable", "configs/strategy.json", "--optimizer", "baseline",
+                "--harness", "fixture", "--yes"]
+        for revision in ([], ["--revision", "main"]):
+            error = io.StringIO()
+            with self.subTest(revision=revision), \
+                 patch("agent_optimizer.cli.prepare_selection", side_effect=AssertionError("prepared")), \
+                 contextlib.redirect_stderr(error), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(main([*args, *revision]), 2)
+            self.assertIn("commit", error.getvalue())
+        self.assertFalse((self.root / "runs").exists())
+
     def test_wizard_explains_requirements_and_budget_before_declined_preparation(self):
         from agent_optimizer.contracts import ConfigurationError
 

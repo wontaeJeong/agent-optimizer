@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 import shlex
 import shutil
 import sys
@@ -13,7 +14,7 @@ import itertools
 from pathlib import Path
 
 from agent_optimizer.config import identifier, load_experiment, load_tasks, positive
-from agent_optimizer.contracts import ConfigurationError
+from agent_optimizer.contracts import ConfigurationError, SourceSpec
 from agent_optimizer.catalog import DATASETS as CATALOG_DATASETS
 from agent_optimizer.datasets import CustomDataset
 from agent_optimizer.harnesses.command import CommandHarness, FixtureHarness
@@ -21,6 +22,7 @@ from agent_optimizer.harnesses.claude_code import ClaudeCodeHarness
 from agent_optimizer.harnesses.opencode import OpenCodeHarness
 from agent_optimizer.registry import PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, Registry
 from agent_optimizer.results import write_json
+from agent_optimizer.sources import validate_source
 from agent_optimizer.terminal_report import PreparationStatus
 from agent_optimizer.terminal_style import style
 from agent_optimizer.locale import human
@@ -281,9 +283,17 @@ def wizard_arguments(project_root: Path, *, execute: bool = True) -> list[str]:
                 stream=sys.stderr), file=sys.stderr)
     print("╰─────────────────────────────────────────────────────────╯", file=sys.stderr)
     name = ask("Experiment name")
-    identifier(name)
+    try:
+        identifier(name)
+    except ConfigurationError:
+        raise ConfigurationError(human("실험 이름은 영문·숫자로 시작하고 영문·숫자·_·.·-만 사용할 수 있습니다")) from None
     agent = ask("Agent source directory or pinned Git URL")
-    revision = ask("Git commit (leave blank for local source)") if "://" in agent else ""
+    git_source = "://" in agent or bool(re.fullmatch(r"(?:[\w.-]+@)?[\w.-]+:[^\s]+", agent))
+    revision = ask("Git commit (leave blank for local source)") if git_source else ""
+    if git_source:
+        if not revision:
+            raise ConfigurationError("A pinned Git Agent requires a revision")
+        validate_source(SourceSpec(kind="git", url=agent, revision=revision))
     editable = [item.strip() for item in ask("Editable files (comma separated)").split(",") if item.strip()]
     if not agent or not editable:
         raise ConfigurationError(human("--agent와 --editable을 지정하세요"))

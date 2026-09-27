@@ -17,7 +17,7 @@ help() {
         fi
         printf '%s\n' \
             'Requirements: Mac/Ubuntu, Git. Full ACE setup also needs Docker Engine and Compose.' \
-            'Start: make setup ARGS="--core" → make doctor ARGS="--core" → make demo.' \
+            'Start: make setup-core → make doctor-core → make demo.' \
             'Without make, use sh scripts/bootstrap.sh <command> [options].' \
             'setup/doctor without --core or --dataset target the full ACE environment.' \
             'setup: --core, --dataset ID, --offline, --platform linux/amd64|linux/arm64 (full ACE only)' \
@@ -52,7 +52,7 @@ command_help() {
     if [ "$language" = en ]; then
         case "$1" in
             setup) printf '%s\n' 'setup: --core prepares .venv and a synthetic demo; --dataset ID prepares one selected dataset; no selector prepares full ACE.' \
-                '--offline reuses verified assets; --platform linux/amd64|linux/arm64 is full ACE only.' \
+                '--offline skips downloads/builds but still syncs, diagnoses and runs a core/full demo; --platform linux/amd64|linux/arm64 is full ACE only.' \
                 '--core and --dataset conflict; either conflicts with --platform. Setup may download dependencies/data and build Docker images; results: runs/<run-id>/report.html.' ;;
             doctor) printf '%s\n' 'doctor: --core checks core; --dataset ID checks selected assets; no selector checks full ACE.' \
                 '--json prints one JSON object; --model calls the real API and container tools for full ACE.' \
@@ -70,7 +70,7 @@ command_help() {
     else
         case "$1" in
             setup) printf '%s\n' 'setup: --core는 .venv와 합성 데모, --dataset ID는 선택 데이터셋, 선택자 없으면 ACE 전체를 준비합니다.' \
-                '--offline은 검증된 캐시 재사용; --platform linux/amd64|linux/arm64는 ACE 전체 전용입니다.' \
+                '--offline은 다운로드·빌드 없이 캐시 동기화·진단·코어/전체 데모를 실행합니다; --platform linux/amd64|linux/arm64는 ACE 전체 전용입니다.' \
                 '--core와 --dataset은 충돌하며 둘 다 --platform과 함께 쓸 수 없습니다. 의존성/데이터 다운로드·Docker 빌드 가능; 결과: runs/<run-id>/report.html.' ;;
             doctor) printf '%s\n' 'doctor: --core 코어, --dataset ID 선택 자산, 선택자 없으면 ACE 전체를 읽기 전용 진단합니다.' \
                 '--json은 단일 JSON; --model은 ACE 전체의 실제 API·컨테이너 도구를 호출합니다.' \
@@ -96,8 +96,8 @@ fail() {
             'Unknown command: '*) message="알 수 없는 명령: ${message#Unknown command: }" ;;
             'Unsupported option for '*)
                 detail=${message#Unsupported option for }
-                detail=${detail%. Run sh scripts/bootstrap.sh help.}
-                message="지원하지 않는 옵션 ($detail). sh scripts/bootstrap.sh help를 실행하세요." ;;
+                detail=${detail%. Run sh scripts/bootstrap.sh * --help.}
+                message="지원하지 않는 옵션 ($detail). sh scripts/bootstrap.sh $command --help를 실행하세요." ;;
             '--dataset requires an identifier'* ) message='--dataset에는 소문자·숫자·_·.·-로 된 ID가 필요합니다' ;;
             '--dataset may be specified only once') message='--dataset은 한 번만 지정할 수 있습니다' ;;
             '--iterations requires an integer from 1 to 20'|'--iterations requires 1..20')
@@ -146,6 +146,13 @@ fail() {
         printf '\033[31m%s\033[0m\n' "$message" >&2
     else
         printf '%s\n' "$message" >&2
+    fi
+    if [ "${setup_command+x}" != x ] && [ "$command" != help ]; then
+        if [ "$language" = ko ]; then
+            printf '수정할 명령을 확인하세요: sh scripts/bootstrap.sh %s --help\n' "$command" >&2
+        else
+            printf 'Check a valid command: sh scripts/bootstrap.sh %s --help\n' "$command" >&2
+        fi
     fi
     exit 2
 }
@@ -214,42 +221,6 @@ stop_setup_progress() {
 command=${1:-help}
 [ "$#" -eq 0 ] || shift
 json_output=false
-if [ "${1:-}" = --make-args ]; then
-    [ "$#" -eq 2 ] || fail 'Make ARGS requires one argument string'
-    remaining=$2
-    set --
-    word=
-    quoted=
-    started=false
-    tab=$(printf '\t')
-    newline='
-'
-    # Parse only argument grouping; never hand the input back to a shell parser.
-    while [ -n "$remaining" ]; do
-        character=${remaining%"${remaining#?}"}
-        remaining=${remaining#?}
-        case "$character" in
-            '$'|'`'|';'|'|'|'&'|'<'|'>'|'('|')'|'\'|"$newline")
-                fail 'Make ARGS accepts options, not shell operations' ;;
-        esac
-        if [ -n "$quoted" ]; then
-            if [ "$character" = "$quoted" ]; then quoted=; else word=$word$character; fi
-        else
-            case "$character" in
-                "'"|'"') quoted=$character; started=true ;;
-                ' '|"$tab")
-                    if [ "$started" = true ]; then
-                        set -- "$@" "$word"
-                        word=
-                        started=false
-                    fi ;;
-                *) word=$word$character; started=true ;;
-            esac
-        fi
-    done
-    [ -z "$quoted" ] || fail 'Make ARGS has an unclosed quote'
-    if [ "$started" = true ]; then set -- "$@" "$word"; fi
-fi
 for option do
     if [ "$option" = --json ]; then json_output=true; fi
 done
@@ -264,6 +235,7 @@ offline=false
 core=false
 full_option=false
 want_platform=false
+selected_platform=
 want_iterations=false
 want_dataset=false
 dataset=
@@ -284,6 +256,7 @@ for option do
         continue
     fi
     if [ "$want_platform" = true ]; then
+        selected_platform=$option
         if [ "$command" != doctor ]; then
             case "$option" in linux/amd64|linux/arm64) ;; *) fail "Unsupported platform: $option" ;; esac
         fi
@@ -313,15 +286,23 @@ for option do
         setup:--platform|doctor:--platform|smoke:--platform|live:--platform) want_platform=true; full_option=true ;;
         setup:--platform=*|doctor:--platform=*|smoke:--platform=*|live:--platform=*)
             full_option=true
+            selected_platform=${option#*=}
             if [ "$command" != doctor ]; then
                 case "${option#*=}" in linux/amd64|linux/arm64) ;; *) fail "Unsupported platform: $option" ;; esac
             fi ;;
-        *) fail "Unsupported option for $command: $option. Run sh scripts/bootstrap.sh help." ;;
+        *) fail "Unsupported option for $command: $option. Run sh scripts/bootstrap.sh $command --help." ;;
     esac
 done
 [ "$want_platform" = false ] || fail '--platform requires linux/amd64 or linux/arm64'
 [ "$want_iterations" = false ] || fail '--iterations requires 1..20'
 [ "$want_dataset" = false ] || fail '--dataset requires an identifier'
+if [ "$command" = doctor ] && [ "$selected_platform" ]; then
+    for option do
+        if [ "$option" = --model ]; then
+            case "$selected_platform" in linux/amd64|linux/arm64) ;; *) fail '--platform requires linux/amd64 or linux/arm64' ;; esac
+        fi
+    done
+fi
 if [ "$core" = true ] && [ -n "$dataset" ]; then
     fail '--core cannot be combined with --dataset'
 fi

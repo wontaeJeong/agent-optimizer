@@ -1050,3 +1050,23 @@ Ubuntu Python **3.11/3.12 모두 성공**했다. lint·unit/contract tests·nati
 최소 데모·sdist/wheel 빌드·소스 트리 밖 wheel 설치 검사가 통과했다.
 공식 CVDP Docker job은 수동 실행 대상이므로 이 PR run에서는 skipped다.
 이는 위 Mac Docker 네트워크 통합 검사와 구별되는 원격 코어 CI 근거다.
+
+## 2026-09-27 MVP 첫 실행·개발 명령 검토
+
+Mac ARM64, Python 3.12.12의 전용 `origin/main` 기반 워크트리에서 코어 준비·합성 실행·사용자 설정·
+팀 등록 fixture를 직접 확인했다. 작업 중 `origin/main`의 개발 명령 변경 두 건을 병합한 뒤
+중복 파서/빌드 선택 경로를 정리했다. 실제 검증은 아래 명령과 해당 로컬 결과에 한정한다.
+
+| 명령 / 경로 | 결과와 의미 |
+|---|---|
+| `make setup-core`; `make doctor-core`; `.venv/bin/agent-opt doctor --plan examples/minimal/experiment.toml --json` | 코어 도구 준비·합성 7-trial 데모 생성. 계획 진단은 정적 검사이고 Agent·모델 연결 성공 아님. |
+| `.venv/bin/agent-opt init --name audit-fixture --agent examples/minimal/agents/solo --command '{python} {agent_dir}/src/fixture_agent.py {task_dir}' --editable configs/strategy.json --dataset examples/minimal/tasks.json --evaluator examples/minimal/evaluator.py:TextFixtureEvaluator --optimizer baseline --yes` → `doctor --plan` → `plan` → `run` → `report` | 생성된 `runs/configs/audit-fixture/experiment.toml`, 2-trial 합성 실행의 `summary.json`/`report.html` 확인. 첫 실행에서 `run`의 `report_html` 누락과 `plan`의 정적 의미를 재현했다. 변경 후 stdout 단일 JSON·후속 명령은 CLI 회귀와 설치형 wheel 검사로 확인. |
+| `sample_text` + `sample_command` + `sample_baseline`의 `init` → `doctor --plan` → `run`; `test_plugin_contracts.py` | 팀 등록 경로에서 2-trial 합성 fixture 완료, 복사된 Harness/Optimizer 계약 회귀 통과. 외부 팀 도구 연결은 수행하지 않음. |
+| `.venv/bin/agent-opt doctor --plan examples/ace-rtl/experiment.toml --json`; `.venv/bin/agent-opt doctor --dataset cvdp --json`; `make smoke` | 이 워크트리에 ACE/CVDP 고정 자산·driver/image/lock이 없어 각각 `ready=false`·선택 자산 준비 부족·`blocked`/exit 2. Docker daemon 자체는 실행 가능했으나 **공식 채점·실모델 호출은 미실행**. 복구는 선택형 `agent-opt prepare`/전체 `make setup` 후 재진단·smoke. |
+| `make lint`; `make test`; `make demo`; `.venv/bin/python -m build`; `.venv/bin/python scripts/select_wheel.py dist`; `.venv/bin/python tests/test_installed_cli.py dist/agent_optimizer-0.3.0-py3-none-any.whl` | Ruff 통과; 최종 **722개 중 707 통과·15 skip**, 실패 0; 합성 7-trial 완료·`report_html` 출력; 현재 wheel 하나의 이름·버전 메타데이터 검사 및 저장소 밖 사용자 CLI 설치/실행 통과. wheel 파일 직접 인수는 기존 설치 검사의 호환 경로이며 CI는 selector로 선택. |
+| `website/`에서 `npm ci && npm run build`; `git diff --check` | 사이트 9페이지 빌드와 내부 링크 검사 통과. Vite chunk/module 지시문과 Starlight 404 항목 경고는 있었으나 빌드 성공. 공백 오류 없음. |
+
+마법사 빈 editable/0/음수·범위 밖 번호, 취소, `make ARGS` 셸/Make 함수 주입 차단,
+옵션 전달·JSON stdout, TUI 기존 경로/최근 생성 설정·별도 결과 이력, 도구/모델 부재는
+관련 unittest 및 실제 명령으로 구분했다. 이 실행은 Ubuntu x86_64 공식 Docker 환경이나
+외부 Agent·모델·채점 성공을 새로 증명하지 않는다.

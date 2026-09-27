@@ -65,14 +65,14 @@ def main(argv=None):
     parser = ColorArgumentParser(description=human(__doc__), epilog=human((
         "코어 사전 준비: Git. ACE 전체 준비에는 Docker Engine/Compose도 필요합니다. "
         "Python이나 make가 없다면 sh scripts/bootstrap.sh setup --core를 사용하세요. "
-        "make <명령> ARGS='...'에는 일반 셸 인수를 전달합니다."
+        "make ARGS는 인용된 옵션 값을 허용하지만 셸 코드를 실행하지 않습니다. 복잡한 인수는 sh scripts/bootstrap.sh <명령> [옵션]으로 전달하세요."
     )))
     commands = parser.add_subparsers(dest="command")
     descriptions = {
         "setup": "--core/--dataset 없이: ACE 전체 준비; --core: 코어와 합성 fixture; "
-                 "--dataset ID: 선택한 데이터셋 준비",
-        "doctor": "--core/--dataset 없이: ACE 전체 진단; --core: 코어 진단; "
-                  "--dataset ID: 선택한 데이터셋 읽기 전용 진단; --model: ACE 전체 전용",
+                 "--dataset ID: 선택한 데이터셋 준비. --offline도 캐시 동기화·진단을 수행하며 코어/전체는 데모도 실행합니다.",
+        "doctor": "--core/--dataset 없이: ACE 전체 읽기 전용 진단; --core: 코어 진단; "
+                  "--dataset ID: 선택한 데이터셋 읽기 전용 진단; --model: 실제 API·컨테이너 도구 호출(ACE 전체 전용)",
         "test": "프로젝트 .venv에서 unittest 실행(Docker 불필요)",
         "lint": "프로젝트 .venv에서 Ruff 검사 실행",
         "demo": "Docker/API 없이 최소 합성 데모 실행",
@@ -104,10 +104,10 @@ def main(argv=None):
             command.add_argument("--platform",
                                  help=human("기본값: Docker daemon의 기본 플랫폼"))
         if name == "setup":
-            command.add_argument("--offline", action="store_true", help=human("검증된 캐시 자산만 재사용; 다운로드·빌드 없음"))
+            command.add_argument("--offline", action="store_true", help=human("다운로드·빌드 없이 캐시 재사용; 동기화·진단 및 코어/전체 데모 결과 생성"))
         if name == "doctor":
             command.add_argument("--json", action="store_true", help=human("단일 JSON 진단 결과 출력"))
-            command.add_argument("--model", action="store_true", help=human("호스트 API와 컨테이너 OpenCode 도구를 명시적으로 호출"))
+            command.add_argument("--model", action="store_true", help=human("실제 호스트 API와 컨테이너 OpenCode 도구 호출(로그 생성 가능)"))
         if name == "live":
             command.add_argument("--iterations", type=int, help=human("최적화 반복 횟수 지정(1..20, 기본값 3)"))
     args = parser.parse_args(argv)
@@ -128,6 +128,12 @@ def main(argv=None):
         parser.error("--dataset cannot be combined with --platform or --model")
     if core_only and (args.platform is not None or getattr(args, "model", False)):
         parser.error("--core cannot be combined with --platform or --model; omit --core for full ACE commands")
+    if args.command == "doctor" and args.model and args.platform is not None \
+            and args.platform not in {"linux/amd64", "linux/arm64"}:
+        parser.error("--model --platform에는 linux/amd64 또는 linux/arm64가 필요합니다. "
+                     "sh scripts/bootstrap.sh doctor --model --platform linux/amd64" if current_language() == "ko"
+                     else "--model --platform requires linux/amd64 or linux/arm64. "
+                     "Run sh scripts/bootstrap.sh doctor --model --platform linux/amd64")
     setup_command = "sh scripts/bootstrap.sh setup"
     if core_only or args.command in {"test", "lint", "demo"}:
         setup_command += " --core"

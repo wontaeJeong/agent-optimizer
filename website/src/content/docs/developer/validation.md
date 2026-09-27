@@ -25,7 +25,7 @@ PYTHONPATH=src .venv/bin/python -m agent_optimizer plan experiments/my-team/expe
 .venv/bin/agent-opt doctor --plan experiments/my-team/experiment.toml --json
 ```
 
-템플릿 종류에 따라 준비한 `experiment.toml`의 자산·provider 등록 조건은 다릅니다. `plan`/`doctor --plan`은 선언, 플러그인 파일과 선택 자산의 **정적 점검**입니다. 원본 stub의 의도된 실패 또는 외부 환경 누락은 실제 구현으로 해결하며 baseline/합성 평가로 대체하지 않습니다.
+템플릿 종류에 따라 준비한 `experiment.toml`의 자산·provider 등록 조건은 다릅니다. `plan`/`doctor --plan`은 선언, 플러그인 파일과 선택 자산의 **정적 점검**입니다. 원본 stub의 의도된 실패 또는 외부 환경 누락은 실제 구현으로 해결하며 baseline/합성 평가로 대체하지 않습니다. 복사→등록→작은 fixture→실환경 연결의 구체적 순서는 [팀 템플릿 안내](https://github.com/wontaeJeong/agent-optimizer/blob/main/experiments/README.md)를 참고하세요.
 
 ## 3. 선택한 자산과 실제 실행
 
@@ -45,6 +45,8 @@ git diff --check
 코어 계약 테스트와 별도로 실제 Docker 자산·공식 채점기를 준비합니다. 저장소의 수동
 `official_cvdp=true` CI는 모델 자격증명 없이 공식 정답/오답과 ACE CLI의 인증 실패 경로를
 확인하며, 모델을 사용하는 live 성공은 뜻하지 않습니다.
+옵션 없는 개발 명령 `make setup`·`make doctor`는 **ACE 전체 범위**이며 `make smoke`도
+실제 평가 도구를 실행합니다. 코어는 위의 `-core` 명령을 사용하세요.
 
 ```bash
 make setup
@@ -59,3 +61,5 @@ sh scripts/bootstrap.sh doctor --model
 `agent-opt run`은 ACE 스킬 프로필을 기존 `live` 경로로 실행합니다. 같은 고정 프로필은
 `.venv/bin/agent-opt tui`의 **기존 실험 실행**에서도 고를 수 있습니다. 공식 raw 결과와
 `runs/dev-live/<run-id>/summary.json`·`report.html`을 확인하고 미실행/차단을 따로 기록하세요.
+개발자용 `doctor --model`은 실제 API·컨테이너 도구를 호출하며, `agent-opt doctor --plan`의 정적 진단과 다릅니다.
+명령별 준비 조건과 부작용은 [개발 명령 기준](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/development.md)을 참고하세요.

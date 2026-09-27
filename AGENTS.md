@@ -54,7 +54,11 @@ PYTHONPATH=src .venv/bin/python -m agent_optimizer run examples/minimal/experime
 make lint
 ```
 
-첫 준비는 `make setup-core`, 진단은 `make doctor-core`.
+첫 준비는 `make setup-core`(uv·Python·고정 의존성 설치, 합성 데모 생성), 읽기 전용 코어 진단은 `make doctor-core`.
+기존 `.venv` 검사인 `make lint`·`make test`·`make demo`를 사용한다. 옵션 없는 `make setup`·`make doctor`는
+ACE 전체 전용이며 `make smoke`도 실제 ACE 평가 자산을 요구한다. `make live`와 `doctor --model`은 실제 모델을 호출한다.
+`make ARGS`는 인용된 옵션 값을 안전하게 분리하지만 셸 메타문자 실행은 거부한다.
+필요하면 `sh scripts/bootstrap.sh <명령> [옵션]`으로 직접 전달한다. 명령별 범위·복구는 `docs/development.md`를 따른다.
 패키징/ACE 환경 변경의 추가 검사는 `CONTRIBUTING.md`를 따른다.
 핵심 계약·소스/데이터 격리·실행 오류 처리 변경은 관련 테스트를 추가한다.
 단순 문서/가역적 저영향 변경에 구현을 그대로 반복하는 테스트를 추가하지 않는다.
