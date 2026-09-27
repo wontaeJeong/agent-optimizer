@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" viewBox="0 0 760 335">
+  <title id="title">독립 Optimizer stage의 정보 경계</title>
+  <desc id="desc">공통 baseline에서 두 Optimizer stage가 독립적으로 시작한다. 각 stage는 baseline과 자기 train 이력만 사용해 후보를 탐색한다. validation 수치로 각 stage의 승자와 최종 후보를 선택해 고정하고, 설정된 경우에만 test를 실행한 뒤 독립 실험 보고서를 만든다.</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#245d73"/></marker><style>.bg{fill:#f5f8fb}.box{fill:#fff;stroke:#31566b;stroke-width:2}.train{fill:#e1f4fa}.select{fill:#e9f3e9}.label{font:600 16px system-ui,sans-serif;fill:#142b3b}.small{font:14px system-ui,sans-serif;fill:#263b49}.edge{fill:none;stroke:#245d73;stroke-width:2.5;marker-end:url(#arrow)}</style></defs>
+  <rect class="bg" width="760" height="335" rx="12"/>
+  <path class="edge" d="M171 167 H206 V84 H238"/><path class="edge" d="M171 167 H206 V249 H238"/>
+  <path class="edge" d="M422 84 H461 V167 H488"/><path class="edge" d="M422 249 H461 V167 H488"/>
+  <path class="edge" d="M575 203 V253"/>
+  <rect class="box" x="19" y="133" width="152" height="68" rx="9"/><text class="label" x="36" y="174">공통 baseline</text>
+  <rect class="box train" x="238" y="48" width="184" height="72" rx="9"/><text class="label" x="263" y="80">stage A: train</text><text class="small" x="252" y="102">자기 stage 이력만</text>
+  <rect class="box train" x="238" y="213" width="184" height="72" rx="9"/><text class="label" x="263" y="245">stage B: train</text><text class="small" x="252" y="267">자기 stage 이력만</text>
+  <rect class="box select" x="488" y="133" width="179" height="70" rx="9"/><text class="label" x="505" y="164">validation 수치</text><text class="small" x="504" y="185">승자·최종 선택 고정</text>
+  <rect class="box select" x="488" y="253" width="179" height="62" rx="9"/><text class="label" x="551" y="280">Report</text><text class="small" x="507" y="300">test는 설정한 경우만</text>
+  <text class="small" x="25" y="321">비공개 평가 자료와 test 결과는 후보 수정 근거에 들어가지 않습니다.</text>
+</svg>

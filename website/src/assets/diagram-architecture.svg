@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" viewBox="0 0 760 490">
+  <title id="title">Agent Optimizer 전체 구조</title>
+  <desc id="desc">원본 Agent에서 보존된 스냅샷을 만들어 Harness가 공개 과제를 실행한다. 사용자가 선택한 Dataset은 공개 과제를 Harness에, 분리된 평가 자료를 Evaluator에 제공한다. Evaluator가 산출물을 채점해 Trial을 기록하고 Report를 만든다. Optimizer는 기록을 바탕으로 허용된 파일만 바꾼 후보 스냅샷을 제안한다.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#245d73"/></marker>
+    <style>
+      .bg{fill:#f5f8fb}.box{fill:#fff;stroke:#31566b;stroke-width:2}.input{fill:#e1f4fa}.record{fill:#e9f3e9}.label{font:600 17px system-ui,sans-serif;fill:#142b3b}.small{font:14px system-ui,sans-serif;fill:#263b49}.edge{fill:none;stroke:#245d73;stroke-width:2.5;marker-end:url(#arrow)}
+    </style>
+  </defs>
+  <rect class="bg" x="0" y="0" width="760" height="490" rx="12"/>
+  <text class="small" x="24" y="31">후보 실행</text><text class="small" x="24" y="205">과제·분리 채점</text><text class="small" x="24" y="374">기록·다음 후보</text>
+  <path class="edge" d="M172 104 H215"/><path class="edge" d="M365 104 H410"/>
+  <path class="edge" d="M485 138 V230"/><path class="edge" d="M365 273 H410"/><path class="edge" d="M560 273 H601"/>
+  <path class="edge" d="M290 239 V174 H438 V138"/><text class="small" x="301" y="169">공개 과제</text>
+  <path class="edge" d="M676 308 V395"/>
+  <path class="edge" d="M602 296 V344 H290 V394"/>
+  <path class="edge" d="M215 425 H8 V48 H290 V70"/>
+  <rect class="box" x="22" y="70" width="150" height="68" rx="9"/><text class="label" x="44" y="110">Agent 원본</text>
+  <rect class="box input" x="215" y="70" width="150" height="68" rx="9"/><text class="label" x="229" y="98">보존된 후보</text><text class="label" x="250" y="121">스냅샷</text>
+  <rect class="box input" x="410" y="70" width="150" height="68" rx="9"/><text class="label" x="444" y="99">Harness</text><text class="small" x="449" y="120">Agent 실행</text>
+  <rect class="box" x="215" y="239" width="150" height="68" rx="9"/><text class="label" x="252" y="268">Dataset</text><text class="small" x="226" y="289">사용자가 선택</text>
+  <rect class="box" x="410" y="239" width="150" height="68" rx="9"/><text class="label" x="440" y="267">Evaluator</text><text class="small" x="436" y="289">산출물 채점</text>
+  <text class="small" x="340" y="221">채점 자료 분리</text>
+  <rect class="box record" x="601" y="239" width="150" height="68" rx="9"/><text class="label" x="644" y="268">Trial</text><text class="small" x="617" y="289">실행·채점 기록</text>
+  <rect class="box input" x="215" y="394" width="150" height="68" rx="9"/><text class="label" x="244" y="423">Optimizer</text><text class="small" x="227" y="445">editable만 변경</text>
+  <rect class="box record" x="601" y="395" width="150" height="68" rx="9"/><text class="label" x="647" y="434">Report</text>
+  <text class="small" x="369" y="335">Trial을 바탕으로 후보 제안</text>
+</svg>

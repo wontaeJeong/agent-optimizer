@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" viewBox="0 0 760 475">
+  <title id="title">실험 단계: 준비, 탐색, 선택과 보고</title>
+  <desc id="desc">Configure에서 Agent, 데이터셋, 수정 범위를 정하고 Prepare로 선택 자산을 준비한다. Doctor는 정적 상태만 검사한다. Run에서 baseline validation을 기록하고 train 과제로 후보를 탐색한 뒤 validation 수치로 후보를 선택해 고정한다. final_test를 설정한 경우에만 고정 후보와 baseline을 test 평가한다. 마지막에 Report를 만든다.</desc>
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#245d73"/></marker>
+    <style>.bg{fill:#f5f8fb}.box{fill:#fff;stroke:#31566b;stroke-width:2}.setup{fill:#e1f4fa}.select{fill:#e9f3e9}.label{font:600 17px system-ui,sans-serif;fill:#142b3b}.small{font:14px system-ui,sans-serif;fill:#263b49}.section{font:600 16px system-ui,sans-serif;fill:#245268}.edge{fill:none;stroke:#245d73;stroke-width:2.5;marker-end:url(#arrow)}</style>
+  </defs>
+  <rect class="bg" width="760" height="475" rx="12"/>
+  <text class="section" x="30" y="36">1. 설정·준비</text><text class="section" x="281" y="36">2. 실행·후보 탐색</text><text class="section" x="538" y="36">3. 선택 후 보고</text>
+  <path class="edge" d="M107 116 V144"/><path class="edge" d="M107 212 V240"/><path class="edge" d="M107 308 V336"/>
+  <path class="edge" d="M197 370 H240 V81 H276"/><path class="edge" d="M365 116 V144"/><path class="edge" d="M365 212 V240"/><path class="edge" d="M365 308 V336"/>
+  <path class="edge" d="M454 370 H493 V81 H535"/><path class="edge" d="M625 116 V215"/><path class="edge" d="M625 283 V363"/><path class="edge" d="M714 81 H735 V397 H714"/>
+  <text class="small" x="637" y="157">예</text><text class="small" x="689" y="150">아니요</text>
+  <rect class="box setup" x="18" y="48" width="179" height="68" rx="9"/><text class="label" x="57" y="77">Configure</text><text class="small" x="32" y="100">Agent·과제·수정 범위</text>
+  <rect class="box setup" x="18" y="144" width="179" height="68" rx="9"/><text class="label" x="76" y="174">Prepare</text><text class="small" x="42" y="195">선택 자산 준비</text>
+  <rect class="box setup" x="18" y="240" width="179" height="68" rx="9"/><text class="label" x="81" y="270">Doctor</text><text class="small" x="33" y="291">정적 준비 상태 진단</text>
+  <rect class="box setup" x="18" y="336" width="179" height="68" rx="9"/><text class="label" x="87" y="377">Run</text>
+  <rect class="box" x="276" y="48" width="178" height="68" rx="9"/><text class="label" x="323" y="77">baseline</text><text class="small" x="296" y="100">validation 점수</text>
+  <rect class="box" x="276" y="144" width="178" height="68" rx="9"/><text class="label" x="335" y="174">train</text><text class="small" x="296" y="195">후보 탐색·평가</text>
+  <rect class="box" x="276" y="240" width="178" height="68" rx="9"/><text class="label" x="313" y="270">validation</text><text class="small" x="301" y="291">후보 수치 비교</text>
+  <rect class="box select" x="276" y="336" width="178" height="68" rx="9"/><text class="label" x="328" y="377">선택 고정</text>
+  <rect class="box select" x="535" y="48" width="179" height="68" rx="9"/><text class="label" x="545" y="77">final_test 설정?</text><text class="small" x="550" y="100">선택 후에만 판단</text>
+  <rect class="box select" x="535" y="215" width="179" height="68" rx="9"/><text class="label" x="559" y="245">선택적 test</text><text class="small" x="551" y="265">고정 후보·baseline</text>
+  <rect class="box select" x="535" y="363" width="179" height="68" rx="9"/><text class="label" x="595" y="404">Report</text>
+</svg>

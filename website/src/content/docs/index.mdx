@@ -1,5 +1,6 @@
 ---
 title: Agent Optimizer 가이드
+description: 합성 데모 첫 실행, 내 Agent 실험 구성, 팀 컴포넌트 개발 중 필요한 경로를 선택하세요.
 ---
 
 import { CardGrid, LinkCard } from '@astrojs/starlight/components';
@@ -8,16 +9,15 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 ## 어디서 시작할까요?
 
-처음이라면 아래 순서로 읽어 보세요. 팀 컴포넌트를 만드는 개발자는 구조와 경계를 먼저 확인하면 됩니다.
+지금 할 일에 맞는 경로 하나를 고르세요. 첫 실행에 구조 문서를 미리 읽을 필요는 없습니다.
 
 <CardGrid>
-  <LinkCard title="1. 전체 구조" href="/agent-optimizer/concepts/overview/#전체-구조" description="Agent, Harness, 과제와 채점기가 어떻게 연결되는지 봅니다." />
-  <LinkCard title="2. 실행 흐름" href="/agent-optimizer/concepts/overview/#실험-단계" description="설정부터 후보 선택과 보고서까지 순서대로 살펴봅니다." />
-  <LinkCard title="3. 컴포넌트 연결" href="/agent-optimizer/developer/components/" description="팀의 Dataset·Harness·Optimizer·Evaluator를 공통 계약에 연결합니다." />
-  <LinkCard title="4. 첫 실험" href="/agent-optimizer/getting-started/first-run/" description="모델·Docker 없이 작은 합성 데모를 실행하고 결과를 확인합니다." />
+  <LinkCard title="처음 실행하기" href="/agent-optimizer/getting-started/first-run/" description="저장소, Git, make가 있으면 시작할 수 있습니다. 7-trial 합성 데모를 실행한 뒤 결과 읽기로 이동합니다." />
+  <LinkCard title="내 Agent로 실험하기" href="/agent-optimizer/guides/experiment/" description="코어 준비 후 Agent 명령·editable 범위·데이터셋과 평가기가 필요합니다. 실험 구성 뒤 계획을 진단하고 실행합니다." />
+  <LinkCard title="팀 컴포넌트 개발하기" href="/agent-optimizer/developer/components/" description="코어 준비와 담당 템플릿 선택이 먼저입니다. 계약·등록을 연결하고 구조와 경계, 검증 순서로 이어집니다." />
 </CardGrid>
 
-**사용자 가이드**에서는 코어를 준비하고 작은 합성 데모를 실행한 다음, 자신의 Agent와 데이터셋을 명시적으로 선택합니다. **개발자 가이드**는 팀의 Dataset·Harness·Optimizer·Evaluator를 공통 계약에 맞춰 구현하고 등록하는 경로입니다.
+**첫 실행**은 모델·Docker 없이 연결을 확인하는 합성 fixture입니다. **내 Agent 실험**은 선택한 데이터셋과 분리된 평가기가 있어야 하며, **팀 개발**은 공통 계약과 중앙 등록을 추가합니다.
 
 ## 실험은 이렇게 진행됩니다
 
@@ -27,4 +27,4 @@ import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 첫 실행은 모델·Docker 없이 배선을 확인하는 **합성 fixture**입니다. 데모의 점수 변화는 실제 Agent의 개선이나 모델 성능을 입증하지 않습니다. 실제 실행에는 대상 Agent의 명령, 수정 허용 범위, 데이터셋과 신뢰할 평가기가 필요합니다.
 :::
 
-다음 단계: [첫 실행](/agent-optimizer/getting-started/first-run/) 또는 [팀 개발 시작](/agent-optimizer/developer/components/).
+각 경로의 다음 단계: [첫 실행 → 결과 읽기](/agent-optimizer/getting-started/results/), [실험 구성 → 동작 원리](/agent-optimizer/concepts/overview/), [컴포넌트 연결 → 구조와 경계](/agent-optimizer/developer/overview/).
