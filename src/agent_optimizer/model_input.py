@@ -43,7 +43,7 @@ def ensure_model_api(env: dict[str, str]) -> dict[str, str]:
 def ensure_model_selector(env: dict[str, str], key: str) -> dict[str, str]:
     staged = dict(env)
     if not staged.get(key):
-        staged[key] = _ask(t("{key} (OpenCode 모델): ", key=key))
+        staged[key] = _ask(t("{key} (OpenCode 모델): ").format(key=key))
         if not staged[key]:
             raise ConfigurationError(f"{key}를 입력하세요")
     return staged

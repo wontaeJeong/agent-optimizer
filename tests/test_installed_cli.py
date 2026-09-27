@@ -8,6 +8,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import termios
+import time
 import venv
 from pathlib import Path
 
@@ -56,6 +58,64 @@ def check_tui_menu(cli: Path, project: Path, environment: dict) -> None:
         os.close(master)
 
 
+def check_preset_cancel(cli: Path, project: Path, environment: dict) -> None:
+    master, slave = pty.openpty()
+    workspace = project / "chosen ace"
+    try:
+        child = subprocess.Popen([str(cli), "tui", "--project-root", str(project)],
+                                 cwd=project, env=environment, stdin=slave, stderr=slave,
+                                 stdout=subprocess.PIPE, text=True)
+        transcript = bytearray()
+
+        def until(text: str) -> None:
+            marker = text.encode()
+            deadline = time.monotonic() + 15
+            while marker not in transcript:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or not select.select([master], [], [], remaining)[0]:
+                    raise AssertionError(f"선택형 설치 TUI 단계 대기 시간 초과: {text}; "
+                                         f"화면: {transcript.decode(errors='replace')[-1000:]}")
+                transcript.extend(os.read(master, 4096))
+
+        def await_raw() -> None:
+            deadline = time.monotonic() + 5
+            while termios.tcgetattr(slave)[3] & termios.ICANON:
+                if time.monotonic() > deadline:
+                    raise AssertionError("선택형 TUI 키 입력 상태가 준비되지 않았습니다")
+                time.sleep(0.005)
+
+        until("선택 [5/1/2/3/4]")
+        os.write(master, b"5\n")
+        until("Agent Optimizer · Agent")
+        await_raw()
+        os.write(master, b"\r")
+        until("Agent Optimizer · Harness")
+        await_raw()
+        os.write(master, b"\r")
+        until("Agent Optimizer · Optimizer")
+        await_raw()
+        os.write(master, b"\x1b[B")
+        until("> Meta-Harness")
+        if "후보별 skills/ace-rtl/scripts/agent_" not in transcript.decode(errors="replace"):
+            raise AssertionError("방향키 초점이 Meta-Harness 설명을 갱신하지 않았습니다")
+        await_raw()
+        os.write(master, b"\r")
+        until("Agent Optimizer · Dataset")
+        await_raw()
+        os.write(master, b"\r")
+        until("ACE-RTL 작업공간 경로:")
+        os.write(master, (str(workspace) + "\n").encode())
+        until("준비하고 실행할까요?")
+        os.write(master, b"n\n")
+        stdout, _ = child.communicate(timeout=15)
+        if child.returncode != 2 or stdout or workspace.exists() or (project / "runs").exists():
+            raise AssertionError("wheel-only 선택형 TUI가 취소 전 자산을 생성했습니다")
+    finally:
+        if slave >= 0:
+            os.close(slave)
+        os.close(master)
+
+
 def main(wheel: Path) -> int:
     with tempfile.TemporaryDirectory(prefix="installed agent opt ") as directory:
         outside = Path(directory)
@@ -97,6 +157,7 @@ def main(wheel: Path) -> int:
         if {row["name"] for row in catalog} != {"cvdp", "verilog-spec", "verilog-completion"}:
             raise AssertionError(f"독립 설치 데이터셋 카탈로그 오류: {catalog}")
         check_tui_menu(cli, project, environment)
+        check_preset_cancel(cli, project, environment)
         prepared = invoke(cli, project, environment, "init", "--name", "wheel-fixture",
                           "--agent", "agents/solo", "--command",
                           "{python} {agent_dir}/src/fixture_agent.py {task_dir}",

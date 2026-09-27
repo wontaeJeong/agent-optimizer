@@ -187,7 +187,8 @@ def load_experiment(path: Path) -> dict:
     only_keys(data, {"schema_version", "name", "project_root", "agents", "harnesses", "pairs", "benchmark",
                     "evaluator", "evaluation_runtime", "objective", "budget", "stages",
                     "repetitions", "seed", "final_test", "final_stages", "output_dir", "plugins",
-                    "plugin_dependencies", "evaluator_config"}, "experiment")
+                    "plugin_dependencies", "evaluator_config", "candidate_seed_files",
+                    "preset_selection"}, "experiment")
     if data.get("schema_version") != 1:
         raise ConfigurationError("Unsupported experiment schema_version")
     identifier(data["name"])

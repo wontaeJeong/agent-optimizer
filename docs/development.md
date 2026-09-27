@@ -92,7 +92,7 @@ sh scripts/bootstrap.sh menu
 | 5. ACE 최적화 실행 | 설정한 모델로 **실제 `live --iterations N` 호출**. 기본 3회, 1..20회만 허용하며 7번 전체 준비와 4번 모델 설정이 필요합니다. |
 | 6. 실행 결과·보고서 확인 | 기존 `runs/<run-id>/report.md` 및 ACE `runs/dev-live/<run-id>/report.md`를 번호로 선택해 현재 내용을 표시합니다. setup 없이 사용 가능하며 경로 직접 입력·symlink 보고서는 허용하지 않습니다. |
 | 7. ACE 전체 환경 준비 | 기존 전체 `setup` 실행. 아래 Docker·Compose 사전 조건을 확인하고 고정 소스·데이터·driver·이미지를 준비합니다. 모델 API 호출은 하지 않습니다. |
-| 8. 일반 Agent 최적화 TUI | 코어 준비 후 `.venv/bin/agent-opt tui` 실행. 기존 `experiment.toml`의 진단·확인 후 실행 또는 새 설정 만들기 중 선택합니다. 새 실험은 데이터셋을 직접 고릅니다. |
+| 8. 일반 Agent 최적화 TUI | 코어 준비 후 `.venv/bin/agent-opt tui` 실행. TUI 5번은 Agent/Harness/Optimizer/Dataset 프리셋을 각각 고른 뒤 설명·예산을 확인합니다. 확인 후에만 고정 자산을 준비하며, 기존 설정 실행(1번)·고급 사용자 정의(2번)·기존 ACE 예제(3번)도 유지합니다. |
 | 0. 종료 | EOF도 종료, Ctrl-C는 130으로 안전하게 종료합니다. |
 
 4번은 기존 `AGENT_OPT_MODEL_*` 환경을 기본값으로 사용합니다. 빈 입력은 해당 기존 값을 유지하고 모델 ID가

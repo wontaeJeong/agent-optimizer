@@ -1,5 +1,13 @@
 # 검증 기록
 
+## 2026-09-28 선택형 TUI·ACE 후보 연결 계약 검증
+
+- `origin/main` 기준 독립 워크트리, Mac ARM64/Python 3.12.12. `make setup-core`는 코어·합성 데모를 준비했다. 최종 `make test`: **776개 중 761 통과·15 skip·실패 0**. `make lint`, `make demo`(합성 7 trial, `status=completed`), `git diff --check` 통과. `.venv/bin/python -m build --wheel`과 `.venv/bin/python tests/test_installed_cli.py dist/agent_optimizer-0.3.0-py3-none-any.whl`은 독립 설치 TUI에서 네 개 선택 화면의 방향키·Meta-Harness 초점 설명·최종 취소 시 작업공간 미생성을 확인했다. 사이트 `website/`의 `npm ci && npm run build`는 9페이지·내부 링크 검사 통과(기존 Vite/404 경고).
+- `tests/test_preset_tui.py`: ACE GEPA/Meta의 **서로 다른 run-owned TOML**이 `load_experiment`를 통과하고 profile=`ace-opencode`, adapter=`ace_opencode`, evaluator=`cvdp`, `max_trials=9`, `final_test=false`로 일치한다. 기존 `simple_feedback` 설정은 변하지 않는다. CVDP 두 과제 대신 테스트 임시 폴더의 **합성** train/validation만 사용하므로 실제 CVDP 평가 근거는 아니다. 합성 `rtl-solo → Fixture → FileVariants → sample_text`는 실제 runner/evaluator를 통과했다.
+- `tests/test_ace_demo.py:test_guidance_change_reaches_harness_prompt_directly`와 `tests/test_research.py:test_gepa_changes_snapshot_and_freezes_selection_before_test`는 각자 ACE 후보 안내 문구→prompt 연결 및 GEPA 후보 스냅샷/validation 선택을 검사한다. Meta 통합 `test_seeded_meta_scaffold_runs_from_each_candidate_before_harness`는 서로 다른 두 후보의 `.py`를 공개 task 선행 단계에서 Python으로 **실행**해 trial별 `dut.sv` 입력과 `scaffold-used.txt`가 달라짐을 확인하고, `trial_completed.scaffold_used.sha256`·후보 해시·원본 불변을 비교했다. 합성 fixture 실행과 후보 사용 경로의 계약 검증이며 OpenCode 모델 호출이나 공식 점수는 아니다.
+- `make doctor`는 Docker CLI/daemon/Compose 준비를 확인했지만 현재 워크트리의 ACE `environment.lock`, 고정 소스·데이터·driver·평가/Agent 이미지가 없어 exit 2였다. OpenCode의 `AGENT_OPT_MODEL` 선택자도 설정되어 있지 않았다. **이번 선택형 GEPA·Meta에 대한 Docker/OpenCode 실제 후보 실행 및 공식 CVDP 평가는 미검증**이다. 모델 API 자격증명 존재 확인은 연결 성공/성능 향상 근거가 아니다.
+- 코드 리뷰 후 `tests/test_preset_tui.py`는 설치형 연동 marker/pointer 검증 **전** tampered lifecycle import 금지, TUI 1번 재실행의 선택형 경로 재사용, OpenRouter/compatible별 `OPENCODE_CONFIG`와 Agent 이미지 lock 전달, 선택형 설정의 소스·평가기·예산·목표·scaffold seed 불일치를 차단한다. `tests/test_research.py`는 실패한 선행 scaffold를 `scaffold_used` 성공 근거로 남기지 않는 것도 확인한다. 이 항목들은 계약/모의 실행이며 실제 컨테이너나 모델 연결 검증은 아니다.
+
 ## 2026-09-27 공개 RTL target 안내 후 네 번째 독립 실실행
 
 Mac ARM64 / Docker daemon `linux/arm64`, Python 3.12.12, Claude Code 2.1.261.

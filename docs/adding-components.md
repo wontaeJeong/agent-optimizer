@@ -39,6 +39,13 @@ Dataset provider의 `describe()`는 이름·과제 형태·평가기를 기술�
 `doctor(cache)`는 파일/해시/도구를 읽기 전용으로 확인하고 `id`/`area`/`status`/`message`/`remedy` 체크를 반환합니다.
 private 채점 자료는 Agent workspace나 공개 과제 파일에 넣지 않습니다.
 CLI 목록·wizard는 데이터셋을 추천하지 않고, 사용자가 선택한 provider의 `prepare`를 호출합니다.
+TUI의 5번 기본 선택 화면은 실제 지원 조합(`ACE-RTL/OpenCode/CVDP`, 합성 `rtl-solo`·`rtl-team/Fixture/sample_text`)을
+한 종류씩 확정하고 `registry.py`의 구현 ID와 manifest/profile의 ID를 구분합니다. 팀의 새 구현은 먼저
+위 `PROJECT_COMPONENTS`에 등록하고 기존 2번 고급 설정/`init` 또는 기존 experiment.toml에서 검증하세요.
+기본 선택 화면에 새로운 **실행 가능** 조합을 노출하려면 `preset_tui.py:select_four`의 호환성·설명을
+실제 Agent manifest `supported_harnesses`, Harness profile/adapter, 데이터의 task 출력·evaluator,
+Optimizer 수정 파일에 맞춰 추가하고 확인 뒤의 설정 생성·실행 계약까지 검증해야 합니다. ID 등록만으로
+호환 또는 자산 준비 완료를 뜻하지 않습니다. 별도 `codex`/`agentic` 선택지는 구현 전 노출하지 않습니다.
 `.venv/bin/agent-opt datasets list`로 ID를 확인하고, 구현 전에는 이미 등록된 합성 예제로
 CLI/doctor/run 경로를 점검할 수 있습니다(실제 팀 ID로 교체하려면 먼저 provider/평가기 구현 필요):
 
@@ -133,6 +140,11 @@ harness = "fixture-alt"
 같은 선택을 사용하며, CLI 옵션과 TUI wizard 질문은 바뀌지 않습니다. TUI에서는 기존 실험 경로로 선택합니다.
 
 `run(request: RunRequest) -> ExecutionResult`: `agent_dir`는 후보, `task_dir`는 공개 입력/산출물입니다.
+선택형 ACE Meta-Harness의 `candidate_seed_files`는 run-owned 설정에서 프로젝트 안의 검토한 Python
+파일을 **editable 후보 기준 스냅샷**에만 더합니다. Agent manifest의 `build` argv가 후보 경로
+`agent/skills/ace-rtl/scripts/agent_opt_scaffold.py`를 실제 실행해야 하며 `required_symbol=prepare_task`와
+일치해야 합니다. `doctor --plan`은 seed 파일·editable/build 경로를 읽기 전용으로 검사하고
+`manifest.json`의 seed SHA 및 trial별 `scaffold_used`/후보 diff로 사용 근거를 남깁니다.
 private 평가 자산은 전달하지 않습니다. 실제 산출물을 task_dir에 쓰고 관측 지표를 반환하세요.
 단순 CLI는 command adapter의 argv를 사용합니다: `{python}`, `{agent_dir}`, `{task_dir}`, `{request_file}`, `{seed}`.
 trial workspace가 cwd이며 Docker 경로는 변환합니다. 임의 shell interpolation은 지원하지 않습니다.

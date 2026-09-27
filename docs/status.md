@@ -6,6 +6,7 @@
 번호 메뉴는 제공하며 1/2는 core, 7은 선택적 ACE 전체 준비, 8은 일반 Agent TUI다.
 옵션 없는 setup/doctor의 전체 ACE 경로와 `--dataset ID`의 선택 데이터셋 경로는 별개다.
 `agent-opt tui`는 기존 실험, 새 실험, ACE-RTL + CVDP 예제의 별도 선택·준비·실행을 지원한다.
+5번 선택형 새 최적화는 ACE-RTL/OpenCode/GEPA·Meta-Harness/CVDP 및 합성 Agent/Fixture/Baseline·FileVariants/sample_text를 각각 명시적으로 선택한다. 초점 이동은 읽기 전용이며 마지막 확인 이후에만 자산을 준비한다.
 1번 기존 실험은 `runs/configs/`의 최근 생성 설정 최대 5개를 번호로 선택하거나 직접 경로를 입력한다.
 4번 이전 실행 보기는 현재 작업공간의 `runs/<run-id>`와 `runs/dev-live/<run-id>`에서 요약과
 HTML이 있는 실행을 run ID의 UTC 생성 시각순 최근 10개까지 읽기 전용으로 나열하고,
@@ -46,10 +47,13 @@ wheel 단독 설치에서 로컬 Agent·사용자 데이터셋/명시적 evaluat
 
 ## ACE-RTL 실행 프로필
 
-현재는 `source.toml` → runner가 SKILL.md 읽기 → `adapter.py:ACEOpenCode` 제한 지침 추가
+기본 `simple_feedback` 예제는 `source.toml` → runner가 SKILL.md 읽기 → `adapter.py:ACEOpenCode` 제한 지침 추가
 → OpenCode 호출 → 종료 후 외부 CVDP 평가다. `simple_feedback`이 바꾼 role-guidance.md는 prompt에 포함한다.
 native `ace_agent_runner.py`/`ace_cvdp_native_runner.py`의 자체 역할·반복·평가 루프 실행과 동일하지 않다.
 역할 Python 파일이 editable이어도 실제 호출되었다는 증거 없이는 native 코드 최적화를 주장할 수 없다.
+새 선택형 GEPA는 후보 role-guidance의 prompt 반영을 유지한다. 새 선택형 Meta-Harness는 별도로 추가한
+`agent_opt_scaffold.py`의 `prepare_task`를 후보 복사본에서 공개 과제에 실행해 파일 해시/결과를 기록한다.
+이는 upstream ACE 역할 Python/native runner의 실행이 아니라 OpenCode 전 단계의 자체 scaffold다.
 실환경 실행 후에도 주장 범위는 **선택한 데이터/모델/예산에서 이 스킬 프로필의 안내 변경 효과**다.
 
 - setup의 고정 HF 입력은 302개 중 지원 형태 71개, 제외 231개다. 전체 시뮬레이션 통과 수가 아니다.
@@ -65,6 +69,7 @@ native `ace_agent_runner.py`/`ace_cvdp_native_runner.py`의 자체 역할·반�
 
 ## 검증 수준
 
+- **2026-09-28 선택형 TUI 계약:** `make test` 776건 중 761 통과·15 skip, Ruff·합성 데모·독립 wheel TUI·사이트 빌드 통과. `make doctor`는 이 워크트리의 ACE 자산/환경 lock 누락으로 exit 2였으므로 두 선택형 알고리즘의 **실모델/OpenCode·공식 CVDP 결과는 미검증**이다. [날짜별 근거](verification.md#2026-09-28-선택형-tuiace-후보-연결-계약-검증).
 - **2026-09-27 첫 실행 UX 검증:** Mac ARM64의 `make lint/test/demo`, 독립 wheel 사용자 CLI,
   Astro 사이트 빌드가 통과했다(최신 main 반영 후 734개 중 719 통과·15 skip, 합성 7 trial). 새 워크트리의
   ACE/CVDP 자산은 미준비로 `make smoke`가 차단되었으며 공식 평가/외부 모델은 실행하지 않았다.
