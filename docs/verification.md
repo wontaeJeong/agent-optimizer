@@ -37,7 +37,7 @@ Agent의 `ANTHROPIC_AUTH_TOKEN`←DeepSeek 키 / `ANTHROPIC_BASE_URL=https://api
 | `c0001` validation QAM16 / `task/rtl/16qam_mapper.sv` | Claude `success`/exit 0, Read/Write, `valid=true`, `passed=1`; 공식 raw 1 test `result=0`, `error_msg=null` |
 | `c0001` train priority encoder / `task/rtl/priority_encoder.v` | Claude `success`/exit 0, Read/Write, `valid=true`, `passed=1`; 공식 raw 1 test `result=0`, `error_msg=null` |
 | `c0002` train priority encoder / 같은 출력 경로 | Claude `success`/exit 0, Read/Write, `valid=true`, `passed=1`; 공식 raw 1 test `result=0`, `error_msg=null` |
-| `c0002` validation QAM16 / 같은 출력 경로 | Claude `success`/exit 0, Read/Write, `valid=true`, `passed=0`; 공식 raw 1 test `result=1`, `error_msg=null`. 공식 simulation의 기능 결과 불일치이며 환경/인증 오류나 raw 부재가 아니다. 공개 생성 RTL은 baseline과 달리 출력 slice 순서를 역순으로 배치했다. private report 본문은 공유하지 않는다. |
+| `c0002` validation QAM16 / `task/rtl/16qam_mapper.sv` | Claude `success`/exit 0, Read/Write, `valid=true`, `passed=0`; 공식 raw 1 test `result=1`, `error_msg=null`. 공식 simulation의 기능 결과 불일치이며 환경/인증 오류나 raw 부재가 아니다. 공개 생성 RTL은 baseline과 달리 출력 slice 순서를 역순으로 배치했다. private report 본문은 공유하지 않는다. |
 
 네 `harness_logs/stdout.log`의 init은 모델 `deepseek-flash`, 도구 가용 목록
 `Edit,Read,Write`, `mcp_servers=[]`; 실제 tool-use는 Read/Write이고 Edit·MCP 호출 및
@@ -51,7 +51,7 @@ subagent 생성·권한 거부는 관측되지 않았다. 생성된 RTL은 각 �
 `solve_rate=0.0` / 56.73초. `stages/feedback.json`과 `frozen_selection.json`은
 **baseline `c0001` 선택**, 후보의 빠른 시간보다 공식 통과율을 우선한 lexicographic
 비교를 기록한다. train은 양쪽 모두 1/1이고 최종 test는 실행하지 않았다.
-Optimizer 1회 제안의 사용량은 input 971 / output 787 tokens, 비용 `null`이다.
+Optimizer `gpt-5.4`의 1회 제안 사용량은 input 971 / output 787 tokens, 비용 `null`이다.
 각 Agent 호출의 `agent_tokens`·`agent_cost_usd`는 `null`; CLI 자기보고
 `harness_reported_io_tokens`는 순서대로 22,894 / 12,163 / 9,063 / 19,920이며
 `harness_reported_cost_usd`도 **호출별 partial**이라 전체 사용량·총비용이 아니다.
