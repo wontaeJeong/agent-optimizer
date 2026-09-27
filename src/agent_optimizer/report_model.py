@@ -26,20 +26,60 @@ def _read_json(path: Path, fallback: dict) -> dict:
     return value if isinstance(value, dict) else fallback
 
 
-def _read_events(root: Path) -> list[dict]:
+def _read_events(root: Path) -> tuple[list[dict], bool, int]:
     path = safe_path(root, "events.jsonl")
     if not path.is_file():
-        return []
+        return [], False, 0
     events = []
+    invalid_lines = 0
     with path.open("rb") as stream:
         for line in stream:
+            if not line.strip():
+                continue
             try:
                 event = json.loads(line.decode("utf-8"), parse_constant=_reject_constant)
             except (ValueError, UnicodeError):
+                invalid_lines += 1
                 continue
             if isinstance(event, dict):
                 events.append(event)
-    return events
+            else:
+                invalid_lines += 1
+    return events, True, invalid_lines
+
+
+def _evidence(summary: dict, events: list[dict], present: bool, invalid_lines: int) -> dict:
+    completed = sum(event.get("event") == "trial_completed" for event in events)
+    warnings = []
+
+    def warn(code, group_key=None, expected=None, observed=None):
+        warnings.append({"code": code, "group_key": group_key,
+                         "expected": expected, "observed": observed})
+
+    if not present:
+        warn("events_missing")
+    if invalid_lines:
+        warn("events_invalid_lines", expected=0, observed=invalid_lines)
+    groups = summary.get("groups", [])
+    comparable = bool(groups)
+    for group in groups:
+        expected = group.get("trial_count")
+        if type(expected) is not int or expected < 0:
+            comparable = False
+            continue
+        observed = sum(event.get("event") == "trial_completed"
+                       and event.get("agent_id") == group.get("agent_id")
+                       and event.get("harness_id") == group.get("harness_id") for event in events)
+        if observed != expected:
+            warn("group_trial_count_mismatch",
+                 f'{group["agent_id"]}/{group["harness_id"]}', expected, observed)
+    reserved = summary.get("trials_used")
+    if type(reserved) is int and reserved >= 0 and reserved != completed:
+        warn("reserved_completed_gap", expected=reserved, observed=completed)
+    return {"events_file_present": present, "valid_lines": len(events),
+            "invalid_lines": invalid_lines, "completed_events": completed,
+            "status": "warning" if warnings else "consistent" if comparable else "unknown",
+            "warnings": warnings}
 
 
 def _qualified(key: str, identifier: str | None) -> str | None:
@@ -482,7 +522,7 @@ def _counts(groups: list[dict], summary: dict) -> dict:
 def build_report(root: Path, summary: dict) -> dict:
     """집계와 선택은 그대로 두고 trial별 근거만 별도로 보존한다."""
     manifest = _read_json(safe_path(root, "manifest.json"), {})
-    events = _read_events(root)
+    events, present, invalid_lines = _read_events(root)
     experiment = manifest.get("experiment", {})
     objective = experiment.get("objective", {})
     groups = [_group(root, group, events, objective) for group in summary.get("groups", [])]
@@ -495,8 +535,9 @@ def build_report(root: Path, summary: dict) -> dict:
                            error=summary.get("error"))
     if run_failure is not None:
         identity["failure"] = run_failure
-    return {"report_schema_version": 2,
+    return {"report_schema_version": 3,
             "identity": identity,
             "configuration": experiment, "provenance": manifest,
             "objective": objective,
-            "counts": _counts(groups, summary), "groups": groups, "events": events}
+            "counts": _counts(groups, summary), "groups": groups, "events": events,
+            "evidence": _evidence(summary, events, present, invalid_lines)}
