@@ -865,6 +865,33 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn("fixture-validation", progress.getvalue())
         self.assertIn("evaluation", progress.getvalue())
 
+    def test_init_run_and_report_explain_next_command_without_changing_json(self):
+        args = ["init", "--project-root", str(self.root), "--name", "next-step",
+                "--agent", str(self.agent), "--dataset", "sample_text", "--harness", "fixture",
+                "--editable", "configs/strategy.json", "--optimizer", "baseline", "--yes"]
+        output, hint = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(hint):
+            self.assertEqual(main(args), 0)
+        init = json.loads(output.getvalue())
+        self.assertIn("doctor --plan", hint.getvalue())
+        self.assertIn(init["experiment"], hint.getvalue())
+
+        output, hint = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(hint):
+            self.assertEqual(main(["run", init["experiment"]]), 0)
+        run = json.loads(output.getvalue())
+        self.assertEqual(run["status"], "completed")
+        self.assertEqual(run["report_html"], str(Path(run["run_dir"]) / "report.html"))
+        self.assertTrue(Path(run["report_html"]).is_file())
+        self.assertIn("agent-opt report", hint.getvalue())
+
+        output, hint = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(hint):
+            self.assertEqual(main(["report", run["run_dir"]]), 0)
+        self.assertEqual(json.loads(output.getvalue())["status"], "completed")
+        self.assertIn(run["report_html"], hint.getvalue())
+        self.assertIn("--html", hint.getvalue())
+
     def test_tui_rejects_non_terminal_without_creating_files(self):
         errors = io.StringIO()
         with patch("sys.stdin.isatty", return_value=False), contextlib.redirect_stderr(errors):
@@ -1165,7 +1192,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["status"], "completed")
         self.assertTrue((self.root / "runs/configs/wizard-demo/experiment.toml").is_file())
         self.assertIn("fixture-validation", terminal.getvalue())
-        self.assertIn("데이터셋:", terminal.getvalue().split("선택한 데이터셋 준비 중", 1)[0][-500:])
+        self.assertIn(f"데이터셋: {self.data}", terminal.getvalue().split("선택한 데이터셋 준비 중", 1)[0])
 
     def test_interactive_init_creates_a_config_without_running_agent(self):
         class Terminal(io.StringIO):
@@ -2169,6 +2196,7 @@ class CLIExperienceTests(unittest.TestCase):
         summary = json.loads(output.getvalue())
         self.assertEqual(summary["status"], "completed")
         self.assertEqual(len(summary["reports"]), 2)
+        self.assertIn(summary["index_html"], progress.getvalue())
         self.assertIn("[1/2] same", progress.getvalue())
         self.assertIn("[2/2] same", progress.getvalue())
         self.assertTrue(all(Path(report).is_file() for report in summary["reports"]))

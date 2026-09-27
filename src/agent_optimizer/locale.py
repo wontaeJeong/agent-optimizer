@@ -304,6 +304,16 @@ MESSAGES = {
     "설정 만들기가 중단되었습니다": ("설정 만들기가 중단되었습니다", "Configuration creation interrupted"),
     "설정 생성": ("설정 생성", "Configuration created"),
     "다음": ("다음", "Next"),
+    "결과 HTML": ("결과 HTML", "Result HTML"),
+    "정적 계획 확인; 실행 성공 아님": ("정적 계획 확인; 실행 성공 아님", "Static plan check; not an execution result"),
+    "계획 진단은 정적 검사입니다. Agent·채점기·모델 실행은 확인하지 않았습니다.": (
+        "계획 진단은 정적 검사입니다. Agent·채점기·모델 실행은 확인하지 않았습니다.",
+        "Plan diagnosis is static; Agent, scorer and model execution were not checked."),
+    "--model은 모델 API 연결을 호출하지만 Agent 실행 성공은 확인하지 않습니다.": (
+        "--model은 모델 API 연결을 호출하지만 Agent 실행 성공은 확인하지 않습니다.",
+        "--model calls the model API but does not verify Agent execution."),
+    "저장된 자료로 재생성할 때만": (
+        "저장된 자료로 재생성할 때만", "Only when rebuilding from stored data"),
     "각 데이터셋의 계획 진단": ("각 데이터셋의 계획 진단", "check each dataset plan"),
     "final doctor": ("최종 진단", "final doctor"),
     "minimal demo": ("최소 데모", "minimal demo"),
