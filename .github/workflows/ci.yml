@@ -106,7 +106,7 @@ jobs:
           import subprocess
 
           env = {key: value for key, value in os.environ.items() if key not in {
-              "AGENT_OPT_MODEL_API_KEY", "AGENT_OPT_MODEL_ENDPOINT", "AGENT_OPT_MODEL_BASE_URL"}}
+               "AGENT_OPT_MODEL_API_KEY", "AGENT_OPT_MODEL_BASE_URL"}}
           result = subprocess.run([".venv/bin/agent-opt", "run", "examples/ace-rtl/experiment.toml"],
                                   env=env, capture_output=True, text=True, timeout=60, check=False)
           assert result.returncode == 2, (result.returncode, result.stdout, result.stderr)

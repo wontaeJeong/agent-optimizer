@@ -33,7 +33,8 @@ Agent·명시적 evaluator 실험의 `init` → `doctor --plan` → `run` → `r
 선택하면 `experiment.toml`의 계획 진단·확인 뒤 실행하고, **새 실험 만들고 실행**에서는
 Agent·editable 파일·Optimizer·**직접 선택하는 데이터셋**을 묻습니다. 새 `command` 하네스에서만
 Agent 실행 명령을 묻습니다. **3번 ACE-RTL + CVDP 예제**에서는 작업공간과 준비 작업을
-확인한 뒤 선택형 연동을 준비하고, 진단 뒤 실행을 다시 확인합니다. 설정만 만들려면
+확인한 뒤 선택형 연동을 준비합니다. 모델 값이 없으면 이 세션에서만 URL·모델 ID·숨김 키를 묻고,
+계획 진단 뒤 실행을 다시 확인합니다. 설정만 만들려면
 `.venv/bin/agent-opt init`을 대화형으로 실행합니다.
 데이터셋을 자동 추천하지 않으며, 선택한 CVDP/Verilog-Eval은 고정 버전 소스·데이터·OSS 평가 환경을
 자동 준비합니다(첫 실행에는 다운로드·Docker 빌드가 걸릴 수 있습니다). 사용자 데이터셋도 별도의
@@ -48,19 +49,23 @@ Python 3.11+, Git, uv, Docker Engine/Compose가 필요합니다. 제공받은 wh
 ```bash
 python3 -m venv "$HOME/agent-opt-env"
 "$HOME/agent-opt-env/bin/python" -m pip install /path/to/agent_optimizer-0.3.0-py3-none-any.whl
+"$HOME/agent-opt-env/bin/agent-opt" tui  # 3번 ACE-RTL + CVDP 선택: 준비 → 모델 입력 → 실행
+```
+
+TTY 없는 자동화에는 다음 앱 명령을 사용합니다. 모델 키·기본 URL은 실행 환경/credential store에 설정하세요.
+
+```bash
 "$HOME/agent-opt-env/bin/agent-opt" init --profile ace-rtl --workspace "$HOME/agent-opt-ace"
-"$HOME/agent-opt-env/bin/agent-opt" doctor --plan "$HOME/agent-opt-ace/experiment.toml" --json
 "$HOME/agent-opt-env/bin/agent-opt" prepare "$HOME/agent-opt-ace/experiment.toml"
-"$HOME/agent-opt-env/bin/agent-opt" doctor --plan "$HOME/agent-opt-ace/experiment.toml" --json
-# 자격증명과 모델 endpoint는 환경/credential store에 설정한 뒤에만:
 "$HOME/agent-opt-env/bin/agent-opt" run "$HOME/agent-opt-ace/experiment.toml"
 ```
 
-첫 `doctor --plan`은 `integration.prepare=blocked`, 준비 뒤에는 정적 계획 검사가
-`ready=true`로 바뀝니다. `prepare`는 고정 Git 소스·CVDP 데이터·별도 Python driver·Docker
+선택적 `doctor --plan "$HOME/agent-opt-ace/experiment.toml" --json`은 준비 전
+`integration.prepare=blocked`, 준비 뒤에는 정적 계획 검사가 `ready=true`로 바뀝니다.
+`prepare`는 고정 Git 소스·CVDP 데이터·별도 Python driver·Docker
 이미지를 준비하고 실제 도구를 검사합니다. 검증한 캐시만 재사용하려면 `prepare ... --offline`을
 사용하세요. `run`은 준비되지 않은 자산을 자동 설치하지 않으며, 모델 키가 없으면 명시적으로
-실패합니다. TTY에서는 `agent-opt tui`의 3번으로 같은 선택·준비 흐름을 시작할 수 있습니다.
+실패합니다. TUI에서는 필요한 모델 값을 세션에만 입력하며 자동 설치·성공 대체는 하지 않습니다.
 다른 Agent의 CVDP만 사용하려면 사용자 `--agent`와 `--dataset cvdp`를 지정하고,
 사용자 `tasks.json`에는 `--evaluator file.py:Symbol`을 따로 지정합니다. 서로 다른
 평가기 점수를 직접 합산하지 않습니다.
@@ -102,7 +107,7 @@ make help                         # 개발환경 명령
 선택한 하네스의 실행 방법, 사용 중인 `--prompt-file`, 수정 허용 `--editable` 범위를 연결합니다.
 `command` 하네스에만 실행 argv가 필요합니다. Agent 명령에 `--input` 옵션이 있으면
 `--command 'python3 agent.py --input {task_dir}'`를 사용할 수 있습니다. 인용은 argv로 분리하되
-셸 확장·파이프·리다이렉션을 실행하지 않습니다. 기존 `--command-json`도 계속 지원합니다.
+셸 확장·파이프·리다이렉션을 실행하지 않습니다.
 OpenCode·ACE처럼 실행을 하네스가 정의한 경우 명령을 지정하지 않으며, ACE의 Docker·플러그인
 프로필은 `examples/ace-rtl/experiment.toml`에서 재사용합니다. 이 고정 프로필은 TUI와
 `agent-opt run`에서 예제의 `live` 준비·검사를 거쳐 공식 CVDP 평가까지 실행합니다.
@@ -110,12 +115,14 @@ OpenCode·ACE처럼 실행을 하네스가 정의한 경우 명령을 지정하�
 비대화형 `init`에는 `--optimizer`를 명시해야 합니다. 모델 없는 연결 검사에는
 `--optimizer baseline`을, 연구 탐색에는 사용할 Optimizer를 직접 선택하세요.
 코드 하네스 방식은 실제 실행되는 `.py` 파일이 필요하고, 여러 파일이 일치하면
-`--scaffold-file`(GEPA는 `--target-file`)을 지정합니다. 모델 제안에는 `AGENT_OPT_MODEL_BASE_URL`
-**또는** `AGENT_OPT_MODEL_ENDPOINT` 중 하나와 `AGENT_OPT_MODEL_API_KEY`를 환경에 설정합니다.
+`--scaffold-file`(GEPA는 `--target-file`)을 지정합니다. 모델 제안에는 `AGENT_OPT_MODEL_BASE_URL`과
+`AGENT_OPT_MODEL_API_KEY`를 환경에 설정합니다. 앱 TUI는 값이 없으면 숨김 입력을 받습니다.
 `AGENT_OPT_MODEL_ID`는 선택 사항이며 생략하면 `glm5.3-flash`를 사용합니다. OpenCode 하네스의
 `AGENT_OPT_MODEL` 선택자는 이 모델 API 설정과 별도입니다.
+로컬 `.env`를 사용하는 개발자는 프로젝트 루트에서 `set -a; source .env; set +a`로 현재 셸에
+내보낸 뒤 앱 CLI를 실행하세요. 앱은 `.env`를 자동으로 찾거나 키를 실험 파일에 저장하지 않습니다.
 기존 `MODEL_*` 변수와 `init --argv`는 더 이상 사용하지 않습니다. Agent 명령은
-`--command`에 인용 가능한 명령 문자열 또는 `--command-json`에 JSON argv 배열로 입력합니다.
+`--command`에 인용 가능한 명령 문자열로 입력합니다.
 자격증명은 생성 설정에 저장하지 않습니다.
 
 `--dataset cvdp`, `--dataset verilog-spec`, `--dataset verilog-completion`이나
@@ -290,18 +297,18 @@ Python 3.11+, uv, Git, Docker Engine/Compose가 필요합니다. Ubuntu 시스�
 `--core`는 setup/doctor에서만 지원하며 `--platform` 또는 `doctor --model`과 함께 사용할 수 없습니다.
 
 ```bash
-# 실제 주소·토큰은 셸/credential store에서 설정; .env.example은 자동 로딩하지 않음
-export AGENT_OPT_MODEL_ENDPOINT=https://model.example/v1/chat/completion
+# 개발용 비대화형 명령에서는 실제 기본 주소·토큰을 셸/credential store에서 설정
+export AGENT_OPT_MODEL_BASE_URL=https://model.example/v1
 export AGENT_OPT_MODEL_ID=glm5.3-flash
-# AGENT_OPT_MODEL_API_KEY도 export. 표준 API는 AGENT_OPT_MODEL_ENDPOINT 대신 AGENT_OPT_MODEL_BASE_URL 사용.
+# AGENT_OPT_MODEL_API_KEY도 export. .env는 자동 로딩하지 않음.
 make setup                         # Python 환경·소스·데이터·두 이미지 일괄 준비
 make doctor                        # 준비 상태와 실패 조치; 모델 호출 없음
-sh scripts/bootstrap.sh doctor --model  # 실제 호스트 API + 컨테이너 OpenCode 도구 호출
 make smoke                         # 모델 키 없이 실제 RTL/CVDP 정답·오답 검증
-sh scripts/bootstrap.sh live --iterations 3  # 기본 8 trial: 후보 4개 × train/validation
-# 같은 ACE 고정 프로필을 앱에서 선택하려면(설정/모델 자격증명 준비 후):
-.venv/bin/agent-opt tui            # 1. 기존 실험 실행 → examples/ace-rtl/experiment.toml
+# 앱에서 같은 ACE 예제를 실행하려면:
+.venv/bin/agent-opt tui            # 1번 기존 실험 → examples/ace-rtl/experiment.toml
 .venv/bin/agent-opt run examples/ace-rtl/experiment.toml
+# 개발 중 실제 모델/컨테이너 연결만 분리 진단하려면:
+sh scripts/bootstrap.sh doctor --model
 ```
 
 ACE 프로필을 선택한 두 `agent-opt` 경로는 예제의 `live` 진단·환경 연결·공식 평가를 그대로
@@ -312,8 +319,8 @@ ACE 프로필을 선택한 두 `agent-opt` 경로는 예제의 `live` 진단·�
 
 Ubuntu에서는 기존 proxy 환경과 `/etc/ssl/certs/ca-certificates.crt`를 사용합니다.
 명시적 `AGENT_OPT_CA_BUNDLE`이 우선합니다. [proxy/CA 안내](docs/network.md)를 확인하세요.
-`doctor --json`은 자동화용 결과와 실패 종료 코드 2를 제공합니다. 인수 없는 `agent-opt doctor`는
-호환용 바이너리 목록, `agent-opt doctor --dataset ID`와 `--plan PATH`는 각각 선택 데이터셋과
+`doctor --json`은 개발 진단용 결과와 실패 종료 코드 2를 제공합니다.
+`agent-opt doctor --dataset ID`와 `--plan PATH`는 각각 선택 데이터셋과
 실험 선언의 읽기 전용 준비 점검입니다. `--plan`은 실제 Agent 산출물·평가기/모델 성공을 보증하지 않습니다.
 실제 모델 연결은 명시적 `--model`에서만 호출합니다. **ACE 전체 준비 검사는 위 `make doctor`**를 사용합니다.
 uv/Python이 없으면 `sh scripts/bootstrap.sh setup`이 프로젝트 전용 환경을 준비합니다.

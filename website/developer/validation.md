@@ -48,11 +48,12 @@ git diff --check
 make setup
 make doctor
 make smoke
-# 모델 자격증명과 endpoint를 환경에서 지정한 뒤:
-sh scripts/bootstrap.sh doctor --model
+# 모델 키와 AGENT_OPT_MODEL_BASE_URL을 환경에서 지정한 뒤:
 .venv/bin/agent-opt run examples/ace-rtl/experiment.toml
+# 필요하면 호스트 API·컨테이너 도구 연결만 개발 진단:
+sh scripts/bootstrap.sh doctor --model
 ```
 
-마지막 명령은 ACE 스킬 프로필을 기존 `live` 경로로 실행합니다. 같은 고정 프로필은
+`agent-opt run`은 ACE 스킬 프로필을 기존 `live` 경로로 실행합니다. 같은 고정 프로필은
 `.venv/bin/agent-opt tui`의 **기존 실험 실행**에서도 고를 수 있습니다. 공식 raw 결과와
 `runs/dev-live/<run-id>/summary.json`·`report.html`을 확인하고 미실행/차단을 따로 기록하세요.

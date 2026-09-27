@@ -57,7 +57,8 @@ def selected_files(source: Path, integration_id: str) -> list[Path]:
             continue
         if not path.is_file() or path.is_symlink():
             raise ConfigurationError(f"연동 파일이 일반 파일이 아닙니다: {relative}")
-        if path.name == ".env" or path.name.startswith(".env."):
+        if (path.name == ".env" or path.name.startswith(".env.")
+                or "__pycache__" in path.relative_to(source).parts or path.suffix in {".pyc", ".pyo"}):
             continue
         files.append(path)
     if not files:

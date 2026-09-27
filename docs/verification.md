@@ -1,5 +1,23 @@
 # 검증 기록
 
+## 2026-09-27 PR #39의 origin/main 병합 계약 검사 (실모델 미검증)
+
+Mac ARM64의 `feat/mvp-harness-validation-controls`에서 `3b96a22`에 `origin/main`
+`ee299e1`을 merge했다. 아래 검사는 병합된 코드의 로컬 계약·합성 fixture 근거이며,
+이 병합 뒤 Claude Code/DeepSeek/OpenAI 유료 호출이나 공식 CVDP 실평가는 실행하지 않았다.
+서로 다른 당시 환경의 실실행 기록은 아래 각 날짜·run ID대로 유지한다.
+
+| 실제 명령 | 관측 결과 |
+|---|---|
+| `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_cli_experience.py -q` | 첫 실행 **109건 중 1 실패**: 새 Claude 하네스로 번호가 바뀐 `command` 선택을 테스트가 `1`로 고정. 동적 선택으로 수정 후 **109/109 통과**. |
+| 같은 방식의 `test_claude_code.py`, `test_models.py`, `test_feedback_optimizer.py`, `test_model_input.py`, `test_run_lifecycle.py`, `test_report_model.py`, `test_research.py`, `test_ace_demo.py`, `test_integrations.py` | 각 **25, 9, 5, 2, 24, 41, 10, 7, 14건 통과**. Claude argv·nullable 평가, 명시적 `AGENT_OPT_MODEL_BASE_URL`→`/chat/completions`·키/ID, Optimizer의 train 경계를 모의·로컬 계약으로 검사. |
+| `node --test tests/endpoint-plugin.test.mjs`; `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -q`; `make lint`; `PYTHONPATH=src .venv/bin/python -m agent_optimizer run examples/minimal/experiment.toml` | Node **1/1**, 전체 unittest **669건 중 654 통과·15 skip·실패 0**, Ruff 통과, 합성 최소 데모 `completed`/7 trial. 실모델·공식 CVDP 통과 근거는 아니다. |
+
+`experiments/simple-feedback/README.md`의 Optimizer OpenAI 호환 설정은 현재
+`ModelSettings.from_env()`의 `AGENT_OPT_MODEL_BASE_URL`(completion 경로 제외), 선택적
+`AGENT_OPT_MODEL_ID`, `AGENT_OPT_MODEL_API_KEY`와 일치한다. `.env` 자동 로딩은 하지 않는다.
+이번 병합 코드로 실제 모델·외부 CLI·private 평가 경계의 실환경 통합은 별도로 미검증이다.
+
 ## 2026-09-27 strict MCP 적용 후 세 번째 독립 4 trial (선택 없음)
 
 Mac ARM64 / Docker daemon `linux/arm64`, Python 3.12.12, Claude Code 2.1.261.
@@ -103,6 +121,29 @@ Mac ARM64 / Docker daemon `linux/arm64` (Docker 29.2.1, Compose 5.1.3), 프로�
 [추가 실행](#2026-09-27-claude-code-추가-4-trial-공식-cvdp-부분-성공)과 구분한다. `make setup`이 통과해 선택적
 `make setup ARGS="--dataset cvdp"` 경로는 별도로 실행하지 않았다. 해당 경로는 평가 자산만
 준비하며 현재 예제의 `lifecycle.inspect`가 요구하는 전체 ACE lock과 구별된다.
+
+## 2026-09-26 앱 모델 설정·ACE/CVDP 실행 경로
+
+Mac ARM64 / Python 3.12 / Docker daemon `linux/arm64`, `fix/model-config-app-ux` 워크트리.
+모델 `deepseek-flash`의 OpenAI 호환 기본 URL과 인증정보는 실행 환경에서만 읽었다.
+고정 ACE `fead921f18bb57345b5a41ef93ba625be208e99c`·CVDP
+`8e894cf74414ab1eaea1e2b4e80a02f123df07b6`·HF 데이터 pin과 평가 기준은 변경하지 않았다.
+
+| 실제 명령 | 확인한 결과 |
+|---|---|
+| `make setup-core`; `env -u AGENT_OPT_MODEL_BASE_URL -u AGENT_OPT_MODEL_API_KEY -u AGENT_OPT_MODEL_ENDPOINT make test`; `make lint`; `make demo`; `node --test tests/endpoint-plugin.test.mjs`; `.venv/bin/python -m build`; `.venv/bin/python tests/test_installed_cli.py dist/agent_optimizer-0.3.0-py3-none-any.whl`; `.venv-docs/bin/mkdocs build --strict` | 최종 **642개 중 627 통과·15 skip·실패 0**, Ruff·Node 1개·합성 7 trial·wheel 독립 설치 CLI/TUI 거절·사용자 fixture 실행/보고서·엄격 문서 빌드 통과. TUI 취소 전 플러그인 미실행도 회귀 검사. 코어 검사 자체는 공식 모델 실행 증거가 아니다. |
+| `make setup`; `make doctor ARGS="--json"`; `make smoke`; `.venv/bin/agent-opt doctor --plan examples/ace-rtl/experiment.toml --model --json` | 고정 소스·driver·Docker 이미지 준비, 공식 CVDP LFSR 정답/오답과 toy·실도구 smoke `runs/dev-smoke-b9257682f3bd/summary.json`의 `passed`; 앱 모델 호스트 tool-call probe의 `ready=true`. 기존 Docker layer cache를 활용했으며 앱 plan probe는 컨테이너 실행을 보증하지 않는다. |
+| `.venv/bin/agent-opt run examples/ace-rtl/experiment.toml` | **실제 앱 E2E** `runs/dev-live/20260926T042844Z-34d233f4/summary.json`: `synthetic=false`, `completed`, 기본 3회 수정·8 trial, 공식 CVDP train/validation의 비어 있지 않은 1/1 평가와 유효 후보 기록, 후보 `c0003` 선택, `report.html` 생성. validation은 baseline과 선택 후보 모두 `solve_rate=1.0`, 실측 과제 시간 138.62초/77.02초였다. 이 작은 두 과제 실행은 일반화된 개선 근거나 원본 ACE native runner 검증이 아니며 최종 test는 설정상 없다. |
+| URL 끝의 반복 `/`을 Python/컨테이너 플러그인에서 동일하게 정리한 뒤 `node --test tests/endpoint-plugin.test.mjs`; `make setup`; `sh scripts/bootstrap.sh doctor --model` | Node 1개 통과. 최종 Agent 이미지 재빌드 뒤 호스트 API tool-call과 Docker OpenCode 도구 호출 `model_status=passed`. 위 8-trial E2E는 이 마지막 슬래시 정리 전의 표준 URL로 실행됐으며, 수정된 정상 URL의 컨테이너 도구 경로를 따로 확인했다. |
+| 빌드 wheel을 별도 `external/wheel-ace-venv`에 설치한 `agent-opt init --profile ace-rtl --workspace external/wheel-ace-workspace` → `agent-opt prepare external/wheel-ace-workspace/experiment.toml` → `agent-opt doctor --plan external/wheel-ace-workspace/experiment.toml --json`; 그 wheel Python으로 작업공간에서 `tests/test_installed_ace.py` | 설치된 패키지의 독립 작업공간 준비·정적 계획 `ready=true`; 공식 LFSR 실제 정답 `passed=1`·오답 `passed=0`과 각각 비어 있지 않은 raw test 확인. 이 wheel 경로는 모델을 호출하지 않았다. |
+
+두 ACE 작업공간을 같은 Docker daemon에서 순차 준비하자 공용 Agent 이미지 태그가 마지막
+작업공간의 ID를 가리켰다. 기존 개발 작업공간의 `make doctor ARGS="--json"`은
+`image.agent=error`, `sh scripts/bootstrap.sh setup --offline`은 image identity 불일치로
+차단됐다. 이 오류를 무시하지 않고 해당 개발 작업공간에서 `make setup` →
+`make doctor ARGS="--json"` → `sh scripts/bootstrap.sh setup --offline`을 **순서대로** 재실행해
+각각 준비됨·오프라인 통과를 확인했다. 두 작업공간의 동시 이미지 태그 격리는 이번 변경에서
+검증하거나 구현하지 않았다.
 
 ## 2026-09-26 데이터셋 병렬 실행·터미널 진행 화면
 

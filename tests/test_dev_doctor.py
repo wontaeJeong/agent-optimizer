@@ -359,7 +359,7 @@ class DoctorTests(unittest.TestCase):
         report = self.doctor.collect_report(self.root)
         self.assertEqual(report["areas"], {"core": True, "evaluation": True, "live": False})
         self.assertTrue(report["ready"])
-        with patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "secret", "AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/chat/completion"}):
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_API_KEY": "secret", "AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1"}):
             self.assertTrue(self.doctor.collect_report(self.root)["areas"]["live"])
             (self.root / ".venv/bin/python").unlink()
             self.assertFalse(self.doctor.collect_report(self.root)["areas"]["live"])

@@ -1015,7 +1015,7 @@ class DeveloperCommandsTests(unittest.TestCase):
 
     def test_live_auth_is_checked_before_docker_or_prepared_assets(self):
         setup = module("onboarding_auth", ROOT / "examples/ace-rtl/environment/setup.py")
-        with patch.dict(os.environ, {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/chat/completion"}, clear=True), patch.object(self.dev, "load", return_value=setup), \
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1"}, clear=True), patch.object(self.dev, "load", return_value=setup), \
                 patch.object(setup, "validate_platform", side_effect=AssertionError("Docker before auth")):
             self.assertEqual(self.main(["live"]), 2)
         self.assertIn("blocked_auth", self.output.getvalue())
@@ -1063,7 +1063,7 @@ class DeveloperCommandsTests(unittest.TestCase):
                                 patch.object(setup, "driver_requirements", return_value={}), \
                                 patch.object(setup, "prepare_data", side_effect=AssertionError("later data work")), \
                                 patch.dict(os.environ, {"AGENT_OPT_BOOTSTRAPPED": str(root),
-                                            "AGENT_OPT_MODEL_API_KEY": "test", "AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/chat/completion"}, clear=True):
+                                             "AGENT_OPT_MODEL_API_KEY": "test", "AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1"}, clear=True):
                             code = self.main([command, "--platform", "linux/amd64", *(["--offline"] if offline else [])])
                         self.assertEqual(code, 2)
                         blocked = json.loads(self.output.getvalue().splitlines()[-1])

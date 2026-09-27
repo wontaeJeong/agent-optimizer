@@ -16,6 +16,12 @@ ACE의 native runner / 자체 반복 루프 / 역할별 모델 호출과 동일�
 
 ## 준비
 
+앱 사용자는 `agent-opt tui`에서 **3번 ACE-RTL + CVDP 예제**를 선택하면 작업공간 준비,
+필요한 모델 값의 세션 한정 입력, 실행 확인, 공식 CVDP 평가까지 진행할 수 있습니다.
+비대화형 앱은 `agent-opt init --profile ace-rtl --workspace PATH` →
+`agent-opt prepare PATH/experiment.toml` → `agent-opt run PATH/experiment.toml`을 사용합니다.
+아래 명령은 개발자의 환경·모델·평가 분리 진단에 사용합니다.
+
 Python 3.11+ 진입점, uv, Git, 동작하는 Docker Engine/Compose가 필요합니다. CA 포함 빌드는 Buildx가 필요합니다.
 setup은 uv로 프로젝트 `.venv`와 별도 `external/cvdp-venv`를 Python 3.12로 준비합니다.
 호스트에 simulator나 Python 패키지를 전역 설치하지 않습니다.
@@ -37,8 +43,8 @@ python3 scripts/dev.py setup --offline          # 검증된 소스/데이터/이
 # 명시적 플랫폼을 선택하는 경우 이후 명령에도 같은 값을 사용:
 python3 scripts/dev.py setup --platform linux/arm64
 python3 scripts/dev.py smoke --platform linux/arm64
-# 실제 endpoint와 AGENT_OPT_MODEL_API_KEY를 셸에 설정한 뒤:
-export AGENT_OPT_MODEL_ENDPOINT=https://model.example/v1/chat/completion
+# 실제 기본 URL과 AGENT_OPT_MODEL_API_KEY를 셸에 설정한 뒤:
+export AGENT_OPT_MODEL_BASE_URL=https://model.example/v1
 export AGENT_OPT_MODEL_ID=glm5.3-flash
 python3 scripts/dev.py doctor --model           # 호스트 API + 컨테이너 OpenCode 실제 도구 호출
 python3 scripts/dev.py live --iterations 3      # 기본 3회 수정; 1..20 범위
@@ -60,8 +66,8 @@ registry 이름으로 해석될 수 있으므로 사용하지 않습니다. Dock
 setup/offline/smoke·provider config 재검증은 통과했습니다. 첫 FROM 참조 실패와 수정 후 정답·오답
 근거는 [최종 검증 기록](../../docs/verification.md#2026-09-20-native-ubuntu-repeat--passed)에 보존합니다.
 
-`AGENT_OPT_MODEL_ENDPOINT`는 완전한 completion URL을 그대로 사용합니다. 표준 경로이면 대신
-`AGENT_OPT_MODEL_BASE_URL`을 지정하고 `/chat/completions`를 붙입니다. 둘을 동시에 지정하면 오류입니다.
+`AGENT_OPT_MODEL_BASE_URL` 뒤에 `/chat/completions`를 붙여 사용합니다. 전체 completion URL을
+설정하거나 기존 `AGENT_OPT_MODEL_ENDPOINT`를 사용하면 오류가 납니다.
 `AGENT_OPT_MODEL_API_KEY`는 Bearer 토큰, `AGENT_OPT_MODEL_ID`는 기본 `glm5.3-flash`를 덮어씁니다.
 `live`는 main/small 모델을 모두 `compatible/<AGENT_OPT_MODEL_ID>`로 설정합니다. API 오류는 중단하며 대체 모델을 호출하지 않습니다.
 이미지의 `compatible.json`과 dependency-free endpoint plugin이 스트리밍/도구 호출을 유지하며 URL만 연결합니다.

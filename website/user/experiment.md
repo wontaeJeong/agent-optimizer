@@ -8,9 +8,8 @@
 ## Agent와 실행 범위
 
 - 로컬 소스는 `--agent <로컬 Agent 경로>`, 외부 소스는 `--agent <Git URL> --revision <전체 commit SHA>`로 고정합니다. 원본은 수정하지 않고 스냅샷에서 후보를 만듭니다.
-- `command` 하네스의 실행은 `--command 'python3 agent.py --input {task_dir}'`처럼 적거나,
-  기존 `--command-json '["python3","agent.py","--input","{task_dir}"]'`을 사용합니다.
-  두 입력은 argv 배열로 저장하며 셸 변수 확장·파이프·리다이렉션을 실행하지 않습니다.
+- `command` 하네스의 실행은 `--command 'python3 agent.py --input {task_dir}'`처럼 적습니다.
+  인용을 분리한 argv 배열로 저장하며 셸 변수 확장·파이프·리다이렉션을 실행하지 않습니다.
   OpenCode 등 자체 실행 하네스에는 명령을 전달하지 않습니다. ACE-RTL은 준비된
   `examples/ace-rtl/experiment.toml`의 하네스 프로필을 재사용합니다.
 - `--editable configs/strategy.json`은 실제로 바꿀 수 있는 파일만 적습니다. 허용 범위 밖 파일, 테스트, 평가 기준은 Optimizer가 수정할 수 없습니다. 지침 파일을 쓰는 경우 `--prompt-file`도 지정할 수 있습니다.
@@ -31,7 +30,7 @@
 
 `--optimizer baseline`으로 연결을 확인한 다음 필요하면 `--optimizer gepa --optimizer meta_harness`처럼 여러 독립 stage를 지정합니다. GEPA·Meta-Harness·Ecdysis는 저장소의 **자체 구현**이며 논문 실험을 그대로 재현한 것은 아닙니다. 각 stage는 공통 baseline에서 출발합니다.
 
-모델을 사용하는 구성에는 `AGENT_OPT_MODEL_BASE_URL` **또는** `AGENT_OPT_MODEL_ENDPOINT` 중 하나와 `AGENT_OPT_MODEL_API_KEY`를 환경 또는 credential store에 설정합니다. `AGENT_OPT_MODEL_ID`를 생략하면 `glm5.3-flash`가 사용됩니다. OpenCode 하네스의 `AGENT_OPT_MODEL` 선택자는 별도 설정입니다. 키를 실험 설정이나 Git에 저장하지 마세요. 모델 없는 합성 예제에는 필요하지 않습니다.
+모델을 사용하는 구성에는 `AGENT_OPT_MODEL_BASE_URL`(기본 URL; `/chat/completions` 제외)과 `AGENT_OPT_MODEL_API_KEY`를 환경 또는 credential store에 설정합니다. TUI에서는 값이 없을 때 URL·모델 ID·키를 현재 세션에만 묻습니다. `AGENT_OPT_MODEL_ID`를 생략하면 `glm5.3-flash`가 사용됩니다. OpenCode 하네스의 `AGENT_OPT_MODEL` 선택자는 별도 설정입니다. 키를 실험 설정이나 Git에 저장하지 마세요. 모델 없는 합성 예제에는 필요하지 않습니다.
 
 ## 실행 전에 확인
 

@@ -5,4 +5,4 @@ model_env = "AGENT_OPT_MODEL"
 kind = "docker"
 image = "agent-optimizer-opencode:1.18.31-amd64"
 network = "bridge"
-env_passthrough = ["AGENT_OPT_MODEL_ENDPOINT", "AGENT_OPT_MODEL_BASE_URL", "AGENT_OPT_MODEL_API_KEY", "AGENT_OPT_MODEL_ID", "AGENT_OPT_MODEL", "OPENCODE_CONFIG"]
+env_passthrough = ["AGENT_OPT_MODEL_BASE_URL", "AGENT_OPT_MODEL_API_KEY", "AGENT_OPT_MODEL_ID", "AGENT_OPT_MODEL", "OPENCODE_CONFIG"]

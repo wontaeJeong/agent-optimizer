@@ -109,8 +109,8 @@ class AceDemoTests(unittest.TestCase):
             self.assertFalse((root / "external").exists())
 
     def test_lifecycle_requires_model_auth_before_environment_probes(self):
-        with patch.dict(os.environ, {"AGENT_OPT_MODEL_ENDPOINT": "https://example.invalid/chat/completion",
-                                  "AGENT_OPT_MODEL_API_KEY": "", "AGENT_OPT_MODEL_BASE_URL": ""}, clear=True), \
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1",
+                                  "AGENT_OPT_MODEL_API_KEY": ""}, clear=True), \
                 patch.object(lifecycle, "inspect", side_effect=AssertionError("probed Docker before key")):
             with self.assertRaisesRegex(UnavailableError, "blocked_auth"):
                 lifecycle.run(ROOT)
