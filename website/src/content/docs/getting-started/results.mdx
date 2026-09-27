@@ -1,0 +1,57 @@
+---
+title: 결과 읽기
+description: 7-trial 합성 데모 보고서의 상태와 validation 비교를 확대해 보고 원본 기록과 파생 파일을 구별합니다.
+---
+
+import report from '../../../assets/report-fixture.png';
+
+`run`이 출력한 `run_dir`에서 HTML 보고서(`report.html`)를 엽니다. 아래 이미지는 [첫 실행](/agent-optimizer/getting-started/first-run/)의 기본 **7-trial 합성 데모** 캡처입니다. 선택형 `guide-fixture`의 **2-trial 결과와는 다른 실행**입니다. 실행 ID·시간은 다시 실행할 때 달라집니다.
+
+## 7-trial 보고서에서 먼저 확인할 곳
+
+### 1. 상태·예산
+
+완료 상태와 `synthetic fixture` 표시, 그룹 2개, 완료된 평가 7개, 예약 예산인 `trials_used: 7`을 확인합니다. `trial_completed`는 평가 기록의 종료이지 성공 판정이 아닙니다.
+
+<figure class="report-figure">
+  <div class="report-excerpt report-excerpt--summary" role="group" tabIndex={0} aria-label="7-trial 합성 보고서의 상단: 상태·예산·그룹 현황. 영역 안을 좌우로 스크롤할 수 있습니다.">
+    <img src={report.src} width="1440" height="900" alt="합성 데모 보고서 상단: completed, synthetic fixture, Agent × Harness 2개 그룹과 trials used 7" loading="lazy" />
+  </div>
+  <figcaption>7-trial 합성 데모의 상단 발췌. 작은 화면에서는 이미지 안을 좌우로 밀어 원본 글자 크기로 읽으세요.</figcaption>
+</figure>
+
+### 2. 같은 그룹의 validation 비교
+
+baseline과 선택된 후보의 **validation 집계**는 **동일 Agent × Harness 그룹 안에서만** 비교합니다. 아래 발췌는 `rtl-solo/fixture`의 기준 검증 `solve_rate` 0.000 → 선택 검증 1.000입니다. 테스트 성능이나 실제 모델 성능을 뜻하지 않습니다.
+
+<figure class="report-figure">
+  <div class="report-excerpt report-excerpt--comparison" role="group" tabIndex={0} aria-label="7-trial 합성 보고서의 validation 비교. 영역 안을 좌우로 스크롤할 수 있습니다.">
+    <img src={report.src} width="1440" height="900" alt="rtl-solo/fixture 그룹의 합성 validation 비교: baseline 0.000, selected 1.000" loading="lazy" />
+  </div>
+  <figcaption>같은 7-trial 합성 실행의 validation 비교 발췌. 다른 데이터셋·평가기 점수는 함께 순위화하지 않습니다.</figcaption>
+</figure>
+
+<a href={report.src} target="_blank" rel="noopener noreferrer">1440 × 900 원본 보고서 캡처 열기 (새 탭)</a>. 이 이미지는 저장된 실제 합성 fixture 보고서의 복사본이며 외부 Agent 개선의 증거가 아닙니다.
+
+### 3. 선택·실패·사용량
+
+Optimizer는 **train** 결과만 수정 근거로 사용하고 **validation** 수치로 후보를 고릅니다. 선택을 고정한 뒤에만 설정된 최종 **test**를 실행합니다. 후보 변경·실패 원인·재현 정보도 보고서에서 살피세요. 미수집 지표는 `null`, 관측된 partial 사용량은 전체 Agent 사용량이 아닙니다.
+
+## 같은 실행 폴더의 파일
+
+| 파일 | 구분 | 확인할 내용 |
+|---|---|---|
+| `summary.json` | 실행 기록 | 상태, 그룹별 기준/선택/최종 테스트, 예약 `trials_used`; `agent-opt report RUN`의 출력 |
+| `events.jsonl`, `manifest.json` | 실행 기록 | 시간순 이벤트·평가/선택 근거, 설정·소스·출처 |
+| `candidates/*/changes.diff` | 실행 기록 | 후보의 허용 파일 변경 |
+| `report.html` | 파생 보고서 | 브라우저에서 여는 독립형 그룹 비교·추이·과제·실패 화면 |
+| `report.md` | 파생 보고서 | 같은 보고서 모델을 텍스트로 공유·검토 |
+| `report.json` | 파생 보고서 | 원본 요약·이벤트로 정규화한 시각화/후처리용 스키마 v2; 원본 선택 근거의 대체물이 아님 |
+
+이미 저장된 실행의 보고서 파일을 다시 만들 때만 `.venv/bin/agent-opt report "runs/<run-id>" --html`을 사용합니다. `<run-id>`를 **출력된 실제 값으로 바꾸세요.** 이 명령은 채점을 다시 하지 않습니다.
+
+:::caution[합성 수치 해석]
+첫 실행의 fixture 점수는 연결 확인용입니다. 점수가 올라도 실제 모델이나 외부 Agent 성능 향상은 입증되지 않습니다. 실환경 결과는 선택한 Agent·데이터셋·모델·평가기·예산과 실행 근거를 함께 기록하세요.
+:::
+
+다음 단계: 자신의 과제를 연결하려면 [실험 구성](/agent-optimizer/guides/experiment/)으로 이동하세요.

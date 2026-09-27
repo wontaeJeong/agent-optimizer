@@ -1,0 +1,88 @@
+:root {
+  --sl-content-width: 56rem;
+}
+
+.sl-markdown-content {
+  line-height: 1.75;
+}
+
+.sl-markdown-content > p:has(> img[src*="diagram-"]) {
+  max-width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 0.5rem;
+  background: #f5f8fb;
+}
+
+.sl-markdown-content > p > img[src*="diagram-"] {
+  display: block;
+  width: 100%;
+  max-width: 760px;
+  height: auto;
+}
+
+.sl-markdown-content table,
+.sl-markdown-content pre {
+  max-width: 100%;
+}
+
+.sl-link-card .title {
+  overflow-wrap: anywhere;
+}
+
+@media (min-width: 50rem) {
+  .card-grid > :nth-child(3):last-child {
+    grid-column: 1 / -1;
+  }
+}
+
+.report-figure {
+  margin-inline: 0;
+}
+
+.report-excerpt {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border: 1px solid var(--sl-color-gray-5);
+  border-radius: 0.5rem;
+  background: #f5f8fb;
+}
+
+.report-excerpt:focus-visible {
+  outline: 3px solid var(--sl-color-text-accent);
+  outline-offset: 3px;
+}
+
+.report-excerpt img {
+  display: block;
+  max-width: none;
+  width: 1440px;
+  height: 900px;
+}
+
+.report-excerpt--summary {
+  height: 495px;
+}
+
+.report-excerpt--comparison {
+  height: 395px;
+}
+
+.report-excerpt--comparison img {
+  margin-top: -505px;
+}
+
+.report-figure figcaption {
+  margin-block-start: 0.65rem;
+  color: var(--sl-color-gray-2);
+  font-size: var(--sl-text-sm);
+}
+
+@media (max-width: 50rem) {
+  .sl-markdown-content > p > img[src*="diagram-"] {
+    width: 760px;
+    max-width: none;
+  }
+}

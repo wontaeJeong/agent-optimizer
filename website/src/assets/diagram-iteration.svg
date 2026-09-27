@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" viewBox="0 0 760 345">
+  <title id="title">train 탐색과 validation 후보 선택의 반복</title>
+  <desc id="desc">공통 baseline에서 각 독립 Optimizer stage의 train 과제를 실행하고 Evaluator의 train 채점 결과로 다음 후보를 제안한다. 허용된 파일만 바꾼 후보를 다시 train에서 평가한다. validation 수치는 후보 비교와 stage 승자 선정에 쓰지만 비공개 자료나 test 결과는 수정 근거에 들어가지 않는다.</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto" markerUnits="userSpaceOnUse"><path d="M0 0 L10 5 L0 10 Z" fill="#245d73"/></marker><style>.bg{fill:#f5f8fb}.box{fill:#fff;stroke:#31566b;stroke-width:2}.train{fill:#e1f4fa}.select{fill:#e9f3e9}.label{font:600 16px system-ui,sans-serif;fill:#142b3b}.small{font:14px system-ui,sans-serif;fill:#263b49}.edge{fill:none;stroke:#245d73;stroke-width:2.5;marker-end:url(#arrow)}</style></defs>
+  <rect class="bg" width="760" height="345" rx="12"/>
+  <path class="edge" d="M170 89 H213"/><path class="edge" d="M361 89 H404"/><path class="edge" d="M553 89 H593"/>
+  <path class="edge" d="M668 122 V196 H570 V269 H551"/><path class="edge" d="M404 269 H361"/><path class="edge" d="M477 234 V173 H287 V122"/>
+  <path class="edge" d="M286 303 V323 H666 V303"/>
+  <rect class="box" x="20" y="56" width="150" height="66" rx="9"/><text class="label" x="36" y="94">공통 baseline</text>
+  <rect class="box train" x="213" y="56" width="148" height="66" rx="9"/><text class="label" x="235" y="94">train 과제 실행</text>
+  <rect class="box train" x="404" y="56" width="149" height="66" rx="9"/><text class="label" x="429" y="82">Evaluator</text><text class="small" x="429" y="103">train 결과</text>
+  <rect class="box train" x="593" y="56" width="150" height="66" rx="9"/><text class="label" x="607" y="94">선택 Optimizer</text>
+  <rect class="box train" x="404" y="234" width="147" height="69" rx="9"/><text class="label" x="421" y="263">후보 Agent</text><text class="small" x="421" y="286">editable만 변경</text>
+  <rect class="box select" x="211" y="234" width="150" height="69" rx="9"/><text class="label" x="226" y="263">validation 수치</text><text class="small" x="231" y="286">후보 비교</text>
+  <rect class="box select" x="593" y="234" width="150" height="69" rx="9"/><text class="label" x="611" y="263">stage별 승자</text><text class="small" x="600" y="286">최종 후보 선택</text>
+  <text class="small" x="27" y="202">각 stage는 baseline·자기 train 이력만 사용</text>
+</svg>
