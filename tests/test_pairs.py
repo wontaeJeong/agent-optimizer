@@ -8,8 +8,10 @@ from agent_optimizer import config
 from agent_optimizer.cli import main
 from agent_optimizer.config import load_experiment
 from agent_optimizer.contracts import ConfigurationError, OptimizationResult
+from agent_optimizer.harnesses.command import FixtureHarness
 from agent_optimizer.registry import Registry
 from agent_optimizer.runner import GroupRunner, preflight, run_experiment
+from agent_optimizer.workspace import digest
 
 from support import test_project
 
@@ -138,6 +140,10 @@ class PairSelectionTests(unittest.TestCase):
                           for row in json.loads((run / "report.json").read_text())["groups"]], expected)
 
     def test_declared_matrix_runs_and_persists_only_ordered_pairs(self):
+        origins = {"rtl-team": ("team", b"team snapshot origin\n"),
+                   "rtl-solo": ("solo", b"solo snapshot origin\n")}
+        for directory, marker in origins.values():
+            (self.example / "agents" / directory / "configs/pair-origin.txt").write_bytes(marker)
         spec = self.load(self.limited(self.sparse, 8))
         expected = [("rtl-team", "fixture-alt"), ("rtl-solo", "fixture")]
         code, plan = self.plan()
@@ -153,7 +159,32 @@ class PairSelectionTests(unittest.TestCase):
             {"agent": "rtl-team", "harness": "fixture-alt"},
             {"agent": "rtl-solo", "harness": "fixture"},
         ])
-        self.assertEqual({agent["id"] for agent in manifest["agents"]}, {"rtl-solo", "rtl-team"})
+        self.assertEqual({agent["id"] for agent in manifest["agents"]}, set(origins))
+        locks = {agent["id"]: agent for agent in manifest["agents"]}
+        self.assertEqual(len(locks), 2)
+        for agent_id, (directory, marker) in origins.items():
+            source = self.example / "agents" / directory
+            bundle = run / "sources" / agent_id / "bundle"
+            lock = json.loads((run / "sources" / agent_id / "source-lock.json").read_text())
+            original_files = {
+                path.relative_to(source).as_posix(): (path.read_bytes(), path.stat().st_mode & 0o111)
+                for name in ("configs", "overlays", "prompts", "src")
+                for path in (source / name).rglob("*") if path.is_file()
+            }
+            snapshot_files = {path.relative_to(bundle).as_posix():
+                              (path.read_bytes(), path.stat().st_mode & 0o111)
+                              for path in bundle.rglob("*") if path.is_file()}
+            self.assertEqual(snapshot_files, original_files)
+            self.assertEqual(snapshot_files["configs/pair-origin.txt"][0], marker)
+            self.assertEqual(lock["agent_id"], agent_id)
+            self.assertEqual(lock["path"], str(source.resolve()))
+            self.assertEqual(locks[agent_id]["path"], str(source.resolve()))
+            self.assertEqual(locks[agent_id]["content_hash"], lock["content_hash"])
+            self.assertEqual(locks[agent_id]["content_hash"], digest(bundle))
+            harness_id = next(harness for owner, harness in expected if owner == agent_id)
+            self.assertEqual(digest(run / agent_id / harness_id / "candidates/c0001/bundle"),
+                             locks[agent_id]["content_hash"])
+        self.assertNotEqual(locks["rtl-team"]["content_hash"], locks["rtl-solo"]["content_hash"])
         saved = json.loads((run / "summary.json").read_text())
         self.assertEqual(saved["planned_groups"], 2)
         self.assertEqual([(row["agent_id"], row["harness_id"]) for row in saved["groups"]], expected)
@@ -162,6 +193,71 @@ class PairSelectionTests(unittest.TestCase):
         events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
         self.assertEqual({(row["agent_id"], row["harness_id"]) for row in events
                           if row["event"] == "trial_completed"}, set(expected))
+        self.assertFalse((run / "rtl-team" / "fixture").exists())
+        self.assertFalse((run / "rtl-solo" / "fixture-alt").exists())
+        self.assertTrue((run / "report.html").is_file())
+
+    def test_later_selected_harness_failure_preserves_only_selected_group_evidence(self):
+        spec = self.load(self.limited(self.sparse, 8))
+
+        class FailingSecondHarness(FixtureHarness):
+            def run(self, request):
+                if request.profile["id"] == "fixture":
+                    raise RuntimeError("second selected harness failed")
+                return super().run(request)
+
+        registry = Registry()
+        registry.factories["harnesses"]["fixture"] = FailingSecondHarness
+        with self.assertRaisesRegex(RuntimeError, "second selected harness failed"):
+            run_experiment(spec, registry, self.root / "runs")
+
+        run, = (self.root / "runs").iterdir()
+        summary = json.loads((run / "summary.json").read_text())
+        report = json.loads((run / "report.json").read_text())
+        manifest = json.loads((run / "manifest.json").read_text())
+        events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
+        selected = [("rtl-team", "fixture-alt"), ("rtl-solo", "fixture")]
+
+        self.assertEqual(summary["status"], "error")
+        self.assertEqual(summary["error_type"], "RuntimeError")
+        self.assertEqual(summary["planned_groups"], 2)
+        self.assertEqual(summary["trials_used"], 4)
+        first, second = summary["groups"]
+        self.assertEqual([(row["agent_id"], row["harness_id"]) for row in summary["groups"]], selected)
+        self.assertEqual((first["status"], first["trial_count"]), ("completed", 3))
+        self.assertIsNotNone(first["baseline"])
+        self.assertTrue(first["selected"])
+        self.assertTrue(first["final_test"])
+        self.assertEqual((second["status"], second["trial_count"]), ("error", 1))
+        self.assertIsNone(second["baseline"])
+        self.assertEqual(second["stages"], [])
+        self.assertEqual(second["selected"], [])
+        self.assertEqual(second["final_test"], [])
+        self.assertEqual({agent["id"] for agent in manifest["agents"]}, {"rtl-team", "rtl-solo"})
+        self.assertEqual([(row["agent_id"], row["harness_id"]) for row in report["groups"]], selected)
+        self.assertEqual(report["identity"]["status"], "error")
+        self.assertEqual(report["counts"]["groups"], 2)
+        self.assertEqual(report["counts"]["evaluations"], 4)
+        self.assertEqual(report["groups"][0]["selected"], first["selected"])
+        self.assertEqual(report["groups"][1]["baseline"], None)
+        self.assertEqual(report["groups"][1]["selected"], [])
+        failed, = report["groups"][1]["evaluations"]
+        self.assertEqual((failed["status"], failed["valid"]), ("error", False))
+        self.assertIsNone(failed["metrics"]["passed"])
+        self.assertEqual(failed["failure"]["category"], "run_error")
+
+        trials = [row for row in events if row["event"] == "trial_completed"]
+        self.assertEqual([(row["agent_id"], row["harness_id"]) for row in trials],
+                         [selected[0]] * 3 + [selected[1]])
+        self.assertEqual((trials[-1]["status"], trials[-1]["valid"]), ("error", False))
+        self.assertIsNone(trials[-1]["metrics"]["passed"])
+        self.assertFalse(any(row["event"] == "candidate_evaluated" and
+                             (row["agent_id"], row["harness_id"]) == selected[1] for row in events))
+        self.assertEqual(events[-1]["event"], "error")
+        self.assertEqual({(row["agent_id"], row["harness_id"]) for row in events
+                          if "agent_id" in row and "harness_id" in row}, set(selected))
+        result = run / "rtl-solo" / "fixture" / "trials" / trials[-1]["trial_id"] / "result.json"
+        self.assertEqual(json.loads(result.read_text())["valid"], False)
         self.assertFalse((run / "rtl-team" / "fixture").exists())
         self.assertFalse((run / "rtl-solo" / "fixture-alt").exists())
         self.assertTrue((run / "report.html").is_file())
