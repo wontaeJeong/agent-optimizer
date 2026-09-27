@@ -24,7 +24,7 @@ wheel 단독 설치에서 로컬 Agent·사용자 데이터셋/명시적 evaluat
 
 | 기능 | 현재 범위 / 근거 |
 |---|---|
-| 복수 Agent × Harness | 모든 호환 조합 순차 실행, 그룹별 버전·계보·결과. 임의 pair matrix/내부 sub-agent 자동 관리는 없음 |
+| 복수 Agent × Harness | `[[pairs]]` 생략 시 Agent 우선 전체 곱, 명시 시 선언 순서대로 선택한 쌍만 순차 실행. 알 수 없는 ID·중복·미지원·미사용 선언 거부, 그룹별 버전·계보·결과. 내부 sub-agent 자동 관리는 없음 |
 | 복수 독립 Optimizer | 명시적 파일 등록, stage마다 baseline 시작. stage-local train history, 공유 baseline cache. 기본 최종 비교는 모든 stage winner |
 | 평가·선택 | train-only 탐색, validation 선택 고정 후 test. lexicographic keep=1, mean/sum, custom evaluator metrics |
 | 원본·평가 경계 | 고정 Git/local snapshot, editable·후보 변조 검사, private 평가 분리. local/in-process plugin은 OS 격리 아님 |
@@ -66,6 +66,9 @@ native `ace_agent_runner.py`/`ace_cvdp_native_runner.py`의 자체 역할·반�
 
 - **현재 로컬 계약 검증:** copied Harness의 실제 fixture 실행과 파일 fingerprint, 원본 stub 실패,
   여러 독립 Optimizer/Agent의 history·선택·usage를 검사한다. API-free 회귀는 외부 CLI/모델 성공이 아니다.
+- **2026-09-27 선택 쌍 계약 검증:** 두 Agent×두 fixture 프로필에서 생략 시 4그룹, 명시 시 2그룹의
+  plan/doctor 예산·실행 그룹·원본 manifest를 대조했다. 새 fixture 프로필은 테스트 임시 프로젝트에서
+  생성했으며 API-free 계약 결과는 실제 외부 Agent/모델 성능 근거가 아니다.
 - **과거 실환경 근거:** `10baa46`의 native Ubuntu 공식 통합, `ed4fea4`의 Python 3.11/3.12 및
   공식 Docker/SSE-tool fixture, 온보딩 검증을 [날짜별 기록](verification.md)에 유지한다.
   그 당시 9-trial minimal 기록은 당시 결과이며 현재 7-trial 경로로 소급 수정하지 않는다.

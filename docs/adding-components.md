@@ -95,6 +95,28 @@ metadata·경로·hash·스냅샷 변조는 cache 반환 전에도 거부합니�
 ## Harness
 
 [전체 복사 배선](../experiments/harness-template/README.md)은 Agent/프로필/experiment와 public fixture를 포함합니다.
+실험의 `agents`/`harnesses`만 선언하면 Agent 우선 순서로 전체 곱을 실행합니다. 필요한 쌍만 실행하려면
+experiment TOML에 선택 목록을 추가하세요(각 선언된 Agent·프로필은 적어도 한 쌍에 포함):
+
+```toml
+agents = ["examples/minimal/solo.toml", "examples/minimal/team.toml"]
+harnesses = ["examples/minimal/harness.toml", "experiments/my-team/fixture-alt.toml"]
+
+[[pairs]]
+agent = "rtl-solo"
+harness = "fixture"
+
+[[pairs]]
+agent = "rtl-team"
+harness = "fixture-alt"
+```
+
+`experiments/my-team/fixture-alt.toml`은 저장소에 포함된 파일이 아니라 사용자가 미리 작성한 프로필
+(`id = "fixture-alt"`, `adapter = "fixture"`)입니다. `agent`는 manifest의 ID, `harness`는
+**프로필의 ID**이지 adapter ID나 파일 경로가 아닙니다. 알 수 없는 ID·중복·지원하지 않는 adapter 조합·
+사용하지 않는 Agent/프로필은 거부됩니다. `plan`의 matrix, `doctor --plan`의 예산 검사와 `run`은
+같은 선택을 사용하며, CLI 옵션과 TUI wizard 질문은 바뀌지 않습니다. TUI에서는 기존 실험 경로로 선택합니다.
+
 `run(request: RunRequest) -> ExecutionResult`: `agent_dir`는 후보, `task_dir`는 공개 입력/산출물입니다.
 private 평가 자산은 전달하지 않습니다. 실제 산출물을 task_dir에 쓰고 관측 지표를 반환하세요.
 단순 CLI는 command adapter의 argv를 사용합니다: `{python}`, `{agent_dir}`, `{task_dir}`, `{request_file}`, `{seed}`.

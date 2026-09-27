@@ -1,6 +1,7 @@
 # 보류 기능과 복원 조건
 
-현재 MVP는 여러 Agent × 호환 Harness와 여러 **독립 Optimizer**(내장/등록 팀 파일)를 지원한다.
+현재 MVP는 여러 Agent × Harness의 기본 전체 곱과 실험별 `[[pairs]]` 선택,
+여러 **독립 Optimizer**(내장/등록 팀 파일)를 지원한다.
 baseline-only stage, stage-local train history, 모든 stage winner의 기본 비교,
 lexicographic keep=1·mean/sum을 먼저 검증한다. 아래 기능을 켜는 experimental flag는 없다.
 
@@ -26,6 +27,6 @@ stored-result rerank, 설치 entry-point 자동 발견은 보류했다.
 - **native ACE:** 현재 OpenCode 스킬 프로필과 별도다. 원본 runner/wrapper·의존성·모델/내부 반복 예산,
   private 평가와 피드백 책임, timeout/정리/사용량 및 실제 역할 호출 증거가 필요하다.
 - **새 전용 Harness / 연구 알고리즘:** 정확한 대상·고정 버전·공통 계약·실환경 증거를 확보한 팀이 구현한다.
-- **엄격한 비용/호출 상한, 임의 Agent/Harness pair matrix, 삭제/바이너리 변경:** 구체적 요구가 생긴 뒤 설계한다.
+- **엄격한 비용/호출 상한, 삭제/바이너리 변경:** 구체적 요구가 생긴 뒤 설계한다.
 
 당장 할 일은 [NEXT_STEPS](NEXT_STEPS.md)의 코어 fixture → 팀 플러그인 경로다.
