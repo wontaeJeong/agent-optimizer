@@ -19,7 +19,7 @@ import typer
 from typer._click import ClickException
 from typer._click.core import Abort, Exit
 
-from agent_optimizer.config import load_agent, load_experiment
+from agent_optimizer.config import load_agent, load_experiment, selected_pairs
 from agent_optimizer.catalog import DATASETS as CATALOG_DATASETS
 from agent_optimizer.contracts import ConfigurationError, UnavailableError, jsonable
 from agent_optimizer.runner import preflight, run_experiment
@@ -733,7 +733,7 @@ def _dispatch(args):
             except UnavailableError as exc:
                 available, detail = False, str(exc)
             show({"valid": True, "integrations_ready": available, "detail": detail,
-                  "matrix": [{"agent": a.id, "harness": h["id"]} for a in spec["_agents"] for h in spec["_profiles"]],
+                  "matrix": [{"agent": a.id, "harness": h["id"]} for a, h in selected_pairs(spec)],
                   "sources": {a.id: a.source for a in spec["_agents"]},
                   "stages": spec.get("stages", []), "objective": spec["objective"],
                   "tasks_by_split": {s: sum(t.split == s for t in spec["_tasks"]) for s in ["train", "validation", "test"]},
