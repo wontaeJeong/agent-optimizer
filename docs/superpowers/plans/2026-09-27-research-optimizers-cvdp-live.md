@@ -15,7 +15,7 @@
 - 전용 `.worktrees/research-live-eval`, branch `test/research-live-eval`. 기본 checkout `main`을 수정하지 않으며 `origin/main`을 갱신한 뒤 필요하면 아직 게시하지 않은 브랜치만 선형 통합한다.
 - 세 연구 알고리즘은 코어의 자체 구현을 사용한다. GEPA `prompts/system.md`, Meta-Harness/Ecdysis `src/agent.py`를 실제 후보 스냅샷에서 변경한다. stage는 baseline에서 독립 시작, train 근거만 mutation에 사용한다.
 - 사용자가 명시적으로 선택한 CVDP 고정 입력의 공개 단일 RTL target을 가진 train 2 family·validation 1 family만 사용한다. 공식 private 평가 기준/파일·upstream SHA는 변경하지 않는다. final_test=false.
-- GEPA iterations=1/max_trials=5, Meta-Harness iterations=1/max_trials=4, Ecdysis rounds=1/max_trials=4; 실험 max_trials=16/max_wall_time_seconds=3600/trial_timeout_seconds=180, 모델 요청 60초 이내. 예산을 소진하면 추가 API 호출 전에 중단하고 기록한다.
+- GEPA iterations=1/max_trials=5, Meta-Harness iterations=1/max_trials=4, Ecdysis rounds=1/max_trials=4; 실험 max_trials=16/max_wall_time_seconds=3600/trial_timeout_seconds=180, Agent 모델 요청 120초/Optimizer 제안·검토 요청 60초 이내. 예산을 소진하면 추가 API 호출 전에 중단하고 기록한다.
 - Agent DeepSeek 연결은 예제 전용 `DEMO_AGENT_MODEL_BASE_URL`/`_ID`/`_API_KEY`, Optimizer OpenAI 연결은 `AGENT_OPT_MODEL_BASE_URL`/`_ID`/`_API_KEY`에만 둔다. `.env` 자동 로딩·키 argv/코드/보고서 저장 금지. 실제 성능 향상·native ACE·외부 팀 Agent 효과를 주장하지 않는다.
 - 시작 전 API-free 회귀, 실제 CVDP 준비/doctor/smoke를 분리하고 한 번의 승인된 최대 16 trial 실실행 결과만 실환경 증거로 표시한다. 다른 데이터셋을 자동 추천·선택하지 않는다.
 
@@ -44,7 +44,7 @@
 - Produces: `python agent/src/agent.py <task_dir>`가 선언된 `task/rtl/*.v|*.sv`만 쓰고 실행 코드 SHA를 비밀 없는 stdout으로 기록. `ModelRTLCommand(CommandHarness)`는 모델 인증·전송 오류 표시만 `infrastructure_error`로 분리.
 
 - [ ] **Step 1: 환경 준비·RED.** `make setup-core`로 이 worktree의 `.venv`와 합성 데모를 만든다. 임시 task 디렉터리(비어 있는 `rtl/example.sv`)와 실제 `request.json`을 준비해 Python subprocess가 공개 prompt의 `Write target files: rtl/example.sv`를 소비하는 테스트를 작성한다. 표준 `http.server` 로컬 fixture가 `/v1/chat/completions`의 `model`/`messages`/Bearer 요청을 받았는지 확인하고, 공개 RTL만 응답한다. DEMO 모델 변수 누락/인증 오류는 `ModelRTLCommand.run`에서 `infrastructure_error`·`passed=None`이어야 한다. 경로 이탈, 선언에 없는 출력, 빈/비문자 모델 응답, 잘못된 status는 성공 파일/유효한 공식 점수로 변환하지 않아야 한다. 원본 `agent/src/agent.py`, 공개 파일, private 형식의 바깥 파일 hash 보존도 검사한다. `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_model_rtl_agent.py -v`가 구현 부재로 실패하는지 확인한다.
-- [ ] **Step 2: 최소 구현.** 실제 `src/agent.py`는 최상위 `def main()`과 `if __name__ == "__main__": main()`을 제공한다(Meta-Harness의 required_symbol). `Path(sys.argv[1])`, `Path.cwd()/request.json`과 요청의 공개 `prompt`만 읽는다. 반환된 모델 콘텐츠는 RTL target 하나에 대한 전체 텍스트로 취급하고, target 두 개 이상일 때는 단일 텍스트를 임의 복제하지 말고 명시적으로 거부한다. `safe_path`로 task_dir 이탈/symlink를 거부하고 모델 호출 전 정확한 공개 target 존재를 검사한다. `ModelSettings.from_env`에 예제 전용 환경을 복사해 넣어 `complete(messages, settings=settings, timeout=60)`로 호출한다. target 파일에 쓰기 전 응답 형태를 확인하고 stdout에는 실행 파일 SHA, 공개 상대 target과 모델 ID만 JSON으로 출력한다.
+- [ ] **Step 2: 최소 구현.** 실제 `src/agent.py`는 최상위 `def main()`과 `if __name__ == "__main__": main()`을 제공한다(Meta-Harness의 required_symbol). `Path(sys.argv[1])`, `Path.cwd()/request.json`과 요청의 공개 `prompt`만 읽는다. 반환된 모델 콘텐츠는 RTL target 하나에 대한 전체 텍스트로 취급하고, target 두 개 이상일 때는 단일 텍스트를 임의 복제하지 말고 명시적으로 거부한다. `safe_path`로 task_dir 이탈/symlink를 거부하고 모델 호출 전 정확한 공개 target 존재를 검사한다. `ModelSettings.from_env`에 예제 전용 환경을 복사해 넣어 `complete(messages, settings=settings, timeout=120)`로 호출한다. target 파일에 쓰기 전 응답 형태를 확인하고 stdout에는 실행 파일 SHA, 공개 상대 target과 모델 ID만 JSON으로 출력한다.
 
 ```python
 agent_env = {"AGENT_OPT_MODEL_BASE_URL": os.environ.get("DEMO_AGENT_MODEL_BASE_URL", ""),
@@ -53,7 +53,7 @@ agent_env = {"AGENT_OPT_MODEL_BASE_URL": os.environ.get("DEMO_AGENT_MODEL_BASE_U
 settings = ModelSettings.from_env(agent_env)
 reply = complete([{"role": "system", "content": system_prompt},
                   {"role": "user", "content": public_task_prompt}],
-                 settings=settings, timeout=60)
+                 settings=settings, timeout=120)
 text = reply["choices"][0]["message"]["content"]
 ```
 

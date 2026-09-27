@@ -4,11 +4,13 @@ import hashlib
 import json
 import os
 import shutil
+import subprocess
 import threading
 import unittest
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
 from dataclasses import replace
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
@@ -20,7 +22,7 @@ from agent_optimizer.results import EventStore
 from agent_optimizer.runner import Budget, GroupRunner
 from agent_optimizer.sources import materialize_agent
 from agent_optimizer.workspace import CandidateStore, copy_tree
-from support import ROOT
+from support import ROOT, module
 
 
 EXAMPLE = ROOT / "examples/model-rtl-agent"
@@ -161,6 +163,33 @@ class ModelRTLAgentTests(unittest.TestCase):
         self.assertEqual(output["agent_sha256"], hashlib.sha256(changed_code.encode()).hexdigest())
         self.assertNotEqual(output["agent_sha256"], self.original_sha)
         self.assertEqual((self.task / "rtl/example.sv").read_text(), RTL)
+        self.assert_untouched()
+
+    def test_agent_worker_deadline_is_120_and_timeout_leaves_target_empty(self):
+        request = self.request()
+        (self.workspace / "request.json").write_text(json.dumps({"prompt": request.prompt}), encoding="utf-8")
+        agent = module("fixture_model_rtl_deadline", self.workspace / "agent/src/agent.py")
+        deadlines = []
+
+        def delayed_worker(argv, **kwargs):
+            self.assertEqual(argv[-2:], ["agent_optimizer.models", "--request"])
+            deadlines.append((kwargs["timeout"], json.loads(kwargs["input"])["timeout"]))
+            raise subprocess.TimeoutExpired(argv, kwargs["timeout"])
+
+        output = StringIO()
+        with patch.dict(os.environ, {"DEMO_AGENT_MODEL_BASE_URL": "http://localhost:1234/v1",
+                                  "DEMO_AGENT_MODEL_ID": "fixture-rtl",
+                                  "DEMO_AGENT_MODEL_API_KEY": "fixture-only-token"}, clear=True), \
+                patch("sys.argv", ["agent.py", str(self.task)]), \
+                patch.object(agent.Path, "cwd", return_value=self.workspace), \
+                patch("agent_optimizer.models.subprocess.run", side_effect=delayed_worker), \
+                redirect_stdout(output):
+            with self.assertRaises(SystemExit) as failure:
+                agent.main()
+        self.assertEqual(failure.exception.code, 2)
+        self.assertEqual(deadlines, [(120, 120)])
+        self.assertEqual(json.loads(output.getvalue()), {"status": "model_unavailable"})
+        self.assertEqual((self.task / "rtl/example.sv").read_text(encoding="utf-8"), "")
         self.assert_untouched()
 
     def test_missing_model_configuration_maps_to_null_official_score_in_runner(self):

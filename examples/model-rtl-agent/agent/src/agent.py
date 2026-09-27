@@ -39,7 +39,7 @@ def main():
     try:
         settings = ModelSettings.from_env(agent_env)
         reply = complete([{"role": "system", "content": system_prompt},
-                          {"role": "user", "content": prompt}], settings=settings, timeout=60)
+                          {"role": "user", "content": prompt}], settings=settings, timeout=120)
         text = reply["choices"][0]["message"].get("content")
         if not isinstance(text, str) or not text.strip():
             raise UnavailableError("Model did not return RTL text")

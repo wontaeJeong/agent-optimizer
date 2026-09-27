@@ -13,7 +13,7 @@
 
 ## 예산·실행·검증
 
-- 선택된 CVDP 설정의 세 stage에 GEPA iterations=1/max_trials=5, Meta-Harness iterations=1/max_trials=4, Ecdysis rounds=1/max_trials=4를 명시하고, 전체 **최대 16 trial**, final_test=false, 벽시계 3600초/trial 180초/모델 제안 60초 상한을 둔다. 두 train 과제의 실패가 없으면 Ecdysis의 `no_failures`를 사실대로 기록하고 탐색 성공으로 표현하지 않는다. validation은 후보 선택에만 사용하며 private 채점 자료/최종 test는 Optimizer에 넘기지 않는다.
+- 선택된 CVDP 설정의 세 stage에 GEPA iterations=1/max_trials=5, Meta-Harness iterations=1/max_trials=4, Ecdysis rounds=1/max_trials=4를 명시하고, 전체 **최대 16 trial**, final_test=false, 벽시계 3600초/trial 180초/Agent 모델 요청 120초/Optimizer 제안·검토 요청 60초 상한을 둔다. 두 train 과제의 실패가 없으면 Ecdysis의 `no_failures`를 사실대로 기록하고 탐색 성공으로 표현하지 않는다. validation은 후보 선택에만 사용하며 private 채점 자료/최종 test는 Optimizer에 넘기지 않는다.
 - 먼저 API-free 로컬 HTTP 모델 fixture로 Agent의 target 경로·모델 요청·실행 파일 해시/원본 보존·오류 상태를 검증한다. 실제 API가 필요한 검증 전에 CVDP provider 준비·doctor와 공식 평가기의 별도 정답/오답 smoke를 확인한다. 이후 사용자가 승인한 예산 안에서 한 번의 실환경 run을 수행하고 각 stage의 모델 제안, 실제 후보 diff, 해시가 다른 Python 실행, train·validation 공식 raw, frozen selection, nullable/partial 사용량을 대조한다.
 - `doctor --plan`의 static `ready`는 설정/자산 수준 결과이며 Agent 전용 `DEMO_AGENT_MODEL_*` 인증 가능성은 검사하지 않는다. Agent 모델 환경이 없으면 실행 시 `infrastructure_error`로 기록하고, 실제 runner의 `passed=None` 통합 검증은 후속 Task에서 확인한다.
 - 실제 평가가 실패하거나 유효한 후보가 없으면 상태·원인과 마지막으로 검증한 경계를 날짜별 `docs/verification.md`, `docs/status.md`에 기록한다. 실행 결과가 1회·3과제에 한정됨을 밝힌다. native ACE 역할 루프·다른 팀 외부 Agent·전체 Verilog-Eval/Ubuntu·전체 sub-agent 사용량을 검증한 것으로 표시하지 않는다.
