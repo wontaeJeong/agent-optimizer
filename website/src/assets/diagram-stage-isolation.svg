@@ -10,6 +10,6 @@
   <rect class="box train" x="238" y="48" width="184" height="72" rx="9"/><text class="label" x="263" y="80">stage A: train</text><text class="small" x="252" y="102">자기 stage 이력만</text>
   <rect class="box train" x="238" y="213" width="184" height="72" rx="9"/><text class="label" x="263" y="245">stage B: train</text><text class="small" x="252" y="267">자기 stage 이력만</text>
   <rect class="box select" x="488" y="133" width="179" height="70" rx="9"/><text class="label" x="505" y="164">validation 수치</text><text class="small" x="504" y="185">승자·최종 선택 고정</text>
-  <rect class="box select" x="488" y="253" width="179" height="62" rx="9"/><text class="label" x="519" y="280">선택적 test</text><text class="small" x="518" y="300">이후 보고서</text>
+  <rect class="box select" x="488" y="253" width="179" height="62" rx="9"/><text class="label" x="551" y="280">Report</text><text class="small" x="507" y="300">test는 설정한 경우만</text>
   <text class="small" x="25" y="321">비공개 평가 자료와 test 결과는 후보 수정 근거에 들어가지 않습니다.</text>
 </svg>

@@ -20,7 +20,7 @@
   <rect class="box input" x="410" y="70" width="150" height="68" rx="9"/><text class="label" x="444" y="99">Harness</text><text class="small" x="449" y="120">Agent 실행</text>
   <rect class="box" x="215" y="239" width="150" height="68" rx="9"/><text class="label" x="252" y="268">Dataset</text><text class="small" x="226" y="289">사용자가 선택</text>
   <rect class="box" x="410" y="239" width="150" height="68" rx="9"/><text class="label" x="440" y="267">Evaluator</text><text class="small" x="436" y="289">산출물 채점</text>
-  <text class="small" x="351" y="226">평가 자료는 Agent 밖</text>
+  <text class="small" x="340" y="221">채점 자료 분리</text>
   <rect class="box record" x="601" y="239" width="150" height="68" rx="9"/><text class="label" x="644" y="268">Trial</text><text class="small" x="617" y="289">실행·채점 기록</text>
   <rect class="box input" x="215" y="394" width="150" height="68" rx="9"/><text class="label" x="244" y="423">Optimizer</text><text class="small" x="227" y="445">editable만 변경</text>
   <rect class="box record" x="601" y="395" width="150" height="68" rx="9"/><text class="label" x="647" y="434">Report</text>

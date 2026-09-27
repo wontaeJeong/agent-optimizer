@@ -17,7 +17,14 @@ import report from '../../../assets/report-fixture.png';
   <div class="report-excerpt report-excerpt--summary" role="group" tabIndex={0} aria-label="7-trial 합성 보고서의 상단: 상태·예산·그룹 현황. 영역 안을 좌우로 스크롤할 수 있습니다.">
     <img src={report.src} width="1440" height="900" alt="합성 데모 보고서 상단: completed, synthetic fixture, Agent × Harness 2개 그룹과 trials used 7" loading="lazy" />
   </div>
-  <figcaption>7-trial 합성 데모의 상단 발췌. 작은 화면에서는 이미지 안을 좌우로 밀어 원본 글자 크기로 읽으세요.</figcaption>
+  <figcaption>7-trial 합성 데모의 상단 발췌. 모든 화면에서 이미지 안을 좌우로 밀면 오른쪽 예산 카드까지 원본 글자 크기로 읽을 수 있습니다.</figcaption>
+</figure>
+
+<figure class="report-figure">
+  <div class="report-budget">
+    <img src={report.src} width="1440" height="900" alt="같은 7-trial 합성 보고서의 예산 카드: Trials used (budget) 7" loading="lazy" />
+  </div>
+  <figcaption>같은 실행의 오른쪽 예산 카드 발췌. <code>trials_used: 7</code>은 예약된 평가 횟수이며 성공 횟수가 아닙니다.</figcaption>
 </figure>
 
 ### 2. 같은 그룹의 validation 비교
