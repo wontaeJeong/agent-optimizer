@@ -1647,6 +1647,73 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertFalse((self.root / "runs").exists())
         self.assertEqual((self.agent / "configs/strategy.json").read_bytes(), before)
 
+    def test_tui_existing_experiment_selects_latest_generated_config_by_number(self):
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["init", "--project-root", str(self.root), "--name", "first",
+                                   "--agent", str(self.agent), "--dataset", "sample_text",
+                                   "--editable", "configs/strategy.json", "--optimizer", "baseline",
+                                   "--harness", "fixture", "--yes"]), 0)
+        first = Path(json.loads(output.getvalue())["experiment"])
+        second = self.root / "runs/configs/second/experiment.toml"
+        shutil.copytree(first.parent, second.parent)
+        os.utime(first, (100, 100))
+        os.utime(second, (200, 200))
+
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        terminal = Terminal()
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("builtins.input", side_effect=["1", "1", "n"]), \
+             patch("agent_optimizer.cli.run_experiment", side_effect=AssertionError("started")), \
+             contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
+        self.assertIn(str(second), terminal.getvalue())
+        self.assertIn(f"실험 설정: {second.resolve()}", terminal.getvalue())
+
+    def test_tui_recent_configs_do_not_follow_symlink_or_treat_bad_number_as_path(self):
+        config = self.root / "runs/configs/missing/experiment.toml"
+        config.parent.mkdir(parents=True)
+        config.symlink_to(self.root / "examples/minimal/experiment.toml")
+
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        for selection in ("99", "examples/minimal/experiment.toml"):
+            terminal = Terminal()
+            with self.subTest(selection=selection), patch("sys.stdin.isatty", return_value=True), \
+                 patch("builtins.input", side_effect=["1", selection, "n"]), \
+                 patch("agent_optimizer.cli.run_experiment", side_effect=AssertionError("started")), \
+                 contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
+            self.assertNotIn("1. " + str(config), terminal.getvalue())
+            if selection == "99":
+                self.assertIn("번호", terminal.getvalue())
+            else:
+                self.assertIn("실험 설정: ", terminal.getvalue())
+
+    def test_tui_recent_configs_ignore_symlinked_runs_root(self):
+        with tempfile.TemporaryDirectory() as outside:
+            external = Path(outside) / "configs/escape"
+            external.mkdir(parents=True)
+            (external / "experiment.toml").write_text("untrusted")
+            (self.root / "runs").symlink_to(Path(outside), target_is_directory=True)
+
+            class Terminal(io.StringIO):
+                def isatty(self):
+                    return True
+
+            terminal = Terminal()
+            with patch("sys.stdin.isatty", return_value=True), \
+                 patch("builtins.input", side_effect=["1", "99"]), \
+                 contextlib.redirect_stderr(terminal), contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
+            self.assertIn("최근 생성 설정이 없습니다", terminal.getvalue())
+            self.assertNotIn(str(external), terminal.getvalue())
+
     def test_wizard_accepts_glob_with_one_real_runtime_harness_file(self):
         # The minimal fixture has one Python runtime scaffold under src/**.
         answers = ["harness-demo", str(self.agent), "src/**", str(self.data),

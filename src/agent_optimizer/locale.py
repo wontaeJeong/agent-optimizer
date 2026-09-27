@@ -276,6 +276,12 @@ MESSAGES = {
                                            "Prepare the ACE-RTL integration? [y/N]: "),
     "실험 준비를 취소했습니다": ("실험 준비를 취소했습니다", "Experiment preparation cancelled"),
     "기존 experiment.toml 경로: ": ("기존 experiment.toml 경로: ", "Existing experiment.toml path: "),
+    "최근 생성된 실험 설정 (번호 또는 경로 직접 입력):": (
+        "최근 생성된 실험 설정 (번호 또는 경로 직접 입력):",
+        "Recently created experiment configs (number or explicit path):"),
+    "최근 생성 설정이 없습니다. 경로를 직접 입력하세요.": (
+        "최근 생성 설정이 없습니다. 경로를 직접 입력하세요.", "No recent generated config; enter a path."),
+    "목록의 설정 번호를 선택하세요": ("목록의 설정 번호를 선택하세요", "Choose a listed config number"),
     "실험 설정 경로를 입력하세요": ("실험 설정 경로를 입력하세요", "Enter an experiment configuration path"),
     "실험 설정": ("실험 설정", "Experiment config"),
     "계획 진단": ("계획 진단", "Plan readiness"),

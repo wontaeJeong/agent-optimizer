@@ -137,6 +137,26 @@ def _tui_model_environment(spec: dict, env: dict[str, str] | None = None) -> dic
     return staged
 
 
+def _recent_configurations(project_root: Path) -> list[Path]:
+    """List only generated experiment files, without following configuration symlinks."""
+    base = project_root / "runs" / "configs"
+    if (project_root / "runs").is_symlink() or base.is_symlink() or not base.is_dir():
+        return []
+    entries = []
+    for path in base.rglob("experiment.toml"):
+        relative = path.relative_to(base)
+        if path.is_symlink() or any((base / Path(*relative.parts[:index])).is_symlink()
+                                   for index in range(1, len(relative.parts))):
+            continue
+        try:
+            if path.is_file() and path.resolve().is_relative_to(base.resolve()):
+                entries.append((path.stat().st_mtime_ns, str(path), path))
+        except OSError:
+            continue
+    entries.sort(key=lambda row: (row[0], row[1]), reverse=True)
+    return [path for _, _, path in entries[:5]]
+
+
 def _history_run(runs_fd: int, parent: str, name: str) -> tuple[str, float] | None:
     """Check a recorded run through directory-relative, non-following file descriptors."""
     match = re.fullmatch(r"([0-9]{8}T[0-9]{6}Z)-[0-9a-f]{8}", name)
@@ -582,11 +602,23 @@ def _dispatch(args):
                         if code:
                             return code
                     else:
+                        recent = _recent_configurations(args.project_root)
+                        if recent:
+                            print(human("최근 생성된 실험 설정 (번호 또는 경로 직접 입력):"), file=sys.stderr)
+                            for index, path in enumerate(recent, 1):
+                                print(f"  {index}. {path}", file=sys.stderr)
+                        else:
+                            print(human("최근 생성 설정이 없습니다. 경로를 직접 입력하세요."), file=sys.stderr)
                         print(human("기존 experiment.toml 경로: "), end="", file=sys.stderr, flush=True)
                         selected = input().strip()
                         if not selected:
                             raise ConfigurationError(human("실험 설정 경로를 입력하세요"))
-                        experiment = Path(selected).expanduser()
+                        if selected.lstrip("+-").isdecimal():
+                            if not selected.isdecimal() or not 1 <= int(selected) <= len(recent):
+                                raise ConfigurationError(human("목록의 설정 번호를 선택하세요"))
+                            experiment = recent[int(selected) - 1]
+                        else:
+                            experiment = Path(selected).expanduser()
                         if not experiment.is_absolute():
                             experiment = args.project_root / experiment
                         experiment = experiment.resolve()
