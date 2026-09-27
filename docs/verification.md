@@ -1,5 +1,62 @@
 # 검증 기록
 
+## 2026-09-27 공개 RTL target 안내 후 네 번째 독립 실실행
+
+Mac ARM64 / Docker daemon `linux/arm64`, Python 3.12.12, Claude Code 2.1.261.
+`origin/main`의 `abf513c`에서 출발한 `fix/claude-cvdp-target-guidance`의
+`ea23431`·`2bb9db2`가 공개 과제에서 확인한 `./task/rtl/...` 출력 경로를
+Claude Code prompt에 명시한 뒤, **별도로 승인된 한 번의 실행**을 수행했다.
+기존 PR #41의 첫 실패·둘째 raw 3건·셋째 `no_eligible_candidate` 기록은 그대로다.
+이번 run은 `runs/dev-live/20260927T071347Z-9fe647ab/`이며 최대/실제 **4/4 trial**,
+`final_test=false`, 추가 모델 진단·재시도 없음이다. `make setup`의 최소 데모 7 trial은
+별도의 합성 fixture로, 이번 실모델 4 trial에 포함되지 않는다.
+
+| 실제 명령 | 결과 |
+|---|---|
+| `make setup` → `make doctor` → `make smoke` | 모두 exit 0. lock의 ACE `fead921f18bb57345b5a41ef93ba625be208e99c`, CVDP `8e894cf74414ab1eaea1e2b4e80a02f123df07b6`, HF revision `5b807d945f6a99aa645f7e43a64a2115e281b4bf`·데이터 SHA-256 `cbcd81295561ebb16e4d857e096f4d9908d042c33aff3b58abf236e868411857`, 공식 평가 이미지 `sha256:ee167c7cd486111a2a807a703ae6bbb30debf2d26f5bb9d0d760ec07c96a58ec` 대조. `runs/dev-smoke-49eed8a6fb7a/summary.json` passed: 실도구, toy, 공식 LFSR 정답 raw 1 test `result=0` / 오답 raw 1 test `result=1`, 양쪽 `error_msg=null`. Docker image build는 기존 layer cache를 재사용했다. |
+| `claude --version`; `.venv/bin/agent-opt doctor --plan examples/ace-rtl/experiment-claude.toml --json` | 각각 exit 0, `2.1.261 (Claude Code)`, `scope=plan`·`ready=true`; plan은 모델 인증이나 과제 성공 확인이 아니다. |
+| 아래 자식 환경 래퍼의 `agent_optimizer run` **1회** | exit 0, `summary.json`의 `status=completed`, `synthetic=false`, `trials_used=4`, 172.79초. `events.jsonl`·`report.json`·`report.html`과 `stages/feedback.json`·`frozen_selection.json`은 위 run ID 아래 별도 저장. |
+| `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_claude_code.py -v`; 같은 명령으로 `-p test_ace_demo.py`; `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v`; `make lint` | 관련 **32/32, 7/7**, 전체 **676건 중 661 통과·15 skip·실패 0**, Ruff 통과, 모두 exit 0. skipped 로컬 simulator·선택형 통합은 이 테스트의 성공 범위가 아니다. |
+
+실제 실행 명령(키와 `OPENAI_MODEL` 선택값을 argv·stdout에 넣지 않음):
+
+```bash
+.venv/bin/python -c 'import os, subprocess, sys, tomllib; from pathlib import Path; from dotenv import dotenv_values; source=Path("/Users/wt.jeong/workspace/agent-optimizer/.env"); values=dotenv_values(source); api_key=values.get("OPENAI_API_KEY"); model=values.get("OPENAI_MODEL"); deepseek=values.get("AGENT_OPT_MODEL_API_KEY"); assert api_key and model and deepseek, "Missing one of the approved environment inputs"; plan=tomllib.loads(Path("examples/ace-rtl/experiment-claude.toml").read_text()); assert plan["budget"]["max_trials"]==4 and plan["stages"][0]["config"]["iterations"]==1 and plan["final_test"] is False; env=os.environ.copy(); [env.pop(name,None) for name in ("ANTHROPIC_API_KEY","CLAUDE_CODE_USE_BEDROCK","CLAUDE_CODE_USE_VERTEX","CLAUDE_CODE_USE_FOUNDRY","AGENT_OPT_MODEL_ENDPOINT","OPENAI_API_KEY")]; env.update(ANTHROPIC_AUTH_TOKEN=deepseek, ANTHROPIC_BASE_URL="https://api.deepseek.com/anthropic", ANTHROPIC_MODEL="deepseek-flash", ANTHROPIC_DEFAULT_OPUS_MODEL="deepseek-flash", ANTHROPIC_DEFAULT_SONNET_MODEL="deepseek-flash", ANTHROPIC_DEFAULT_HAIKU_MODEL="deepseek-flash", CLAUDE_CODE_SUBAGENT_MODEL="deepseek-flash", AGENT_OPT_MODEL_BASE_URL="https://api.openai.com/v1", AGENT_OPT_MODEL_ID=model, AGENT_OPT_MODEL_API_KEY=api_key, PYTHONPATH="src"); sys.path.insert(0,"src"); from agent_optimizer.models import ModelSettings; settings=ModelSettings.from_env(env); assert settings.endpoint=="https://api.openai.com/v1/chat/completions" and settings.model==model and settings.api_key==api_key; command=[".venv/bin/python","-m","agent_optimizer","run","examples/ace-rtl/experiment-claude.toml"]; print("bounded_run=1; max_trials=4; optimizer=explicit_openai_model; claude=deepseek-flash; strict_mcp=enabled",flush=True); code=subprocess.run(command,env=env,check=False).returncode; print("bounded_run_exit="+str(code),flush=True); sys.exit(code)'
+```
+
+이 래퍼는 기본 checkout의 `.env` 값을 메모리에서만 읽어 실행 **자식 환경**에 연결했다.
+Agent의 `ANTHROPIC_AUTH_TOKEN`←DeepSeek 키 / `ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic` /
+`deepseek-flash` 기본 모델 변수, Optimizer의 `AGENT_OPT_MODEL_API_KEY`←`OPENAI_API_KEY` /
+`AGENT_OPT_MODEL_ID`←명시적 `OPENAI_MODEL` /
+`AGENT_OPT_MODEL_BASE_URL=https://api.openai.com/v1`로 구분했다.
+충돌하는 provider 선택 변수와 endpoint는 자식 환경에서만 제거했다.
+키·`.env` 원문은 터미널·추적 문서에 남기지 않았다.
+
+| 후보 / split / 공개 출력 | CLI·공식 raw (`trials/<trial-id>/result.json` 및 `cvdp_evaluation/work/raw_result.json`) |
+|---|---|
+| `c0001` validation QAM16 / `task/rtl/16qam_mapper.sv` | Claude `success`/exit 0, Read/Write, `valid=true`, `passed=1`; 공식 raw 1 test `result=0`, `error_msg=null` |
+| `c0001` train priority encoder / `task/rtl/priority_encoder.v` | Claude `success`/exit 0, Read/Write, `valid=true`, `passed=1`; 공식 raw 1 test `result=0`, `error_msg=null` |
+| `c0002` train priority encoder / 같은 출력 경로 | Claude `success`/exit 0, Read/Write, `valid=true`, `passed=1`; 공식 raw 1 test `result=0`, `error_msg=null` |
+| `c0002` validation QAM16 / 같은 출력 경로 | Claude `success`/exit 0, Read/Write, `valid=true`, `passed=0`; 공식 raw 1 test `result=1`, `error_msg=null`. 공식 simulation의 기능 결과 불일치이며 환경/인증 오류나 raw 부재가 아니다. 공개 생성 RTL은 baseline과 달리 출력 slice 순서를 역순으로 배치했다. private report 본문은 공유하지 않는다. |
+
+네 `harness_logs/stdout.log`의 init은 모델 `deepseek-flash`, 도구 가용 목록
+`Edit,Read,Write`, `mcp_servers=[]`; 실제 tool-use는 Read/Write이고 Edit·MCP 호출 및
+subagent 생성·권한 거부는 관측되지 않았다. 생성된 RTL은 각 과제의 공개 target에
+있다. 후보 validation trace에는 별도로 `/tmp/qam16_tb.sv` 임시 벤치를 Write한
+기록도 있으나 이것은 공식 채점 자료가 아니고 0/1 공식 판정을 바꾸지 않는다.
+후보 변경은 `candidates/c0002/changes.diff`의
+`skills/ace-rtl/references/role-guidance.md` 한 파일이다.
+
+두 validation 모두 `valid=true`: baseline `solve_rate=1.0` / 74.72초, 후보
+`solve_rate=0.0` / 56.73초. `stages/feedback.json`과 `frozen_selection.json`은
+**baseline `c0001` 선택**, 후보의 빠른 시간보다 공식 통과율을 우선한 lexicographic
+비교를 기록한다. train은 양쪽 모두 1/1이고 최종 test는 실행하지 않았다.
+Optimizer 1회 제안의 사용량은 input 971 / output 787 tokens, 비용 `null`이다.
+각 Agent 호출의 `agent_tokens`·`agent_cost_usd`는 `null`; CLI 자기보고
+`harness_reported_io_tokens`는 순서대로 22,894 / 12,163 / 9,063 / 19,920이며
+`harness_reported_cost_usd`도 **호출별 partial**이라 전체 사용량·총비용이 아니다.
+이 작은 두 공개 과제의 한 실행은 일반적 개선·native ACE·다른 환경의 재현 근거가 아니다.
+
 ## 2026-09-27 PR #39의 origin/main 병합 계약 검사 (실모델 미검증)
 
 Mac ARM64의 `feat/mvp-harness-validation-controls`에서 `3b96a22`에 `origin/main`
