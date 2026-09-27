@@ -6,10 +6,12 @@ import itertools
 import json
 import re
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from agent_optimizer.contracts import ConfigurationError
 from agent_optimizer.results import write_json
 from agent_optimizer.setup_wizard import prepare_selection, write_experiment
+from agent_optimizer.workspace import safe_path
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -28,6 +30,21 @@ def _public_rtl(task: dict) -> bool:
 
 
 def _subset(document: dict) -> dict:
+    if not isinstance(document, dict) or not isinstance(document.get("tasks"), list):
+        raise ConfigurationError("CVDP public tasks must be a list")
+    for task in document["tasks"]:
+        if (not isinstance(task, dict)
+                or not isinstance(task.get("id"), str) or not task["id"]
+                or not isinstance(task.get("split"), str)
+                or task["split"] not in {"train", "validation", "test"}
+                or not isinstance(task.get("family"), str) or not task["family"]
+                or not isinstance(task.get("evaluation"), dict)
+                or not isinstance(task["evaluation"].get("targets"), list)
+                or not all(isinstance(target, str) for target in task["evaluation"]["targets"])
+                or not isinstance(task.get("files"), dict)
+                or not all(isinstance(path, str) and isinstance(text, str)
+                           for path, text in task["files"].items())):
+            raise ConfigurationError("CVDP public task has invalid fields")
     eligible = sorted((task for task in document["tasks"] if _public_rtl(task)),
                       key=lambda task: task["id"])
     trains = [task for task in eligible if task["split"] == "train"]
@@ -48,7 +65,7 @@ def prepare(project_root: Path, *, dataset: str, offline: bool = False) -> Path:
     if dataset != "cvdp":
         raise ConfigurationError("Select the cvdp dataset explicitly")
     project_root = project_root.resolve()
-    config_root = project_root / "runs/configs" / NAME
+    config_root = safe_path(project_root, f"runs/configs/{NAME}")
     if config_root.exists():
         raise ConfigurationError(f"Generated configuration already exists: {config_root}")
 
@@ -59,9 +76,6 @@ def prepare(project_root: Path, *, dataset: str, offline: bool = False) -> Path:
     if not benchmark.is_absolute():
         benchmark = project_root / benchmark
     selected = _subset(json.loads(benchmark.read_text(encoding="utf-8")))
-    subset_path = project_root / "external/datasets/cvdp-research/subset.json"
-    write_json(subset_path, selected)
-
     stages = [
         {"id": "gepa", "optimizer": "gepa", "max_trials": 5,
          "config": {"file": "prompts/system.md", "iterations": 1, "batch_size": 2,
@@ -73,19 +87,22 @@ def prepare(project_root: Path, *, dataset: str, offline: bool = False) -> Path:
          "config": {"file": "src/agent.py", "rounds": 1, "refinement_passes": 2,
                     "request_timeout_seconds": 60}},
     ]
-    return write_experiment(
-        config_root, project_root=project_root, name=NAME,
-        agent=project_root / "examples/model-rtl-agent/agent",
-        harness={"id": "model-rtl-command", "adapter": "model_rtl_command",
-                 "command": ["{python}", "{agent_dir}/src/agent.py", "{task_dir}"]},
-        dataset={**prepared, "benchmark": str(subset_path)}, stages=stages,
-        plugins={**plugins, "harnesses": {**plugins.get("harnesses", {}),
-                                          "model_rtl_command":
-                                          "examples/model-rtl-agent/adapter.py:ModelRTLCommand"}},
-        dependencies=dependencies, editable=["prompts/system.md", "src/agent.py"],
-        max_tasks=3, max_trials=16, wall_time=3600, trial_timeout=180,
-        objective_source="passed", objective_direction="maximize",
-    )
+    with TemporaryDirectory(prefix="agent-opt-cvdp-") as temporary:
+        subset_path = safe_path(Path(temporary), "subset.json")
+        write_json(subset_path, selected)
+        return write_experiment(
+            config_root, project_root=project_root, name=NAME,
+            agent=project_root / "examples/model-rtl-agent/agent",
+            harness={"id": "model-rtl-command", "adapter": "model_rtl_command",
+                     "command": ["{python}", "{agent_dir}/src/agent.py", "{task_dir}"]},
+            dataset={**prepared, "benchmark": str(subset_path)}, stages=stages,
+            plugins={**plugins, "harnesses": {**plugins.get("harnesses", {}),
+                                              "model_rtl_command":
+                                              "examples/model-rtl-agent/adapter.py:ModelRTLCommand"}},
+            dependencies=dependencies, editable=["prompts/system.md", "src/agent.py"],
+            max_tasks=3, max_trials=16, wall_time=3600, trial_timeout=180,
+            objective_source="passed", objective_direction="maximize",
+        )
 
 
 def main(argv: list[str] | None = None) -> None:
