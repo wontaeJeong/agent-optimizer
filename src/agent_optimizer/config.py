@@ -141,12 +141,44 @@ def validate_stages(data: dict) -> None:
         raise ConfigurationError("Unknown final stage")
 
 
+def selected_pairs(spec: dict) -> list[tuple[AgentSpec, dict]]:
+    agents, profiles = spec["_agents"], spec["_profiles"]
+    if "pairs" not in spec:
+        pairs = [(agent, profile) for agent in agents for profile in profiles]
+    else:
+        raw = spec["pairs"]
+        if not isinstance(raw, list) or not raw:
+            raise ConfigurationError("pairs must be a nonempty list")
+        by_agent = {agent.id: agent for agent in agents}
+        by_profile = {profile["id"]: profile for profile in profiles}
+        pairs = []
+        seen = set()
+        for item in raw:
+            if not isinstance(item, dict):
+                raise ConfigurationError("Each pair must declare agent and harness IDs")
+            only_keys(item, {"agent", "harness"}, "pair")
+            key = (item.get("agent"), item.get("harness"))
+            if any(type(value) is not str or not value for value in key):
+                raise ConfigurationError("pair.agent and pair.harness require IDs")
+            if key in seen or key[0] not in by_agent or key[1] not in by_profile:
+                raise ConfigurationError("Duplicate or unknown Agent–Harness pair")
+            seen.add(key)
+            pairs.append((by_agent[key[0]], by_profile[key[1]]))
+        if ({agent.id for agent, _ in pairs} != set(by_agent)
+                or {profile["id"] for _, profile in pairs} != set(by_profile)):
+            raise ConfigurationError("Remove unselected agents and harnesses")
+    for agent, profile in pairs:
+        if profile["adapter"] not in agent.supported_harnesses:
+            raise ConfigurationError(f"{agent.id} does not support {profile['adapter']}")
+    return pairs
+
+
 def load_experiment(path: Path) -> dict:
     data = read_toml(path)
     if "integration" in data:
         from agent_optimizer.integrations import resolve_pointer
         return load_experiment(resolve_pointer(path))
-    only_keys(data, {"schema_version", "name", "project_root", "agents", "harnesses", "benchmark",
+    only_keys(data, {"schema_version", "name", "project_root", "agents", "harnesses", "pairs", "benchmark",
                     "evaluator", "evaluation_runtime", "objective", "budget", "stages",
                     "repetitions", "seed", "final_test", "final_stages", "output_dir", "plugins",
                     "plugin_dependencies", "evaluator_config"}, "experiment")
@@ -183,11 +215,8 @@ def load_experiment(path: Path) -> dict:
         profiles.append(profile)
     if not profiles or len({h["id"] for h in profiles}) != len(profiles):
         raise ConfigurationError("Harness profile IDs must be present and unique")
-    for agent in agents:
-        for profile in profiles:
-            if profile["adapter"] not in agent.supported_harnesses:
-                raise ConfigurationError(f"{agent.id} does not support {profile['adapter']}")
     data["_profiles"] = profiles
+    selected_pairs(data)
     validate_runtime(data.get("evaluation_runtime", {}))
     if not isinstance(data.get("evaluator_config", {}), dict):
         raise ConfigurationError("evaluator_config must be a mapping")
