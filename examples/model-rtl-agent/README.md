@@ -63,3 +63,17 @@ Agent 모델 요청 두 건은 60초 제한에서 `infrastructure_error`/`passed
 빈 초기 target을 유지하는 fallback을 만들었고 해당 QAM16 train은 출력 누락
 0점(공식 raw 없음)이었습니다. 실행별 원시 상태는
 [검증 기록](../../docs/verification.md)을 참고하세요.
+
+## 2026-09-28 두 번째 독립 실행
+
+Agent 요청 120초, Optimizer 제안·검토 60초, trial 180초, 전체 최대 16 trial을
+유지한 채 승인된 실험을 **새로 한 번** 실행했습니다. 첫 run은 그대로 보존됩니다.
+`runs/20260927T165230Z-67533d5b`는 Mac ARM64에서 `synthetic=false`,
+**11/16 trial `completed`**이며 모두 실제 공식 CVDP raw를 가집니다(통과 8,
+오답 3). GEPA·Meta·Ecdysis는 각각 baseline에서 출발해 끝났고, 최종 고정
+선택은 baseline `c0001`(validation `solve_rate=1.0`)입니다. Meta의 수정 코드
+후보는 train 2/2·validation 1/1 통과했어도 baseline과 동점이라 선택되지
+않았습니다. Ecdysis 후보는 train 1/2로 baseline보다 나아지지 않아 후보
+validation을 실행하지 않았습니다. 최종 test는 설정대로 실행하지 않았습니다.
+과제별 공식 raw·실제 후보 코드 SHA·Optimizer/Agent 사용량 구분은
+[두 번째 실행 근거](../../docs/verification.md#2026-09-28-연구-optimizer-선택-cvdp-두-번째-독립-실모델-실행)에 있습니다.
