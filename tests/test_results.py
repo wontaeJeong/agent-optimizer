@@ -9,6 +9,22 @@ from agent_optimizer.results import write_report
 
 
 class UsageReportTests(unittest.TestCase):
+    def test_multiple_valid_selected_candidates_are_not_called_incomparable(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "manifest.json").write_text(json.dumps({"experiment": {"objective": {
+                "metrics": [{"name": "score", "direction": "maximize"}]}}}))
+            def row(candidate, score):
+                return {"agent_id": "a", "harness_id": "h", "candidate_id": candidate,
+                        "split": "validation", "valid": True, "metrics": {"score": score}}
+            write_report(root, {"groups": [{"agent_id": "a", "harness_id": "h",
+                "baseline": row("base", 0), "selected": [row("first", 1), row("second", 1)],
+                "final_test": [], "stages": []}]})
+            markdown = (root / "report.md").read_text()
+            self.assertIn("first", markdown)
+            self.assertIn("second", markdown)
+            self.assertNotIn("비교 불가 선택 기록: a/h · second", markdown)
+
     def test_incomparable_selection_note_does_not_split_later_group_validation_table(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
