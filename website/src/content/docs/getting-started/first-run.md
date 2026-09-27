@@ -1,4 +1,6 @@
-# 첫 실행
+---
+title: 첫 실행
+---
 
 **목표:** 외부 모델·Docker 없이 설치, 코어 진단, 보고서 생성까지 확인합니다. 저장소에서 개발할 때는 Mac 또는 Ubuntu에서 Git과 `make`를 준비하고 저장소 루트에서 실행하세요. `make`가 없으면 `sh scripts/bootstrap.sh setup --core`로 시작할 수 있습니다. wheel만 설치한 사용자는 아래 대화형 경로의 선택형 예제를 별도로 준비할 수 있습니다.
 
@@ -12,8 +14,9 @@ make doctor-core
 
 `setup --core`는 필요한 Python·개발 환경을 준비하고 **7 trial 합성 데모**를 실행합니다. 처음에는 의존성 다운로드가 필요할 수 있습니다. `make doctor-core`의 `코어 개발 환경: 준비됨`을 확인하세요(`AGENT_OPT_LANG=en`이면 `Core development environment: ready`). 코어 준비는 모델·공식 평가 데이터·Docker 이미지 준비 완료를 뜻하지 않습니다.
 
-!!! tip "설치가 막히면"
-    프록시·사내 CA가 필요한 환경은 저장소의 [네트워크 안내](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/network.md)를 확인하세요. `make doctor-core`로 부족한 코어 도구를 다시 진단할 수 있습니다.
+:::tip[설치가 막히면]
+프록시·사내 CA가 필요한 환경은 저장소의 [네트워크 안내](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/network.md)를 확인하세요. `make doctor-core`로 부족한 코어 도구를 다시 진단할 수 있습니다.
+:::
 
 ## 2. 작은 실험 직접 만들기
 
@@ -64,5 +67,5 @@ Docker Desktop에 공유할 수 있는 경로에 둡니다. `prepare --offline`�
 사용자 Agent와 자체 과제는
 `--agent`·`--dataset <tasks.json>`·`--evaluator <file.py:Symbol>`로 연결합니다.
 ACE 선택형 경로는 OpenCode 스킬 프로필의 실제 준비·공식 CVDP 평가이며 native ACE 실행은
-아닙니다. [실험 구성](experiment.md)과
-[결과 읽기](results.md)를 참고하세요.
+아닙니다. [실험 구성](/agent-optimizer/guides/experiment/)과
+[결과 읽기](/agent-optimizer/getting-started/results/)를 참고하세요.

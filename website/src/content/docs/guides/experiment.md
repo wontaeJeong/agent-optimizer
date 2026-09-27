@@ -1,4 +1,6 @@
-# 실험 구성
+---
+title: 실험 구성
+---
 
 **직접 지정할 항목:** Agent 소스, 수정 가능한 파일, 데이터셋과 채점 기준, 선택한 하네스의
 실행 방법. 기존 실험은 `.venv/bin/agent-opt tui`에서 설정 파일을 선택하고, 새 설정만
@@ -40,4 +42,4 @@
 .venv/bin/agent-opt run runs/configs/guide-fixture/experiment.toml
 ```
 
-위 `guide-fixture`는 [첫 실행](getting-started.md)에서 만든 설정의 예입니다. 새 데이터셋을 고른 경우 해당 자산의 준비/진단 상태를 별도로 확인하세요. `doctor --plan`은 실제 모델 호출이나 채점 성공을 보증하지 않습니다. 시간·trial 수가 필요한 경우 `init`의 `--max-wall-time-seconds`, `--max-trials`, `--trial-timeout-seconds`를 조정할 수 있습니다. 결과는 [결과 읽기](results.md)에서 확인합니다.
+위 `guide-fixture`는 [첫 실행](/agent-optimizer/getting-started/first-run/)에서 만든 설정의 예입니다. 새 데이터셋을 고른 경우 해당 자산의 준비/진단 상태를 별도로 확인하세요. `doctor --plan`은 실제 모델 호출이나 채점 성공을 보증하지 않습니다. 시간·trial 수가 필요한 경우 `init`의 `--max-wall-time-seconds`, `--max-trials`, `--trial-timeout-seconds`를 조정할 수 있습니다. 결과는 [결과 읽기](/agent-optimizer/getting-started/results/)에서 확인합니다.
