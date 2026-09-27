@@ -63,10 +63,12 @@ class ACEClaudeCode(ClaudeCodeHarness):
     def run(self, request):
         # The importer declares public targets in the task prompt; verify each against
         # the materialized public task, never the private evaluation metadata.
-        declarations = re.findall(r"^Write target files: (.+)$", request.prompt, re.M)
-        if len(declarations) != 1 or request.task_dir != request.workspace / "task":
+        declaration = re.search(
+            r"\nWrite target files: ([^\n]+)\nTask files are in \./task\. Modify only task outputs\.\Z",
+            request.prompt)
+        if declaration is None or request.task_dir != request.workspace / "task":
             raise ConfigurationError("ACE Claude 공개 과제의 출력 대상 경로를 확인할 수 없습니다")
-        targets = [target.strip() for target in declarations[0].split(",")]
+        targets = [target.strip() for target in declaration.group(1).split(",")]
         for target in targets:
             if (not re.fullmatch(r"rtl/[A-Za-z0-9_./-]+\.(?:sv|v)", target)
                     or any(part in {"", ".", ".."} for part in target.split("/"))
