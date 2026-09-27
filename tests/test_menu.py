@@ -111,6 +111,13 @@ class MenuFlows(unittest.TestCase):
         ])
         self.assertEqual(calls[0][1], self.env)
 
+    def test_failed_selected_action_is_menu_exit_status_until_successful_action(self):
+        for choices in (["1", "0"], ["2", "0"], ["7", "0"]):
+            with self.subTest(choices=choices):
+                code, output, _ = self.flow(choices, codes=[7])
+                self.assertEqual(code, 7)
+                self.assertIn("exit 7", output)
+
     def test_option_seven_explicitly_prepares_full_ace_environment(self):
         code, output, calls = self.flow(["7", "0"])
         self.assertEqual(code, 0)
@@ -464,7 +471,7 @@ os.execv("/bin/sh", ["sh", *args])
             with self.subTest(entry=entry):
                 code, output = self.interact(entry, [("선택: ", "2\n"), ("선택: ", "0\n")],
                                              {**self.env, "MENU_EXIT": "8"})
-                self.assertEqual(code, 0)
+                self.assertEqual(code, 2 if "make" in Path(entry[0]).name else 8, output)
                 self.assertIn("exit 8", output)
         self.assertTrue(self.log.exists(), "selected action was never launched")
         calls = [json.loads(line) for line in self.log.read_text().splitlines()]

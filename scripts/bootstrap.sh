@@ -17,7 +17,7 @@ help() {
         fi
         printf '%s\n' \
             'Requirements: Mac/Ubuntu, Git. Full ACE setup also needs Docker Engine and Compose.' \
-            'Start: make setup ARGS="--core" → make doctor ARGS="--core" → make demo.' \
+            'Start: make setup-core → make doctor-core → make demo.' \
             'Without make, use sh scripts/bootstrap.sh <command> [options].' \
             'setup/doctor without --core or --dataset target the full ACE environment.' \
             'setup: --core, --dataset ID, --offline, --platform linux/amd64|linux/arm64 (full ACE only)' \
@@ -25,7 +25,8 @@ help() {
             'smoke/live: --platform; live: --iterations 1..20' \
             'menu: interactive numbered menu (TTY required). After setup, run .venv/bin/agent-opt --help for user commands.' \
             'test/lint/demo use the existing .venv without installation or Docker.' \
-            'make doctor ARGS="--json" (ARGS accepts normal shell argument syntax).' \
+            'ARGS is whitespace-separated data, not shell syntax: make doctor ARGS="--core --json".' \
+            'For quoted arguments use sh scripts/bootstrap.sh <command> [options].' \
             'All options: python3 scripts/dev.py --help or python3 scripts/dev.py <command> --help.'
         return
     fi
@@ -44,8 +45,49 @@ help() {
         'smoke/live: --platform; live: --iterations 1..20' \
         'menu: 대화형 번호 메뉴(TTY 필요). 준비 후 사용자 CLI 도움말은 .venv/bin/agent-opt --help로 확인하세요.' \
         'test/lint/demo는 설치나 Docker 실행 없이 기존 .venv를 사용합니다.' \
-        'make doctor ARGS="--json" (ARGS에는 일반 셸 인수 구문을 사용합니다).' \
+        'ARGS는 셸 구문이 아닌 공백 구분 데이터입니다: make doctor ARGS="--core --json".' \
+        '따옴표가 필요한 인수는 sh scripts/bootstrap.sh <명령> [옵션]으로 전달하세요.' \
         '상세 옵션: python3 scripts/dev.py --help 또는 python3 scripts/dev.py <명령> --help.'
+}
+
+command_help() {
+    if [ "$language" = en ]; then
+        case "$command" in
+            setup) printf '%s\n' 'Usage: sh scripts/bootstrap.sh setup [--core | --dataset ID] [--offline] [--platform linux/amd64|linux/arm64]' \
+                'Default: full ACE setup (Git, Docker, Compose). --core prepares only the core; --dataset prepares only selected assets.' \
+                '--offline reuses caches but still syncs dependencies, checks readiness, and runs the demo for core/full setup.' \
+                '--platform is only for full ACE; --core/--dataset cannot be combined; --dataset cannot use --platform.' ;;
+            doctor) printf '%s\n' 'Usage: sh scripts/bootstrap.sh doctor [--core | --dataset ID] [--json] [--platform VALUE] [--model]' \
+                'Default: read-only full ACE checks; --core checks core only; --dataset checks selected assets only.' \
+                '--json writes one JSON document to stdout. --model calls the real host API and container tool and may write logs.' \
+                '--core/--dataset cannot be combined with --platform or --model; --core and --dataset conflict.' ;;
+            test|lint|demo) printf '%s\n' "Usage: sh scripts/bootstrap.sh $command" \
+                'Requires an existing .venv; no installation, Docker, or model API. demo writes a synthetic run under runs/.' ;;
+            smoke) printf '%s\n' 'Usage: sh scripts/bootstrap.sh smoke [--platform linux/amd64|linux/arm64]' \
+                'Runs real ACE evaluation tools and official CVDP checks; requires full ACE setup and Docker, writes runs/dev-smoke-*/.' ;;
+            live) printf '%s\n' 'Usage: sh scripts/bootstrap.sh live [--platform linux/amd64|linux/arm64] [--iterations 1..20]' \
+                'Calls the real model and ACE evaluation; requires full ACE setup and model credentials. Default iterations: 3.' ;;
+            menu) printf '%s\n' 'Usage: sh scripts/bootstrap.sh menu' 'Open an interactive numbered menu (TTY and Python >=3.11 required); selected actions may install or call a model.' ;;
+        esac
+    else
+        case "$command" in
+            setup) printf '%s\n' '사용법: sh scripts/bootstrap.sh setup [--core | --dataset ID] [--offline] [--platform linux/amd64|linux/arm64]' \
+                '기본값: ACE 전체 준비(Git·Docker·Compose). --core는 코어만, --dataset은 선택한 자산만 준비합니다.' \
+                '--offline도 캐시 동기화·진단·코어/전체 데모를 수행하므로 읽기 전용이 아닙니다.' \
+                '--platform은 ACE 전체 전용; --core와 --dataset은 함께 쓸 수 없고 --dataset과 --platform도 충돌합니다.' ;;
+            doctor) printf '%s\n' '사용법: sh scripts/bootstrap.sh doctor [--core | --dataset ID] [--json] [--platform VALUE] [--model]' \
+                '기본값: ACE 전체 읽기 전용 진단; --core는 코어만, --dataset은 선택한 자산만 진단합니다.' \
+                '--json은 stdout에 단일 JSON을 출력합니다. --model은 실제 호스트 API·컨테이너 도구를 호출하고 로그를 생성할 수 있습니다.' \
+                '--core/--dataset과 --platform/--model은 함께 쓸 수 없고 --core와 --dataset도 충돌합니다.' ;;
+            test|lint|demo) printf '%s\n' "사용법: sh scripts/bootstrap.sh $command" \
+                '기존 .venv가 필요하며 설치·Docker·모델 API 호출은 없습니다. demo는 runs/에 합성 결과를 생성합니다.' ;;
+            smoke) printf '%s\n' '사용법: sh scripts/bootstrap.sh smoke [--platform linux/amd64|linux/arm64]' \
+                '실제 ACE 도구·공식 CVDP 평가 검사; ACE 전체 준비와 Docker가 필요하며 runs/dev-smoke-*/를 생성합니다.' ;;
+            live) printf '%s\n' '사용법: sh scripts/bootstrap.sh live [--platform linux/amd64|linux/arm64] [--iterations 1..20]' \
+                '실제 모델과 ACE 평가를 호출합니다. ACE 전체 준비·모델 자격증명이 필요하며 기본 반복 횟수는 3입니다.' ;;
+            menu) printf '%s\n' '사용법: sh scripts/bootstrap.sh menu' '대화형 번호 메뉴: TTY와 Python >=3.11이 필요하며 선택한 작업이 설치·모델 호출을 할 수 있습니다.' ;;
+        esac
+    fi
 }
 
 fail() {
@@ -56,8 +98,8 @@ fail() {
             'Unknown command: '*) message="알 수 없는 명령: ${message#Unknown command: }" ;;
             'Unsupported option for '*)
                 detail=${message#Unsupported option for }
-                detail=${detail%. Run sh scripts/bootstrap.sh help.}
-                message="지원하지 않는 옵션 ($detail). sh scripts/bootstrap.sh help를 실행하세요." ;;
+                detail=${detail%. Run sh scripts/bootstrap.sh * --help.}
+                message="지원하지 않는 옵션 ($detail). sh scripts/bootstrap.sh $command --help를 실행하세요." ;;
             '--dataset requires an identifier'* ) message='--dataset에는 소문자·숫자·_·.·-로 된 ID가 필요합니다' ;;
             '--dataset may be specified only once') message='--dataset은 한 번만 지정할 수 있습니다' ;;
             '--iterations requires an integer from 1 to 20'|'--iterations requires 1..20')
@@ -106,6 +148,13 @@ fail() {
         printf '\033[31m%s\033[0m\n' "$message" >&2
     else
         printf '%s\n' "$message" >&2
+    fi
+    if [ "${setup_command+x}" != x ] && [ "$command" != help ]; then
+        if [ "$language" = ko ]; then
+            printf '수정할 명령을 확인하세요: sh scripts/bootstrap.sh %s --help\n' "$command" >&2
+        else
+            printf 'Check a valid command: sh scripts/bootstrap.sh %s --help\n' "$command" >&2
+        fi
     fi
     exit 2
 }
@@ -188,6 +237,7 @@ offline=false
 core=false
 full_option=false
 want_platform=false
+selected_platform=
 want_iterations=false
 want_dataset=false
 dataset=
@@ -208,6 +258,7 @@ for option do
         continue
     fi
     if [ "$want_platform" = true ]; then
+        selected_platform=$option
         if [ "$command" != doctor ]; then
             case "$option" in linux/amd64|linux/arm64) ;; *) fail "Unsupported platform: $option" ;; esac
         fi
@@ -237,15 +288,23 @@ for option do
         setup:--platform|doctor:--platform|smoke:--platform|live:--platform) want_platform=true; full_option=true ;;
         setup:--platform=*|doctor:--platform=*|smoke:--platform=*|live:--platform=*)
             full_option=true
+            selected_platform=${option#*=}
             if [ "$command" != doctor ]; then
                 case "${option#*=}" in linux/amd64|linux/arm64) ;; *) fail "Unsupported platform: $option" ;; esac
             fi ;;
-        *) fail "Unsupported option for $command: $option. Run sh scripts/bootstrap.sh help." ;;
+        *) fail "Unsupported option for $command: $option. Run sh scripts/bootstrap.sh $command --help." ;;
     esac
 done
 [ "$want_platform" = false ] || fail '--platform requires linux/amd64 or linux/arm64'
 [ "$want_iterations" = false ] || fail '--iterations requires 1..20'
 [ "$want_dataset" = false ] || fail '--dataset requires an identifier'
+if [ "$command" = doctor ] && [ "$selected_platform" ]; then
+    for option do
+        if [ "$option" = --model ]; then
+            case "$selected_platform" in linux/amd64|linux/arm64) ;; *) fail '--platform requires linux/amd64 or linux/arm64' ;; esac
+        fi
+    done
+fi
 if [ "$core" = true ] && [ -n "$dataset" ]; then
     fail '--core cannot be combined with --dataset'
 fi
@@ -263,17 +322,7 @@ if [ -n "$dataset" ]; then
     setup_command="$setup_command --dataset $dataset"
 fi
 if [ "$show_help" = true ]; then
-    if [ "$command" = menu ]; then
-        if [ "$language" = en ]; then
-            printf '%s\n' 'menu: interactive numbered menu (TTY and Python >=3.11 required).' \
-                'Run sh scripts/bootstrap.sh menu. For automation use setup/doctor/demo/live.'
-        else
-            printf '%s\n' 'menu: 대화형 번호 메뉴(TTY와 Python >=3.11 필요).' \
-                'sh scripts/bootstrap.sh menu로 실행하세요. 자동화에는 setup/doctor/demo/live 명령을 사용하세요.'
-        fi
-    else
-        help
-    fi
+    command_help
     exit 0
 fi
 

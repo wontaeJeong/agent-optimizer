@@ -37,7 +37,7 @@ def execute(argv, env, *, return_code=False):
 
 
 def bootstrap(command, env, *args):
-    return execute(["sh", str(ROOT / "scripts/bootstrap.sh"), command, *args], env)
+    return execute(["sh", str(ROOT / "scripts/bootstrap.sh"), command, *args], env, return_code=True)
 
 
 def agent_tui(env):
@@ -54,12 +54,14 @@ def local_demo(env):
     if not python.is_file():
         print(style(human("프로젝트 .venv가 필요합니다:"), "warning")
               + " sh scripts/bootstrap.sh setup --core")
-        return
+        return 2
     print(human("합성 최소 데모 후 로컬 HTTP fixture 기반 Optimizer 회귀 테스트 (외부 LLM·Docker 없음)."))
-    if bootstrap("demo", env):
+    code = bootstrap("demo", env)
+    if code == 0:
         test_env = {key: value for key, value in env.items() if key not in {"PYTHONHOME", "PYTHONPATH"}}
-        execute([str(python), "-m", "unittest", "discover", "-s", "tests",
-                 "-p", "test_feedback_optimizer.py", "-v"], test_env)
+        return execute([str(python), "-m", "unittest", "discover", "-s", "tests",
+                        "-p", "test_feedback_optimizer.py", "-v"], test_env, return_code=True)
+    return code
 
 
 def configure_model(env):
@@ -80,7 +82,7 @@ def configure_model(env):
     ModelSettings.from_env(staged)
     env.clear()
     env.update(staged)
-    bootstrap("doctor", env, "--model")
+    return bootstrap("doctor", env, "--model")
 
 
 def live(env):
@@ -90,12 +92,12 @@ def live(env):
     except (ConfigurationError, UnavailableError, ValueError):
         print(style(human("모델 설정이 없거나 잘못되었습니다."), "warning")
               + " " + human("먼저 4번 모델 설정·연결 검사를 선택하세요."))
-        return
+        return 2
     text = input(human("반복 횟수 [3] (1..20): ")).strip() or "3"
     if not text.isascii() or not text.isdecimal() or not 1 <= int(text) <= 20:
         raise ConfigurationError(human("반복 횟수는 1..20 정수여야 합니다."))
     print(human("설정한 모델로 실제 ACE 최적화를 실행합니다."))
-    bootstrap("live", env, "--iterations", str(int(text)))
+    return bootstrap("live", env, "--iterations", str(int(text)))
 
 
 def read_report(relative):
@@ -155,36 +157,39 @@ def main(argv=None, *, env=None):
               + " " + human("자동화에는 setup/doctor/demo/live 등 명시적 명령을 사용하세요."))
         return 2
     session = dict(os.environ if env is None else env)
-    last_tui_code = 0
+    last_code = 0
     try:
         while True:
             print(style(human("Agent Optimizer · 개발자 메뉴"), "heading"))
             print("\n".join(human(line) for line in MENU.splitlines()))
             choice = input(style(human("선택: "), "warning")).strip()
             if choice == "0":
-                return last_tui_code
+                return last_code
             try:
                 if choice in {"1", "2"}:
-                    bootstrap("setup" if choice == "1" else "doctor", session, "--core")
+                    last_code = bootstrap("setup" if choice == "1" else "doctor", session, "--core")
                 elif choice == "3":
-                    local_demo(session)
+                    last_code = local_demo(session)
                 elif choice == "4":
-                    configure_model(session)
+                    last_code = configure_model(session)
                 elif choice == "5":
-                    live(session)
+                    last_code = live(session)
                 elif choice == "6":
                     reports()
                 elif choice == "7":
-                    bootstrap("setup", session)
+                    last_code = bootstrap("setup", session)
                 elif choice == "8":
-                    last_tui_code = agent_tui(session)
+                    last_code = agent_tui(session)
                 else:
                     print(style(human("0..8 중 번호를 선택하세요."), "warning"))
             except (ConfigurationError, UnavailableError) as exc:
+                last_code = 2
                 print(f"{style(human('실행하지 못했습니다:'), 'error')} {exc}")
             except getpass.GetPassWarning:
+                last_code = 2
                 print(style(human("숨김 토큰 입력이 불가능하여 취소했습니다."), "error") + " " + human("TTY를 확인하세요."))
             except (OSError, ValueError, subprocess.SubprocessError):
+                last_code = 2
                 # Do not echo exception payloads that could contain URLs or credentials.
                 print(style(human("명령 또는 보고서 처리 실패."), "error")
                       + " " + human("코어는 1번, ACE 평가/모델 실행 자산은 7번 준비 후 다시 확인하세요."))
