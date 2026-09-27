@@ -198,16 +198,21 @@ MESSAGES = {
     "Harness-reported usage can be partial. Compare only identical datasets, models and budgets.": ("하네스 보고 사용량은 일부일 수 있습니다. 같은 데이터셋·모델·예산의 실행만 비교하세요.", "Harness-reported usage can be partial. Compare only identical datasets, models and budgets."),
     "example environment": ("예제 환경", "example environment"),
     "dataset preparation": ("데이터셋 준비", "dataset preparation"),
-    "실험 시작: 1. 기존 실험 실행  2. 새 실험 만들고 실행  3. ACE-RTL + CVDP 예제": (
-        "실험 시작: 1. 기존 실험 실행  2. 새 실험 만들고 실행  3. ACE-RTL + CVDP 예제",
-        "Start an experiment: 1. Run an existing experiment  2. Create and run a new experiment  3. ACE-RTL + CVDP example"),
-    "기존 실험 선택 또는 새 실험 생성 후 실행(TTY 필요).": (
-        "기존 실험 선택 또는 새 실험 생성 후 실행(TTY 필요).",
-        "Select an existing experiment or create and run a new one (TTY required)."),
+    "실험 시작: 1. 기존 실험 실행  2. 새 실험 만들고 실행  3. ACE-RTL + CVDP 예제  4. 이전 실행 보기": (
+        "실험 시작: 1. 기존 실험 실행  2. 새 실험 만들고 실행  3. ACE-RTL + CVDP 예제  4. 이전 실행 보기",
+        "Start an experiment: 1. Run an existing experiment  2. Create and run a new experiment  3. ACE-RTL + CVDP example  4. View previous runs"),
+    "기존 실험·새 실험 실행 또는 이전 실행 보기(TTY 필요).": (
+        "기존 실험·새 실험 실행 또는 이전 실행 보기(TTY 필요).",
+        "Run an existing or new experiment, or view previous runs (TTY required)."),
     '저장소에서 시작: make setup-core. 기존 실험을 선택하려면 agent-opt tui의 "기존 실험 실행", 새 설정은 agent-opt init(대화형)을 사용하세요. 데이터셋은 직접 선택하며 모델 없는 합성 예제는 README.md를 참고하세요.': (
         '저장소에서 시작: make setup-core. 기존 실험을 선택하려면 agent-opt tui의 "기존 실험 실행", 새 설정은 agent-opt init(대화형)을 사용하세요. 데이터셋은 직접 선택하며 모델 없는 합성 예제는 README.md를 참고하세요.',
         'Start in the repository: make setup-core. Select an existing experiment with agent-opt tui or create a configuration with interactive agent-opt init. Choose datasets explicitly; see README.md for a synthetic example without a model.'),
-    "선택 [1/2/3]: ": ("선택 [1/2/3]: ", "Choice [1/2/3]: "),
+    "선택 [1/2/3/4]: ": ("선택 [1/2/3/4]: ", "Choice [1/2/3/4]: "),
+    "실행 기록이 없습니다.": ("실행 기록이 없습니다.", "No previous runs found."),
+    "실행 번호 (0: 돌아가기): ": ("실행 번호 (0: 돌아가기): ", "Run number (0: back): "),
+    "목록의 실행 번호를 선택하세요": ("목록의 실행 번호를 선택하세요", "Choose a listed run number"),
+    "보고서를 안전하게 확인할 수 없습니다": ("보고서를 안전하게 확인할 수 없습니다", "Cannot safely verify the report"),
+    "보고서 경로": ("보고서 경로", "Report path"),
     "ACE-RTL 작업공간 경로: ": ("ACE-RTL 작업공간 경로: ", "ACE-RTL workspace path: "),
     "ACE-RTL 작업공간 경로를 입력하세요": ("ACE-RTL 작업공간 경로를 입력하세요", "Enter an ACE-RTL workspace path"),
     "선택한 작업공간": ("선택한 작업공간", "Selected workspace"),
@@ -226,7 +231,7 @@ MESSAGES = {
     "준비 부족": ("준비 부족", "not ready"),
     "이 실험을 실행할까요? [y/N]: ": ("이 실험을 실행할까요? [y/N]: ", "Run this experiment? [y/N]: "),
     "실험 실행을 취소했습니다": ("실험 실행을 취소했습니다", "Experiment run cancelled"),
-    "1, 2 또는 3을 선택하세요": ("1, 2 또는 3을 선택하세요", "Choose 1, 2 or 3"),
+    "1, 2, 3 또는 4를 선택하세요": ("1, 2, 3 또는 4를 선택하세요", "Choose 1, 2, 3 or 4"),
     "데이터셋을 준비하고 실행할까요? [y/N]": ("데이터셋을 준비하고 실행할까요? [y/N]", "Prepare dataset and run? [y/N]"),
     "데이터셋을 준비하고 설정을 만들까요? [y/N]": ("데이터셋을 준비하고 설정을 만들까요? [y/N]", "Prepare dataset and create config? [y/N]"),
     "명령 하네스의 Agent argv: 인용을 분리하지만 셸 확장·파이프·리다이렉션은 실행하지 않음": (
