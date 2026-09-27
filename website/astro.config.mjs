@@ -4,6 +4,7 @@ import mdx from '@astrojs/mdx';
 import mermaid from 'astro-mermaid';
 import starlightLinksValidator from 'starlight-links-validator';
 import starlightLlmsTxt from 'starlight-llms-txt';
+import starlightDotMd from 'starlight-dot-md';
 
 export default defineConfig({
   site: 'https://wontaeJeong.github.io',
@@ -30,7 +31,7 @@ export default defineConfig({
       ],
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/wontaeJeong/agent-optimizer' }],
       editLink: { baseUrl: 'https://github.com/wontaeJeong/agent-optimizer/edit/main/website/' },
-      plugins: [starlightLinksValidator(), starlightLlmsTxt()],
+      plugins: [starlightLinksValidator(), starlightLlmsTxt(), starlightDotMd()],
     }),
     mdx(),
   ],

@@ -7,20 +7,21 @@
 
 ## 사람용 가이드 사이트
 
-[사용자·팀 개발자 가이드](https://wontaeJeong.github.io/agent-optimizer/)는 `website/` 원고를
-Material for MkDocs로 빌드합니다. 로컬 미리보기와 링크 검사는 앱 환경과 분리해 실행합니다:
+[사용자·팀 개발자 가이드](https://wontaeJeong.github.io/agent-optimizer/)는 `website/`의
+한국어 원고를 Astro + Starlight로 빌드합니다. Node.js 22 이상에서 앱 환경과 별도로 실행합니다:
 
 ```bash
-python3.12 -m venv .venv-docs
-.venv-docs/bin/python -m pip install -r requirements-docs.txt
-.venv-docs/bin/mkdocs serve
-# 별도 터미널에서 배포 전 검사: .venv-docs/bin/mkdocs build --strict
+cd website
+npm ci
+npm run dev
 ```
 
-로컬 주소는 `http://127.0.0.1:8000/agent-optimizer/`입니다. PR에서는 엄격한 문서 빌드를 검사하고
+로컬 주소는 `http://localhost:4321/agent-optimizer/`입니다. 배포 전에는 `website/`에서
+`npm run build`로 문서·내부 링크·앵커를 검사하고, `npm run preview`에서 완성된 검색을 확인합니다.
+PR에서는 같은 빌드와 링크를 검사하고
 `main`에 반영되면 GitHub Actions가 게시합니다. 이 저장소는 Pages 게시 소스를 **GitHub Actions**로
 설정했습니다. 다른 저장소에 옮길 때는 **Settings → Pages → Build and deployment**에서 선택하세요.
-실제 공개 여부는 배포 작업과 접속 주소로 확인하세요.
+실제 공개 여부는 배포 작업과 접속 주소로 확인하세요. `llms.txt`와 페이지별 `.md` 원문도 함께 생성합니다.
 
 ## Agent 개발자가 사용하는 경로
 
