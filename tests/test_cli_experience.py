@@ -1043,7 +1043,8 @@ class CLIExperienceTests(unittest.TestCase):
         research = str(sorted(Registry().factories["optimizers"]).index("gepa") + 1)
         answers = ["2", "research-session", str(self.agent), "configs/strategy.json",
                    f"{self.data},{self.data}", "examples/minimal/evaluator.py:TextFixtureEvaluator",
-                   "", "", research, "1", "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
+                   "", "", research, self.command_harness_choice(),
+                   "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                    "", "y", "https://example.invalid/v1", ""]
         observed = {}
         original_main = main
