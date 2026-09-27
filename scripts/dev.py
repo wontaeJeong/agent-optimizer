@@ -81,8 +81,20 @@ def main(argv=None):
         "menu": "대화형 번호 메뉴 열기(TTY 필요, 모델 설정은 세션에서만 유지)",
         "help": "도구 조회나 설치 없이 이 도움말 표시",
     }
+    details = {
+        "setup": "결과: runs/<run-id>/report.html. 의존성 다운로드가 가능하며 ACE 전체는 Docker 자산도 준비합니다.",
+        "doctor": "실제 모델 API 호출은 --model에서만 수행합니다. ready는 Agent 실행 성공이 아닙니다; 설치하지 않습니다.",
+        "test": "unittest를 기존 .venv에서 실행합니다. 설치 없이 실패하면 setup --core로 복구하세요.",
+        "lint": "Ruff를 기존 .venv에서 실행합니다. 설치 없이 실패하면 setup --core로 복구하세요.",
+        "demo": "합성 fixture의 report.html을 runs/<run-id>/에 생성합니다. 실제 모델·공식 평가가 아닙니다.",
+        "smoke": "공식 CVDP 정답·오답과 실도구를 검사합니다. 모델 호출은 없으며 전체 setup이 먼저 필요합니다.",
+        "live": "실제 모델·Agent·공식 평가를 실행합니다. 전체 setup과 모델 인증이 필요합니다.",
+        "menu": "TTY에서만 실행하며 시작만으로 설치·모델 호출을 하지 않습니다.",
+        "help": "도구 조회·설치 없이 도움말만 표시합니다.",
+    }
     for name, description in descriptions.items():
         command = commands.add_parser(name, help=human(description), description=human(description), allow_abbrev=False)
+        command.epilog = human(details[name])
         if name in {"setup", "doctor"}:
             command.add_argument("--core", action="store_true", help=human("코어 도구만 준비·진단; Docker/ACE 제외(--dataset/--platform/--model과 함께 사용 불가)"))
             command.add_argument("--dataset", metavar="ID", help=human(

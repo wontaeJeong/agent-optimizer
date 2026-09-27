@@ -101,6 +101,28 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
         self.assertFalse((self.root / ".venv").exists())
         self.assertEqual(self.trace_text(), "")
 
+    def test_each_shell_command_help_names_only_its_options_without_installing(self):
+        expectations = {
+            "setup": ("--core", "--dataset", "--offline", "--platform", "Docker"),
+            "doctor": ("--core", "--dataset", "--json", "--model", "읽기 전용"),
+            "test": (".venv", "unittest"),
+            "lint": (".venv", "Ruff"),
+            "demo": (".venv", "report.html", "합성"),
+            "smoke": ("--platform", "공식", "모델"),
+            "live": ("--iterations", "--platform", "모델"),
+            "menu": ("TTY", "menu"),
+        }
+        for command, phrases in expectations.items():
+            with self.subTest(command=command):
+                result = self.invoke(command, "--help")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                for phrase in phrases:
+                    self.assertIn(phrase, result.stdout)
+                if command != "live":
+                    self.assertNotIn("live: --iterations", result.stdout)
+                self.assertEqual(self.trace_text(), "")
+        self.assertFalse((self.root / ".venv").exists())
+
     def test_model_and_iteration_flags_reach_python_without_installing(self):
         self.tool("python3", 'case "$1" in -I) exit 0;; esac\nprintf "arg:%s\\n" "$@" >> "$TRACE"\n')
         for args in (("doctor", "--model", "--json"), ("live", "--iterations", "3")):
@@ -776,6 +798,17 @@ class DeveloperCommandsTests(unittest.TestCase):
                 self.assertIn("--model", help_text)
             else:
                 self.assertIn("등록 데이터셋 하나 준비", help_text)
+
+    def test_direct_python_command_help_explains_results_and_execution_scope(self):
+        for command, expected in (("setup", "report.html"), ("doctor", "실제 모델 API"),
+                                  ("test", "unittest"), ("demo", "합성"),
+                                  ("smoke", "공식"), ("live", "모델")):
+            with self.subTest(command=command):
+                self.output = io.StringIO()
+                with self.assertRaises(SystemExit) as exit_code:
+                    self.main([command, "--help"])
+                self.assertEqual(exit_code.exception.code, 0)
+                self.assertIn(expected, self.output.getvalue())
 
     def test_core_setup_stops_before_example_and_requires_doctor_then_demo(self):
         for ready, demo_code, expected in ((True, 0, 0), (False, 0, 2), (True, 5, 2)):

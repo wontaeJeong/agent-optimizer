@@ -25,7 +25,7 @@ help() {
             'smoke/live: --platform; live: --iterations 1..20' \
             'menu: interactive numbered menu (TTY required). After setup, run .venv/bin/agent-opt --help for user commands.' \
             'test/lint/demo use the existing .venv without installation or Docker.' \
-            'make doctor ARGS="--json" (ARGS accepts normal shell argument syntax).' \
+            'make doctor ARGS="--json" (ARGS accepts quoted options, not shell operations).' \
             'All options: python3 scripts/dev.py --help or python3 scripts/dev.py <command> --help.'
         return
     fi
@@ -44,8 +44,48 @@ help() {
         'smoke/live: --platform; live: --iterations 1..20' \
         'menu: 대화형 번호 메뉴(TTY 필요). 준비 후 사용자 CLI 도움말은 .venv/bin/agent-opt --help로 확인하세요.' \
         'test/lint/demo는 설치나 Docker 실행 없이 기존 .venv를 사용합니다.' \
-        'make doctor ARGS="--json" (ARGS에는 일반 셸 인수 구문을 사용합니다).' \
+        'make doctor ARGS="--json" (ARGS에는 인용된 옵션을 쓰고 셸 연산은 넣지 않습니다).' \
         '상세 옵션: python3 scripts/dev.py --help 또는 python3 scripts/dev.py <명령> --help.'
+}
+
+command_help() {
+    if [ "$language" = en ]; then
+        case "$1" in
+            setup) printf '%s\n' 'setup: --core prepares .venv and a synthetic demo; --dataset ID prepares one selected dataset; no selector prepares full ACE.' \
+                '--offline reuses verified assets; --platform linux/amd64|linux/arm64 is full ACE only.' \
+                '--core and --dataset conflict; either conflicts with --platform. Setup may download dependencies/data and build Docker images; results: runs/<run-id>/report.html.' ;;
+            doctor) printf '%s\n' 'doctor: --core checks core; --dataset ID checks selected assets; no selector checks full ACE.' \
+                '--json prints one JSON object; --model calls the real API and container tools for full ACE.' \
+                '--core and --dataset conflict; either conflicts with --platform/--model. No installation; ready is not Agent/model execution success.' ;;
+            test) printf '%s\n' 'test: run unittest in the existing .venv; no installation. Repair: sh scripts/bootstrap.sh setup --core.' ;;
+            lint) printf '%s\n' 'lint: run Ruff in the existing .venv; no installation. Repair: sh scripts/bootstrap.sh setup --core.' ;;
+            demo) printf '%s\n' 'demo: run synthetic fixture in the existing .venv without Docker/model; creates runs/<run-id>/report.html. Repair: setup --core.' ;;
+            smoke) printf '%s\n' 'smoke: [--platform linux/amd64|linux/arm64] check prepared ACE Docker/tools and official positive/negative evaluation without a model.' \
+                'First run setup (full ACE); result: runs/dev-smoke-*/summary.json.' ;;
+            live) printf '%s\n' 'live: [--platform linux/amd64|linux/arm64] [--iterations 1..20] run actual model/Agent/official evaluator; default 3.' \
+                'Requires full setup and model credentials; results: runs/dev-live/<run-id>/report.html.' ;;
+            menu) printf '%s\n' 'menu: interactive numbered menu (TTY and Python >=3.11 required).' \
+                'Run sh scripts/bootstrap.sh menu. For automation use setup/doctor/demo/live.' ;;
+        esac
+    else
+        case "$1" in
+            setup) printf '%s\n' 'setup: --core는 .venv와 합성 데모, --dataset ID는 선택 데이터셋, 선택자 없으면 ACE 전체를 준비합니다.' \
+                '--offline은 검증된 캐시 재사용; --platform linux/amd64|linux/arm64는 ACE 전체 전용입니다.' \
+                '--core와 --dataset은 충돌하며 둘 다 --platform과 함께 쓸 수 없습니다. 의존성/데이터 다운로드·Docker 빌드 가능; 결과: runs/<run-id>/report.html.' ;;
+            doctor) printf '%s\n' 'doctor: --core 코어, --dataset ID 선택 자산, 선택자 없으면 ACE 전체를 읽기 전용 진단합니다.' \
+                '--json은 단일 JSON; --model은 ACE 전체의 실제 API·컨테이너 도구를 호출합니다.' \
+                '--core와 --dataset은 충돌하며 둘 다 --platform/--model과 함께 쓸 수 없습니다. 설치 없음; ready는 Agent/모델 실행 성공이 아닙니다.' ;;
+            test) printf '%s\n' 'test: 기존 .venv에서 unittest 실행; 설치 없음. 복구: sh scripts/bootstrap.sh setup --core.' ;;
+            lint) printf '%s\n' 'lint: 기존 .venv에서 Ruff 실행; 설치 없음. 복구: sh scripts/bootstrap.sh setup --core.' ;;
+            demo) printf '%s\n' 'demo: 기존 .venv에서 Docker/모델 없는 합성 fixture 실행; runs/<run-id>/report.html 생성. 복구: setup --core.' ;;
+            smoke) printf '%s\n' 'smoke: [--platform linux/amd64|linux/arm64] 준비된 ACE Docker/도구와 공식 정답·오답 평가 검사; 모델 호출 없음.' \
+                '먼저 전체 setup을 실행하세요. 결과: runs/dev-smoke-*/summary.json.' ;;
+            live) printf '%s\n' 'live: [--platform linux/amd64|linux/arm64] [--iterations 1..20] 실제 모델·Agent·공식 평가 실행; 기본 3회.' \
+                '전체 setup과 모델 인증 필요; 결과: runs/dev-live/<run-id>/report.html.' ;;
+            menu) printf '%s\n' 'menu: 대화형 번호 메뉴(TTY와 Python >=3.11 필요).' \
+                'sh scripts/bootstrap.sh menu로 실행하세요. 자동화에는 setup/doctor/demo/live 명령을 사용하세요.' ;;
+        esac
+    fi
 }
 
 fail() {
@@ -299,17 +339,7 @@ if [ -n "$dataset" ]; then
     setup_command="$setup_command --dataset $dataset"
 fi
 if [ "$show_help" = true ]; then
-    if [ "$command" = menu ]; then
-        if [ "$language" = en ]; then
-            printf '%s\n' 'menu: interactive numbered menu (TTY and Python >=3.11 required).' \
-                'Run sh scripts/bootstrap.sh menu. For automation use setup/doctor/demo/live.'
-        else
-            printf '%s\n' 'menu: 대화형 번호 메뉴(TTY와 Python >=3.11 필요).' \
-                'sh scripts/bootstrap.sh menu로 실행하세요. 자동화에는 setup/doctor/demo/live 명령을 사용하세요.'
-        fi
-    else
-        help
-    fi
+    command_help "$command"
     exit 0
 fi
 

@@ -83,6 +83,32 @@ MESSAGES = {
         "목록의 데이터셋 번호 또는 로컬 tasks.json 경로를 입력하세요",
         "Choose a listed dataset number or a local tasks.json path"),
     "잘못된 Agent 실행 명령": ("잘못된 Agent 실행 명령", "Invalid Agent execution command"),
+    "결과: runs/<run-id>/report.html. 의존성 다운로드가 가능하며 ACE 전체는 Docker 자산도 준비합니다.": (
+        "결과: runs/<run-id>/report.html. 의존성 다운로드가 가능하며 ACE 전체는 Docker 자산도 준비합니다.",
+        "Result: runs/<run-id>/report.html. Dependencies may download; full ACE prepares Docker assets."),
+    "실제 모델 API 호출은 --model에서만 수행합니다. ready는 Agent 실행 성공이 아닙니다; 설치하지 않습니다.": (
+        "실제 모델 API 호출은 --model에서만 수행합니다. ready는 Agent 실행 성공이 아닙니다; 설치하지 않습니다.",
+        "Actual model API calls require --model. Ready does not prove Agent execution; no installation."),
+    "unittest를 기존 .venv에서 실행합니다. 설치 없이 실패하면 setup --core로 복구하세요.": (
+        "unittest를 기존 .venv에서 실행합니다. 설치 없이 실패하면 setup --core로 복구하세요.",
+        "Run unittest in the existing .venv. No installation; repair with setup --core."),
+    "Ruff를 기존 .venv에서 실행합니다. 설치 없이 실패하면 setup --core로 복구하세요.": (
+        "Ruff를 기존 .venv에서 실행합니다. 설치 없이 실패하면 setup --core로 복구하세요.",
+        "Run Ruff in the existing .venv. No installation; repair with setup --core."),
+    "합성 fixture의 report.html을 runs/<run-id>/에 생성합니다. 실제 모델·공식 평가가 아닙니다.": (
+        "합성 fixture의 report.html을 runs/<run-id>/에 생성합니다. 실제 모델·공식 평가가 아닙니다.",
+        "Write a synthetic fixture report.html in runs/<run-id>/; not actual model/official evaluation."),
+    "공식 CVDP 정답·오답과 실도구를 검사합니다. 모델 호출은 없으며 전체 setup이 먼저 필요합니다.": (
+        "공식 CVDP 정답·오답과 실도구를 검사합니다. 모델 호출은 없으며 전체 setup이 먼저 필요합니다.",
+        "Check official CVDP positive/negative cases and real tools; no model calls; requires full setup."),
+    "실제 모델·Agent·공식 평가를 실행합니다. 전체 setup과 모델 인증이 필요합니다.": (
+        "실제 모델·Agent·공식 평가를 실행합니다. 전체 setup과 모델 인증이 필요합니다.",
+        "Run the actual model, Agent and official evaluation; requires full setup and credentials."),
+    "TTY에서만 실행하며 시작만으로 설치·모델 호출을 하지 않습니다.": (
+        "TTY에서만 실행하며 시작만으로 설치·모델 호출을 하지 않습니다.",
+        "Requires TTY; starting the menu does not install or call a model."),
+    "도구 조회·설치 없이 도움말만 표시합니다.": (
+        "도구 조회·설치 없이 도움말만 표시합니다.", "Show help without probing or installing tools."),
     "고정 Git·데이터·Python driver·Docker 공식 채점 필요": (
         "고정 Git·데이터·Python driver·Docker 공식 채점 필요",
         "Pinned Git/data, Python driver, Docker official scorer required"),
