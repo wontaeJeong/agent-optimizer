@@ -20,6 +20,12 @@ Mac ARM64 / Python 3.12.12 / Docker daemon `linux/arm64`. 아래 run ID는 UTC
 `AGENT_OPT_MODEL_ENDPOINT`는 자식에서 제거했으며 추가 유료 진단·자동 재시도·
 다른 dataset/provider 전환은 없었다.
 
+이 예제의 `runtime.kind="local"`은 신뢰한 로컬 Python 후보 코드에 한해 실행했다.
+후보는 호스트의 동일 사용자 권한으로 실행된다. 공개 Agent workspace와 private 평가
+파일의 분리는 논리적 경계이지 OS 격리가 아니며, 후보가 동일 사용자로 접근 가능한
+private 자산·Optimizer API 키를 읽을 수 있다. 아래 raw와 점수는 이 제한 아래의
+실행 사실이다.
+
 | 실제 명령·고정 범위 | exit / 관측 결과 |
 |---|---|
 | `git status --short --branch`; `git rev-parse HEAD`; `git worktree list`; `make doctor-core`; `.venv/bin/agent-opt doctor --dataset cvdp --json`; `make doctor`; `.venv/bin/agent-opt doctor --plan runs/configs/model-rtl-research/experiment.toml --json` | 모두 0. 작업 branch clean, core/선택 CVDP/전체 ACE 자산 진단과 정적 plan `ready=true`; `make doctor`의 live ready는 설정 존재만 뜻하며 실제 인증/추론 성공은 아니다. **이번에는 `make smoke`를 재실행하지 않았다**. 첫 실행의 별도 공식 LFSR 정답·오답 smoke는 이전 기록으로 유지한다. |
@@ -96,6 +102,11 @@ Mac ARM64 / Python 3.12.12 / Docker daemon `linux/arm64`에서 **한 번** 실�
 매핑했다. 기존 `AGENT_OPT_MODEL_ENDPOINT`는 자식에서 제거했으며 키 값·원문을
 기록하지 않았다. 추가 유료 모델 진단·실패 뒤 재시도·provider 교체는 없었다.
 
+이 첫 실행도 신뢰한 로컬 Python 후보 코드에 한해 수행했다. 후보는 호스트의 동일
+사용자 권한으로 실행되므로 공개 workspace/private 평가 파일의 논리적 분리는 OS
+격리가 아니며, 동일 사용자로 접근 가능한 private 자산·Optimizer API 키를 읽을
+수 있다. 이 경계는 아래 실제 점수·상태 주장의 전제다.
+
 | 실제 명령 / 구별할 범위 | exit와 관측 결과 |
 |---|---|
 | `make doctor-core`; `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_research_cvdp_example.py -v`; 같은 명령 `-p test_model_rtl_agent.py` | 모두 0. 코어 ready, API-free 계약 각각 15/15·8/8. |
@@ -145,7 +156,11 @@ trial에서 `null`이고 Command Harness의 부분 사용량도 보고되지 않
 
 원인 추적: `agent.py`는 Agent 모델 요청을 `timeout=60`으로 보내고, 실패를
 `model_unavailable`/exit 2로 표시한다. `adapter.py`는 이를 환경 실패/null로
-전달한다. Ecdysis의 `_train_score()`는 무효 train 집계를 거부하는 기존 계약이며
+분류한다. 다만 이 marker는 수정 가능한 후보의 **자기보고 오류 유형**이므로
+`infrastructure_error`만으로 신뢰된 인프라의 인증 장애가 증명되지는 않는다.
+이 run의 60초 종료는 당시 실행 산출물에서 관측한 사실이며, 후보가 marker를
+위조하더라도 무효/`passed=null`로 남아 좋은 점수·공식 raw/모델 성공 기록이
+생기지는 않는다. Ecdysis의 `_train_score()`는 무효 train 집계를 거부하는 기존 계약이며
 이번 차단을 성공/합성 점수로 대체하지 않는다. 새로운 코어 코드 오류는 확인되지
 않아 회귀 코드 수정·RED/GREEN 단계는 해당 없음; 위 API-free 계약은 GREEN이다.
 추가 유료 실행 없이 기록을 보존했다. native ACE, Verilog-Eval/Ubuntu x86_64,

@@ -25,7 +25,7 @@ RTL = "module example(output logic ready); assign ready = 1'b1; endmodule\n"
 
 
 @contextmanager
-def loopback_model(*, invalid_agent=False, invalid_optimizer=False):
+def loopback_model(*, invalid_agent=False, invalid_optimizer=False, agent_status=200):
     requests = []
     original_code = (ROOT / "examples/model-rtl-agent/agent/src/agent.py").read_text()
     repaired_code = original_code.replace(
@@ -61,7 +61,7 @@ def loopback_model(*, invalid_agent=False, invalid_optimizer=False):
             payload = json.dumps({"id": "fixture-chat", "object": "chat.completion",
                                   "choices": [{"index": 0, "message": {"role": "assistant", "content": content},
                                                "finish_reason": "stop"}]}).encode()
-            self.send_response(200)
+            self.send_response(agent_status if body["model"] == "fixture-agent" else 200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
@@ -316,6 +316,40 @@ class PublicRTLEvaluator:
         self.assertEqual(records[0]["execution"]["returncode"], 2)
         self.assertEqual(summary["groups"][0]["selected"], [])
         self.assertEqual(requests, [])
+
+    def test_loopback_http_401_stays_invalid_through_runner_without_raw_or_model_success(self):
+        spec = self.offline_spec()
+        spec["stages"] = []
+        spec["final_stages"] = ["baseline"]
+        with loopback_model(agent_status=401) as (url, requests), \
+                patch.dict(os.environ, self.fixture_environment(url), clear=True):
+            run, summary = run_experiment(spec, Registry(), self.root / "offline-runs")
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0]["path"], "/v1/chat/completions")
+        self.assertEqual(requests[0]["model"], "fixture-agent")
+        self.assertEqual(summary["status"], "no_eligible_candidate")
+        self.assertEqual(summary["trials_used"], 1)
+        self.assertEqual(summary["groups"][0]["selected"], [])
+        self.assertFalse(summary["groups"][0]["baseline"]["valid"])
+        events = [json.loads(line) for line in (run / "events.jsonl").read_text().splitlines()]
+        records = [event for event in events if event["event"] == "trial_completed"]
+        self.assertEqual(len(records), 1)
+        record = records[0]
+        self.assertEqual(record["status"], "infrastructure_error")
+        self.assertFalse(record["valid"])
+        self.assertIsNone(record["metrics"]["passed"])
+        self.assertEqual(record["execution"]["returncode"], 2)
+        self.assertEqual(json.loads(Path(record["execution"]["stdout_path"]).read_text()),
+                         {"status": "model_unavailable"})
+        self.assertNotIn("evaluation_started", [event["event"] for event in events])
+        self.assertEqual(list(run.rglob("raw_result.json")), [])
+        self.assertFalse((Path(record["execution"]["stdout_path"]).parent.parent /
+                          "evaluation_workspace").exists())
+        for artifact in run.rglob("*"):
+            if artifact.is_file():
+                content = artifact.read_bytes()
+                self.assertNotIn(b"agent-fixture-token", content, artifact.relative_to(run))
+                self.assertNotIn(b"optimizer-fixture-token", content, artifact.relative_to(run))
 
     def test_invalid_loopback_agent_or_optimizer_reply_never_becomes_a_score(self):
         for invalid_agent, invalid_optimizer in ((True, False), (False, True)):

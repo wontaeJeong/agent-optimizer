@@ -8,6 +8,12 @@ DeepSeek OpenAI 호환 completion으로 RTL을 쓰고, 외부 **공식 CVDP 채�
 
 ## 준비 및 실행 조건
 
+이 예제의 `harness.toml`은 `runtime.kind="local"`이며 수정 가능한 Python 후보를
+호스트의 동일 사용자 권한으로 실행합니다. **신뢰한 로컬 후보 코드에서만 실행하세요.**
+공개 Agent workspace와 private 평가 자료의 파일 분리는 논리적 분리이지 OS 격리가
+아닙니다. 후보 코드는 동일 사용자로 접근 가능한 private 자산과 Optimizer API 키를
+읽을 수 있습니다. 아래 실행 결과는 신뢰한 후보를 사용한 경우에만 적용됩니다.
+
 Mac/Linux, Python 3.12 프로젝트 환경, Git, Docker daemon/Compose와 고정 CVDP
 소스·데이터·driver·공식 평가 이미지가 필요합니다. 저장소 루트에서:
 
@@ -49,6 +55,10 @@ Ecdysis 4, 두 train family·별도의 validation family와 `final_test=false`�
 (실제 채점한 trial만), 후보 스냅샷·`changes.diff`·stage checkpoint에서 확인합니다.
 Agent의 전체 토큰/비용은 미수집이면 `null`; Optimizer usage와 혼합하지 않습니다.
 채점 결과가 없는 trial은 실패 점수 0으로 대체하지 않습니다.
+`model_unavailable` stdout과 exit 2는 수정 가능한 Agent 후보의 **자기보고 오류 유형**을
+adapter가 `infrastructure_error`/무효/`passed=null`로 분류하는 신호이며, 신뢰된
+인프라의 인증 장애를 증명하지 않습니다. 후보가 이 신호를 위조해도 좋은 점수나
+공식 raw/모델 성공 기록으로 바뀌지는 않습니다.
 
 ## 2026-09-27 한정 실행 결과
 
