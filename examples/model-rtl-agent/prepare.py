@@ -56,9 +56,14 @@ def _subset(document: dict) -> dict:
         validation = next((task for task in validations
                            if task["family"] not in {first["family"], second["family"]}), None)
         if validation is not None:
+            # The CVDP importer normally supplies this final declaration already.
+            def with_target(task):
+                declaration = "\nWrite target files: " + task["evaluation"]["targets"][0]
+                return {**task, "prompt": (task["prompt"] if task["prompt"].endswith(declaration)
+                                            else task["prompt"] + declaration)}
+
             return {**document, "tasks": [
-                {**task, "prompt": task["prompt"] + "\nWrite target files: " + task["evaluation"]["targets"][0]}
-                for task in (first, second, validation)]}
+                with_target(task) for task in (first, second, validation)]}
     if len({task["family"] for task in trains}) < 2:
         raise ConfigurationError("CVDP needs two distinct public RTL train families")
     raise ConfigurationError("CVDP needs a public RTL validation family distinct from train")
