@@ -778,6 +778,40 @@ class DeveloperCommandsTests(unittest.TestCase):
                     self.assertEqual(self.main(["test"]), 2)
                 self.assertIn("setup --core", self.output.getvalue())
 
+    def test_live_failure_prints_korean_root_cause_and_keeps_json_stdout(self):
+        error = UnavailableError("Optimizer needs a valid train evaluation")
+        error.failure_diagnostic = {
+            "detail": "OpenAI API에서 HTTP 404를 받았습니다. API 기본 경로에 /v1을 포함하세요.",
+            "trial_id": "trial-1",
+            "harness_id": "ace-opencode",
+        }
+        error.run_root = "/tmp/runs/dev-live/run-1"
+        setup = SimpleNamespace(validate_live=lambda: None,
+                                validate_platform=lambda platform: platform or "linux/arm64")
+        lifecycle = SimpleNamespace(run=lambda *_args, **_kwargs: (_ for _ in ()).throw(error))
+
+        def load(name, _path):
+            if name == "ace_environment":
+                return setup
+            if name == "ace_lifecycle":
+                return lifecycle
+            self.fail(f"unexpected module: {name}")
+
+        output, diagnostics = io.StringIO(), io.StringIO()
+        with patch.dict(os.environ, {"AGENT_OPT_LANG": "ko"}, clear=True), \
+                patch.object(self.dev, "load", side_effect=load), \
+                redirect_stdout(output), redirect_stderr(diagnostics):
+            code = self.dev.main(["live", "--iterations", "1", "--platform", "linux/arm64"])
+
+        self.assertEqual(code, 2)
+        result = json.loads(output.getvalue())
+        self.assertEqual(result["status"], "blocked")
+        self.assertIn("HTTP 404", result["reason"])
+        self.assertIn("AGENT_OPT_MODEL_BASE_URL", result["repair"])
+        self.assertIn("실패 원인", diagnostics.getvalue())
+        self.assertIn("HTTP 404", diagnostics.getvalue())
+        self.assertIn("summary.json", diagnostics.getvalue())
+
     def test_missing_dev_dependency_reports_setup_remedy_without_installing(self):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d).resolve()

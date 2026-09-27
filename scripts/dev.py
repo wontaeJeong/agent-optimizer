@@ -243,7 +243,16 @@ def main(argv=None):
                                   "results": "runs/", "next": "make doctor; make test; make smoke"}))
             return 0
     except (ConfigurationError, UnavailableError, OSError, subprocess.SubprocessError) as exc:
-        print(json.dumps({"status": "blocked", "stage": stage, "reason": str(exc),
+        failure = getattr(exc, "failure_diagnostic", None) if args.command == "live" else None
+        reason = failure.get("detail") if isinstance(failure, dict) else str(exc)
+        if isinstance(failure, dict):
+            print(f"{human('Failure cause')}: {reason}", file=sys.stderr)
+            run_root = getattr(exc, "run_root", None)
+            if isinstance(run_root, str):
+                print(f"{human('Run summary')}: {Path(run_root) / 'summary.json'}", file=sys.stderr)
+            if failure.get("harness_id") == "ace-opencode":
+                repair = human("Correct the API base path and model ID from the failure cause.")
+        print(json.dumps({"status": "blocked", "stage": stage, "reason": reason,
                           "repair": repair}))
         return 2
     except KeyboardInterrupt:

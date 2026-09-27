@@ -6,6 +6,33 @@ from pathlib import Path
 
 
 MESSAGES = {
+    "OpenAI API 404 without version path at {endpoint}": (
+        "OpenAI API에서 HTTP 404가 발생했습니다 (요청 경로: {endpoint}). API 기본 주소에 /v1이 누락됐습니다. AGENT_OPT_MODEL_BASE_URL=https://api.openai.com/v1로 설정하고 AGENT_OPT_MODEL_ID를 확인하세요.",
+        "OpenAI API returned HTTP 404 at {endpoint}. The /v1 API path is missing. Set AGENT_OPT_MODEL_BASE_URL=https://api.openai.com/v1 and verify AGENT_OPT_MODEL_ID."),
+    "OpenCode API authentication failed at {endpoint}": (
+        "OpenCode 모델 API 인증에 실패했습니다 (HTTP 401, 요청 경로: {endpoint}). AGENT_OPT_MODEL_API_KEY의 유효성과 권한을 확인하세요.",
+        "OpenCode model API authentication failed (HTTP 401) at {endpoint}. Verify AGENT_OPT_MODEL_API_KEY and its access."),
+    "OpenCode API access denied at {endpoint}": (
+        "OpenCode 모델 API 접근 권한이 없습니다 (HTTP 403, 요청 경로: {endpoint}). 계정 권한과 모델 사용 가능 여부를 확인하세요.",
+        "OpenCode model API access was denied (HTTP 403) at {endpoint}. Verify account access and model availability."),
+    "OpenCode API route or model not found at {endpoint}": (
+        "OpenCode 모델 API에서 HTTP 404가 발생했습니다 (요청 경로: {endpoint}). API 기본 주소의 경로와 AGENT_OPT_MODEL_ID를 확인하세요.",
+        "OpenCode model API returned HTTP 404 at {endpoint}. Verify the API base path and AGENT_OPT_MODEL_ID."),
+    "OpenCode API rate or usage limit reached at {endpoint}": (
+        "OpenCode 모델 API 요청 또는 사용량 한도를 초과했습니다 (HTTP 429, 요청 경로: {endpoint}). 한도와 요금제 상태를 확인하세요.",
+        "OpenCode model API rate or usage limit was reached (HTTP 429) at {endpoint}. Check the account limits and plan."),
+    "OpenCode API request failed with HTTP {status} at {endpoint}": (
+        "OpenCode 모델 API 요청이 HTTP {status}로 실패했습니다 (요청 경로: {endpoint}). API 주소·모델 ID와 서비스 상태를 확인하세요.",
+        "OpenCode model API request failed with HTTP {status} at {endpoint}. Check the API endpoint, model ID and service status."),
+    "OpenCode API error event has no safe HTTP status": (
+        "OpenCode API 오류에 HTTP 상태 코드가 없습니다. 실행 요약과 원시 추적을 확인하세요.",
+        "OpenCode API error did not include an HTTP status. Check the run summary and raw trace."),
+    "Unknown API endpoint": ("알 수 없는 경로", "unknown endpoint"),
+    "Failure cause": ("실패 원인", "Failure cause"),
+    "Run summary": ("실행 요약", "Run summary"),
+    "Correct the API base path and model ID from the failure cause.": (
+        "실패 원인에 따라 AGENT_OPT_MODEL_BASE_URL의 API 경로와 AGENT_OPT_MODEL_ID를 수정하세요.",
+        "Correct the API path in AGENT_OPT_MODEL_BASE_URL and AGENT_OPT_MODEL_ID as indicated by the failure cause."),
     "세션 대기": ("대기", "queued"),
     "세션 실행 중": ("실행 중", "running"),
     "세션 완료": ("완료", "completed"),
@@ -655,6 +682,23 @@ def t(key: str, *, lang: str | None = None, **values: object) -> str:
 def human(text: str, *, lang: str | None = None) -> str:
     """Known static UI text is translated; component-provided text is unchanged."""
     return t(text, lang=lang) if text in MESSAGES else text
+
+
+def opencode_error_detail(status: int | None, endpoint: str | None, *,
+                          missing_openai_version: bool = False) -> str:
+    safe_endpoint = endpoint or t("Unknown API endpoint")
+    if status == 404 and missing_openai_version:
+        return t("OpenAI API 404 without version path at {endpoint}", endpoint=safe_endpoint)
+    messages = {
+        401: "OpenCode API authentication failed at {endpoint}",
+        403: "OpenCode API access denied at {endpoint}",
+        404: "OpenCode API route or model not found at {endpoint}",
+        429: "OpenCode API rate or usage limit reached at {endpoint}",
+    }
+    if status is None:
+        return t("OpenCode API error event has no safe HTTP status")
+    template = messages.get(status, "OpenCode API request failed with HTTP {status} at {endpoint}")
+    return t(template, status=status, endpoint=safe_endpoint)
 
 
 def render_diagnostic(row: dict, *, lang: str | None = None) -> tuple[str, str]:
