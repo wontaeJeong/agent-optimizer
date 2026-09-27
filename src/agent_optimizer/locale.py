@@ -149,12 +149,24 @@ MESSAGES = {
         "팀 구현 · 전용 프로필/도구 확인", "Team implementation · check dedicated profile/tools"),
     "수정 가능 경로": ("수정 가능 경로", "Editable paths"),
     "준비 작업": ("준비 작업", "Preparation"),
+    "선택한 합성 fixture·채점기 사용; 고정 데이터셋 다운로드 없음": (
+        "선택한 합성 fixture·채점기 사용; 고정 데이터셋 다운로드 없음",
+        "No pinned dataset download for the selected fixture; use bundled tasks/scorer"),
+    "로컬 tasks.json·명시적 채점기를 확인; 팀 provider가 있으면 추가 조건 확인": (
+        "로컬 tasks.json·명시적 채점기를 확인; 팀 provider가 있으면 추가 조건 확인",
+        "Check local tasks.json and explicit scorer; check any team provider requirements"),
+    "선택한 과제·채점기 준비; 팀 provider의 다운로드/도구 조건은 구현 확인": (
+        "선택한 과제·채점기 준비; 팀 provider의 다운로드/도구 조건은 구현 확인",
+        "Prepare selected tasks/scorer; check team provider download/tool requirements"),
     "선택한 데이터셋의 과제·채점기 준비; 고정 데이터셋에는 다운로드·Docker 빌드 가능": (
         "선택한 데이터셋의 과제·채점기 준비; 고정 데이터셋에는 다운로드·Docker 빌드 가능",
         "Prepare selected tasks/scorer; pinned datasets may download data and build Docker images"),
     "기본 예산": ("기본 예산", "Default budget"),
     "예약 trial 수": ("예약 trial 수", "reserved trials"),
     "모델·도구 호출": ("모델·도구 호출", "Model/tool calls"),
+    "합성 fixture는 외부 모델/도구를 호출하지 않음": (
+        "합성 fixture는 외부 모델/도구를 호출하지 않음",
+        "Synthetic fixture does not call an external model/tool"),
     "실행 시 모델/외부 도구 호출 가능; 설정 생성만으로는 호출하지 않음": (
         "실행 시 모델/외부 도구 호출 가능; 설정 생성만으로는 호출하지 않음",
         "Run may call a model/external tool; config generation alone does not"),

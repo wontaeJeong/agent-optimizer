@@ -1555,6 +1555,7 @@ class CLIExperienceTests(unittest.TestCase):
 
         with patch("builtins.input", side_effect=answer), contextlib.redirect_stderr(terminal):
             arguments = wizard_arguments(self.root)
+        self.assertIn("로컬 tasks.json·명시적 채점기를 확인", terminal.getvalue())
         self.assertEqual(arguments[arguments.index("--harness") + 1], "fixture")
         self.assertNotIn("--command-json", arguments)
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -1684,6 +1685,8 @@ class CLIExperienceTests(unittest.TestCase):
                 wizard_arguments(self.root, execute=False)
         self.assertIn("synthetic", terminal.getvalue().lower())
         self.assertIn("configuration", terminal.getvalue().lower())
+        self.assertIn("Synthetic fixture does not call an external model/tool", terminal.getvalue())
+        self.assertIn("No pinned dataset download for the selected fixture", terminal.getvalue())
         self.assertFalse((self.root / "runs").exists())
 
     def test_wizard_prompts_follow_language_without_changing_options(self):

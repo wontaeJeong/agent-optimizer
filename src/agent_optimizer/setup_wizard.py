@@ -363,16 +363,27 @@ def wizard_arguments(project_root: Path, *, execute: bool = True) -> list[str]:
            f"\n  {human('Optimizers')}: {', '.join(selected)}",
            file=sys.stderr)
     print(f"  {human('수정 가능 경로')}: {', '.join(editable)}", file=sys.stderr)
-    print(f"  {human('준비 작업')}: {human('선택한 데이터셋의 과제·채점기 준비; 고정 데이터셋에는 다운로드·Docker 빌드 가능')}",
-          file=sys.stderr)
+    if all(dataset == "sample_text" for dataset in selected_datasets):
+        preparation = "선택한 합성 fixture·채점기 사용; 고정 데이터셋 다운로드 없음"
+    elif any(dataset in {"cvdp", "verilog-spec", "verilog-completion"}
+             for dataset in selected_datasets):
+        preparation = "선택한 데이터셋의 과제·채점기 준비; 고정 데이터셋에는 다운로드·Docker 빌드 가능"
+    elif any(dataset not in choices for dataset in selected_datasets):
+        preparation = "로컬 tasks.json·명시적 채점기를 확인; 팀 provider가 있으면 추가 조건 확인"
+    else:
+        preparation = "선택한 과제·채점기 준비; 팀 provider의 다운로드/도구 조건은 구현 확인"
+    print(f"  {human('준비 작업')}: {human(preparation)}", file=sys.stderr)
     print(f"  {human('기본 예산')}: max_tasks=9, max_trials=max(80, {human('예약 trial 수')}), "
           "max_wall_time_seconds=3600, trial_timeout_seconds=120", file=sys.stderr)
     model_possible = (harness in {"opencode", "claude_code"} or
                       any(key in {"gepa", "meta_harness", "ecdysis"} for key in selected))
-    print(f"  {human('모델·도구 호출')}: " + human(
-        "실행 시 모델/외부 도구 호출 가능; 설정 생성만으로는 호출하지 않음" if model_possible else
-        "Agent 실행 명령에 따라 외부 도구/모델 호출 가능; 설정 생성만으로는 호출하지 않음"),
-        file=sys.stderr)
+    if harness == "fixture" and set(selected) <= {"baseline", "file_variants"}:
+        calls = "합성 fixture는 외부 모델/도구를 호출하지 않음"
+    elif model_possible:
+        calls = "실행 시 모델/외부 도구 호출 가능; 설정 생성만으로는 호출하지 않음"
+    else:
+        calls = "Agent 실행 명령에 따라 외부 도구/모델 호출 가능; 설정 생성만으로는 호출하지 않음"
+    print(f"  {human('모델·도구 호출')}: {human(calls)}", file=sys.stderr)
     config_dir = project_root / "runs" / "configs" / name
     print(f"  {human('설정 위치')}: {config_dir / ('session.json' if len(selected_datasets) > 1 else 'experiment.toml')}",
           file=sys.stderr)
