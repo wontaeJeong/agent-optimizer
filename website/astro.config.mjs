@@ -20,6 +20,7 @@ export default defineConfig({
           { slug: 'getting-started/first-run' },
           { slug: 'getting-started/results' },
         ] },
+        { label: '동작 원리', items: [{ slug: 'concepts/overview' }] },
         { label: '실험 가이드', items: [{ slug: 'guides/experiment' }] },
         { label: '컴포넌트', items: [{ slug: 'developer/components' }] },
         { label: '개발자', items: [

@@ -15,7 +15,7 @@ title: 구조와 경계
 | Optimizer | 허용된 변경으로 후보 제안 | `OptimizationContext` → `OptimizationResult` |
 | Runner | 예산·분할·선택·기록 | 독립 stage, 그룹별 보고서와 이벤트 |
 
-[시작 페이지](/agent-optimizer/)는 구성 간 데이터 흐름을 보여줍니다. 원본은 보존하고 후보는 editable 파일의 스냅샷에서 만듭니다. 공개 과제만 Agent 실행 공간으로 전달하며 private 채점 자료는 Evaluator가 관리합니다. 신뢰한 팀 Python 플러그인이나 로컬 Harness에는 OS 격리가 자동으로 생기지 않습니다.
+[전체 구조 그림](/agent-optimizer/concepts/overview/#전체-구조)은 구성 간 데이터 흐름을 보여줍니다. 원본은 보존하고 후보는 editable 파일의 스냅샷에서 만듭니다. 공개 과제만 Agent 실행 공간으로 전달하며 private 채점 자료는 Evaluator가 관리합니다. 신뢰한 팀 Python 플러그인이나 로컬 Harness에는 OS 격리가 자동으로 생기지 않습니다.
 
 ## 선택과 정보 경계
 
