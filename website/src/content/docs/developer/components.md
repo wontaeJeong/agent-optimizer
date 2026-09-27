@@ -1,4 +1,6 @@
-# 컴포넌트 연결
+---
+title: 컴포넌트 연결
+---
 
 **역할에 맞는 템플릿 하나를 골라** `experiments/<team>/`으로 복사합니다. 팀 구현은 공통 계약으로 Runner와 연결되며 알고리즘끼리 직접 호출하지 않습니다.
 
@@ -55,4 +57,4 @@ class Provider:
 
 이 줄들은 각 mapping에 **추가할 예시 항목**이지 `PROJECT_COMPONENTS` 전체를 대체하는 코드가 아닙니다. 공유 helper는 `PROJECT_DEPENDENCIES`에 `"datasets/team_dataset": ["experiments/my-team/importer.py"]`처럼 선언합니다. 이는 재현용 파일 hash 기록이며 Python 패키지 설치를 대신하지 않습니다. 한 실험에서만 쓰는 플러그인은 실험 TOML의 `[plugins.*]` 파일 참조를 사용할 수 있습니다. CLI 선택지나 설치 entry point는 수정하지 않습니다.
 
-소스가 외부 Git이면 전체 commit SHA를 고정하고, 원본·평가 기준·테스트와 실제 editable 권한을 구분하세요. 시작이 됐다면 [검증 순서](validation.md)로 배선을 확인합니다.
+소스가 외부 Git이면 전체 commit SHA를 고정하고, 원본·평가 기준·테스트와 실제 editable 권한을 구분하세요. 시작이 됐다면 [검증 순서](/agent-optimizer/developer/validation/)로 배선을 확인합니다.
