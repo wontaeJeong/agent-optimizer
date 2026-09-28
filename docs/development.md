@@ -149,14 +149,19 @@ setup은 고정 소스·데이터, 공식 평가 이미지와 OpenCode 이미지
 첫 빌드는 네트워크·CPU·Docker cache에 따라 수십 분 걸릴 수 있습니다. 단계 시작/완료와
 로그 경로가 출력되며 긴 컴파일 중에는 터미널 출력이 잠시 없을 수 있습니다.
 `external/setup-logs/{project-uv,driver-uv,evaluation-build,agent-build}.log`를 확인하세요.
-uv 신규 설치 로그는 `bootstrap-uv.log`입니다. 실패하면 해당 단계와 복구 안내를 확인하고 같은
-setup을 재실행합니다. 기존 checkout/venv를 강제로 초기화하지 않습니다.
+uv 신규 설치 로그는 `bootstrap-uv.log`이며 고정 source clone/checkout 로그도 `setup-logs/`에 남습니다.
+실패하면 터미널에 실패 단계·Cause·Log·Fix·Retry가 표시됩니다. 오류 원인은 log에서 의미 있는
+일부 줄만 secret/proxy credential/CA 경로를 정제해 요약하며 원문 전체를 터미널에 출력하지 않습니다.
+로그 파일은 자세한 로컬 확인을 위해 유지됩니다. `setup` 결과는 사람용 텍스트이고,
+기계가 읽는 readiness 결과는 `doctor --json`으로 받습니다. 재시도 명령은 선택한 `--dataset`/`--platform`/
+`--offline` 범위를 보존합니다. offline cache가 없으면 먼저 같은 범위의 online 준비 명령을 표시하고,
+이어 원래 offline 명령을 다시 실행하도록 안내합니다. 기존 checkout/venv를 강제로 초기화하지 않습니다.
 
 완료 시 표시한 `runs/<run-id>/report.html`, `report.md`, `summary.json`, `events.jsonl`이 첫 결과입니다.
 터미널과 리포트는 한국어를 기본으로 하며 `AGENT_OPT_LANG=en make setup-core`처럼
 환경 변수를 설정하면 영어로 표시합니다. 보고서는 실행 당시 언어를 기억하고, 재생성 명령에
 `AGENT_OPT_LANG=ko` 또는 `AGENT_OPT_LANG=en`을 명시하면 해당 재생성에만 그 언어를 적용합니다. `--json`의 키·상태 코드는
-언어와 무관하며, Git/Docker/uv·외부 Agent 출력은 원문 그대로 남습니다.
+언어와 무관하며, subprocess 출력은 전체 원문 대신 정제한 실패 원인 요약만 진단 결과에 포함합니다.
 최소 데모는 두 합성 Agent·7 trial(solo 4/team 3)의 연결 검사입니다. 실제 RTL/모델 성능 개선 근거는 아닙니다.
 환경 기록은 `external/environment-lock.json`, 생성 데이터는 `datasets/ace-demo/`에 있습니다.
 이들 로그·자산은 Git 제외이며 다른 checkout의 writable venv/외부 소스를 공유하지 마세요.
@@ -212,7 +217,8 @@ ACE 평가/모델 준비 완료로 해석하지 마세요. `--core`는 setup/doc
 
 옵션 없는 **전체 ACE** doctor는 설치·다운로드·모델 호출 없이 독립 검사를 계속합니다. 이미지가 준비되면 network=none의
 임시 컨테이너로 도구를 실행하고 정리합니다. `error`는 해당 검사 실패, `blocked`는 표시된 선행
-검사 문제로 실행하지 못했다는 뜻입니다. core/evaluation 준비 여부가 종료 코드를 정하며,
+검사 문제로 실행하지 못했다는 뜻이며 `Blocked by:`에 선행 check ID가 표시됩니다. 실패 원인은
+`Cause:`, 복구는 `Fix:`, 명확한 명령이 있는 재검사는 `Retry:`로 구분됩니다. core/evaluation 준비 여부가 종료 코드를 정하며,
 live 설정 부재만으로는 setup/doctor가 실패하지 않습니다. 성공은 smoke/inference 성공과 다릅니다.
 
 | 실제 진단 ID / 오류 | 복구 |

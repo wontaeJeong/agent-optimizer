@@ -888,6 +888,46 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("budget.max_trials", text)
             self.assertFalse(list((self.root / "runs").glob("*/report.html")))
 
+    async def test_readiness_failure_shows_all_check_causes_fixes_and_retries(self):
+        from agent_optimizer.tui import OptimizerApp
+        from textual.widgets import Input, Static
+
+        report = {"ready": False, "checks": [
+            {"id": "docker.daemon", "area": "evaluation", "status": "error",
+             "message": "Docker daemon access.\nCause: permission denied on docker.sock",
+             "remedy": "Start Docker daemon.\nRetry: docker info"},
+            {"id": "image.agent", "area": "evaluation", "status": "blocked",
+             "message": "Image inspect skipped.\nBlocked by: docker.daemon",
+             "remedy": "Resolve docker.daemon first.\nRetry: sh scripts/bootstrap.sh setup"},
+        ]}
+        with patch("agent_optimizer.readiness.collect_plan", return_value=report):
+            app = OptimizerApp(self.root)
+            async with app.run_test() as pilot:
+                await pilot.press("escape", "down", "enter")
+                app.query_one(Input).value = "examples/minimal/experiment.toml"
+                await pilot.press("enter")
+                await pilot.press("down")
+                await pilot.press("enter")
+                for _ in range(80):
+                    if app.page == "Preparing" and not app.busy:
+                        break
+                    await asyncio.sleep(0.1)
+                await pilot.press("enter")
+                for _ in range(80):
+                    if app.page == "Doctor" and not app.busy:
+                        break
+                    await asyncio.sleep(0.1)
+                self.assertEqual(app.page, "Doctor")
+                text = ""
+                for _ in range(len(app.rows)):
+                    text += str(app.query_one("#details", Static).render())
+                    await pilot.press("down")
+                self.assertFalse(list((self.root / "runs").glob("*/report.html")))
+
+        for phrase in ("docker.daemon", "image.agent", "원인:", "선행 검사:",
+                       "해결:", "재실행:", "docker info"):
+            self.assertIn(phrase, text)
+
     async def test_recent_history_filters_symlinks_invalid_and_limits_to_ten(self):
         from agent_optimizer.tui import OptimizerApp
 

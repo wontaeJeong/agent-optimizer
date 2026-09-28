@@ -158,6 +158,7 @@ fail() {
 }
 
 prerequisite_warning() {
+    original_message=$*
     message=$*
     if [ "$language" = ko ]; then
         case "$message" in
@@ -170,6 +171,66 @@ prerequisite_warning() {
         esac
     fi
     printf '%s\n' "$message" >&2
+    case "$original_message" in
+        'Host OS unavailable or unsupported:'*)
+            prerequisite_diagnostic 'core.host' 'unsupported-host' 'host' 'uname -s' ;;
+        'Git unavailable.'*)
+            prerequisite_diagnostic 'core.git' 'missing-git' 'git' 'git --version' ;;
+        'Docker CLI unavailable.'*)
+            prerequisite_diagnostic 'docker.cli' 'missing-docker' 'docker-cli' 'docker --version' ;;
+        'Docker daemon unavailable.'*)
+            prerequisite_diagnostic 'docker.daemon' 'daemon' 'docker-daemon' 'docker info' ;;
+        'Docker Compose unavailable.'*)
+            prerequisite_diagnostic 'docker.compose' 'missing-compose' 'docker-compose' 'docker compose version' ;;
+        'CA-enabled builds require docker buildx;'*)
+            prerequisite_diagnostic 'docker.buildx' 'missing-buildx' 'docker-buildx' 'docker buildx version' ;;
+    esac
+}
+
+prerequisite_diagnostic() {
+    check_id=$1
+    cause_key=$2
+    fix_key=$3
+    retry_command=$4
+    if [ "$language" = ko ]; then
+        case "$cause_key" in
+            unsupported-host) cause='호스트 OS 또는 Python 버전이 지원되지 않습니다' ;;
+            missing-git) cause='git 실행 파일을 찾을 수 없습니다' ;;
+            missing-docker) cause='docker 실행 파일을 찾을 수 없습니다' ;;
+            daemon) cause='docker info 실패: daemon 중지 또는 Docker socket 권한 문제' ;;
+            missing-compose) cause='Docker Compose plugin을 사용할 수 없습니다' ;;
+            missing-buildx) cause='Docker Buildx plugin을 사용할 수 없습니다' ;;
+        esac
+        case "$fix_key" in
+            host) fix='Mac/Ubuntu와 Python 3.11+를 사용하세요.' ;;
+            git) fix='Git을 설치하고 실행 권한을 확인하세요.' ;;
+            docker-cli) fix='Docker CLI를 설치하세요.' ;;
+            docker-daemon) fix='Docker Desktop/Engine을 시작하고 현재 사용자의 socket 접근 권한을 확인하세요.' ;;
+            docker-compose) fix='Docker Compose plugin을 설치하거나 Docker Desktop을 갱신하세요.' ;;
+            docker-buildx) fix='Docker Buildx plugin을 설치하세요.' ;;
+        esac
+        printf '[error] %s: 준비되지 않았습니다\n  원인: %s\n  해결: %s\n  재실행: %s\n' \
+            "$check_id" "$cause" "$fix" "$retry_command" >&2
+    else
+        case "$cause_key" in
+            unsupported-host) cause='Host OS or Python version is unsupported' ;;
+            missing-git) cause='git executable was not found' ;;
+            missing-docker) cause='docker executable was not found' ;;
+            daemon) cause='docker info failed: daemon stopped or Docker socket permission denied' ;;
+            missing-compose) cause='Docker Compose plugin is unavailable' ;;
+            missing-buildx) cause='Docker Buildx plugin is unavailable' ;;
+        esac
+        case "$fix_key" in
+            host) fix='Use Mac/Ubuntu with Python 3.11+.' ;;
+            git) fix='Install Git and check execution permissions.' ;;
+            docker-cli) fix='Install the Docker CLI.' ;;
+            docker-daemon) fix='Start Docker Desktop/Engine and check the current user socket access.' ;;
+            docker-compose) fix='Install the Docker Compose plugin or update Docker Desktop.' ;;
+            docker-buildx) fix='Install the Docker Buildx plugin.' ;;
+        esac
+        printf '[error] %s: not ready\n  Cause: %s\n  Fix: %s\n  Retry: %s\n' \
+            "$check_id" "$cause" "$fix" "$retry_command" >&2
+    fi
 }
 
 setup_status() {
@@ -194,6 +255,107 @@ setup_status() {
     else
         printf '%s\n' "$message"
     fi
+}
+
+setup_log_cause() {
+    log_file=$1
+    [ -r "$log_file" ] || { printf '%s' 'unknown'; return; }
+    category=$(awk '
+        {
+            line = tolower($0)
+            if (line ~ /(x509|certificate|unknown authority|tls|ssl)/) cause_kind = "tls"
+            else if (line ~ /(could not resolve|name resolution|dns|network is unreachable|connection refused)/) cause_kind = "dns"
+            else if (line ~ /(permission denied|operation not permitted)/) cause_kind = "permission"
+            else if (line ~ /(not found in cache|cache miss|no cached distribution)/) cause_kind = "cache"
+            else if (line ~ /(no solution found|lockfile|platform mismatch)/) cause_kind = "lock"
+            else if (line ~ /(no such file|executable not found)/) cause_kind = "missing"
+        }
+        END { if (cause_kind == "") print "unknown"; else print cause_kind }
+    ' "$log_file")
+    printf '%s' "$category"
+}
+
+setup_failure() {
+    failure_stage=$1
+    failure_cause=$2
+    failure_log=$3
+    failure_fix=$4
+    failure_retry=$5
+    if [ "$failure_fix" = offline ] && [ "$offline" = true ]; then
+        failure_fix=offline-cache
+    fi
+    if [ "$language" = ko ]; then
+        case "$failure_stage" in
+            uv-download) failure_stage='uv 다운로드' ;;
+            uv-installer) failure_stage='uv installer' ;;
+            project-sync) failure_stage='프로젝트 의존성 동기화' ;;
+            project-sync-offline) failure_stage='프로젝트 오프라인 동기화' ;;
+            project-python) failure_stage='프로젝트 Python 검증' ;;
+            python-dispatch) failure_stage='Python 실행 전달' ;;
+            existing-venv) failure_stage='기존 프로젝트 .venv 검증' ;;
+            network-configuration) failure_stage='네트워크/CA 설정' ;;
+        esac
+        case "$failure_cause" in
+            tls) failure_cause='TLS 인증서 검증에 실패했습니다' ;;
+            dns) failure_cause='DNS 또는 네트워크 연결에 실패했습니다' ;;
+            permission) failure_cause='실행 권한 또는 socket 권한이 거부되었습니다' ;;
+            cache) failure_cause='필요한 패키지가 오프라인 cache에 없습니다' ;;
+            lock) failure_cause='dependency lock 또는 platform 설정이 일치하지 않습니다' ;;
+            missing) failure_cause='필요한 실행 파일이나 파일을 찾을 수 없습니다' ;;
+            offline-uv) failure_cause='오프라인 setup에 uv가 없습니다' ;;
+            invalid) failure_cause='기존 Python virtualenv가 호환되지 않습니다' ;;
+            configuration) failure_cause='선택한 network 또는 CA 설정이 잘못되었습니다' ;;
+            *) failure_cause='하위 명령이 비정상 종료했습니다' ;;
+        esac
+        case "$failure_fix" in
+            network) failure_fix='네트워크, proxy 및 CA trust 설정을 확인하세요.' ;;
+            installer) failure_fix='로그 원인을 확인하고 uv 설치/실행 권한을 수정하세요.' ;;
+            dependencies) failure_fix='Python, uv와 고정 의존성 lock을 확인하세요.' ;;
+            offline) failure_fix='먼저 online setup으로 누락된 package cache를 준비하세요.' ;;
+            offline-cache) failure_fix="먼저 online setup으로 누락된 package cache를 준비한 뒤 다음 오프라인 명령을 실행하세요: $setup_retry_command" ;;
+            filesystem) failure_fix='프로젝트 setup 경로의 쓰기 권한과 여유 공간을 확인하세요.' ;;
+            downloader) failure_fix='curl 또는 wget을 설치한 뒤 setup을 다시 실행하세요.' ;;
+            python) failure_fix='Python 3.11+ 설치와 프로젝트 .venv 실행 권한을 확인하세요.' ;;
+            venv) failure_fix='기존 .venv를 보존해 옮긴 뒤 setup을 다시 실행하세요.' ;;
+        esac
+    else
+        case "$failure_cause" in
+            tls) failure_cause='TLS certificate verification failed' ;;
+            dns) failure_cause='DNS or network connection failed' ;;
+            permission) failure_cause='Executable or socket permission denied' ;;
+            cache) failure_cause='Required package is missing from the offline cache' ;;
+            lock) failure_cause='Dependency lock or platform configuration mismatch' ;;
+            missing) failure_cause='Required executable or file was not found' ;;
+            offline-uv) failure_cause='uv is missing for offline setup' ;;
+            invalid) failure_cause='Existing project virtualenv is incompatible' ;;
+            configuration) failure_cause='Selected network or CA configuration is invalid' ;;
+            *) failure_cause='Child command exited unsuccessfully' ;;
+        esac
+        case "$failure_fix" in
+            network) failure_fix='Check network, proxy, and CA trust settings.' ;;
+            installer) failure_fix='Inspect the log cause and repair uv installation or execution permissions.' ;;
+            dependencies) failure_fix='Check Python, uv, and the frozen dependency lock.' ;;
+            offline) failure_fix='Prepare the missing package cache with online setup first.' ;;
+            offline-cache) failure_fix="Prepare the missing package cache online, then rerun offline with: $setup_retry_command" ;;
+            filesystem) failure_fix='Check write permissions and available space for setup paths.' ;;
+            downloader) failure_fix='Install curl or wget, then rerun setup.' ;;
+            python) failure_fix='Check Python 3.11+ installation and project .venv execution permissions.' ;;
+            venv) failure_fix='Preserve and move the existing .venv aside, then rerun setup.' ;;
+        esac
+    fi
+    if [ -n "$failure_log" ]; then
+        case "$failure_log" in "$ROOT"/*) failure_log=${failure_log#"$ROOT"/} ;; esac
+    fi
+    if [ "$language" = ko ]; then
+        printf '[setup] %s: 실패\n  원인: %s\n' "$failure_stage" "$failure_cause" >&2
+        [ -z "$failure_log" ] || printf '  로그: %s\n' "$failure_log" >&2
+        printf '  해결: %s\n  재실행: %s\n' "$failure_fix" "$failure_retry" >&2
+    else
+        printf '[setup] %s: failed\n  Cause: %s\n' "$failure_stage" "$failure_cause" >&2
+        [ -z "$failure_log" ] || printf '  Log: %s\n' "$failure_log" >&2
+        printf '  Fix: %s\n  Retry: %s\n' "$failure_fix" "$failure_retry" >&2
+    fi
+    exit 2
 }
 
 progress_pid=
@@ -319,6 +481,13 @@ esac
 if [ -n "$dataset" ]; then
     setup_command="$setup_command --dataset $dataset"
 fi
+if [ -n "$selected_platform" ]; then
+    setup_command="$setup_command --platform $selected_platform"
+fi
+setup_retry_command=$setup_command
+if [ "$offline" = true ]; then
+    setup_retry_command="$setup_command --offline"
+fi
 if [ "$show_help" = true ]; then
     command_help "$command"
     exit 0
@@ -399,7 +568,7 @@ if [ "$command" != setup ]; then
     elif command -v python >/dev/null 2>&1 && compatible_python python; then
         python=python
     else
-        fail "Python >=3.11 is unavailable. Run $setup_command; no installation was attempted."
+        fail "Python >=3.11 is unavailable. Run $setup_retry_command; no installation was attempted."
     fi
     exec "$python" -B "$ROOT/scripts/dev.py" "$command" "$@"
 fi
@@ -416,7 +585,7 @@ if [ -n "${AGENT_OPT_CA_BUNDLE:-}" ]; then
     esac
     case "$AGENT_OPT_CA_BUNDLE" in /*) ;; *) AGENT_OPT_CA_BUNDLE="$PWD/$AGENT_OPT_CA_BUNDLE" ;; esac
     [ -f "$AGENT_OPT_CA_BUNDLE" ] && [ -r "$AGENT_OPT_CA_BUNDLE" ] ||
-        fail 'AGENT_OPT_CA_BUNDLE must be a readable PEM CA bundle; repair it and rerun setup.'
+        setup_failure network-configuration configuration "" network "$setup_retry_command"
     export AGENT_OPT_CA_BUNDLE
     export SSL_CERT_FILE="$AGENT_OPT_CA_BUNDLE" REQUESTS_CA_BUNDLE="$AGENT_OPT_CA_BUNDLE"
     export CURL_CA_BUNDLE="$AGENT_OPT_CA_BUNDLE" GIT_SSL_CAINFO="$AGENT_OPT_CA_BUNDLE"
@@ -459,24 +628,27 @@ if [ "$core" = false ] && [ -z "$dataset" ]; then
         fi
     fi
 fi
-[ "$missing" = false ] || fail "setup prerequisites failed; repair the items above and rerun $setup_command."
+[ "$missing" = false ] || fail "setup prerequisites failed; repair the items above and rerun $setup_retry_command."
 setup_status 32 '[setup] prerequisites: complete'
 
 stage='uv preparation'
 logs="$ROOT/external/setup-logs"
-trap 'stop_setup_progress; printf "setup interrupted during %s; inspect %s and rerun %s.\n" "$stage" "$logs" "$setup_command" >&2; exit 130' HUP INT TERM
+trap 'stop_setup_progress; printf "setup interrupted during %s; inspect %s and rerun %s.\n" "$stage" "$logs" "$setup_retry_command" >&2; exit 130' HUP INT TERM
 trap 'stop_setup_progress' EXIT
 if ! command -v uv >/dev/null 2>&1; then
-    [ "$offline" = false ] || fail "setup offline: uv missing; provision uv with online $setup_command first."
+    [ "$offline" = false ] || setup_failure uv-installer offline-uv "" offline "$setup_command"
     downloader=
     if command -v curl >/dev/null 2>&1; then downloader=curl
     elif command -v wget >/dev/null 2>&1; then downloader=wget
-    else fail "setup uv download: install curl/wget (Mac: brew install curl; Ubuntu: sudo apt install curl), then rerun $setup_command."
+    else setup_failure uv-download missing "" downloader "$setup_retry_command"
     fi
-    mkdir -p "$logs" || fail "setup $stage: cannot create $logs; repair the path/permissions and rerun $setup_command."
+    mkdir -p "$logs" 2>/dev/null ||
+        setup_failure uv-installer permission "$logs" filesystem "$setup_retry_command"
     setup_status 33 "[setup] uv preparation: installing 0.10.7; log: $logs/bootstrap-uv.log"
-    installer=$(mktemp "${TMPDIR:-/tmp}/agent-opt-uv.XXXXXXXX") ||
-        fail "setup $stage: cannot allocate installer in ${TMPDIR:-/tmp}; set TMPDIR to a writable directory and rerun $setup_command."
+    installer=$(mktemp "${TMPDIR:-/tmp}/agent-opt-uv.XXXXXXXX" 2>/dev/null) ||
+        setup_failure uv-download permission "" filesystem "$setup_retry_command"
+    : > "$logs/bootstrap-uv.log" 2>/dev/null ||
+        setup_failure uv-installer permission "$logs/bootstrap-uv.log" filesystem "$setup_retry_command"
     wget_config=
     trap 'stop_setup_progress; rm -f "$installer"; [ -z "$wget_config" ] || rm -f "$wget_config"' EXIT
     if [ "$downloader" = wget ] && [ -n "${AGENT_OPT_CA_BUNDLE:-}" ]; then
@@ -486,10 +658,12 @@ if ! command -v uv >/dev/null 2>&1; then
             *'
 '*|*"$(printf '\r')"*) fail 'AGENT_OPT_CA_BUNDLE must not contain line breaks.' ;;
         esac
-        wget_config=$(mktemp "${TMPDIR:-/tmp}/agent-opt-wget.XXXXXXXX") ||
-            fail 'setup uv download: cannot allocate temporary wget configuration.'
+        wget_config=$(mktemp "${TMPDIR:-/tmp}/agent-opt-wget.XXXXXXXX" 2>/dev/null) ||
+            setup_failure uv-download permission "" filesystem "$setup_retry_command"
         if [ -f "${WGETRC:-$HOME/.wgetrc}" ]; then
-            cat "${WGETRC:-$HOME/.wgetrc}" > "$wget_config"
+            if ! cat "${WGETRC:-$HOME/.wgetrc}" > "$wget_config" 2>>"$logs/bootstrap-uv.log"; then
+                setup_failure uv-download permission "$logs/bootstrap-uv.log" filesystem "$setup_retry_command"
+            fi
         fi
         printf '\nca_certificate = %s\n' "$AGENT_OPT_CA_BUNDLE" >> "$wget_config"
         # Subshell scopes WGETRC to both downloads without changing later tools.
@@ -499,18 +673,28 @@ if ! command -v uv >/dev/null 2>&1; then
     (
         if [ -n "$wget_config" ]; then export WGETRC="$wget_config"; fi
         if [ "$downloader" = curl ]; then
-            curl -fLsS "$url" -o "$installer" || fail "setup uv download failed; rerun $setup_command after checking connectivity to $url"
+            if ! curl -fLsS "$url" -o "$installer" 2>>"$logs/bootstrap-uv.log"; then
+                setup_failure uv-download "$(setup_log_cause "$logs/bootstrap-uv.log")" \
+                    "$logs/bootstrap-uv.log" network "$setup_command"
+            fi
         else
-            wget -q "$url" -O "$installer" || fail "setup uv download failed; rerun $setup_command after checking connectivity to $url"
+            if ! wget -q "$url" -O "$installer" 2>>"$logs/bootstrap-uv.log"; then
+                setup_failure uv-download "$(setup_log_cause "$logs/bootstrap-uv.log")" \
+                    "$logs/bootstrap-uv.log" network "$setup_command"
+            fi
         fi
-        UV_INSTALL_DIR="$ROOT/.cache/uv/bin" UV_NO_MODIFY_PATH=1 sh "$installer" >"$logs/bootstrap-uv.log" 2>&1 ||
-            fail "setup uv installer failed; see $logs/bootstrap-uv.log; repair and rerun $setup_command."
+        if ! UV_INSTALL_DIR="$ROOT/.cache/uv/bin" UV_NO_MODIFY_PATH=1 sh "$installer" \
+                >>"$logs/bootstrap-uv.log" 2>&1; then
+            setup_failure uv-installer "$(setup_log_cause "$logs/bootstrap-uv.log")" \
+                "$logs/bootstrap-uv.log" installer "$setup_command"
+        fi
     ) || exit 2
     stop_setup_progress
     rm -f "$installer"
     [ -z "$wget_config" ] || rm -f "$wget_config"
     trap - EXIT
-    command -v uv >/dev/null 2>&1 || fail "setup uv installation missing at $ROOT/.cache/uv/bin; see $logs/bootstrap-uv.log; repair and rerun $setup_command."
+    command -v uv >/dev/null 2>&1 || setup_failure uv-installer missing \
+        "$logs/bootstrap-uv.log" installer "$setup_command"
 fi
 
 trap 'stop_setup_progress' EXIT
@@ -519,26 +703,31 @@ python_request=3.12
 if [ -e "$ROOT/.venv" ] || [ -L "$ROOT/.venv" ]; then
     # Preserve even an invalid environment; uv must not silently replace it.
     short_probe 'setup existing project Python check' "$ROOT/.venv/bin/python" -I -B -c 'import sys; from pathlib import Path; assert sys.version_info >= (3, 11); assert sys.prefix != sys.base_prefix; assert Path(sys.prefix).resolve() == Path(sys.argv[1]).resolve()' "$ROOT/.venv" ||
-        fail "setup: existing $ROOT/.venv is incompatible and preserved. Move it aside explicitly, then rerun $setup_command."
+        setup_failure existing-venv invalid "" venv "$setup_retry_command"
     python_request="$ROOT/.venv/bin/python"
 fi
-mkdir -p "$logs" || fail "setup $stage: cannot create $logs; repair the path/permissions and rerun $setup_command."
+mkdir -p "$logs" 2>/dev/null ||
+    setup_failure project-sync permission "$logs" filesystem "$setup_retry_command"
 setup_status 33 "[setup] $stage; log: $logs/project-uv.log"
 export UV_PROJECT_ENVIRONMENT="$ROOT/.venv"
 if [ "$offline" = true ]; then export UV_PYTHON_DOWNLOADS=never; fi
 cd "$ROOT"
 start_setup_progress "$stage"
 if [ "$offline" = true ]; then
-    uv --offline sync --frozen --python "$python_request" --extra dev >"$logs/project-uv.log" 2>&1 ||
-        fail "setup offline project sync failed; see $logs/project-uv.log. Provision missing cache/Python online with $setup_command, then rerun $setup_command --offline."
+    if ! uv --offline sync --frozen --python "$python_request" --extra dev >"$logs/project-uv.log" 2>&1; then
+        setup_failure project-sync-offline "$(setup_log_cause "$logs/project-uv.log")" \
+            "$logs/project-uv.log" offline "$setup_command"
+    fi
 else
-    uv sync --frozen --python "$python_request" --extra dev >"$logs/project-uv.log" 2>&1 ||
-        fail "setup project sync failed; see $logs/project-uv.log; repair and rerun $setup_command."
+    if ! uv sync --frozen --python "$python_request" --extra dev >"$logs/project-uv.log" 2>&1; then
+        setup_failure project-sync "$(setup_log_cause "$logs/project-uv.log")" \
+            "$logs/project-uv.log" dependencies "$setup_command"
+    fi
 fi
 stop_setup_progress
 setup_status 32 "[setup] $stage: complete"
 stage='Python dispatch'
 compatible_python "$ROOT/.venv/bin/python" ||
-    fail "setup $stage: $ROOT/.venv/bin/python unavailable after sync; inspect $logs/project-uv.log, repair the interpreter/permissions and rerun $setup_command."
+    setup_failure python-dispatch invalid "$logs/project-uv.log" python "$setup_retry_command"
 export AGENT_OPT_BOOTSTRAPPED="$ROOT"
 exec "$ROOT/.venv/bin/python" -B "$ROOT/scripts/dev.py" setup "$@"

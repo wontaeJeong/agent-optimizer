@@ -10,7 +10,7 @@ from types import ModuleType
 from agent_optimizer.contracts import ConfigurationError
 from agent_optimizer.network import CA_VARIABLES, demo_environment, network_environment
 from agent_optimizer.registry import Registry
-from agent_optimizer import readiness
+from agent_optimizer import diagnostics, readiness
 from agent_optimizer.readiness import Runner
 from agent_optimizer.terminal_style import style
 from agent_optimizer.locale import human, render_diagnostic
@@ -31,35 +31,53 @@ def core_checks(root, environment=None):
     runner = Runner(root, "core", environment)
     runner.add("core.host", sys.platform in {"darwin", "linux"} and sys.version_info >= (3, 11),
                "Host OS and diagnostic Python compatibility (Mac/Linux, Python >=3.11).",
-               "Use Mac or Ubuntu with Python >=3.11; run sh scripts/bootstrap.sh setup.")
-    for tool, remedy in (("git", "Install Git: Mac: xcode-select --install; Ubuntu: sudo apt install git."),
-                         ("uv", SETUP)):
-        available = shutil.which(tool, path=runner.environment.get("PATH", os.defpath)) is not None
-        output = runner.run([tool, "--version"]) if available else None
-        runner.add(f"core.{tool}", output is not None, f"Host {tool} executable.", remedy)
+               "Use Mac or Ubuntu with Python >=3.11; run sh scripts/bootstrap.sh setup.",
+               cause=None if sys.platform in {"darwin", "linux"} and sys.version_info >= (3, 11)
+               else "unsupported host OS or Python version", retry=SETUP)
+    for tool, remedy, retry in (
+            ("git", "Install Git: Mac: xcode-select --install; Ubuntu: sudo apt install git.",
+             "git --version"),
+            ("uv", SETUP, "sh scripts/bootstrap.sh setup --core")):
+        available = shutil.which(tool, path=runner.environment.get("PATH", os.defpath))
+        outcome = (runner.run([tool, "--version"], label=tool) if available else
+                   diagnostics.CommandOutcome(tool, None, error_kind="missing"))
+        cause = None if outcome.succeeded else diagnostics.summarize_failure(
+            outcome, environment=runner.environment)
+        runner.add(f"core.{tool}", outcome.succeeded, f"Host {tool} executable.", remedy,
+                   cause=cause, retry=retry)
     python = root / ".venv/bin/python"
-    version = runner.run([str(python), "-I", "-B", "-c",
-                          "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"]
-                         ) if python.is_file() else None
+    outcome = (runner.run([str(python), "-I", "-B", "-c",
+                           "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
+                          label="project Python") if python.is_file() else None)
+    version = outcome.stdout.strip() if outcome is not None and outcome.succeeded else None
     # Core CI supports both 3.11 and 3.12; the example driver specifically needs 3.12.
-    runner.add("core.python", version is not None and version.startswith("3.")
-               and version[2:].isdigit() and int(version[2:]) >= 11,
-               "Project .venv Python >=3.11.", SETUP)
+    python_ok = (version is not None and version.startswith("3.")
+                 and version[2:].isdigit() and int(version[2:]) >= 11)
+    python_cause = (None if python_ok else
+                    diagnostics.summarize_failure(outcome, environment=runner.environment)
+                    if outcome is not None and not outcome.succeeded else
+                    "project .venv Python is missing or requires version 3.11+")
+    runner.add("core.python", python_ok, "Project .venv Python >=3.11.", SETUP,
+               cause=python_cause, retry="sh scripts/bootstrap.sh setup --core")
     runner.probe("core.venv", [str(python), "-I", "-B", "-c",
-                 "import sys; from pathlib import Path; "
-                 "assert sys.prefix != sys.base_prefix; "
-                 "assert Path(sys.prefix).resolve() == Path(sys.argv[1]).resolve()",
-                 str(root / ".venv")],
-                 "Interpreter belongs to the project virtualenv.", SETUP, requires=("core.python",))
+                  "import sys; from pathlib import Path; "
+                  "assert sys.prefix != sys.base_prefix; "
+                  "assert Path(sys.prefix).resolve() == Path(sys.argv[1]).resolve()",
+                  str(root / ".venv")],
+                  "Interpreter belongs to the project virtualenv.", SETUP, requires=("core.python",),
+                  retry="sh scripts/bootstrap.sh setup --core")
     runner.probe("core.package", [str(python), "-I", "-B", "-c",
-                 "import agent_optimizer; import importlib.metadata as m; "
-                 "m.distribution('agent-optimizer')"],
-                 "Installed project package in .venv.", SETUP, requires=("core.venv",))
+                  "import agent_optimizer; import importlib.metadata as m; "
+                  "m.distribution('agent-optimizer')"],
+                  "Installed project package in .venv.", SETUP, requires=("core.venv",),
+                  retry="sh scripts/bootstrap.sh setup --core")
     runner.probe("core.cli", [str(root / ".venv/bin/agent-opt"), "--help"],
-                 "Installed agent-opt executable.", SETUP, requires=("core.package",))
+                  "Installed agent-opt executable.", SETUP, requires=("core.package",),
+                  retry="sh scripts/bootstrap.sh setup --core")
     for tool in ("ruff", "build"):
         runner.probe(f"core.{tool}", [str(python), "-I", "-B", "-m", tool, "--version"],
-                     f"Project {tool} development tool.", SETUP, requires=("core.venv",))
+                     f"Project {tool} development tool.", SETUP, requires=("core.venv",),
+                     retry="sh scripts/bootstrap.sh setup --core")
     return runner.checks
 
 
@@ -74,12 +92,14 @@ def collect_report(root: Path, platform: str | None = None, *, core_only: bool =
     # Own validation here so malformed optional trust never bypasses aggregation.
     # Child-only settings prevent normalized proxies/CA paths leaking into later calls.
     environment = demo_environment()
-    network = Runner(root, "core")
+    network = Runner(root, "core", environment)
+    network_cause = None
     try:
         environment.update(network_environment(environment))
         valid = True
-    except ConfigurationError:
+    except ConfigurationError as exc:
         valid = False
+        network_cause = diagnostics.summarize_exception(exc, environment=environment)
         # All current doctor probes inspect local state (offline inventory, no-pull
         # images, network-none containers). None needs the invalid trust override.
         for key in (*CA_VARIABLES, "AGENT_OPT_CA_BUNDLE"):
@@ -87,7 +107,8 @@ def collect_report(root: Path, platform: str | None = None, *, core_only: bool =
         environment.update(network_environment(environment))
     network.add("network.configuration", valid, "Optional proxy and CA configuration.",
                 "Correct or unset AGENT_OPT_CA_BUNDLE; provide a readable valid full PEM trust bundle "
-                "without private keys, then rerun doctor.")
+                "without private keys, then rerun doctor.", cause=network_cause,
+                retry="sh scripts/bootstrap.sh doctor")
     local_bin = str(Path(root) / ".cache/uv/bin")
     environment["PATH"] = local_bin + os.pathsep + environment.get("PATH", os.defpath)
     checks = network.checks + core_checks(Path(root), environment)
@@ -121,12 +142,12 @@ def render_report(report: dict, *, json_output: bool = False) -> None:
     for area, ready in report["areas"].items():
         print(f"  {area}: " + style(human("ready" if ready else "not ready"), "success" if ready else "error"))
     for check in report["checks"]:
-        message, remedy = render_diagnostic(check)
+        rendered = render_diagnostic(check).splitlines()
         tone = {"ok": "success", "error": "error", "blocked": "warning"}.get(
             check["status"], "warning")
-        print(f"[{style(check['status'], tone)}] {check['id']}: {message}")
-        if remedy:
-            print(f"  {style(human('Fix:'), 'warning')} {remedy}")
+        print(f"[{style(check['status'], tone)}] {check['id']}: {rendered[0]}")
+        for detail in rendered[1:]:
+            print(detail)
     if report.get("scope") == "core":
         print(human("ACE evaluation and model readiness not checked; use full setup/doctor (menu option 7 prepares ACE)."))
     elif report.get("scope") == "dataset":

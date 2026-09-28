@@ -229,16 +229,30 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
     def test_core_sync_failure_preserves_scope_in_repair_and_never_probes_docker(self):
         self.tool("git")
         self.tool("docker", 'printf docker >> "$TRACE"; exit 1\n')
-        self.tool("uv", "exit 7\n")
+        self.tool("uv", "printf 'error: package not found in cache SECRET_SYNC\\n' >&2\nexit 7\n")
+        self.environment["CUSTOM_TOKEN"] = "SECRET_SYNC"
         for options in (("--core",), ("--core", "--offline")):
             with self.subTest(options=options):
                 result = self.invoke("setup", *options)
                 self.assertEqual(result.returncode, 2)
+                self.assertIn("원인:", result.stderr)
                 self.assertIn("project-uv.log", result.stderr)
+                self.assertIn("해결:", result.stderr)
+                self.assertIn("재실행:", result.stderr)
                 self.assertIn("setup --core", result.stderr)
                 if "--offline" in options:
-                    self.assertIn("오프라인 동기화 실패", result.stderr)
+                    self.assertIn("프로젝트 오프라인 동기화", result.stderr)
+                    self.assertIn("재실행: sh scripts/bootstrap.sh setup --core", result.stderr)
+                    self.assertIn("sh scripts/bootstrap.sh setup --core --offline", result.stderr)
+                self.assertNotIn("SECRET_SYNC", result.stdout + result.stderr)
                 self.assertNotIn("docker", self.trace_text())
+
+    def test_setup_failure_retry_preserves_selected_platform(self):
+        self.prerequisites()
+        self.tool("uv", "exit 7\n")
+        result = self.invoke("setup", "--platform", "linux/arm64")
+        self.assertEqual(result.returncode, 2)
+        self.assertIn("재실행: sh scripts/bootstrap.sh setup --platform linux/arm64", result.stderr)
 
     def test_core_conflicts_rejected_before_probes_and_missing_python_remedy_is_core(self):
         for args in (("setup", "--core", "--platform", "linux/amd64"),
@@ -289,7 +303,7 @@ cp "$UV_TEMPLATE" "$UV_INSTALL_DIR/uv"
                 self.assertIn("project-uv.log", result.stderr)
                 self.assertIn(f"sh scripts/bootstrap.sh setup --dataset {name}", result.stderr)
                 if "--offline" in options:
-                    self.assertIn(f"setup --dataset {name} --offline", result.stderr)
+                    self.assertIn("online setup", result.stderr)
                 self.assertNotIn("SECRET", result.stdout + result.stderr)
                 self.assertEqual(self.trace_text(), "")
 
@@ -322,6 +336,11 @@ exit 2
         self.assertIn("daemon", result.stderr)
         self.assertIn("Compose", result.stderr)
         self.assertIn("https://", result.stderr)
+        self.assertIn("[error] docker.daemon:", result.stderr)
+        self.assertIn("원인:", result.stderr)
+        self.assertIn("해결:", result.stderr)
+        self.assertIn("재실행: docker info", result.stderr)
+        self.assertIn("재실행: docker compose version", result.stderr)
         self.assertEqual(self.trace_text(), "")
 
     def fast_deadline(self, seconds=0.2):
@@ -408,15 +427,22 @@ while [ "$#" -gt 0 ]; do
     if [ "$1" = -o ]; then shift; cp "$INSTALLER" "$1"; break; fi
     shift
 done
+if [ {code} -ne 0 ]; then printf 'curl: could not resolve host SECRET_DOWNLOAD\\n' >&2; fi
 exit {code}
 ''')
 
     def test_failed_download_is_not_executed(self):
         self.prerequisites()
         self.downloader(22)
+        self.environment["CUSTOM_TOKEN"] = "SECRET_DOWNLOAD"
         result = self.invoke("setup")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("다운로드", result.stderr)
+        self.assertIn("원인:", result.stderr)
+        self.assertIn("로그:", result.stderr)
+        self.assertIn("해결:", result.stderr)
+        self.assertIn("재실행:", result.stderr)
+        self.assertNotIn("SECRET_DOWNLOAD", result.stdout + result.stderr)
         self.assertNotIn("installer:", self.trace_text())
         self.assertNotIn("uv:", self.trace_text())
 
@@ -611,8 +637,10 @@ printf 'system-python\\n'
         self.tool("uv", "exit 7\n")
         result = self.invoke("setup", "--offline")
         self.assertNotEqual(result.returncode, 0)
+        self.assertIn("원인:", result.stderr)
         self.assertIn("project-uv.log", result.stderr)
-        self.assertIn("다시 실행", result.stderr)
+        self.assertIn("해결:", result.stderr)
+        self.assertIn("재실행:", result.stderr)
         self.assertNotIn("python:", self.trace_text())
 
     def test_existing_broken_environment_is_preserved_without_uv_sync(self):
@@ -640,7 +668,9 @@ printf 'system-python\\n'
                 result = self.invoke("setup")
                 self.assertNotEqual(result.returncode, 0)
                 self.assertIn("bootstrap-uv.log", result.stderr)
-                self.assertIn("다시 실행", result.stderr)
+                self.assertIn("원인:", result.stderr)
+                self.assertIn("해결:", result.stderr)
+                self.assertIn("재실행:", result.stderr)
                 self.assertNotIn("uv:", self.trace_text())
                 self.assertNotIn("python:", self.trace_text())
                 self.assertEqual(list(temporary.iterdir()), [])
@@ -661,9 +691,12 @@ printf 'system-python\\n'
                     self.environment["TMPDIR"] = path
                 result = self.invoke("setup")
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn("uv preparation", result.stderr)
-                self.assertIn(path, result.stderr)
-                self.assertIn("다시 실행", result.stderr)
+                self.assertIn("[setup]", result.stderr)
+                self.assertIn("원인:", result.stderr)
+                self.assertIn("해결:", result.stderr)
+                self.assertIn("재실행:", result.stderr)
+                if failure == "log-directory":
+                    self.assertIn("external/setup-logs", result.stderr)
                 self.assertEqual(self.trace_text(), "")
 
     def test_sync_without_python_reports_dispatch_stage_and_repair(self):
@@ -671,9 +704,10 @@ printf 'system-python\\n'
         self.tool("uv")
         result = self.invoke("setup")
         self.assertNotEqual(result.returncode, 0)
-        self.assertIn("Python 전달 실패", result.stderr)
-        self.assertIn(str(self.root / ".venv/bin/python"), result.stderr)
-        self.assertIn("다시 실행", result.stderr)
+        self.assertIn("Python 실행 전달", result.stderr)
+        self.assertIn("원인:", result.stderr)
+        self.assertIn("해결:", result.stderr)
+        self.assertIn("재실행:", result.stderr)
 
 
 class DeveloperCommandsTests(unittest.TestCase):
@@ -766,6 +800,32 @@ class DeveloperCommandsTests(unittest.TestCase):
             self.assertEqual([c[0][2] for c in commands], ["unittest", "ruff", "agent_optimizer"])
             self.assertTrue(all(c[1]["cwd"] == root for c in commands))
             self.assertTrue(all(c[1]["shell"] is False for c in commands))
+
+    def test_setup_demo_suppresses_child_json_for_human_output(self):
+        import inspect
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            calls = []
+
+            def execute(argv, **kwargs):
+                calls.append(kwargs)
+                if "-c" in argv:
+                    return subprocess.CompletedProcess(argv, 0, "3.12", "")
+                return subprocess.CompletedProcess(
+                    argv, 0, json.dumps({"status": "completed", "report_html": "runs/demo/report.html"}), "")
+
+            output = io.StringIO()
+            with patch.object(self.dev, "ROOT", root), \
+                    patch("subprocess.run", side_effect=execute), \
+                    redirect_stdout(output):
+                self.assertIn("human_output", inspect.signature(self.dev.run_core).parameters)
+                self.assertEqual(self.dev.run_core("demo", human_output=True), 0)
+
+        self.assertIs(calls[-1]["stdout"], subprocess.PIPE)
+        self.assertNotIn("stderr", calls[-1])
+        self.assertNotIn("runs/demo/report.html", output.getvalue())
+        self.assertNotIn('{"status"', output.getvalue())
 
     def test_missing_or_nonvenv_python_has_actionable_setup_error(self):
         with tempfile.TemporaryDirectory() as d:
@@ -889,8 +949,10 @@ class DeveloperCommandsTests(unittest.TestCase):
             def load(name, path):
                 self.assertEqual(name, "dev_doctor", "core setup loaded example code")
                 return doctor
-            def execute(command):
+            def execute(command, *, human_output=False):
                 events.append(command)
+                if command == "demo":
+                    self.assertTrue(human_output)
                 return demo_code
             self.output = io.StringIO()
             with self.subTest(ready=ready, demo_code=demo_code), \
@@ -899,13 +961,12 @@ class DeveloperCommandsTests(unittest.TestCase):
                     patch.object(self.dev, "run_core", side_effect=execute):
                 self.assertEqual(self.main(["setup", "--core", "--offline"]), expected)
             self.assertEqual(events, ["doctor", "demo"] if ready else ["doctor"])
-            result = json.loads(self.output.getvalue().splitlines()[-1])
-            self.assertEqual(result["status"], "ready" if expected == 0 else "blocked")
             if expected == 0:
-                self.assertEqual(result["scope"], "core")
-                self.assertNotIn("environment_lock", result)
+                self.assertIn("[setup] 준비됨", self.output.getvalue())
+                self.assertIn("make doctor-core", self.output.getvalue())
             else:
-                self.assertIn("setup --core", result["repair"])
+                self.assertIn("재실행: sh scripts/bootstrap.sh setup --core", self.output.getvalue())
+            self.assertNotIn('"status": "ready"', self.output.getvalue())
 
     def test_direct_python_setup_delegates_without_recursion_and_propagates_failure(self):
         with patch.dict(os.environ, {}, clear=True), patch("subprocess.run", return_value=subprocess.CompletedProcess([], 9)) as run:
@@ -945,7 +1006,9 @@ class DeveloperCommandsTests(unittest.TestCase):
             self.assertEqual(events, [("registry", ROOT),
                                       ("prepare", ROOT / "external/datasets/sample_text", True),
                                       ("doctor", "sample_text")])
-            self.assertEqual('"status": "ready"' in self.output.getvalue(), self.ready)
+            self.assertEqual("선택한 데이터셋 환경: 준비됨" in self.output.getvalue(), self.ready)
+            self.assertNotIn('"status": "ready"', self.output.getvalue())
+            self.assertNotIn('"status": "blocked"', self.output.getvalue())
             self.assertIn("[setup] dataset=sample_text starting", progress.getvalue())
             self.assertIn("[doctor] check=dataset starting", progress.getvalue())
 
@@ -1026,7 +1089,7 @@ class DeveloperCommandsTests(unittest.TestCase):
             if failure:
                 raise failure
             return ROOT / "dataset", {}
-        setup = SimpleNamespace(validate_platform=lambda value: value)
+        setup = SimpleNamespace(validate_platform=lambda value: value or "linux/amd64")
         def dataset(*args):
             events.append("dataset")
             return {"tasks": [{"id": "cvdp_copilot_16qam_mapper_0001", "family": "qam"},
@@ -1035,7 +1098,7 @@ class DeveloperCommandsTests(unittest.TestCase):
             events.append("doctor")
             return {"ready": ready}
         doctor = SimpleNamespace(collect_report=report, render_report=lambda *a, **kw: None)
-        def execute(command):
+        def execute(command, *, human_output=False):
             events.append(command)
             return demo_code
         def prepare_selected(root, *, offline=False, platform=None):
@@ -1054,7 +1117,7 @@ class DeveloperCommandsTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(events, ["environment", "dataset", "doctor", "demo"])
         self.assertIn("setup-logs", self.output.getvalue())
-        self.assertIn("ready", self.output.getvalue())
+        self.assertIn("준비됨", self.output.getvalue())
 
     def test_dev_full_setup_uses_shared_ace_lifecycle(self):
         setup = SimpleNamespace(validate_platform=lambda value: value)
@@ -1110,7 +1173,7 @@ class DeveloperCommandsTests(unittest.TestCase):
         lifecycle.inspect.assert_called_once_with(ROOT, platform="linux/amd64")
         checks.smoke.assert_called_once_with(lock)
 
-    def test_setup_stages_follow_display_language_without_changing_json(self):
+    def test_setup_stages_follow_display_language_and_success_is_human_output(self):
         for language, expected in (("ko", "[setup] 최종 진단: 시작"),
                                    ("en", "[setup] final doctor: starting")):
             with self.subTest(language=language), patch.dict(os.environ, {"AGENT_OPT_LANG": language}):
@@ -1119,7 +1182,77 @@ class DeveloperCommandsTests(unittest.TestCase):
                 self.assertEqual(code, 0)
                 self.assertEqual(events, ["environment", "dataset", "doctor", "demo"])
                 self.assertIn(expected, self.output.getvalue())
-                self.assertIn('"status": "ready"', self.output.getvalue())
+                self.assertIn("준비됨" if language == "ko" else "ready", self.output.getvalue())
+                self.assertIn("다음:" if language == "ko" else "Next:", self.output.getvalue())
+                self.assertNotIn('"status": "ready"', self.output.getvalue())
+
+    def test_setup_failure_prints_stage_cause_log_fix_retry_as_human_output(self):
+        failure = UnavailableError("generic setup failure")
+        failure.failure_diagnostic = {
+            "stage": "evaluation image",
+            "cause": "docker build exited 1: TLS certificate verification failed",
+            "log": "external/setup-logs/evaluation-build.log",
+            "fix": "Check Docker build trust/registry access and preserve the pinned Dockerfile.",
+            "retry": "sh scripts/bootstrap.sh setup --platform linux/amd64",
+        }
+        setup = SimpleNamespace(validate_platform=lambda value: value or "linux/amd64")
+        lifecycle = SimpleNamespace(prepare=lambda *_args, **_kwargs: (_ for _ in ()).throw(failure))
+
+        def load(name, _path):
+            return {"ace_environment": setup, "ace_lifecycle": lifecycle}[name]
+
+        with patch.dict(os.environ, {"AGENT_OPT_BOOTSTRAPPED": str(ROOT),
+                                     "AGENT_OPT_CA_BUNDLE": ""}, clear=True), \
+                patch.object(self.dev, "load", side_effect=load):
+            self.assertEqual(self.main(["setup", "--offline", "--platform", "linux/amd64"]), 2)
+
+        output = self.output.getvalue()
+        for line in ("[setup] 평가 이미지: 실패", "원인: docker build 종료 코드 1",
+                     "로그: external/setup-logs/evaluation-build.log",
+                     "해결: Docker build trust와 registry 접근을 확인하고 고정 Dockerfile을 보존하세요.",
+                     "재실행: sh scripts/bootstrap.sh setup --platform linux/amd64 --offline"):
+            self.assertIn(line, output)
+        self.assertNotIn('{"status": "blocked"', output)
+
+    def test_setup_failure_uses_specific_diagnostic_retry_when_available(self):
+        failure = UnavailableError("Docker daemon unavailable")
+        failure.failure_diagnostic = {
+            "stage": "final doctor", "cause": "permission denied on docker.sock",
+            "log": None, "fix": "Check daemon and socket permissions.",
+            "retry": "docker info",
+        }
+        output = io.StringIO()
+        with redirect_stderr(output):
+            self.dev._render_setup_failure(
+                "final doctor", failure, retry="sh scripts/bootstrap.sh setup --platform linux/arm64")
+        self.assertIn("재실행: docker info", output.getvalue())
+
+    def test_offline_platform_setup_failure_shows_online_recovery_and_original_retry(self):
+        failure = UnavailableError("project sync failed")
+        failure.failure_diagnostic = {
+            "stage": "environment lock validation",
+            "cause": "Offline environment lock is missing or platform differs",
+            "log": None,
+            "fix": "Run online setup for the selected platform to build and pin the ACE images.",
+            "retry": "sh scripts/bootstrap.sh setup",
+        }
+        setup = SimpleNamespace(validate_platform=lambda value: value)
+        lifecycle = SimpleNamespace(prepare=lambda *_args, **_kwargs: (_ for _ in ()).throw(failure))
+
+        def load(name, _path):
+            return {"ace_environment": setup, "ace_lifecycle": lifecycle}[name]
+
+        with patch.dict(os.environ, {"AGENT_OPT_BOOTSTRAPPED": str(ROOT)}, clear=True), \
+                patch.object(self.dev, "load", side_effect=load):
+            self.assertEqual(self.main(["setup", "--platform", "linux/amd64", "--offline"]), 2)
+
+        output = self.output.getvalue()
+        self.assertIn("[setup] ACE environment lock 검증: 실패", output)
+        self.assertIn("offline environment lock이 없거나 platform이 다릅니다", output)
+        self.assertIn("선택한 platform으로 online setup을 실행해 ACE 이미지를 다시 만들고 고정하세요.", output)
+        self.assertIn("그 다음 오프라인으로", output)
+        self.assertIn("sh scripts/bootstrap.sh setup --platform linux/amd64 --offline", output)
+        self.assertIn("재실행: sh scripts/bootstrap.sh setup --platform linux/amd64", output)
 
     def test_setup_failure_and_interrupt_halt_with_stage_repair_and_no_ready(self):
         for failure in (UnavailableError("source mismatch"), KeyboardInterrupt()):
@@ -1133,6 +1266,9 @@ class DeveloperCommandsTests(unittest.TestCase):
                 self.assertEqual(events, ["environment"])
                 self.assertIn("setup", self.output.getvalue())
                 self.assertIn("setup-logs", self.output.getvalue())
+                self.assertIn("원인:", self.output.getvalue())
+                self.assertIn("해결:", self.output.getvalue())
+                self.assertIn("재실행:", self.output.getvalue())
                 self.assertNotIn('"status": "ready"', self.output.getvalue())
 
     def test_final_doctor_and_demo_failure_cannot_report_ready(self):
@@ -1197,12 +1333,20 @@ class DeveloperCommandsTests(unittest.TestCase):
                                              "AGENT_OPT_MODEL_API_KEY": "test", "AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1"}, clear=True):
                             code = self.main([command, "--platform", "linux/amd64", *(["--offline"] if offline else [])])
                         self.assertEqual(code, 2)
-                        blocked = json.loads(self.output.getvalue().splitlines()[-1])
-                        self.assertEqual(blocked["status"], "blocked")
-                        self.assertEqual(blocked["stage"], "example environment" if command == "setup" else command)
-                        self.assertIn(str(lock), blocked["reason"])
-                        self.assertIn("preserved", blocked["reason"])
-                        self.assertIn("setup", blocked["repair"])
+                        if command == "setup":
+                            self.assertIn("[setup]", self.output.getvalue())
+                            self.assertIn(str(lock), self.output.getvalue())
+                            self.assertIn("preserved", self.output.getvalue())
+                            self.assertIn("원인:", self.output.getvalue())
+                            self.assertIn("해결:", self.output.getvalue())
+                            self.assertIn("재실행:", self.output.getvalue())
+                        else:
+                            blocked = json.loads(self.output.getvalue().splitlines()[-1])
+                            self.assertEqual(blocked["status"], "blocked")
+                            self.assertEqual(blocked["stage"], command)
+                            self.assertIn(str(lock), blocked["reason"])
+                            self.assertIn("preserved", blocked["reason"])
+                            self.assertIn("setup", blocked["repair"])
                         self.assertNotIn("Traceback", self.output.getvalue())
                         self.assertNotIn('"status": "ready"', self.output.getvalue())
                         self.assertEqual(lock.read_text(), contents)
@@ -1224,8 +1368,9 @@ class PreparationProgressTests(unittest.TestCase):
                     return subprocess.CompletedProcess([], code)
                 with redirect_stdout(output), patch.object(setup.subprocess, "run", side_effect=execute):
                     if code:
-                        with self.assertRaisesRegex(UnavailableError, "driver-uv.log"):
+                        with self.assertRaises(UnavailableError) as raised:
                             setup.run(["uv", "pip", "sync"], log=log)
+                        self.assertEqual(raised.exception.failure_diagnostic["log"], str(log))
                     else:
                         setup.run(["uv", "pip", "sync"], log=log)
                 self.assertEqual("완료" in output.getvalue(), code == 0)

@@ -225,8 +225,9 @@ class TerminalLanguageTests(unittest.TestCase):
                 machine = subprocess.run([str(ROOT / ".venv/bin/agent-opt"), "doctor", "--plan", str(plan), "--json"],
                                          cwd=ROOT, env=environment, capture_output=True, text=True, timeout=10)
                 self.assertEqual(machine.returncode, 2)
-                self.assertEqual(json.loads(machine.stdout)["checks"][0]["message"],
-                                 "Experiment file is missing or invalid")
+                machine_message = json.loads(machine.stdout)["checks"][0]["message"]
+                self.assertTrue(machine_message.startswith("Experiment file is missing or invalid"))
+                self.assertIn("Cause: required file or executable not found", machine_message)
 
     def test_model_diagnostic_translates_guidance_without_changing_identifiers(self):
         from agent_optimizer.locale import render_diagnostic
@@ -234,13 +235,58 @@ class TerminalLanguageTests(unittest.TestCase):
         row = {"id": "model.configuration", "status": "error",
                "message": "Required model configuration is present",
                 "remedy": "Set AGENT_OPT_MODEL_BASE_URL and AGENT_OPT_MODEL_API_KEY for research optimizers; set AGENT_OPT_MODEL for OpenCode harnesses"}
-        message, remedy = render_diagnostic(row, lang="ko")
-        self.assertIn("필요한 모델 설정", message)
-        self.assertIn("연구 Optimizer", remedy)
-        self.assertIn("AGENT_OPT_MODEL_API_KEY", remedy)
-        self.assertIn("AGENT_OPT_MODEL", remedy)
+        rendered = render_diagnostic(row, lang="ko")
+        self.assertIn("필요한 모델 설정", rendered)
+        self.assertIn("연구 Optimizer", rendered)
+        self.assertIn("AGENT_OPT_MODEL_API_KEY", rendered)
+        self.assertIn("AGENT_OPT_MODEL", rendered)
         self.assertEqual(row["message"], "Required model configuration is present")
-        self.assertEqual(render_diagnostic(row, lang="en"), (row["message"], row["remedy"]))
+        english = render_diagnostic(row, lang="en")
+        self.assertIn(row["message"], english)
+        self.assertIn(row["remedy"], english)
+
+    def test_renderer_separates_cause_blocked_by_fix_and_retry_lines(self):
+        from agent_optimizer.locale import render_diagnostic
+
+        row = {"id": "docker.daemon", "area": "runtime", "status": "error",
+               "message": "Docker daemon access.\nCause: docker exited 1: permission denied on docker.sock",
+               "remedy": "Start Docker and check socket permissions.\nRetry: docker info"}
+        rendered = render_diagnostic(row, lang="ko")
+        self.assertIn("Docker daemon access.", rendered)
+        self.assertIn("원인: docker 종료 코드 1: permission denied", rendered)
+        self.assertIn("해결: Start Docker", rendered)
+        self.assertIn("재실행: docker info", rendered)
+
+        blocked = {**row, "status": "blocked",
+                   "message": "Image inspect skipped.\nBlocked by: docker.daemon",
+                   "remedy": "Resolve docker.daemon first.\nRetry: docker info"}
+        rendered_blocked = render_diagnostic(blocked, lang="en")
+        self.assertIn("Blocked by: docker.daemon", rendered_blocked)
+        self.assertIn("Fix: Resolve docker.daemon", rendered_blocked)
+        self.assertIn("Retry: docker info", rendered_blocked)
+
+    def test_renderer_localizes_fixed_failure_categories_but_keeps_raw_detail(self):
+        from agent_optimizer.locale import render_diagnostic
+
+        row = {"id": "evaluation.image", "area": "evaluation", "status": "error",
+               "message": "Image build failed.\nCause: docker build exited 1: TLS/certificate failure: ERROR x509 certificate signed by unknown authority",
+               "remedy": "Check the Docker registry."}
+        rendered = render_diagnostic(row, lang="ko")
+        self.assertIn("docker build 종료 코드 1: TLS 인증서 검증 실패", rendered)
+        self.assertIn("ERROR x509 certificate signed by unknown authority", rendered)
+        self.assertNotIn("TLS/certificate failure", rendered)
+        self.assertIn("docker build exited 1: TLS/certificate failure", render_diagnostic(row, lang="en"))
+
+    def test_renderer_localizes_missing_timeout_and_permission_classifier_phrases(self):
+        from agent_optimizer.locale import render_diagnostic
+
+        for cause, expected in (("uv executable not found", "실행 파일을 찾을 수 없습니다"),
+                                ("docker run timed out: operation timed out", "시간 초과"),
+                                ("docker info could not run: permission denied", "권한이 거부되었습니다")):
+            with self.subTest(cause=cause):
+                row = {"id": "runtime.check", "area": "runtime", "status": "error",
+                       "message": f"Runtime check failed.\nCause: {cause}", "remedy": "Retry the check."}
+                self.assertIn(expected, render_diagnostic(row, lang="ko"))
 
 
 if __name__ == "__main__":

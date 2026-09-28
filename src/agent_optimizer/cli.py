@@ -742,12 +742,12 @@ def _dispatch(args):
                     print(f"{report['scope']} {human('readiness')}: "
                           + style(status, "success" if report["ready"] else "error"))
                     for row in report["checks"]:
-                        message, remedy = render_diagnostic(row)
+                        rendered = render_diagnostic(row).splitlines()
                         tone = {"ok": "success", "error": "error", "blocked": "warning"}.get(
                             row["status"], "warning")
-                        print(f"[{style(row['status'], tone)}] {row['id']}: {message}")
-                        if remedy:
-                            print(f"  {style(t('remedy') + ':', 'warning')} {remedy}")
+                        print(f"[{style(row['status'], tone)}] {row['id']}: {rendered[0]}")
+                        for detail in rendered[1:]:
+                            print(detail)
                     if args.plan:
                         if args.model:
                             print(human("--model은 모델 API 연결을 호출하지만 Agent 실행 성공은 확인하지 않습니다."),

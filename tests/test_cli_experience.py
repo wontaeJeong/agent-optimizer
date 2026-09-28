@@ -95,6 +95,36 @@ class CLIExperienceTests(unittest.TestCase):
                       if row["id"] == "budget.trials")
         self.assertIn("Trial budget must reserve at least", budget["message"])
 
+    def test_doctor_human_output_separates_cause_fix_retry_and_json_keeps_five_fields(self):
+        plan = self.root / "examples/minimal/experiment.toml"
+        report = {"scope": "plan", "ready": False, "checks": [
+            {"id": "docker.daemon", "area": "runtime", "status": "error",
+             "message": "Docker daemon access.\nCause: docker exited 1: permission denied on docker.sock",
+             "remedy": "Start Docker and check socket permissions.\nRetry: docker info"},
+            {"id": "image.agent", "area": "runtime", "status": "blocked",
+             "message": "Agent image inspect skipped.\nBlocked by: docker.daemon",
+             "remedy": "Resolve docker.daemon first.\nRetry: sh scripts/bootstrap.sh setup"},
+        ]}
+        human_output, machine_output = io.StringIO(), io.StringIO()
+        with patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}), \
+                patch("agent_optimizer.cli.collect_plan", return_value=report), \
+                contextlib.redirect_stdout(human_output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["doctor", "--plan", str(plan)]), 2)
+        with patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}), \
+                patch("agent_optimizer.cli.collect_plan", return_value=report), \
+                contextlib.redirect_stdout(machine_output), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(["doctor", "--plan", str(plan), "--json"]), 2)
+
+        rendered = human_output.getvalue()
+        for line in ("[error] docker.daemon:", "Cause: docker exited 1", "Fix: Start Docker",
+                     "Retry: docker info", "[blocked] image.agent:", "Blocked by: docker.daemon",
+                     "Retry: sh scripts/bootstrap.sh setup"):
+            self.assertIn(line, rendered)
+        machine = json.loads(machine_output.getvalue())
+        self.assertEqual(set(machine), {"scope", "ready", "checks"})
+        self.assertTrue(all(set(row) == {"id", "area", "status", "message", "remedy"}
+                            for row in machine["checks"]))
+
     def test_datasets_list_rejects_ignored_positional_filters(self):
         output, error = io.StringIO(), io.StringIO()
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(error):
@@ -171,6 +201,7 @@ class CLIExperienceTests(unittest.TestCase):
         for name in ("model.configuration", "evaluator.registration", "budget.trials", "agent.prompt"):
             self.assertEqual(checks[name]["status"], "error", name)
             self.assertTrue(checks[name]["remedy"])
+            self.assertIn("Cause: ", checks[name]["message"])
         self.assertEqual(before, {str(p): p.read_bytes() for p in self.root.rglob("*") if p.is_file()})
 
     def test_explicit_model_probe_only_runs_when_requested(self):
@@ -260,6 +291,31 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual({row["id"] for row in report["checks"] if row["status"] == "error"} &
                          {"plan.schema", "evaluator.registration"},
                          {"plan.schema", "evaluator.registration"})
+        checks = {row["id"]: row for row in report["checks"]}
+        self.assertIn("Cause: ", checks["plan.schema"]["message"])
+        self.assertIn("Cause: ", checks["evaluator.registration"]["message"])
+
+    def test_dataset_provider_cache_exception_keeps_safe_cause_and_retry(self):
+        from agent_optimizer import readiness
+        from agent_optimizer.contracts import UnavailableError
+
+        class Provider:
+            def doctor(self, _cache):
+                raise UnavailableError("offline cache miss: SECRET_DATA_TOKEN")
+
+        registry = Registry()
+        with patch.dict(os.environ, {"CUSTOM_TOKEN": "SECRET_DATA_TOKEN"}), \
+                patch.object(readiness, "plugin_files"), \
+                patch.object(registry, "load_plugins"), \
+                patch.object(registry, "resolve", return_value=Provider):
+            report = readiness.collect_dataset(self.root, "sample_text", registry)
+
+        row = next(item for item in report["checks"] if item["id"] == "dataset.doctor")
+        self.assertEqual(row["status"], "error")
+        self.assertIn("Cause: ", row["message"])
+        self.assertIn("offline cache miss", row["message"].lower())
+        self.assertIn("Retry: agent-opt doctor --dataset sample_text", row["remedy"])
+        self.assertNotIn("SECRET_DATA_TOKEN", json.dumps(report))
 
     def test_plan_doctor_checks_declared_command_and_research_options_without_running_evaluator(self):
         plan = self.root / "examples/minimal/experiment.toml"

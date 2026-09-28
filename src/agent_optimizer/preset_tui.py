@@ -442,6 +442,7 @@ def execute_ace_selection(experiment: Path, *, on_event=None) -> tuple[Path, dic
     from agent_optimizer.model_input import session_environment
     from agent_optimizer.models import ModelSettings
     from agent_optimizer.network import demo_environment, network_environment
+    from agent_optimizer.locale import render_diagnostic
     from agent_optimizer.readiness import collect_plan
     from agent_optimizer.runner import run_experiment
 
@@ -468,9 +469,9 @@ def execute_ace_selection(experiment: Path, *, on_event=None) -> tuple[Path, dic
         raise ConfigurationError("ACE OpenCode 모델은 compatible/모델 또는 openrouter/모델을 선택하세요")
     inspection = _lifecycle(root).inspect(root)
     if not inspection["ready"]:
-        failures = [item["id"] for item in inspection["checks"]
+        failures = [f"{item['id']}: {render_diagnostic(item)}" for item in inspection["checks"]
                     if item["area"] == "evaluation" and item["status"] != "ok"]
-        raise ConfigurationError("ACE 평가 환경 준비 부족: " + ", ".join(failures))
+        raise ConfigurationError("ACE 평가 환경 준비 부족:\n" + "\n".join(failures))
     environment = {**os.environ, **demo_environment(), **network_environment(),
                    "OPENCODE_CONFIG": opencode_config,
                    "DOCKER_DEFAULT_PLATFORM": inspection["platform"],
@@ -478,8 +479,9 @@ def execute_ace_selection(experiment: Path, *, on_event=None) -> tuple[Path, dic
     with session_environment(environment):
         diagnosis = collect_plan(experiment, Registry())
         if not diagnosis["ready"]:
-            failures = [item["id"] for item in diagnosis["checks"] if item["status"] != "ok"]
-            raise ConfigurationError("선택한 실험의 정적 계획 진단 실패: " + ", ".join(failures))
+            failures = [f"{item['id']}: {render_diagnostic(item)}" for item in diagnosis["checks"]
+                        if item["status"] != "ok"]
+            raise ConfigurationError("선택한 실험의 정적 계획 진단 실패:\n" + "\n".join(failures))
         for profile in spec["_profiles"]:
             if profile.get("runtime", {}).get("kind") == "docker":
                 profile["runtime"]["image"] = inspection["lock"]["images"]["agent"]["id"]

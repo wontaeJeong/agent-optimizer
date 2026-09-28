@@ -8,6 +8,7 @@ import re
 import subprocess
 from pathlib import Path
 
+from agent_optimizer import diagnostics
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.datasets import acquire_pinned_git, split_families
 from agent_optimizer.results import write_json
@@ -40,13 +41,38 @@ def _verified_lock(cache: Path, image_id: str) -> bool:
         return False
 
 
-def prepare_runtime(cache: Path | None = None, *, offline: bool = False) -> dict:
+def _runtime_failure(stage: str, cause: str, *, log: Path | None, retry: str, fix: str):
+    error = UnavailableError(cause)
+    error.failure_diagnostic = {"stage": stage, "cause": cause,
+                                "log": str(log) if log is not None else None,
+                                "fix": fix, "retry": retry}
+    return error
+
+
+def _runtime_outcome(command: str, exception: BaseException) -> diagnostics.CommandOutcome:
+    timeout = isinstance(exception, subprocess.TimeoutExpired)
+    return diagnostics.CommandOutcome(
+        command,
+        exception.returncode if isinstance(exception, subprocess.CalledProcessError) else None,
+        str(getattr(exception, "output", "") or ""),
+        str(getattr(exception, "stderr", "") or ""),
+        timed_out=timeout,
+        error_kind=("missing" if isinstance(exception, FileNotFoundError) else
+                    "permission" if isinstance(exception, PermissionError) else
+                    "timeout" if timeout else type(exception).__name__.lower()),
+    )
+
+
+def prepare_runtime(cache: Path | None = None, *, offline: bool = False,
+                    retry: str = "agent-opt datasets prepare verilog-spec") -> dict:
     """Build a separate pinned Icarus v12 image; never accept v13 as a fallback."""
     cache = Path(cache) if cache is not None else Path(__file__).resolve().parents[2] / "external/datasets/verilog-runtime"
     identity = _build_identity()
+    environment = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1"}
     try:
         inspect = subprocess.run(["docker", "image", "inspect", RUNTIME_IMAGE],
-                                 capture_output=True, text=True, timeout=20, shell=False)
+                                 capture_output=True, text=True, timeout=20, shell=False,
+                                 env=environment)
         try:
             image_id = json.loads(inspect.stdout)[0]["Id"] if not inspect.returncode else None
         except (ValueError, TypeError, IndexError, KeyError):
@@ -54,31 +80,76 @@ def prepare_runtime(cache: Path | None = None, *, offline: bool = False) -> dict
         built = False
         if not image_id or not _verified_lock(cache, image_id):
             if offline:
-                raise UnavailableError("Verilog-Eval v12 image/build provenance missing or unverified offline")
+                raise _runtime_failure(
+                    "Verilog-Eval image cache", "offline cache miss: pinned Icarus v12 image is missing or unverified",
+                    log=None, retry=retry,
+                    fix="Prepare and verify the pinned Icarus v12 image while online before offline use.",
+                ) from None
             dockerfile = Path(__file__).with_name("Dockerfile.iverilog12")
-            build = subprocess.run(["docker", "build", "-f", str(dockerfile), "-t", RUNTIME_IMAGE,
-                                    str(dockerfile.parent)], capture_output=True, text=True,
-                                   timeout=1800, shell=False)
+            log = cache / "setup-logs" / "verilog-eval-image-build.log"
+            log.parent.mkdir(parents=True, exist_ok=True)
+            argv = ["docker", "build", "-f", str(dockerfile), "-t", RUNTIME_IMAGE,
+                    str(dockerfile.parent)]
+            with log.open("w", encoding="utf-8") as stream:
+                stream.write(json.dumps(argv) + "\n")
+                stream.flush()
+                build = subprocess.run(argv, stdout=stream, stderr=subprocess.STDOUT,
+                                       timeout=1800, shell=False, env=environment)
             if build.returncode:
-                raise UnavailableError("Verilog-Eval Icarus v12 image build failed")
+                lines = diagnostics.summarize_log(log, environment=environment)
+                details = diagnostics.CommandOutcome(
+                    "docker build", build.returncode,
+                    str(getattr(build, "stdout", "") or ""),
+                    "\n".join(lines) if lines else str(getattr(build, "stderr", "") or ""),
+                )
+                cause = diagnostics.summarize_failure(details, environment=environment)
+                raise _runtime_failure(
+                    "Verilog-Eval evaluation image build", cause, log=log, retry=retry,
+                    fix="Check Docker build trust/registry access and preserve the pinned Dockerfile.",
+                ) from None
             inspect = subprocess.run(["docker", "image", "inspect", RUNTIME_IMAGE],
-                                      capture_output=True, text=True, timeout=20, shell=False)
+                                      capture_output=True, text=True, timeout=20, shell=False,
+                                      env=environment)
             built = True
         if inspect.returncode:
-            raise UnavailableError("Verilog-Eval v12 image is unavailable")
+            outcome = diagnostics.CommandOutcome("docker image inspect", inspect.returncode,
+                                                 inspect.stdout or "", inspect.stderr or "")
+            raise _runtime_failure(
+                "Verilog-Eval image inspection",
+                diagnostics.summarize_failure(outcome, environment=environment),
+                log=cache / "setup-logs" / "verilog-eval-image-build.log" if built else None,
+                retry=retry, fix="Check Docker daemon access and restore the pinned Icarus v12 image.",
+            ) from None
         try:
             image_id = json.loads(inspect.stdout)[0]["Id"]
             if not isinstance(image_id, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
                 raise ValueError("Invalid image ID")
         except (ValueError, TypeError, IndexError, KeyError) as exc:
-            raise UnavailableError("Verilog-Eval v12 image identity is invalid") from exc
+            raise _runtime_failure(
+                "Verilog-Eval image inspection", diagnostics.summarize_exception(exc, environment=environment),
+                log=cache / "setup-logs" / "verilog-eval-image-build.log" if built else None,
+                retry=retry, fix="Restore the pinned Icarus v12 image identity.",
+            ) from None
         probe = subprocess.run(["docker", "run", "--rm", "--network", "none", RUNTIME_IMAGE,
                                 "iverilog", "-V"], capture_output=True, text=True, timeout=30,
-                               shell=False)
+                               shell=False, env=environment)
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise UnavailableError("Cannot prepare Verilog-Eval Icarus v12 runtime") from exc
+        outcome = _runtime_outcome("docker", exc)
+        raise _runtime_failure(
+            "Verilog-Eval Icarus v12 runtime", diagnostics.summarize_failure(outcome, environment=environment),
+            log=None, retry=retry, fix="Check Docker daemon access and the pinned Icarus v12 runtime.",
+        ) from None
     if probe.returncode or not re.search(r"Icarus Verilog version 12\b", probe.stdout + probe.stderr):
-        raise UnavailableError("Verilog-Eval image does not contain Icarus v12")
+        cause = (diagnostics.summarize_failure(
+            diagnostics.CommandOutcome("docker run iverilog", probe.returncode,
+                                       probe.stdout or "", probe.stderr or ""),
+            environment=environment) if probe.returncode else
+            "pinned evaluation image does not contain Icarus v12")
+        raise _runtime_failure(
+            "Verilog-Eval simulator verification", cause,
+            log=cache / "setup-logs" / "verilog-eval-image-build.log" if built else None,
+            retry=retry, fix="Rebuild and verify the pinned Icarus v12 image.",
+        ) from None
     if built:
         write_json(cache / "runtime-lock.json", {**identity, "image_id": image_id})
     return {"runtime": {"kind": "docker", "image": RUNTIME_IMAGE},
@@ -122,9 +193,24 @@ class Provider:
                 "evaluator": "verilog_eval", "revision": self.revision}
 
     def prepare(self, cache: Path, *, offline: bool = False) -> dict:
-        source = acquire_pinned_git(cache / "source" / self.revision, self.url,
-                                    self.revision, offline=offline)
-        runtime = prepare_runtime(cache, offline=offline)
+        suffix = "spec" if self.mode == MODES[0] else "completion"
+        retry = f"agent-opt datasets prepare verilog-{suffix}"
+        try:
+            source = acquire_pinned_git(cache / "source" / self.revision, self.url,
+                                        self.revision, offline=offline)
+        except (ConfigurationError, UnavailableError, OSError) as exc:
+            diagnostic = getattr(exc, "failure_diagnostic", None)
+            if not isinstance(diagnostic, dict):
+                diagnostic = {
+                    "stage": "Verilog-Eval source checkout",
+                    "cause": diagnostics.summarize_exception(exc),
+                    "log": None,
+                    "fix": "Check the pinned source checkout and preserve local changes.",
+                }
+            exc.failure_diagnostic = {**diagnostic, "retry": retry}
+            raise
+        runtime = prepare_runtime(cache, offline=offline,
+                                  retry=retry)
         document = import_verilog_eval(source, self.mode)
         document["source_revision"] = self.revision
         for task in document["tasks"]:
@@ -145,11 +231,15 @@ class Provider:
         cache = Path(cache)
         source = cache / "source" / self.revision
         folder = cache / ("verilog-eval-" + self.mode)
+        suffix = "spec" if self.mode == MODES[0] else "completion"
+        retry = f"agent-opt datasets prepare verilog-{suffix}"
         rows = []
         try:
             provenance = json.loads((folder / "provenance.json").read_text())
-        except (OSError, ValueError):
+            provenance_error = None
+        except (OSError, ValueError) as exc:
             provenance = None
+            provenance_error = diagnostics.summarize_exception(exc)
         locked = (isinstance(provenance, dict) and provenance.get("url") == self.url
                   and provenance.get("revision") == self.revision
                   and provenance.get("mode") == self.mode
@@ -160,20 +250,37 @@ class Provider:
                    and _verified_lock(cache, provenance["image_id"]))
         rows.append(check("dataset.verilog.provenance", "dataset", locked,
                           "Pinned Verilog-Eval v12 preparation provenance",
-                          "Run agent-opt datasets prepare verilog-" + ("spec" if self.mode == MODES[0] else "completion")))
+                          "Run " + retry,
+                          cause=None if locked else provenance_error or
+                          "Verilog-Eval runtime provenance is missing or differs from its pinned inputs",
+                          retry=retry))
 
         def probe(argv, *, cwd=None):
             try:
                 result = subprocess.run(argv, cwd=cwd, capture_output=True, text=True, timeout=30, shell=False,
                                         env={**os.environ, "GIT_OPTIONAL_LOCKS": "0", "PYTHONDONTWRITEBYTECODE": "1"})
-                return result.stdout.strip() if result.returncode == 0 else None
-            except (OSError, subprocess.TimeoutExpired):
-                return None
+                output = result.stdout.strip() if result.returncode == 0 else None
+                cause = (None if result.returncode == 0 else diagnostics.summarize_failure(
+                    diagnostics.CommandOutcome(" ".join(argv[:2]), result.returncode,
+                                               result.stdout or "", result.stderr or ""),
+                    environment=os.environ))
+                return output, cause
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                return None, diagnostics.summarize_failure(
+                    _runtime_outcome(" ".join(argv[:2]), exc), environment=os.environ)
 
-        pinned = (source / ".git").exists() and probe(["git", "rev-parse", "HEAD"], cwd=source) == self.revision
-        pinned = pinned and probe(["git", "status", "--porcelain", "--untracked-files=all"], cwd=source) == ""
+        source_exists = (source / ".git").exists()
+        head, head_error = probe(["git", "rev-parse", "HEAD"], cwd=source) \
+            if source_exists else (None, None)
+        dirty, dirty_error = probe(["git", "status", "--porcelain", "--untracked-files=all"], cwd=source) \
+            if source_exists and head == self.revision else (None, None)
+        pinned = source_exists and head == self.revision and dirty == ""
+        source_cause = (None if pinned else head_error or dirty_error or
+                        "pinned clean Verilog-Eval source is missing, changed, or dirty")
         rows.append(check("dataset.verilog.source", "dataset", pinned, "Pinned clean Verilog-Eval checkout",
-                          "Install Git, preserve local changes and rerun dataset preparation"))
+                          "Install Git, preserve local changes and rerun dataset preparation",
+                          cause=source_cause, retry=retry))
+        task_cause = None
         try:
             document = import_verilog_eval(source, self.mode)
             if document is not None:
@@ -182,21 +289,30 @@ class Provider:
                     task["evaluation"]["source_dir"] = str(source)
             published = json.loads((folder / "tasks.json").read_text())
             complete = bool(document and document["tasks"] and document == published)
-        except (OSError, ValueError, ConfigurationError, TypeError, KeyError):
+        except (OSError, ValueError, ConfigurationError, TypeError, KeyError) as exc:
             complete = False
+            task_cause = diagnostics.summarize_exception(exc)
         rows.append(check("dataset.verilog.tasks", "dataset", complete,
                           "Imported public tasks and private test/reference assets are complete",
-                          "Restore the pinned private task files and rerun dataset preparation"))
+                          "Restore the pinned private task files and rerun dataset preparation",
+                          cause=None if complete else task_cause or
+                          "imported task file is missing or differs from the pinned source",
+                          retry=retry))
         info = None
+        image_error = None
         if locked:
             try:
-                info = json.loads(probe(["docker", "image", "inspect", RUNTIME_IMAGE]))[0]
+                output, image_error = probe(["docker", "image", "inspect", RUNTIME_IMAGE])
+                info = json.loads(output)[0] if output is not None else None
             except (ValueError, TypeError, IndexError, KeyError):
-                pass
-        rows.append(check("dataset.verilog.image", "dataset", locked and isinstance(info, dict)
-                          and info.get("Id") == provenance["image_id"],
+                image_error = "docker image inspect returned invalid image metadata"
+        image_ok = (locked and isinstance(info, dict) and info.get("Id") == provenance["image_id"])
+        rows.append(check("dataset.verilog.image", "dataset", image_ok,
                           "Prepared immutable Icarus v12 image identity",
-                          "Start Docker and rerun dataset preparation to verify the Icarus v12 image"))
+                          "Start Docker and rerun dataset preparation to verify the Icarus v12 image",
+                          cause=None if image_ok else image_error or
+                          "prepared Icarus v12 image identity is missing or differs from provenance",
+                          retry=retry))
         return rows
 
 

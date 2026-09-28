@@ -1,5 +1,6 @@
 import hashlib
 import io
+import inspect
 import json
 import os
 import shutil
@@ -36,6 +37,65 @@ class DoctorTests(unittest.TestCase):
                 self.assertTrue(item["remedy"])
         return checks
 
+    def test_runner_preserves_missing_nonzero_timeout_and_permission_outcomes(self):
+        cases = [
+            (FileNotFoundError("SECRET_MISSING"), None, "missing", False),
+            (subprocess.CompletedProcess(["fixture"], 7, "SECRET_STDOUT", "ERROR failed"),
+             7, None, False),
+            (subprocess.TimeoutExpired(["fixture"], 15, output="SECRET_TIMEOUT",
+                                       stderr="ERROR timed out SECRET"), None, "timeout", True),
+            (PermissionError("SECRET_PERMISSION"), None, "permission", False),
+        ]
+        for failure, returncode, error_kind, timed_out in cases:
+            with self.subTest(error=error_kind, returncode=returncode):
+                runner = self.doctor.Runner(self.root, "evaluation", {"CUSTOM_TOKEN": "SECRET"})
+                patcher = (patch.object(self.doctor.readiness.subprocess, "run", side_effect=failure)
+                           if isinstance(failure, BaseException) else
+                           patch.object(self.doctor.readiness.subprocess, "run", return_value=failure))
+                with patcher:
+                    outcome = runner.run(["fixture"])
+                self.assertIsNotNone(outcome)
+                self.assertEqual(outcome.returncode, returncode)
+                self.assertEqual(outcome.error_kind, error_kind)
+                self.assertEqual(outcome.timed_out, timed_out)
+                if returncode == 7:
+                    self.assertEqual(outcome.stdout, "SECRET_STDOUT")
+                safe = self.doctor.readiness.diagnostics.summarize_failure(
+                    outcome, environment={"CUSTOM_TOKEN": "SECRET"})
+                self.assertNotIn("SECRET", safe)
+
+    def test_runner_probe_emits_cause_fix_retry_and_never_echoes_raw_secret(self):
+        runner = self.doctor.Runner(self.root, "evaluation", {"CUSTOM_TOKEN": "SECRET"})
+        command = ["docker", "info"]
+        result = subprocess.CompletedProcess(
+            command, 1, "SECRET_STDOUT", "permission denied while connecting to docker.sock SECRET")
+        self.assertIn("retry", inspect.signature(runner.probe).parameters)
+        with patch.object(self.doctor.readiness.subprocess, "run", return_value=result):
+            runner.probe("docker.daemon", command, "Docker daemon access.",
+                         "Check daemon and socket permissions.", retry="docker info")
+        row = runner.checks[0]
+        self.assertEqual(row["status"], "error")
+        self.assertIn("Cause: ", row["message"])
+        self.assertIn("permission denied", row["message"].lower())
+        self.assertIn("Check daemon", row["remedy"])
+        self.assertIn("Retry: docker info", row["remedy"])
+        self.assertNotIn("SECRET", json.dumps(runner.checks))
+
+    def test_blocked_probe_names_failed_dependency_and_does_not_execute(self):
+        runner = self.doctor.Runner(self.root, "evaluation", {})
+        runner.add("docker.daemon", False, "Docker daemon access.", "Start Docker daemon.")
+        self.assertIn("retry", inspect.signature(runner.probe).parameters)
+        with patch.object(self.doctor.readiness.subprocess, "run",
+                          side_effect=AssertionError("blocked probe must not execute")):
+            runner.probe("image.agent", ["docker", "image", "inspect", "agent"],
+                         "Agent image identity.", "Prepare the Agent image.",
+                         requires=("docker.daemon",), retry="sh scripts/bootstrap.sh setup")
+        row = runner.checks[-1]
+        self.assertEqual(row["status"], "blocked")
+        self.assertIn("Blocked by: docker.daemon", row["message"])
+        self.assertIn("Prepare the Agent image", row["remedy"])
+        self.assertIn("Retry: sh scripts/bootstrap.sh setup", row["remedy"])
+
     def test_invalid_ca_preserves_aggregate_and_environment_across_calls(self):
         dev = module("doctor_network_entry", ROOT / "scripts/dev.py")
         for value in ("missing-SECRET.pem", "invalid-SECRET.pem", "private-SECRET.pem"):
@@ -57,6 +117,7 @@ class DoctorTests(unittest.TestCase):
                 self.assertEqual(set(report), {"ready", "areas", "checks"})
                 checks = self.checks(report)
                 self.assertEqual(checks["network.configuration"]["status"], "error")
+                self.assertIn("Cause: ", checks["network.configuration"]["message"])
                 self.assertIn("AGENT_OPT_CA_BUNDLE", checks["network.configuration"]["remedy"])
                 self.assertIn("unset", checks["network.configuration"]["remedy"])
                 for name in ("core.git", "core.uv", "core.python", "source.ACE-RTL", "data.LICENSE", "live.key"):
@@ -355,6 +416,19 @@ class DoctorTests(unittest.TestCase):
         self.assertIn("prepare cvdp", rows[0]["remedy"])
         self.assertNotIn("SECRET", json.dumps(rows))
 
+    def test_provider_rows_are_secret_redacted_without_losing_markers(self):
+        from agent_optimizer import readiness
+
+        row = {"id": "dataset.fixture", "area": "dataset", "status": "error",
+               "message": "Fixture failed.\nCause: clone used https://git-user:SECRET@host/repo",
+               "remedy": "Restore the cache.\nRetry: agent-opt datasets prepare cvdp"}
+        sanitized = readiness.sanitize_provider_row(row)
+        self.assertEqual(set(sanitized), {"id", "area", "status", "message", "remedy"})
+        self.assertIn("\nCause: ", sanitized["message"])
+        self.assertIn("\nRetry: agent-opt datasets prepare cvdp", sanitized["remedy"])
+        self.assertNotIn("SECRET", json.dumps(sanitized))
+        self.assertEqual(row["message"], "Fixture failed.\nCause: clone used https://git-user:SECRET@host/repo")
+
     def test_ready_does_not_require_live_but_live_requires_ready(self):
         self.prepared()
         report = self.doctor.collect_report(self.root)
@@ -391,13 +465,66 @@ class DoctorTests(unittest.TestCase):
             if argv[:2] == ["docker", "version"]:
                 raise subprocess.TimeoutExpired(argv, 15, output="SECRET_TIMEOUT")
             return self.execute(argv, **kwargs)
-        with patch.object(self.doctor.readiness.subprocess, "run", side_effect=execute):
+        with patch.dict(os.environ, {"CUSTOM_TOKEN": "SECRET"}), \
+                patch.object(self.doctor.readiness.subprocess, "run", side_effect=execute):
             report = self.doctor.collect_report(self.root)
         checks = self.checks(report)
         self.assertEqual(checks["docker.daemon"]["status"], "error")
         self.assertEqual(checks["image.agent"]["status"], "blocked")
         self.assertEqual(checks["source.ACE-RTL"]["status"], "ok")
         self.assertNotIn("SECRET", json.dumps(report))
+
+    def test_docker_socket_cause_is_aggregated_and_only_dependent_images_are_blocked(self):
+        self.prepared()
+
+        def execute(argv, **kwargs):
+            if argv[:2] == ["docker", "version"]:
+                return subprocess.CompletedProcess(
+                    argv, 1, "", "permission denied while connecting to docker.sock SECRET")
+            return self.execute(argv, **kwargs)
+
+        with patch.dict(os.environ, {"CUSTOM_TOKEN": "SECRET"}), \
+                patch.object(self.doctor.readiness.subprocess, "run", side_effect=execute):
+            report = self.doctor.collect_report(self.root)
+        checks = self.checks(report)
+        self.assertEqual(checks["docker.daemon"]["status"], "error")
+        self.assertIn("Cause:", checks["docker.daemon"]["message"])
+        self.assertIn("permission denied", checks["docker.daemon"]["message"].lower())
+        self.assertIn("Retry: docker info", checks["docker.daemon"]["remedy"])
+        self.assertEqual(checks["image.agent"]["status"], "blocked")
+        self.assertIn("Blocked by: docker.daemon", checks["image.agent"]["message"])
+        self.assertEqual(checks["source.ACE-RTL"]["status"], "ok")
+        self.assertNotIn("SECRET", json.dumps(report))
+
+    def test_ace_asset_inspect_failure_keeps_safe_cause_and_retry(self):
+        from types import SimpleNamespace
+        from agent_optimizer import readiness
+
+        external = self.root / "external"
+        external.mkdir()
+        image_id = "sha256:" + "a" * 64
+        lock = {"images": {"agent": {"tag": "agent", "id": image_id},
+                           "evaluation": {"tag": "evaluation", "id": image_id}}}
+        (external / "environment-lock.json").write_text(json.dumps(lock))
+        lifecycle = SimpleNamespace(load_example=lambda *_args: SimpleNamespace(
+            valid_lock=lambda _lock: True))
+        command = ["docker", "image", "inspect", "agent"]
+        with patch.dict(os.environ, {"CUSTOM_TOKEN": "SECRET"}), \
+                patch.object(readiness, "is_source_checkout", return_value=True), \
+                patch("agent_optimizer.preset_tui._lifecycle", return_value=lifecycle), \
+                patch.object(readiness.subprocess, "run", return_value=subprocess.CompletedProcess(
+                    command, 1, "SECRET", "permission denied SECRET")):
+            row = readiness._ace_asset_check({
+                "_root": self.root,
+                "_source": Path("examples/ace-rtl/experiment.toml"),
+            })
+
+        self.assertEqual(row["status"], "error")
+        self.assertIn("Cause: ", row["message"])
+        self.assertIn("permission denied", row["message"].lower())
+        self.assertIn("agent-opt prepare examples/ace-rtl/experiment.toml", row["remedy"])
+        self.assertIn("Retry: agent-opt prepare examples/ace-rtl/experiment.toml", row["remedy"])
+        self.assertNotIn("SECRET", json.dumps(row))
 
     def test_source_revision_and_dirty_state_fail_independently(self):
         self.prepared()

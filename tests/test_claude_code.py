@@ -264,8 +264,8 @@ class ClaudeCodeSelectionTests(unittest.TestCase):
                 self.assertFalse(report["ready"])
                 self.assertIn("Claude Code", check["remedy"])
                 self.assertIn("claude", check["remedy"])
-                self.assertIn("설치하세요", render_diagnostic(check, lang="ko")[1])
-                self.assertIn("Claude Code (claude)", render_diagnostic(check, lang="en")[1])
+                self.assertIn("설치하세요", render_diagnostic(check, lang="ko"))
+                self.assertIn("Claude Code (claude)", render_diagnostic(check, lang="en"))
             else:
                 self.assertEqual(check["remedy"], "")
                 self.assertTrue(report["ready"], report)
