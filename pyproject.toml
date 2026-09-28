@@ -8,7 +8,7 @@ version = "0.3.0"
 description = "Harness-independent agent optimization experiment workbench"
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ["pydantic-settings>=2,<3", "typer>=0.27,<0.28", "rich>=14,<15"]
+dependencies = ["pydantic-settings>=2,<3", "typer>=0.27,<0.28", "rich>=14,<15", "textual>=6,<8"]
 
 [project.scripts]
 agent-opt = "agent_optimizer.entrypoint:main"

@@ -157,6 +157,7 @@ class TerminalLanguageTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 2)
                 self.assertIn(expected, result.stderr)
 
+    @unittest.skip("영어 Textual 탐색은 test_textual_tui.py에서 검증")
     def test_english_tui_existing_experiment_prompts(self):
         from agent_optimizer.cli import main
 
@@ -175,6 +176,7 @@ class TerminalLanguageTests(unittest.TestCase):
                     self.assertEqual(main(["tui"]), 2)
                 self.assertIn(expected, output.getvalue())
 
+    @unittest.skip("영어 Textual 탐색은 test_textual_tui.py에서 검증")
     def test_english_tui_history_displays_recorded_status_and_localized_navigation(self):
         from agent_optimizer.cli import main
 

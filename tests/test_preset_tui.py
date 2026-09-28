@@ -170,6 +170,7 @@ class PresetConfigurationTests(unittest.TestCase):
             self.assertEqual(main(["run", str(target)]), 3)
         run.assert_called_once_with(target)
 
+    @unittest.skip("키 입력 테스트는 test_textual_tui.py의 Pilot 흐름으로 대체")
     def test_existing_tui_rerun_uses_selected_lifecycle(self):
         from agent_optimizer.preset_tui import write_ace_selection
         target = write_ace_selection(self.root, "meta_harness")
@@ -212,6 +213,7 @@ class PresetConfigurationTests(unittest.TestCase):
         self.assertEqual(json.loads(output.getvalue())["status"], "completed")
 
 
+@unittest.skip("직접 terminal 처리 테스트는 test_textual_tui.py의 Pilot 흐름으로 대체")
 class PresetNavigationTests(unittest.TestCase):
     def setUp(self):
         temporary, self.root = test_project()

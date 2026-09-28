@@ -129,44 +129,6 @@ def _launch_existing(spec: dict, registry: Registry, *, output: Path | None = No
     return None
 
 
-def _tui_model_environment(spec: dict, env: dict[str, str] | None = None) -> dict[str, str]:
-    from agent_optimizer.model_input import ensure_model_api, ensure_model_selector
-
-    profiles = spec["_profiles"]
-    research = any(stage["optimizer"] in {"gepa", "meta_harness", "ecdysis"}
-                   for stage in spec.get("stages", []))
-    model_keys = {"AGENT_OPT_MODEL_BASE_URL", "AGENT_OPT_MODEL_API_KEY"}
-    api = research or any((profile["adapter"] not in {"opencode", "ace_opencode"} or
-                           profile["adapter"] == "ace_opencode" and not spec.get("preset_selection")) and
-                          model_keys.issubset(profile.get("runtime", {}).get("env_passthrough", []))
-                          for profile in profiles)
-    staged = dict(os.environ if env is None else env)
-    if api:
-        staged = ensure_model_api(staged)
-    for profile in profiles:
-        if (profile["adapter"] == "opencode" or
-                profile["adapter"] == "ace_opencode" and spec.get("preset_selection")):
-            selector = profile.get("model_env", "AGENT_OPT_MODEL")
-            staged = ensure_model_selector(staged, selector)
-            if profile["adapter"] == "ace_opencode" and spec.get("preset_selection") and "/" not in staged[selector]:
-                model_id = staged[selector]
-                if any(char.isspace() for char in model_id):
-                    raise ConfigurationError(f"{selector}에 공백 없는 모델 ID를 입력하세요")
-                if staged.get("AGENT_OPT_MODEL_ID") and staged["AGENT_OPT_MODEL_ID"] != model_id:
-                    print(human("compatible OpenCode 모델은 Optimizer 모델 ID와 같아야 합니다. "
-                                f"AGENT_OPT_MODEL_ID를 {model_id}(으)로 바꿀까요? [y/N]: "),
-                          end="", file=sys.stderr, flush=True)
-                    if input().strip().lower() not in {"y", "yes"}:
-                        raise ConfigurationError("ACE compatible 모델 선택자는 AGENT_OPT_MODEL_ID와 일치해야 합니다")
-                staged["AGENT_OPT_MODEL_ID"] = model_id
-                staged[selector] = "compatible/" + model_id
-                print(f"{selector}: {staged[selector]} (compatible API)", file=sys.stderr)
-            if (profile["adapter"] == "ace_opencode" and spec.get("preset_selection")
-                    and staged[selector].startswith("compatible/") and not api):
-                staged = ensure_model_api(staged)
-    return staged
-
-
 def _recent_configurations(project_root: Path) -> list[Path]:
     """List only generated experiment files, without following configuration symlinks."""
     base = project_root / "runs" / "configs"
@@ -187,7 +149,7 @@ def _recent_configurations(project_root: Path) -> list[Path]:
     return [path for _, _, path in entries[:5]]
 
 
-def _history_run(runs_fd: int, parent: str, name: str) -> tuple[str, float] | None:
+def _history_run(runs_fd: int, parent: str, name: str) -> tuple[str, float, int] | None:
     """Check a recorded run through directory-relative, non-following file descriptors."""
     match = re.fullmatch(r"([0-9]{8}T[0-9]{6}Z)-[0-9a-f]{8}", name)
     if match is None:
@@ -219,19 +181,19 @@ def _history_run(runs_fd: int, parent: str, name: str) -> tuple[str, float] | No
                     or not isinstance(summary.get("groups"), list)
                     or type(summary.get("trials_used")) is not int or summary["trials_used"] < 0):
                 return None
-            return summary["status"], created.timestamp()
+            return summary["status"], created.timestamp(), summary["trials_used"]
     except (OSError, ValueError, UnicodeError, RecursionError):
         return None
 
 
-def _tui_run_history(project_root: Path) -> int | None:
+def recent_runs(project_root: Path) -> list[tuple[str, str, int, Path]]:
+    """안전하게 저장된 최근 실행만 표시한다. 선택 시 다시 검증한다."""
     runs = project_root.absolute() / "runs"
     found = []
     try:
         runs_fd = os.open(runs, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     except OSError:
-        print(human("실행 기록이 없습니다."), file=sys.stderr)
-        return 0
+        return []
     with contextlib.ExitStack() as opened:
         opened.callback(os.close, runs_fd)
         for parent in ("", "dev-live"):
@@ -247,135 +209,32 @@ def _tui_run_history(project_root: Path) -> int | None:
                             continue
                         recorded = _history_run(runs_fd, parent, child.name)
                         if recorded is not None:
-                            found.append((recorded[1], parent, child.name, recorded[0]))
+                            found.append((recorded[1], parent, child.name, recorded[0], recorded[2]))
             finally:
                 if parent:
                     os.close(parent_fd)
     found.sort(key=lambda row: (-row[0], row[1], row[2]))
     found = found[:10]
-    if not found:
-        print(human("실행 기록이 없습니다."), file=sys.stderr)
-        return 0
-    for number, (_, parent, name, status) in enumerate(found, 1):
-        report = runs / parent / name / "report.html"
-        print(f"{number}. {name} · {status} · {report}", file=sys.stderr)
-    print(human("실행 번호 (0: 돌아가기): "), end="", file=sys.stderr, flush=True)
-    choice = input().strip()
-    if choice == "0":
-        return None
-    if not choice.isascii() or not choice.isdecimal() or not 1 <= int(choice) <= len(found):
-        raise ConfigurationError(human("목록의 실행 번호를 선택하세요"))
-    _, parent, name, status = found[int(choice) - 1]
+    return [(name, status, trials, runs / parent / name / "report.html")
+            for _, parent, name, status, trials in found]
+
+
+def verified_run_report(project_root: Path, report: Path, status: str) -> Path:
+    runs = project_root.absolute() / "runs"
+    if report.parent.parent not in {runs, runs / "dev-live"}:
+        raise ConfigurationError(human("보고서를 안전하게 확인할 수 없습니다"))
+    parent = "dev-live" if report.parent.parent == runs / "dev-live" else ""
     try:
         runs_fd = os.open(runs, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     except OSError:
         raise ConfigurationError(human("보고서를 안전하게 확인할 수 없습니다")) from None
     try:
-        recorded = _history_run(runs_fd, parent, name)
+        recorded = _history_run(runs_fd, parent, report.parent.name)
     finally:
         os.close(runs_fd)
     if recorded is None or recorded[0] != status:
         raise ConfigurationError(human("보고서를 안전하게 확인할 수 없습니다"))
-    print(f"{human('보고서 경로')}: {runs / parent / name / 'report.html'}", file=sys.stderr)
-    return 0
-
-
-def _run_ace_selection(project_root: Path, optimizer: str) -> int:
-    """사용자 확인 후에만 고정 자산 준비, 설정 작성, 진단, 실제 실행을 순서대로 수행한다."""
-    from agent_optimizer.preset_tui import ACE_GUIDANCE, ACE_SCAFFOLD, _tr, write_ace_selection
-    from agent_optimizer.registry import is_source_checkout
-
-    root = project_root.absolute()
-    if not is_source_checkout(root):
-        print(human("ACE-RTL 작업공간 경로: "), end="", file=sys.stderr, flush=True)
-        entered = input().strip()
-        if not entered:
-            raise ConfigurationError(human("ACE-RTL 작업공간 경로를 입력하세요"))
-        root = Path(entered).expanduser().absolute()
-    maximum = 1 if optimizer == "baseline" else 9
-    changed = (_tr("변경 없음", "no changes") if optimizer == "baseline" else
-               ACE_GUIDANCE if optimizer == "gepa" else ACE_SCAFFOLD)
-    def model_status(key):
-        return (_tr("설정됨", "configured") if os.environ.get(key) else
-                _tr("입력 필요", "input needed"))
-    agent_model = os.environ.get("AGENT_OPT_MODEL", "")
-    agent_key = ("OPENROUTER_API_KEY" if agent_model.startswith("openrouter/") else
-                 "AGENT_OPT_MODEL_API_KEY" if agent_model.startswith("compatible/") else None)
-    agent_key_status = (f" · {agent_key}: {model_status(agent_key)}" if agent_key else
-                        f" · {_tr('선택 후 provider 인증 확인', 'check provider credentials after selection')}")
-    optimizer_model = (_tr("필요 없음", "not needed") if optimizer == "baseline" else
-                       f"AGENT_OPT_MODEL_BASE_URL: {model_status('AGENT_OPT_MODEL_BASE_URL')} · "
-                       f"AGENT_OPT_MODEL_ID: {model_status('AGENT_OPT_MODEL_ID')} · "
-                       f"{_tr('API 키', 'API key')}: {model_status('AGENT_OPT_MODEL_API_KEY')}")
-    print(f"\nAgent: ACE-RTL ({_tr('고정 Git commit · 스킬 프로필', 'pinned Git commit · skill profile')})\n"
-          f"Harness: OpenCode (ace-opencode / ace_opencode)\n"
-          f"Optimizer: {optimizer} · {_tr('이번 수정 파일', 'file to edit')}: {changed}\n"
-          f"Dataset: CVDP · {_tr('공식', 'official')} evaluator=cvdp · train 1 / validation 1 · final_test=false\n"
-          f"{_tr('수정 가능 파일', 'Editable files')}: SKILL.md, role-guidance.md, Python scripts\n"
-          f"{_tr('Agent 모델', 'Agent model')}: AGENT_OPT_MODEL {model_status('AGENT_OPT_MODEL')}"
-          f"{agent_key_status}\n"
-          f"{_tr('Optimizer 모델', 'Optimizer model')}: {optimizer_model}\n"
-          f"{_tr('준비 작업', 'Preparation')}: "
-          f"{_tr('고정 Git/CVDP 데이터·driver·Docker 이미지 (확인 후에만 수행)', 'pinned Git/CVDP data, driver, Docker images (only after confirmation)')}\n"
-          f"{_tr('예산', 'Budget')}: {_tr('최대', 'up to')} {maximum} trial / "
-          f"{_tr('최대', 'up to')} {maximum * 600 + 360}{_tr('초', ' seconds')} · "
-          f"{_tr('trial당 600초', '600 seconds per trial')}\n"
-          f"{_tr('설정', 'Configuration')}: {root / 'runs/configs/<new-config>/experiment.toml'}\n"
-          f"{_tr('보고서', 'Report')}: {root / 'runs/<run-id>/report.html'}\n"
-          f"{_tr('평가 의미: 선택된 공개 validation 과제, 최종 test 없음', 'Evaluation: selected public validation task; no final test')}", file=sys.stderr)
-    print(_tr("준비하고 실행할까요? [y/N/b: 이전]: ",
-              "Prepare and run? [y/N/b: back]: "), end="", file=sys.stderr, flush=True)
-    answer = input().strip().lower()
-    if answer == "b":
-        return -1
-    if answer not in {"y", "yes"}:
-        print(human("실험 준비를 취소했습니다"), file=sys.stderr)
-        return 2
-    from agent_optimizer.preset_tui import prepare_ace_selection, run_ace_selection
-    from agent_optimizer.model_input import session_environment
-    environment = _tui_model_environment({"_profiles": [{"adapter": "ace_opencode",
-                                                     "model_env": "AGENT_OPT_MODEL"}],
-                                          "preset_selection": True,
-                                          "stages": [] if optimizer == "baseline" else
-                                          [{"optimizer": optimizer}]})
-    prepare_ace_selection(root)
-    experiment = write_ace_selection(root, optimizer)
-    with session_environment(environment):
-        return run_ace_selection(experiment)
-
-
-def _run_sample_selection(project_root: Path, agent_id: str, optimizer: str) -> int:
-    """합성 fixture 조합의 확인 및 기존 plan/run 경로."""
-    from agent_optimizer.preset_tui import _tr
-    root = project_root.absolute()
-    maximum = 4 if optimizer == "file_variants" else 3
-    print(f"\nAgent: {agent_id} ({_tr('로컬 합성 예제', 'local synthetic fixture')})\n"
-          f"Harness: Fixture ({_tr('모델 호출 없음', 'no model call')})\n"
-          f"Optimizer: {optimizer} · "
-          f"{'configs/strategy.json' if optimizer == 'file_variants' else _tr('변경 없음', 'no changes')}\n"
-          f"Dataset: sample_text · evaluator=sample_eval · train/validation/test · "
-          f"{_tr('합성 평가', 'synthetic evaluation')}\n"
-          f"{_tr('Agent/Optimizer 모델: 필요 없음', 'Agent/Optimizer models: not needed')}\n"
-          f"{_tr('준비 작업: 로컬 예제 파일 검사', 'Preparation: inspect local fixture files')}\n"
-          f"{_tr('예산', 'Budget')}: {_tr('최대', 'up to')} {maximum} trial / 3600{_tr('초', ' seconds')} · "
-          f"{_tr('trial당 120초', '120 seconds per trial')}\n"
-          f"{_tr('설정', 'Configuration')}: {root / 'runs/configs/<new-config>/experiment.toml'}\n"
-          f"{_tr('보고서', 'Report')}: {root / 'runs/<run-id>/report.html'}", file=sys.stderr)
-    print(_tr("준비하고 실행할까요? [y/N/b: 이전]: ", "Prepare and run? [y/N/b: back]: "),
-          end="", file=sys.stderr, flush=True)
-    answer = input().strip().lower()
-    if answer == "b":
-        return -1
-    if answer not in {"y", "yes"}:
-        print(human("실험 준비를 취소했습니다"), file=sys.stderr)
-        return 2
-    from agent_optimizer.preset_tui import write_sample_selection
-    experiment = write_sample_selection(root, agent_id, optimizer)
-    report = collect_plan(experiment, Registry())
-    if not report["ready"]:
-        problems = ", ".join(row["id"] for row in report["checks"] if row["status"] != "ok")
-        raise ConfigurationError("합성 실험 정적 진단 실패: " + problems)
-    return main(["run", str(experiment)])
+    return report
 
 
 @app.command("plugins")
@@ -824,168 +683,13 @@ def _dispatch(args):
                     next_command(f"agent-opt run {shlex.quote(experiments[0]['experiment'])}")
                 rollback.pop_all()
         elif args.command == "tui":
-            if not sys.stdin.isatty() or not sys.stderr.isatty():
+            if not sys.stdin.isatty() or not sys.stdout.isatty() or not sys.stderr.isatty():
                 from agent_optimizer.preset_tui import _tr
                 raise ConfigurationError(t("TUI requires a TTY for both input and output") + "; " +
                                          _tr("자동화에는 agent-opt init과 agent-opt run을 사용하세요",
                                              "Use agent-opt init and agent-opt run for noninteractive automation"))
-            try:
-                start_with_preset = True
-                while True:
-                    if start_with_preset:
-                        choice = "5"
-                        start_with_preset = False
-                    else:
-                        print("\n" + human("실험 시작: 5. 프리셋 선택형 새 최적화  1. 기존 실험 실행  2. 고급 새 실험 만들고 실행  3. ACE-RTL + CVDP 예제  4. 이전 실행 보기"), file=sys.stderr)
-                        print(human("선택 [5/1/2/3/4]: "), end="", file=sys.stderr, flush=True)
-                        choice = input().strip()
-                    if choice == "5":
-                        from agent_optimizer.preset_tui import select_four
-                        previous = None
-                        while choice == "5":
-                            selected = (select_four(args.project_root.absolute(), initial=previous,
-                                                    start_page=3) if previous else
-                                        select_four(args.project_root.absolute()))
-                            if selected is None:
-                                break
-                            if selected[0] == "custom":
-                                choice = "2"
-                            elif selected[0] == "existing":
-                                choice = "1"
-                            else:
-                                result = (_run_sample_selection(args.project_root, selected[0], selected[2])
-                                          if selected[0] in {"rtl-solo", "rtl-team"} else
-                                          _run_ace_selection(args.project_root, selected[2]))
-                                if result != -1:
-                                    return result
-                                previous = selected
-                    if choice == "5":
-                        continue
-                    if choice != "4":
-                        break
-                    history = _tui_run_history(args.project_root)
-                    if history is not None:
-                        return history
-                if choice in {"1", "3"}:
-                    if choice == "3":
-                        print(human("ACE-RTL 작업공간 경로: "), end="", file=sys.stderr, flush=True)
-                        selected = input().strip()
-                        if not selected:
-                            raise ConfigurationError(human("ACE-RTL 작업공간 경로를 입력하세요"))
-                        workspace = Path(selected).expanduser()
-                        if not workspace.is_absolute():
-                            workspace = args.project_root.absolute() / workspace
-                        print(f"{human('선택한 작업공간')}: {workspace}\n"
-                              + human("준비 작업: 고정 Git 소스·CVDP 데이터·driver·Docker 이미지"),
-                              file=sys.stderr)
-                        print(human("ACE-RTL 연동을 준비할까요? [y/N]: "), end="", file=sys.stderr, flush=True)
-                        if input().strip().lower() not in {"y", "yes"}:
-                            print(human("실험 준비를 취소했습니다"), file=sys.stderr)
-                            return 2
-                        output = io.StringIO()
-                        with contextlib.redirect_stdout(output):
-                            code = main(["init", "--profile", "ace-rtl", "--workspace", str(workspace)])
-                        if code:
-                            return code
-                        experiment = Path(json.loads(output.getvalue())["experiment"])
-                        with contextlib.redirect_stdout(sys.stderr):
-                            code = main(["prepare", str(experiment)])
-                        if code:
-                            return code
-                    else:
-                        recent = _recent_configurations(args.project_root)
-                        if recent:
-                            print(human("최근 생성된 실험 설정 (번호 또는 경로 직접 입력):"), file=sys.stderr)
-                            for index, path in enumerate(recent, 1):
-                                print(f"  {index}. {path}", file=sys.stderr)
-                        else:
-                            print(human("최근 생성 설정이 없습니다. 경로를 직접 입력하세요."), file=sys.stderr)
-                        print(human("기존 experiment.toml 경로: "), end="", file=sys.stderr, flush=True)
-                        selected = input().strip()
-                        if not selected:
-                            raise ConfigurationError(human("실험 설정 경로를 입력하세요"))
-                        if selected.lstrip("+-").isdecimal():
-                            if not selected.isdecimal() or not 1 <= int(selected) <= len(recent):
-                                raise ConfigurationError(human("목록의 설정 번호를 선택하세요"))
-                            experiment = recent[int(selected) - 1]
-                        else:
-                            experiment = Path(selected).expanduser()
-                        if not experiment.is_absolute():
-                            experiment = args.project_root / experiment
-                        experiment = experiment.resolve()
-                    init_args = None
-                elif choice == "2":
-                    init_args = wizard_arguments(args.project_root.absolute())
-                else:
-                    raise ConfigurationError(human("1, 2, 3, 4 또는 5를 선택하세요"))
-            except EOFError:
-                print(style(human("TUI cancelled:"), "warning", stream=sys.stderr) + " " + human("input ended"), file=sys.stderr)
-                return 2
-            except KeyboardInterrupt:
-                print("\n" + style(human("TUI interrupted"), "warning", stream=sys.stderr), file=sys.stderr)
-                return 130
-            if init_args is not None:
-                print("\n  " + style(human("Preparing the selected dataset…"), "warning", stream=sys.stderr),
-                      file=sys.stderr, flush=True)
-                output = io.StringIO()
-                with contextlib.redirect_stdout(output):
-                    code = main(init_args)
-                if code:
-                    return code
-                prepared = json.loads(output.getvalue())
-                if "session" in prepared:
-                    from agent_optimizer.model_input import session_environment
-                    try:
-                        staged = dict(os.environ)
-                        for item in prepared["experiments"]:
-                            staged = _tui_model_environment(load_experiment(Path(item["experiment"])), staged)
-                        with session_environment(staged):
-                            return main(["run-session", prepared["session"]])
-                    except KeyboardInterrupt:
-                        print("\n" + style(human("TUI interrupted"), "warning", stream=sys.stderr), file=sys.stderr)
-                        return 130
-                experiment = Path(prepared["experiment"])
-            spec = load_experiment(experiment)
-            from agent_optimizer.model_input import session_environment
-            try:
-                environment = _tui_model_environment(spec)
-                with session_environment(environment):
-                    if choice in {"1", "3"}:
-                        report = collect_plan(experiment, registry)
-                        print(f"{human('실험 설정')}: {experiment}", file=sys.stderr)
-                        print(f"{human('계획 진단')}: {human('준비됨' if report['ready'] else '준비 부족')}", file=sys.stderr)
-                        if not report["ready"]:
-                            for check in report["checks"]:
-                                if check["status"] != "ok":
-                                    message, remedy = render_diagnostic(check)
-                                    print(f"  {check['id']}: {message} {remedy}", file=sys.stderr)
-                            return 2
-                        if choice == "3":
-                            print(f"{human('실도구 진단')}: {human('준비됨')}", file=sys.stderr)
-                        print(human("이 실험을 실행할까요? [y/N]: "), end="", file=sys.stderr, flush=True)
-                        if input().strip().lower() not in {"y", "yes"}:
-                            print(human("실험 실행을 취소했습니다"), file=sys.stderr)
-                            return 2
-                    if spec.get("preset_selection"):
-                        _launch_existing(spec, registry)
-                        return main(["run", str(spec["_source"])])
-                    launched = _launch_existing(spec, registry)
-                    if launched is not None:
-                        return launched
-                    with ProgressDisplay() as progress:
-                        progress.configure_budget(spec.get("budget", {}).get("max_trials", 100))
-                        root, summary = run_experiment(spec, Registry(), on_event=progress)
-                    show({"run_dir": root, "status": summary["status"], "trials_used": summary["trials_used"],
-                          "report_html": root / "report.html"})
-                    print(f"{human('결과 HTML')}: {root / 'report.html'}", file=sys.stderr)
-                    next_command(f"agent-opt report {shlex.quote(str(root))}")
-                    return 0 if summary["status"] == "completed" else 3
-            except EOFError:
-                print(style(human("TUI cancelled:"), "warning", stream=sys.stderr) + " " + human("input ended"), file=sys.stderr)
-                return 2
-            except KeyboardInterrupt:
-                print("\n" + style(human("TUI interrupted"), "warning", stream=sys.stderr), file=sys.stderr)
-                return 130
+            from agent_optimizer.tui import OptimizerApp
+            return OptimizerApp(args.project_root).run()
         elif args.command == "run-session":
             data = json.loads(args.session.read_text(encoding="utf-8"))
             if (data.get("schema_version") != 1 or not isinstance(data.get("experiments"), list)
