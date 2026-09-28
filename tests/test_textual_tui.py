@@ -584,6 +584,63 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
                     self.assertNotIn(credential, app.run_failure_reason)
                     self.assertNotIn(credential, result_text)
 
+    def test_model_endpoint_redaction_masks_unsupported_query_values(self):
+        from agent_optimizer.tui import OptimizerApp
+
+        credentials = ("query%2Fcredential-927", "query/credential-927",
+                       "signature-value-928", "jwt-value-929")
+        endpoint = ("https://model.example/v1?flag&&credential=query%2Fcredential-927"
+                    "&signature=signature-value-928&jwt=jwt-value-929")
+        with patch.dict(os.environ, {"AGENT_OPT_MODEL_BASE_URL": endpoint}):
+            app = OptimizerApp(self.root)
+            rendered = app._redact_secrets(f"Endpoint {endpoint}; values: {', '.join(credentials)}")
+        for credential in credentials:
+            self.assertNotIn(credential, rendered)
+
+    async def test_custom_model_endpoint_input_masks_credentials_without_hiding_safe_urls(self):
+        from agent_optimizer.tui import OptimizerApp
+        from textual.widgets import Input
+
+        environment = {
+            "AGENT_OPT_LANG": "en",
+            "AGENT_OPT_MODEL": "compatible/glm5.3-flash",
+            "AGENT_OPT_MODEL_BASE_URL": "",
+            "AGENT_OPT_MODEL_ID": "glm5.3-flash",
+            "AGENT_OPT_MODEL_API_KEY": "separate-api-key-930",
+        }
+        with patch.dict(os.environ, environment):
+            app = OptimizerApp(self.root)
+            async with app.run_test() as pilot:
+                await pilot.press("enter", "enter", "enter", "enter", "enter")
+                endpoint_index = app.model_fields.index("AGENT_OPT_MODEL_BASE_URL")
+                await pilot.press(*(["down"] * endpoint_index), "enter", "enter")
+                self.assertEqual(app.model_mode, "input")
+                entry = app.query_one(Input)
+                self.assertTrue(entry.password)
+
+                entry.value = "https://model.example/v1"
+                await pilot.pause()
+                self.assertFalse(entry.password)
+
+                incomplete_authority = "https://user:input-password-931"
+                entry.value = incomplete_authority
+                await pilot.pause()
+                self.assertTrue(entry.password)
+                self.assertNotIn("input-password-931", str(entry.render()))
+
+                query_url = "https://model.example/v1?credential=input-query-token-932"
+                entry.value = query_url
+                await pilot.pause()
+                self.assertTrue(entry.password)
+                self.assertNotIn("input-query-token-932", str(entry.render()))
+
+                credential_url = "https://user:input-password-931@model.example/v1?api_key=input-token-932"
+                entry.value = credential_url
+                await pilot.pause()
+                self.assertTrue(entry.password)
+                self.assertNotIn("input-password-931", str(entry.render()))
+                self.assertNotIn("input-token-932", str(entry.render()))
+
     async def test_cli_rejects_piped_output_even_with_tty_input_and_error(self):
         from agent_optimizer.cli import main
 
