@@ -3,9 +3,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
 import re
 import subprocess
+import tempfile
 import time
 from pathlib import Path
 
@@ -28,9 +30,13 @@ ROOT = Path(__file__).resolve().parents[2]
 _WRONG_RTL = "module TopModule(output zero); assign zero = 1'b1; endmodule"
 
 
+class _ReferenceInvalid(ConfigurationError):
+    """A task or _ref declaration is invalid independent of the filesystem."""
+
+
 def _public_id(problem_id: str) -> str:
     if not isinstance(problem_id, str) or not _ID.fullmatch(problem_id):
-        raise ConfigurationError("Invalid Verilog-Eval problem ID")
+        raise _ReferenceInvalid("Invalid Verilog-Eval problem ID")
     return problem_id
 
 
@@ -44,7 +50,7 @@ def reference_submission(directory: Path, problem_id: str) -> str:
     submission, count = re.subn(r"(?m)^([ \t]*)module[ \t]+RefModule\b",
                                 r"\1module TopModule", source)
     if count != 1:
-        raise ConfigurationError("Verilog-Eval reference needs exactly one RefModule declaration")
+        raise _ReferenceInvalid("Verilog-Eval reference needs exactly one RefModule declaration")
     return submission
 
 
@@ -80,8 +86,15 @@ def _start_ledger(out: Path, summary: dict) -> Path:
     if summary_path.exists() or summary_path.is_symlink() or temporary.exists():
         raise ConfigurationError("Existing summary.json ledger cannot be overwritten")
     out.mkdir(parents=True, exist_ok=True)
-    with summary_path.open("x", encoding="utf-8") as stream:
-        json.dump(summary, stream, ensure_ascii=False, allow_nan=False)
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=out,
+                                     prefix="summary.json.", suffix=".tmp", delete=False) as stream:
+        staged = Path(stream.name)
+    try:
+        with staged.open("w", encoding="utf-8") as stream:
+            json.dump(summary, stream, ensure_ascii=False, allow_nan=False)
+        os.link(staged, summary_path)
+    finally:
+        staged.unlink(missing_ok=True)
     return summary_path
 
 
@@ -91,6 +104,7 @@ def _initial_summary(mode: str, remaining: int, scope: str = "full") -> dict:
             "unattempted": remaining, "failed": 0, "cases": [], "status": "running",
             "host": {"os": None, "arch": None},
             "docker_daemon": {"os": None, "arch": None},
+            "image_platform": {"os": None, "arch": None},
             "source_revision": None, "image_id": None, "actual_task_count": None}
 
 
@@ -128,13 +142,13 @@ def verify_tasks(tasks: list[Task], evaluator, out: Path, mode: str, *, timeout:
         try:
             _public_id(task.id)
             if task.id in seen or task.evaluation.get("problem_id") != task.id:
-                raise ConfigurationError("Duplicate or mismatched Verilog-Eval problem ID")
+                raise _ReferenceInvalid("Duplicate or mismatched Verilog-Eval problem ID")
             seen.add(task.id)
             if task.evaluation.get("mode") != _MODES[mode]:
-                raise ConfigurationError("Verilog-Eval task mode mismatch")
+                raise _ReferenceInvalid("Verilog-Eval task mode mismatch")
             source = task.evaluation.get("source_dir")
             if not isinstance(source, (str, Path)) or not source:
-                raise ConfigurationError("Verilog-Eval source is missing")
+                raise _ReferenceInvalid("Verilog-Eval source is missing")
             directory = safe_path(Path(source), "dataset_" + _MODES[mode])
             candidate = reference_submission(directory, task.id)
             candidate_dir = safe_path(out, f"cases/{task.id}/output")
@@ -144,9 +158,9 @@ def verify_tasks(tasks: list[Task], evaluator, out: Path, mode: str, *, timeout:
             candidate_dir.mkdir(parents=True)
             with candidate_path.open("x", encoding="utf-8") as stream:
                 stream.write(candidate)
-        except ConfigurationError:
+        except _ReferenceInvalid:
             pass
-        except (OSError, ValueError, TypeError):
+        except (ConfigurationError, OSError, ValueError, TypeError):
             case["status"] = "infrastructure_error"
             case["reason"] = "infrastructure_error"
         else:
@@ -185,20 +199,41 @@ def _docker_daemon() -> dict:
     return {"os": match[1], "arch": match[2]}
 
 
-def _inspected_image_id() -> str:
+def _inspected_image() -> dict:
     try:
         result = subprocess.run(["docker", "image", "inspect", RUNTIME_IMAGE],
                                 capture_output=True, text=True, timeout=20, shell=False)
-        image_id = json.loads(result.stdout)[0]["Id"] if not result.returncode else None
+        image = json.loads(result.stdout)[0] if not result.returncode else None
+        image_id = image["Id"]
+        image_os = image["Os"]
+        image_arch = image["Architecture"]
     except (OSError, subprocess.TimeoutExpired, ValueError, TypeError, IndexError, KeyError) as exc:
-        raise UnavailableError("Verilog-Eval image identity could not be inspected") from exc
+        raise UnavailableError("Verilog-Eval image platform could not be inspected") from exc
     if not isinstance(image_id, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", image_id):
         raise UnavailableError("Verilog-Eval image identity is invalid")
-    return image_id
+    if image_os not in {"linux", "windows"} or image_arch not in {"amd64", "arm64"}:
+        raise UnavailableError("Verilog-Eval image platform is invalid")
+    return {"id": image_id, "os": image_os, "arch": image_arch}
+
+
+def _validate_cache(cache: Path, mode: str) -> None:
+    safe_path(cache, ".")
+    for name in ("source", f"source/{REVISION}", "verilog-eval-" + _MODES[mode]):
+        path = safe_path(cache, name)
+        if path.exists() and not path.is_dir():
+            raise ConfigurationError("Verilog-Eval cache directory is invalid")
+    for name in ("runtime-lock.json", "runtime-lock.json.tmp",
+                 f"verilog-eval-{_MODES[mode]}/tasks.json",
+                 f"verilog-eval-{_MODES[mode]}/tasks.json.tmp",
+                 f"verilog-eval-{_MODES[mode]}/provenance.json",
+                 f"verilog-eval-{_MODES[mode]}/provenance.json.tmp"):
+        path = safe_path(cache, name)
+        if path.exists() and not path.is_file():
+            raise ConfigurationError("Verilog-Eval cache file is invalid")
 
 
 def _prepared_tasks(prepared: dict, provider, cache: Path, mode: str,
-                    summary: dict, ledger: Path):
+                    summary: dict, ledger: Path, *, require_ubuntu_amd64: bool = False):
     if (not isinstance(prepared, dict) or prepared.get("evaluator") != "verilog_eval"
             or not isinstance(prepared.get("provenance"), dict)
             or prepared["provenance"].get("revision") != REVISION
@@ -225,10 +260,14 @@ def _prepared_tasks(prepared: dict, provider, cache: Path, mode: str,
             or any(task.evaluation.get("mode") != _MODES[mode] for task in tasks)):
         raise ConfigurationError("Verilog-Eval pinned task inventory is incomplete")
     evaluator = VerilogEvaluator({**runtime, **config})
-    summary["image_id"] = _inspected_image_id()
+    image = _inspected_image()
+    summary["image_id"] = image["id"]
+    summary["image_platform"] = {"os": image["os"], "arch": image["arch"]}
     write_json(ledger, summary)
     if summary["image_id"] != image_id:
         raise ConfigurationError("Verilog-Eval Docker image differs from prepared identity")
+    if image["os"] != "linux" or (require_ubuntu_amd64 and image["arch"] != "amd64"):
+        raise UnavailableError("Verilog-Eval Docker image platform is unsupported")
     evaluator.validate_benchmark(tasks, metadata)
     return tasks, evaluator
 
@@ -274,13 +313,13 @@ def main(argv: list[str] | None = None) -> int:
         if args.require_ubuntu_amd64 and summary["docker_daemon"] != {"os": "linux", "arch": "amd64"}:
             raise UnavailableError("Ubuntu amd64 Docker daemon is required")
         cache = safe_path(ROOT, f"external/datasets/{args.dataset}")
-        if cache.exists() and not cache.is_dir():
-            raise ConfigurationError("Verilog-Eval cache must be a directory")
+        _validate_cache(cache, args.dataset)
         registry = Registry()
         registry.load_project(ROOT)
         provider = registry.resolve("datasets", args.dataset)()
         prepared = provider.prepare(cache)
-        tasks, evaluator = _prepared_tasks(prepared, provider, cache, args.dataset, summary, ledger)
+        tasks, evaluator = _prepared_tasks(prepared, provider, cache, args.dataset, summary, ledger,
+                                           require_ubuntu_amd64=args.require_ubuntu_amd64)
         selected = ([next(task for task in tasks if task.id == "Prob001_zero")]
                     if args.smoke_one else tasks)
         summary = verify_tasks(selected, evaluator, out, args.dataset, _summary=summary,

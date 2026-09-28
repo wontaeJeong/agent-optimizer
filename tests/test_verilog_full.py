@@ -206,6 +206,30 @@ class VerilogFullTests(unittest.TestCase):
             verify_tasks([task], RecordingEvaluator({}, self.source), out, "verilog-spec")
         self.assertEqual((out / "summary.json").read_text(), "preexisting ledger")
 
+    def test_initial_summary_is_not_published_when_serialization_is_interrupted(self):
+        out = self.run / "verilog-spec"
+
+        def interrupted(summary, stream, **kwargs):
+            stream.write('{"status":')
+            raise OSError("interrupted")
+
+        with patch.object(cli.json, "dump", side_effect=interrupted), self.assertRaises(OSError):
+            verify_tasks([], RecordingEvaluator({}, self.source), out, "verilog-spec")
+        self.assertFalse((out / "summary.json").exists())
+        self.assertEqual(list(out.iterdir()), [])
+
+    def test_initial_summary_publish_race_preserves_existing_ledger(self):
+        out = self.run / "verilog-spec"
+
+        def competing_writer(source, destination):
+            Path(destination).write_text("another writer")
+            raise FileExistsError("competing ledger")
+
+        with patch("os.link", side_effect=competing_writer), self.assertRaises(FileExistsError):
+            verify_tasks([], RecordingEvaluator({}, self.source), out, "verilog-spec")
+        self.assertEqual((out / "summary.json").read_text(), "another writer")
+        self.assertEqual([entry.name for entry in out.iterdir()], ["summary.json"])
+
     def test_unselected_mode_never_creates_or_writes_a_public_summary(self):
         task = self.task("Prob001_zero")
         secret_mode = "../private/SECRET_MODEL_KEY"
@@ -245,8 +269,23 @@ class VerilogFullTests(unittest.TestCase):
         self.assertEqual(summary["attempted"], 3)
         self.assertEqual(summary["failed"], 2)
         self.assertEqual([case["reason"] for case in summary["cases"]],
-                         ["reference_invalid", "reference_invalid", "passed"])
+                         ["reference_invalid", "infrastructure_error", "passed"])
         self.assertNotIn("null", json.dumps([case["id"] for case in summary["cases"]]))
+
+    def test_existing_case_output_and_missing_reference_are_infrastructure_errors(self):
+        first = self.task("Prob001")
+        second = self.task("Prob002")
+        missing = self.task("Prob003")
+        (self.source / "dataset_spec-to-rtl/Prob003_ref.sv").unlink()
+        out = self.run / "verilog-spec"
+        (out / "cases/Prob001/output").mkdir(parents=True)
+        evaluator = RecordingEvaluator({second.id: Evaluation("passed", {"passed": 1.0})},
+                                       self.source)
+        summary = verify_tasks([first, missing, second], evaluator, out, "verilog-spec")
+        self.assertEqual([row["reason"] for row in summary["cases"]],
+                         ["infrastructure_error", "passed", "infrastructure_error"])
+        self.assertEqual(evaluator.calls, ["Prob002"])
+        self.assertEqual(list((out / "cases/Prob001/output").iterdir()), [])
 
     def test_exactly_156_passed_cases_can_complete_a_single_mode(self):
         tasks = [self.task(f"Prob{number:03d}", "verilog-completion")
@@ -322,6 +361,8 @@ class VerilogFullCLITests(unittest.TestCase):
         self.host_arch = "arm64"
         self.daemon_platform = "linux/arm64\n"
         self.observed_image_id = self.image_id
+        self.image_os = "linux"
+        self.image_arch = "arm64"
         self.docker_calls = []
         self.validations = []
 
@@ -351,6 +392,7 @@ class VerilogFullCLITests(unittest.TestCase):
                                      {"os": "linux", "arch": "amd64"})
                 test.assertIsNone(initial["source_revision"])
                 test.assertIsNone(initial["image_id"])
+                test.assertEqual(initial["image_platform"], {"os": None, "arch": None})
                 test.assertIsNone(initial["actual_task_count"])
                 if test.prepare_error:
                     raise test.prepare_error
@@ -381,6 +423,8 @@ class VerilogFullCLITests(unittest.TestCase):
                 test.assertEqual(snapshot["actual_task_count"], 156)
                 test.assertEqual(snapshot["source_revision"], REVISION)
                 test.assertEqual(snapshot["image_id"], test.observed_image_id)
+                test.assertEqual(snapshot["image_platform"],
+                                 {"os": test.image_os, "arch": test.image_arch})
                 if test.preflight_error:
                     raise test.preflight_error
 
@@ -403,8 +447,10 @@ class VerilogFullCLITests(unittest.TestCase):
             if argv == ["docker", "version", "--format", "{{.Server.Os}}/{{.Server.Arch}}"]:
                 return SimpleNamespace(returncode=0, stdout=test.daemon_platform, stderr=PRIVATE)
             test.assertEqual(argv, ["docker", "image", "inspect", RUNTIME_IMAGE])
-            return SimpleNamespace(returncode=0, stdout=json.dumps([{"Id": test.observed_image_id}]),
-                                   stderr=PRIVATE)
+            return SimpleNamespace(returncode=0, stdout=json.dumps([{
+                "Id": test.observed_image_id, "Os": test.image_os,
+                "Architecture": test.image_arch}]),
+                                    stderr=PRIVATE)
 
         output = io.StringIO()
         with (patch.object(cli, "ROOT", self.root, create=True),
@@ -517,6 +563,7 @@ class VerilogFullCLITests(unittest.TestCase):
                 self.assertEqual(summary["docker_daemon"], {"os": "linux", "arch": "arm64"})
                 self.assertEqual(summary["source_revision"], REVISION)
                 self.assertEqual(summary["image_id"], self.image_id)
+                self.assertEqual(summary["image_platform"], {"os": "linux", "arch": "arm64"})
                 self.assertEqual(summary["actual_task_count"], 156)
                 self.assertIn(["docker", "image", "inspect", RUNTIME_IMAGE], self.docker_calls)
                 self.assertEqual([item[0] for item in self.evaluations[-157:-1]],
@@ -604,6 +651,29 @@ class VerilogFullCLITests(unittest.TestCase):
         self.assertEqual(self.validations, [])
         self.assertEqual(self.evaluations, [])
         self.assertNotIn(PRIVATE, json.dumps(summary) + output)
+
+    def test_ubuntu_rejects_wrong_image_platform_before_evaluator_validation(self):
+        self.host_os = "Linux"
+        self.host_arch = "x86_64"
+        self.daemon_platform = "linux/amd64\n"
+        self.image_arch = "arm64"
+        code, output = self.invoke("--dataset", "verilog-spec", "--require-ubuntu-amd64")
+        summary = self.ledger()
+        self.assertEqual(code, 1)
+        self.assertEqual(summary["image_platform"], {"os": "linux", "arch": "arm64"})
+        self.assertEqual(summary["image_id"], self.image_id)
+        self.assertEqual((summary["status"], summary["attempted"]), ("failed", 0))
+        self.assertEqual(self.validations, [])
+        self.assertEqual(self.evaluations, [])
+        self.assertNotIn(PRIVATE, json.dumps(summary) + output)
+
+    def test_invalid_inspected_image_os_cannot_report_passed(self):
+        self.image_os = "windows"
+        code, output = self.invoke("--dataset", "verilog-spec")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.ledger()["status"], "failed")
+        self.assertEqual(self.evaluations, [])
+        self.assertNotIn(PRIVATE, output)
 
     def test_unrecognized_host_and_daemon_output_never_enter_ledger(self):
         self.host_os = PRIVATE + "/host"
@@ -697,6 +767,52 @@ class VerilogFullCLITests(unittest.TestCase):
         self.assertEqual(self.doctor_calls, [cache])
         self.assertEqual((cache / "existing.lock").read_text(), "pinned")
 
+    def test_nested_cache_write_targets_rejected_before_prepare(self):
+        for number, relative in enumerate(("source", f"source/{REVISION}",
+                                           "runtime-lock.json", "runtime-lock.json.tmp",
+                                           "verilog-eval-spec-to-rtl",
+                                           "verilog-eval-spec-to-rtl/tasks.json",
+                                           "verilog-eval-spec-to-rtl/tasks.json.tmp",
+                                           "verilog-eval-spec-to-rtl/provenance.json",
+                                           "verilog-eval-spec-to-rtl/provenance.json.tmp")):
+            for kind in ("symlink", "wrong_type"):
+                with self.subTest(relative=relative, kind=kind):
+                    self.root = Path(self.temp.name) / f"nested-{number}-{kind}"
+                    self.root.mkdir()
+                    self.run = self.root / "runs/verilog-eval-full"
+                    cache = self.root / "external/datasets/verilog-spec"
+                    target = cache / relative
+                    target.parent.mkdir(parents=True)
+                    outside = self.root / "outside"
+                    outside.mkdir()
+                    if kind == "symlink":
+                        target.symlink_to(outside / "escaped", target_is_directory=True)
+                    elif relative in ("source", f"source/{REVISION}",
+                                      "verilog-eval-spec-to-rtl"):
+                        target.write_text("not a directory")
+                    else:
+                        target.mkdir()
+                    self.prepare_calls.clear()
+                    self.doctor_calls.clear()
+                    code, output = self.invoke("--dataset", "verilog-spec")
+                    self.assertEqual(code, 1)
+                    self.assertEqual(self.prepare_calls, [])
+                    self.assertEqual(self.doctor_calls, [])
+                    self.assertEqual(self.ledger()["attempted"], 0)
+                    self.assertEqual(list(outside.iterdir()), [])
+                    self.assertNotIn(str(self.root), output)
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "FIFO unavailable")
+    def test_special_file_cache_is_rejected_before_prepare(self):
+        cache = self.root / "external/datasets/verilog-spec"
+        cache.mkdir(parents=True)
+        os.mkfifo(cache / "runtime-lock.json")
+        code, output = self.invoke("--dataset", "verilog-spec")
+        self.assertEqual(code, 1)
+        self.assertEqual(self.prepare_calls, [])
+        self.assertEqual(self.ledger()["attempted"], 0)
+        self.assertNotIn(str(self.root), output)
+
     def test_ubuntu_flag_stops_on_host_or_daemon_mismatch_without_prepare(self):
         for system, machine, daemon in (("Darwin", "arm64", "linux/amd64"),
                                         ("Linux", "x86_64", "linux/arm64")):
@@ -724,11 +840,13 @@ class VerilogFullCLITests(unittest.TestCase):
         self.host_os = "Linux"
         self.host_arch = "x86_64"
         self.daemon_platform = "linux/amd64\n"
+        self.image_arch = "amd64"
         code, output = self.invoke("--dataset", "verilog-spec", "--require-ubuntu-amd64")
         self.assertEqual(code, 0, output)
         self.assertEqual(self.ledger()["status"], "passed")
         self.assertEqual(self.ledger()["host"], {"os": "Linux", "arch": "x86_64"})
         self.assertEqual(self.ledger()["docker_daemon"], {"os": "linux", "arch": "amd64"})
+        self.assertEqual(self.ledger()["image_platform"], {"os": "linux", "arch": "amd64"})
         self.assertEqual(self.docker_calls[0], ["docker", "version", "--format",
                                                 "{{.Server.Os}}/{{.Server.Arch}}"])
 
