@@ -3,7 +3,7 @@ title: 동작 원리
 description: Agent Optimizer의 구성, 실행 순서, 최적화 반복과 팀 컴포넌트의 경계를 한눈에 봅니다.
 ---
 
-Agent Optimizer는 **Agent를 실행하고, 결과를 채점하고, 허용된 파일을 바꾼 후보를 비교**하는 도구입니다. 아래 그림의 화살표는 정보가 이동하는 방향을 보여 줍니다. 자세한 실행 명령은 [첫 실행](/agent-optimizer/getting-started/first-run/)에 있습니다.
+Agent Optimizer는 **Agent를 실행하고, 결과를 채점하고, 허용된 파일을 바꾼 후보를 비교**하는 도구입니다. 아래 그림의 화살표는 정보가 이동하는 방향을 보여 줍니다. 실행 명령은 [합성 첫 실행](/agent-optimizer/getting-started/first-run/)과 [ACE 프리셋](/agent-optimizer/getting-started/presets/)에 있습니다.
 
 ## 전체 구조
 
@@ -17,7 +17,7 @@ Agent Optimizer는 **Agent를 실행하고, 결과를 채점하고, 허용된 �
 
 ![설정·준비·정적 진단에서 실행, baseline validation, train 후보 탐색, validation 선택 고정, 선택적 test와 보고서까지 세 구간의 단계](../../../assets/diagram-stages.svg)
 
-**설정·준비:** 사용자가 데이터셋과 Agent·수정 범위를 직접 선택합니다. `doctor --plan`은 **준비 전에도** 실행할 수 있지만 부족한 자산을 표시할 수 있습니다. 준비 뒤 다시 확인해도 실제 모델 호출이나 채점 성공을 보증하지 않습니다.
+**설정·준비:** 사용자가 Agent·Harness·Optimizer·Dataset을 선택합니다. TUI 5번과 선택형 CLI는 같은 네 선택을 `experiment.toml`로 기록합니다. `catalog`는 읽기 전용 설명 조회, `init --yes`와 `prepare`는 고정 자산 다운로드/빌드·검사/재사용이 가능한 준비 단계입니다. `doctor --plan`과 `plan`은 **준비 전에도** 실행할 수 있지만 부족한 자산을 표시할 수 있습니다. 준비 뒤 다시 확인해도 실제 모델 호출이나 채점 성공을 보증하지 않습니다.
 
 **실행·선택:** `run`은 부족한 자산을 자동 설치하지 않습니다. baseline validation을 기록한 다음 train에서 후보를 탐색하고 validation 수치로 선택을 고정합니다. **선택 후:** `final_test`를 켠 경우에만 고정 후보와 baseline의 test를 실행하고 보고서를 생성합니다. 그림이 화면보다 넓으면 그림 영역만 좌우로 밀어 보세요.
 

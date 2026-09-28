@@ -63,4 +63,6 @@ sh scripts/bootstrap.sh doctor --model
 `.venv/bin/agent-opt tui`의 **기존 실험 실행**에서도 고를 수 있습니다. 공식 raw 결과와
 `runs/dev-live/<run-id>/summary.json`·`report.html`을 확인하고 미실행/차단을 따로 기록하세요.
 개발자용 `doctor --model`은 실제 API·컨테이너 도구를 호출하며, `agent-opt doctor --plan`의 정적 진단과 다릅니다.
+이 고정 `simple_feedback` 경로는 TUI **5번/선택형 CLI**의 [GEPA·Meta-Harness 프리셋](/agent-optimizer/getting-started/presets/)과 별개입니다. 2026-09-28 [source checkout 실환경 후속 기록](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/verification.md#2026-09-28-선택형-gepameta-harness-실모델공식-cvdp-후속-검증)에는 GEPA/Meta를 각각 **1 iteration, 실제 4/최대 5 trial**로 실행해 후보 사용과 공식 CVDP raw 각 4건을 확인한 근거가 있습니다. 둘 다 validation 동점으로 baseline을 선택했고 `final_test=[]`입니다. 기본 3회/최대 9 trial, 설치형 wheel의 GPT-5 plugin 후속 변경, 일반 성능 개선까지 검증한 것은 아닙니다.
+
 명령별 준비 조건과 부작용은 [개발 명령 기준](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/development.md)을 참고하고, 현재 검증된 범위와 미검증 항목은 [상태 문서](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/status.md)와 대조하세요.

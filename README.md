@@ -2,6 +2,14 @@
 
 서로 다른 Agent의 소스·실행 방법·평가기·수정 허용 범위를 연결해 **후보 생성 → 평가 → 선택 → 보고**를 반복하는 범용 Python CLI·대화형 TUI입니다. 실제 대상 Agent는 별도 저장소의 고정 Git commit 또는 로컬 소스로 연결합니다. ACE-RTL은 선택적 데모 대상이며 제품 코어가 아닙니다. 새 Agent에는 실행 하네스와 평가기 연결이 필요합니다.
 
+## 어디서 시작할까요?
+
+| 경로 | 준비와 얻는 결과 |
+|---|---|
+| [코어 합성 체험](#개발환경-빠른-시작) · [첫 실행 가이드](https://wontaejeong.github.io/agent-optimizer/getting-started/first-run/) | 모델·Docker 없이 7-trial fixture로 CLI·보고서 연결 확인. 실제 RTL 개선 근거는 아닙니다. |
+| [ACE 프리셋 TUI/CLI](https://wontaejeong.github.io/agent-optimizer/getting-started/presets/) | 고정 ACE/OpenCode/CVDP 자산·Docker와 Agent/Optimizer 모델 준비 후 GEPA **또는** Meta-Harness를 독립 실행. 한정된 [실환경 근거](docs/verification.md#2026-09-28-선택형-gepameta-harness-실모델공식-cvdp-후속-검증)를 확인하세요. |
+| [내 Agent 연결](#내-agent-연결하기) · [실험 구성 가이드](https://wontaejeong.github.io/agent-optimizer/guides/experiment/) | 로컬/고정 Git 소스, Harness, editable, 데이터셋과 별도 평가기를 직접 지정합니다. |
+
 ## 개발환경 빠른 시작
 
 **Mac 또는 Linux, Git, Python 3.11+**에서 저장소 루트 기준으로 실행합니다. `make setup-core`는 uv가 없으면 로컬에 준비하고 Python 3.12·고정 개발 의존성을 `.venv`에 설치한 뒤 코어 진단과 최소 데모를 실행합니다. 첫 준비에는 다운로드가 필요할 수 있지만 **최소 데모 실행에는 모델 키·Docker가 필요 없습니다.** 네트워크/CA 설정은 [개발환경 가이드](docs/development.md)와 [네트워크 안내](docs/network.md)를 참고하세요.
@@ -17,9 +25,9 @@ make doctor-core
 
 `make`가 없다면 `sh scripts/bootstrap.sh setup --core`로 준비할 수 있습니다. 기본 CLI는 `.venv/bin/agent-opt --help`, 대화형 시작은 TTY에서 `.venv/bin/agent-opt tui`입니다. `make help`는 설치 없이 개발 명령을 보여줍니다.
 
-### 네 선택을 CLI로 재현하기 (선택형 ACE/CVDP)
+### ACE 프리셋: TUI 또는 CLI
 
-`agent-opt tui`의 **5번**은 Agent → Harness → Optimizer → Dataset 설명을 보고 선택합니다. CLI는 같은 선택을 다음처럼 명시합니다. `init --yes`는 **선택한 CVDP 및 고정 ACE 소스·driver·Docker 이미지 준비**를 승인합니다. `prepare`는 같은 자산을 검증해 재사용할 수 있고 실제 모델/공식 평가는 `run`에서만 실행합니다.
+TTY에서 `.venv/bin/agent-opt tui`의 **5번**을 골라 **ACE-RTL → OpenCode → GEPA 또는 Meta-Harness → CVDP**를 선택합니다. 아래 CLI는 GEPA에 대해 같은 네 선택과 `experiment.toml`을 만듭니다. 먼저 Docker·고정 자산 및 **별도 역할의 Agent/Optimizer 모델 설정**을 준비하세요. 상세 준비·키 조작·활성 수정 파일과 예산은 [프리셋 실행 가이드](https://wontaejeong.github.io/agent-optimizer/getting-started/presets/)에 있습니다.
 
 ```bash
 .venv/bin/agent-opt catalog list --kind harness
@@ -31,7 +39,7 @@ make doctor-core
 .venv/bin/agent-opt run runs/configs/ace-gepa-demo/experiment.toml
 ```
 
-Meta-Harness는 **다른 이름**으로 `--optimizer meta_harness`를 선택해 동일한 순서로 실행합니다. 각 `init` JSON의 `experiment`, `run` JSON의 `run_dir`을 뒤 명령에 사용하고 `agent-opt report <run_dir> --html`로 저장된 결과를 재생성하세요. Optimizer API(`AGENT_OPT_MODEL_BASE_URL`, `AGENT_OPT_MODEL_API_KEY`, 선택적 `AGENT_OPT_MODEL_ID`)와 OpenCode 선택자(`AGENT_OPT_MODEL`)는 **별도 환경 설정**이며 키는 설정 파일에 저장하지 않습니다. Docker/모델 없는 배선 확인은 위의 최소 합성 예제를 이용합니다.
+`catalog`는 준비·모델 호출 없는 설명 조회입니다. `init --yes`는 **CVDP 데이터·고정 ACE 소스·driver·Docker 이미지 준비**(다운로드/빌드 가능)를 승인하고 `prepare`는 같은 자산을 검사·재사용합니다. `doctor --plan`과 `plan`은 정적 검사이며 `run`은 모델/공식 평가를 실제 호출할 수 있습니다. 각 `init` JSON의 `experiment`를 후속 경로로 사용하세요(동일 이름의 설정은 덮어쓰지 않음). Meta-Harness는 **다른 이름**과 `--optimizer meta_harness`로 별도 생성·실행합니다. `run` JSON의 `run_dir`에서 `agent-opt report <run_dir> --html`로 보고서를 재생성할 수 있습니다. Optimizer API(`AGENT_OPT_MODEL_BASE_URL`, `AGENT_OPT_MODEL_API_KEY`, 선택적 `AGENT_OPT_MODEL_ID`)와 OpenCode 선택자(`AGENT_OPT_MODEL`)는 별도이며 키는 설정 파일에 저장하지 않습니다.
 
 개발 명령의 **옵션 없는 `make setup`·`make doctor`는 ACE 전체 범위**입니다. 코어 준비·진단은 위 `-core` 명령을 쓰세요. 선택 데이터셋, ACE 전체 준비, 실제 모델 검사와 일상 검사의 준비 조건·부작용·복구 방법은 [개발 명령 기준](docs/development.md), 변경 유형별 검사는 [CONTRIBUTING.md](CONTRIBUTING.md)에 있습니다. 개발 명령 `doctor`와 사용자용 `.venv/bin/agent-opt doctor --plan ...`은 검사 범위가 다릅니다.
 
@@ -138,13 +146,11 @@ train 자료만 후보 수정 근거로 사용하고, test는 선택을 고정�
 
 실제 Agent는 `--agent <로컬 경로>` 또는 `--agent <Git URL> --revision <전체 commit>`을 연결하고 실행/평가 방식과 `--editable`을 지정합니다. `--command`는 `command` 하네스 전용 argv 문자열이며 셸 확장·파이프는 실행하지 않습니다. 비대화형 `init`에는 `--dataset`, `--optimizer`, `--yes`가 필요합니다. TTY에서는 `.venv/bin/agent-opt init`으로 새 설정만 만들거나 `.venv/bin/agent-opt tui`의 **5번 프리셋 선택형 새 최적화**를 사용합니다. 기존 1번(설정 실행), 2번(고급 사용자 정의 설정), 3번(고정 `simple_feedback` ACE 예제), 4번(이전 보고서)도 유지됩니다. 1번 목록은 `runs/configs/`에 생성된 설정만 표시합니다.
 
-### 프리셋을 고르면서 새 실험 실행
+### 프리셋 선택과 기존 ACE 예제의 차이
 
-`uv run agent-opt tui`(또는 `.venv/bin/agent-opt tui`) → `5` → **Agent → Harness → Optimizer → Dataset** 순서로 각각 `↑/↓`로 초점을 이동하고 `Enter`로 확정합니다. 오른쪽 설명/상태는 초점에 따라 즉시 바뀌며 75열 미만에서는 항목 아래에 표시됩니다. `Esc`는 이전 단계(앞선 선택 유지), `Ctrl+C`는 취소입니다. ACE-RTL에서는 `OpenCode` → `GEPA` **또는** `Meta-Harness` → `CVDP`를 각각 선택합니다. 소스 checkout의 `rtl-solo`/`rtl-team` → `Fixture` → `Baseline`/`FileVariants` → `sample_text`는 모델·Docker가 없는 **합성** 경로입니다. 준비되지 않은 조합은 이유가 표시되며 실행 선택할 수 없습니다. 각 단계의 `내 … 연결하기` 또는 `기존 experiment.toml 선택`은 고급 입력/파일 선택 경로로 전환합니다(고급 마법사에서는 네 종류를 다시 명시합니다). 비TTY 자동화에는 위 `init`/`run`을 사용하세요.
+TUI **5번**/위 CLI의 GEPA는 후보 `role-guidance.md`를 OpenCode prompt에, Meta-Harness는 후보 `agent_opt_scaffold.py`를 공개 과제 선행 실행에 사용합니다. 기본은 각 3회 반복·최대 9 trial/5760초·`final_test=false`입니다. [2026-09-28 기존 실환경 기록](docs/verification.md#2026-09-28-선택형-gepameta-harness-실모델공식-cvdp-후속-검증)은 **각각 별도 1회 반복·실제 4/최대 5 trial**의 공식 CVDP raw 평가와 validation 동점에 따른 baseline 선택입니다. 기본 예산 실행이나 성능 향상 입증이 아닙니다. 설치형 wheel의 고정 예제 commit은 이 기록의 GPT-5 plugin 후속 변경을 자동 반영하지 않습니다.
 
-마지막 확인 화면에는 실제 수정 파일, Agent 실행 모델 `AGENT_OPT_MODEL`과 **별도** Optimizer 모델 `AGENT_OPT_MODEL_BASE_URL`/`AGENT_OPT_MODEL_ID`/`AGENT_OPT_MODEL_API_KEY`의 설정 여부, 공개 과제/평가기, 고정 자산·Docker 준비, 최대 trial/시간, 설정·`report.html` 위치가 나옵니다. Agent 모델은 `openrouter/<모델>`(`OPENROUTER_API_KEY` 필요) 또는 `compatible/<모델>`(설정한 모델 API 필요)을 선택합니다. 현재 고정 OpenCode 이미지의 compatible plugin은 `AGENT_OPT_MODEL_ID`로 모델을 등록하므로 `compatible/<모델>`과 이 ID는 일치해야 합니다. OpenRouter Agent와 Optimizer API 모델은 서로 다르게 둘 수 있습니다. **`y` 이전에는 다운로드·Docker 빌드·모델 probe·설정 쓰기를 하지 않습니다.** 확인 후 준비 → 정적 `doctor --plan` → 실행 순서이며 모델 입력은 이번 TUI 세션에서만 사용합니다. ACE 공개 데모는 train 1·validation 1, `final_test=false`; GEPA와 Meta-Harness는 각각 최대 9 trial·5760초(각 trial 최대 600초)로 구성합니다. 이 숫자는 예약 한도이지 소요 시간/성능의 예측값이 아닙니다. `runs/configs/<생성-ID>/experiment.toml`은 새로 만들며 기존 예제를 덮어쓰지 않습니다. 보고서·후보 변경과 평가 이벤트는 `runs/<run-id>/`에서 확인합니다.
-
-OpenAI GPT-5 계열의 source checkout 실환경 확인은 `AGENT_OPT_MODEL_BASE_URL=https://api.openai.com/v1`과 고정 OpenCode 컨테이너 이미지 재준비 후 진행했습니다. [날짜별 검증](docs/verification.md#2026-09-28-선택형-gepameta-harness-실모델공식-cvdp-후속-검증)에 두 알고리즘의 **1회 반복** 후보·공식 CVDP raw 결과와 baseline 동점을 구분해 기록했습니다. 고정 commit에서 예제 코드를 복사하는 설치형 wheel은 이 후속 plugin 변경을 자동으로 받지 않습니다.
+TUI **3번** 또는 `init --profile ace-rtl --workspace PATH`는 기존 고정 `simple_feedback` 예제이며 위 선택형 설정과 다릅니다. TUI의 합성 `rtl-solo`/`rtl-team → Fixture → Baseline`/`FileVariants → sample_text`도 ACE 실평가와 다릅니다. 선택 화면 조작과 프로필별 준비·결과 해석은 [프리셋 가이드](https://wontaejeong.github.io/agent-optimizer/getting-started/presets/)를 참고하세요.
 
 복수 Agent/하네스 프로필에서 일부 조합만 실행하려면 실험 TOML에 `[[pairs]]`를 명시하세요. `agent`는 Agent ID, `harness`는 **프로필 ID**입니다. 생략하면 전체 곱을 실행하며, 명시하면 선택한 쌍만 `plan`·`doctor --plan` 예산·`run`에 반영됩니다. [설정 예와 제약](docs/adding-components.md#harness)을 참고하세요. CLI 옵션과 TUI wizard 질문은 그대로이며 TUI의 기존 실험 경로로 열 수 있습니다.
 

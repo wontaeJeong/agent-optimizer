@@ -5,25 +5,20 @@ description: 내 Agent의 소스와 실행 명령, 수정 범위, 데이터셋�
 
 **먼저:** [첫 실행](/agent-optimizer/getting-started/first-run/)의 코어를 준비하고, 대상 Agent의 실행법과 과제·채점 기준을 정하세요. 직접 실행할 때는 로컬 Agent·과제·평가기의 위치가 필요합니다. 이 페이지의 `<경로>` 표기는 설명용이므로 실제 실행에는 자신의 값으로 바꿔야 합니다.
 
-## 네 선택을 조회하고 재현하기
+## 프리셋 조회와 직접 구성의 차이
 
 Agent는 수정할 **원본 소스**, Harness는 후보를 실행할 **프로필/adapter**, Optimizer는
 후보를 만드는 **알고리즘**, Dataset은 공개 과제와 별도 **평가기**입니다.
 `.venv/bin/agent-opt catalog list --kind agent`에서 목록을 보고, `--kind`를
 `harness`, `optimizer`, `dataset`으로 바꿔 살펴볼 수 있습니다. `catalog show optimizer meta_harness --json`으로 제약을 확인합니다.
-등록/구현 상태는 외부 모델·Docker 성공을 뜻하지 않습니다. TTY에서 `agent-opt tui` 5번의
-네 선택은 [첫 실행의 CLI 프리셋 예](/agent-optimizer/getting-started/first-run/)와
-같은 `experiment.toml` 설정 경로를 사용합니다. 각 `init` 출력 경로를 보관하면 CI에서도 재실행할 수 있습니다.
+등록/구현 상태는 외부 모델·Docker 성공을 뜻하지 않습니다. `catalog`는 **네 구성요소의 선택 설명/준비 사유** 조회이고, `.venv/bin/agent-opt datasets list`는 **실제 데이터셋 목록**입니다. TUI 5번의 검증된 단일 ACE 조합과 같은 설정을 만드는 CLI 명령, GEPA/Meta의 수정 파일·예산·실환경 근거는 [ACE 프리셋 TUI/CLI](/agent-optimizer/getting-started/presets/)에 모았습니다.
 
-ACE-RTL + OpenCode(`ace-opencode`) + CVDP에서는 GEPA가 후보의
-`skills/ace-rtl/references/role-guidance.md`를 고치고 ACE adapter가 **그 후보의 내용**을
-OpenCode prompt에 붙입니다. Meta-Harness는 후보에 삽입된 활성 `.py` scaffold를 고치며
-trial마다 공개 과제 전처리로 실행합니다. 두 경우 모두 외부 CVDP 평가기는 별도로 실행하고
-private 자료는 후보에게 전달하지 않습니다. 기본 예약량은 공개 train/validation 1개씩,
-3회 반복에서 9 trial이며 최종 test는 실행하지 않습니다. `init --yes`/`prepare`에는
-다운로드·Docker 빌드가, `run`에는 모델/공식 평가의 시간·비용이 발생할 수 있습니다.
-`run_dir`의 `summary.json`, `events.jsonl`, `candidates/*/changes.diff`, `report.html`에서
-stage·후보·평가를 대조하고, 유효 후보가 없거나 점수가 같으면 개선으로 해석하지 마세요.
+| 설정 경로 | 입력과 결과 |
+|---|---|
+| 선택형 프리셋 | `--agent-preset ace-rtl --harness-profile ace-opencode --dataset cvdp`에 `--optimizer gepa` **또는** `--optimizer meta_harness` 하나를 지정: 검증된 **단일 조합**, 고정 수정 파일·평가기·설정 경로 사용 |
+| 내 Agent | `--agent <로컬 경로 또는 Git URL>` + Git일 때 `--revision <전체 commit>` + `--editable`, `--command`(command 하네스) 또는 별도 Harness 선언, `--dataset`·필요 시 `--evaluator`: 호환성/실행 가능성은 직접 확인 |
+
+`--agent`와 `--agent-preset`, 일반 `--harness`와 `--harness-profile`은 서로 배타적입니다. 기존 `--profile ace-rtl --workspace PATH`는 고정 `simple_feedback` 예제의 pointer 경로로 선택형 프리셋과 섞지 않습니다. 팀용 Harness **adapter** ID와 실행 **profile** ID는 다릅니다. `catalog`에 보이는 `model-rtl-agent`/`model-rtl-command`는 소스 checkout의 별도 연구 예제이며 ACE 프리셋과 같은 준비·호환성 보장은 아닙니다.
 
 ## 1. Agent 소스와 실행 범위 정하기
 
@@ -50,7 +45,7 @@ stage·후보·평가를 대조하고, 유효 후보가 없거나 점수가 같�
 
 ## 3. Optimizer·모델 지정하기
 
-먼저 `--optimizer baseline`으로 연결을 확인하고 필요할 때 `--optimizer gepa --optimizer meta_harness`처럼 독립 stage를 추가합니다. GEPA·Meta-Harness·Ecdysis는 저장소의 **자체 메서드 구현**으로 upstream 논문 재현 결과가 아닙니다. train 과제와 수정할 텍스트/.py 파일 및 모델 API가 필요합니다. `file_variants`에는 변형 파일/설정이 필요합니다. stage는 모두 공통 baseline에서 시작합니다.
+먼저 `--optimizer baseline`으로 수정 없는 연결을 확인하고 필요할 때 **사용자 정의 설정에서** `--optimizer gepa --optimizer meta_harness`처럼 독립 stage를 추가합니다. 이 반복 선택은 위의 **단일 Optimizer ACE 프리셋**과 다릅니다. GEPA·Meta-Harness·Ecdysis는 저장소의 **자체 메서드 구현**으로 upstream 논문 재현 결과가 아닙니다. train 과제와 수정할 텍스트/.py 파일 및 모델 API가 필요합니다. `file_variants`에는 변형 파일/설정이 필요합니다. stage는 모두 공통 baseline에서 시작합니다.
 
 모델을 쓰는 구성은 환경/credential store에 `AGENT_OPT_MODEL_BASE_URL`(기본 URL, `/chat/completions` 제외)과 `AGENT_OPT_MODEL_API_KEY`를 설정합니다. 필요하면 `AGENT_OPT_MODEL_ID`를 지정하세요(생략 시 `glm5.3-flash`). TUI는 없는 값을 세션에서만 묻습니다. OpenCode 하네스의 `AGENT_OPT_MODEL`은 별도 선택자입니다. 키를 설정 파일이나 Git에 저장하지 마세요. [첫 실행](/agent-optimizer/getting-started/first-run/)의 합성 예제에는 모델이 필요하지 않습니다.
 

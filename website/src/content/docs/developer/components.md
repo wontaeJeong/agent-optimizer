@@ -42,4 +42,6 @@ Optimizer의 `evaluate`/`evaluate_batch`와 `history()`는 baseline과 **자기 
 
 공유 helper는 `PROJECT_DEPENDENCIES`에 `"datasets/team_dataset": ["experiments/my-team/importer.py"]`처럼 기록합니다. 이는 파일 hash/재현 정보이지 Python 패키지 설치가 아닙니다. 한 실험 전용 파일 플러그인은 TOML의 `[plugins.*]`로 연결할 수 있습니다. CLI 선택지와 설치 entry point는 수정하지 않습니다.
 
+`catalog list/show`는 등록 ID의 설명과 `ready`/`reason`을 **읽기 전용**으로 노출합니다. 소스 checkout에서는 `examples/*/source.toml` 또는 `agent.toml`의 Agent 설명·`supported_harnesses`, `examples/*/harness*.toml`의 프로필 ID·adapter/runtime도 읽습니다. 예를 들어 `model-rtl-agent`/`model-rtl-command`는 별도 연구 예제로 목록에 나오지만 wheel 설치·모델·도구 준비나 TUI **5번의 ACE 조합**과의 호환을 보장하지 않습니다. Harness adapter를 등록한 뒤 실제 실행 profile/argv와 Agent 지원 관계, Dataset provider와 별도 evaluator를 연결해야 합니다. 미지원 조합은 비활성 이유를 확인하고 고급 설정/기존 실험을 사용하세요. [프리셋과 직접 구성의 차이](/agent-optimizer/guides/experiment/#프리셋-조회와-직접-구성의-차이)를 참고하세요.
+
 **다음 단계:** [검증 순서](/agent-optimizer/developer/validation/)에서 코어 fixture → 팀 파일·정적 계획 → 실제 실행의 증거를 구분해 확인하세요. 외부 Git Agent는 전체 commit SHA를 고정하고 원본·채점 기준·테스트와 editable 권한을 분리합니다.

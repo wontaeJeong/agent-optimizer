@@ -26,6 +26,6 @@ description: 팀 구현과 Runner의 책임, 후보 스냅샷, train·validation
 
 ![공통 baseline에서 독립 stage A와 B의 train을 실행하고 validation 수치로 후보를 고정한 뒤 선택적으로 test하는 경계](../../../assets/diagram-stage-isolation.svg)
 
-**탐색:** 모든 Optimizer stage가 공통 baseline에서 독립적으로 시작하고 **자기 stage와 baseline의 train 이력**만 사용합니다. **선택:** validation 수치로 후보를 고를 수 있지만 private 평가 자료와 test 결과는 수정 근거로 노출되지 않습니다. **최종 평가:** 후보 선택을 고정한 뒤에만 설정된 test를 실행합니다. 좁은 화면에서는 그림 영역을 좌우로 스크롤하세요.
+**탐색:** 모든 Optimizer stage가 공통 baseline에서 독립적으로 시작하고 **자기 stage와 baseline의 train 이력**만 사용합니다. [ACE 선택형 데모](/agent-optimizer/getting-started/presets/)는 GEPA **또는** Meta-Harness의 단일 stage이며, [사용자 정의 실험](/agent-optimizer/guides/experiment/)에서는 여러 독립 stage를 지정할 수 있습니다. **선택:** validation 수치로 후보를 고를 수 있지만 private 평가 자료와 test 결과는 수정 근거로 노출되지 않습니다. **최종 평가:** 후보 선택을 고정한 뒤에만 설정된 test를 실행합니다. 좁은 화면에서는 그림 영역을 좌우로 스크롤하세요.
 
 기본 최종 비교는 모든 stage winner를 대상으로 하며 선택은 lexicographic `keep=1`, 지표 집계는 `mean`/`sum`입니다. 서로 다른 데이터셋의 평가 점수를 하나로 합쳐 순위를 매기지 않습니다. 다음은 [검증 순서](/agent-optimizer/developer/validation/)입니다.
