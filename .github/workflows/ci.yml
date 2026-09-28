@@ -9,6 +9,10 @@ on:
         description: Build official Docker images and run key-free CVDP integration
         type: boolean
         default: false
+      verilog_eval_full:
+        description: Verify both pinned Verilog-Eval datasets on Ubuntu amd64
+        type: boolean
+        default: false
   workflow_call:
 
 permissions:
@@ -135,3 +139,41 @@ jobs:
             external/setup-logs/
             runs/dev-smoke-*/
             runs/docker-env-regression-*/
+
+  verilog-eval-full:
+    name: Verilog-Eval full (${{ matrix.dataset }})
+    if: github.event_name == 'workflow_dispatch' && inputs.verilog_eval_full
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        dataset: [verilog-spec, verilog-completion]
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: 고정 uv 준비
+        run: |
+          python -m venv "$RUNNER_TEMP/agent-opt-uv"
+          "$RUNNER_TEMP/agent-opt-uv/bin/python" -m pip install uv==0.10.7
+          echo "$RUNNER_TEMP/agent-opt-uv/bin" >> "$GITHUB_PATH"
+      - name: 프로젝트 의존성 준비
+        run: make setup-core
+      - name: 선택 모드의 전체 평가
+        run: |
+          uname -m
+          docker info --format '{{.Server.Os}}/{{.Server.Arch}}'
+          .venv/bin/python examples/benchmarks/verify_verilog_eval_full.py --dataset '${{ matrix.dataset }}' --require-ubuntu-amd64
+      - name: 정제된 결과만 보존
+        if: always() && github.server_url == 'https://github.com'
+        uses: actions/upload-artifact@v4
+        with:
+          name: verilog-eval-full-${{ matrix.dataset }}-${{ github.run_id }}
+          path: runs/verilog-eval-full/${{ matrix.dataset }}/summary.json

@@ -2,6 +2,7 @@
 import json
 import io
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -670,6 +671,82 @@ class VerilogFullCLITests(unittest.TestCase):
         self.assertEqual(self.ledger()["docker_daemon"], {"os": "linux", "arch": "amd64"})
         self.assertEqual(self.docker_calls[0], ["docker", "info", "--format",
                                                 "{{.Server.Os}}/{{.Server.Arch}}"])
+
+
+class VerilogFullWorkflowTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        if not shutil.which("ruby"):
+            raise unittest.SkipTest("Ruby YAML parser is unavailable")
+        workflow_path = Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml"
+        result = subprocess.run(
+            ["ruby", "-rjson", "-ryaml", "-e",
+             "puts JSON.generate(YAML.safe_load(File.read(ARGV.fetch(0))))", str(workflow_path)],
+            capture_output=True, text=True, timeout=15, shell=False,
+        )
+        if result.returncode:
+            raise AssertionError(result.stderr)
+        cls.workflow = json.loads(result.stdout)
+
+    def test_full_job_only_runs_for_explicit_manual_opt_in_without_changing_existing_ci(self):
+        events = self.workflow.get("on", self.workflow.get("true"))
+        dispatch = events["workflow_dispatch"]["inputs"]
+        self.assertEqual(dispatch["official_cvdp"]["default"], False)
+        self.assertIn("verilog_eval_full", dispatch)
+        self.assertEqual(dispatch["verilog_eval_full"]["type"], "boolean")
+        self.assertIs(dispatch["verilog_eval_full"]["default"], False)
+        self.assertIn("pull_request", events)
+        jobs = self.workflow["jobs"]
+        self.assertEqual(jobs["tests"]["strategy"]["matrix"]["python"], ["3.11", "3.12"])
+        self.assertEqual(jobs["official-cvdp"]["if"],
+                         "github.event_name == 'workflow_dispatch' && inputs.official_cvdp")
+        self.assertIn("verilog-eval-full", jobs)
+        full = jobs["verilog-eval-full"]
+        self.assertEqual(full["if"],
+                         "github.event_name == 'workflow_dispatch' && inputs.verilog_eval_full")
+        self.assertNotIn("needs", full)
+
+    def test_each_full_mode_gets_pinned_environment_and_strict_host_check(self):
+        self.assertIn("verilog-eval-full", self.workflow["jobs"])
+        full = self.workflow["jobs"]["verilog-eval-full"]
+        self.assertEqual(full["strategy"]["matrix"]["dataset"],
+                         ["verilog-spec", "verilog-completion"])
+        self.assertIs(full["strategy"]["fail-fast"], False)
+        self.assertEqual(full["runs-on"], "ubuntu-24.04")
+        self.assertEqual(full["timeout-minutes"], 330)
+        steps = full["steps"]
+        setup = next(step for step in steps if step.get("uses", "").startswith("actions/setup-python@"))
+        self.assertEqual(setup["with"]["python-version"], "3.12")
+        bootstrap = next(index for index, step in enumerate(steps)
+                         if "uv==0.10.7" in step.get("run", ""))
+        preparation = next(index for index, step in enumerate(steps)
+                           if "make setup-core" in step.get("run", ""))
+        evaluation = next(index for index, step in enumerate(steps)
+                          if "verify_verilog_eval_full.py" in step.get("run", ""))
+        self.assertLess(bootstrap, preparation)
+        self.assertLess(preparation, evaluation)
+        self.assertIn("uname -m", steps[evaluation]["run"])
+        self.assertIn("docker info --format", steps[evaluation]["run"])
+        self.assertIn(".venv/bin/python examples/benchmarks/verify_verilog_eval_full.py",
+                      steps[evaluation]["run"])
+        self.assertIn("--dataset '${{ matrix.dataset }}' --require-ubuntu-amd64",
+                      steps[evaluation]["run"])
+
+    def test_failure_artifact_contains_only_selected_mode_sanitized_summary(self):
+        self.assertIn("verilog-eval-full", self.workflow["jobs"])
+        steps = self.workflow["jobs"]["verilog-eval-full"]["steps"]
+        checkouts = [step for step in steps if step.get("uses", "").startswith("actions/checkout@")]
+        self.assertEqual(len(checkouts), 1)
+        self.assertEqual(checkouts[0].get("with"), {"persist-credentials": False})
+        uploads = [step for step in steps if step.get("uses", "").startswith("actions/upload-artifact@")]
+        self.assertEqual(len(uploads), 1)
+        self.assertEqual(uploads[0]["uses"], "actions/upload-artifact@v4")
+        self.assertEqual(uploads[0]["if"],
+                         "always() && github.server_url == 'https://github.com'")
+        self.assertEqual(uploads[0]["with"]["path"],
+                         "runs/verilog-eval-full/${{ matrix.dataset }}/summary.json")
+        self.assertIn("${{ matrix.dataset }}", uploads[0]["with"]["name"])
+        self.assertTrue(all("env" not in step for step in steps))
 
 
 if __name__ == "__main__":
