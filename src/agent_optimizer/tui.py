@@ -8,7 +8,7 @@ import threading
 import time
 import traceback
 from pathlib import Path
-from urllib.parse import parse_qsl, unquote, unquote_plus, urlsplit
+from urllib.parse import unquote, unquote_plus, urlsplit
 
 from rich.text import Text
 from textual import work
@@ -300,7 +300,8 @@ class OptimizerApp(App[int]):
                 current, _source = self._model_value(field)
                 entry.placeholder = f"{self._model_label(field)} ({_tr('입력 후 Enter', 'type and press Enter')})"
                 entry.value = "" if self._is_secret_field(field) else current
-                entry.password = self._is_secret_field(field)
+                entry.password = (self._is_secret_field(field) or
+                                  field == "AGENT_OPT_MODEL_BASE_URL")
                 entry.styles.display = "block"
                 self.rows = [(self._model_label(field), _tr(
                     "이번 세션에서만 사용됩니다. 비밀 값은 입력 중 숨겨집니다.",
@@ -377,6 +378,14 @@ class OptimizerApp(App[int]):
             "session": _tr("세션", "session"),
             "missing": _tr("미설정", "not set"),
         }[source]
+
+    def _endpoint_input_is_sensitive(self, value: str) -> bool:
+        if "?" in value or "#" in value:
+            return True
+        scheme_end = value.find("://")
+        authority_and_path = value[scheme_end + 3:] if scheme_end >= 0 else value
+        authority = authority_and_path.split("/", 1)[0]
+        return "@" in authority or "/" not in authority_and_path
 
     def _model_field_row(self, field: str) -> tuple:
         value, source = self._model_value(field)
@@ -572,14 +581,14 @@ class OptimizerApp(App[int]):
                 if component:
                     secrets.update((component, unquote(component)))
             for query in (endpoint.query, endpoint.fragment):
-                raw_parameters = query.split("&")
-                parsed_parameters = parse_qsl(query, keep_blank_values=True)
-                for (parameter, credential), raw_parameter in zip(parsed_parameters, raw_parameters):
-                    if credential and (self._is_secret_field(parameter) or "AUTH" in parameter.upper()):
-                        secrets.add(credential)
-                        raw_credential = raw_parameter.partition("=")[2]
-                        if raw_credential:
-                            secrets.update((raw_credential, unquote_plus(raw_credential)))
+                if query:
+                    secrets.add(query)
+                for raw_parameter in query.replace(";", "&").split("&"):
+                    parameter, separator, raw_credential = raw_parameter.partition("=")
+                    if separator and raw_credential:
+                        secrets.update((raw_credential, unquote_plus(raw_credential)))
+                    elif parameter:
+                        secrets.add(parameter)
         for secret in sorted(secrets, key=len, reverse=True):
             rendered = rendered.replace(secret, "••••")
         return rendered
@@ -746,6 +755,11 @@ class OptimizerApp(App[int]):
             self.model_index = self.model_fields.index(field)
             self.focus_indices["Model"] = self.model_index
             self._show("Model")
+
+    def on_input_changed(self, event: Input.Changed) -> None:
+        if self.page == "Model" and self.model_mode == "input" and \
+                self.model_field == "AGENT_OPT_MODEL_BASE_URL":
+            event.input.password = self._endpoint_input_is_sensitive(event.value)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         value = event.value.strip()
