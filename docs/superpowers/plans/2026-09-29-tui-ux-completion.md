@@ -173,8 +173,8 @@
 - Verify: Task 1–6 changes
 - Update: `docs/verification.md` 실제 검증 결과
 
-- [x] **Step 1: focused test set.** `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_textual_tui.py -v`, `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_progress.py -v`, `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_model_input.py -v`, `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_models.py -v`, `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_cli_experience.py -v`를 실행했다. 각 결과는 33/33, 23/23, 3/3, 10/10, 134건 중 104 통과·30 skip이다. 설치 PTY는 Task 6 wheel script로 다시 검증했다.
-- [x] **Step 2: 전체 테스트.** `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v`는 905건 중 826 통과·79 skip·실패 0으로 완료했다.
+- [x] **Step 1: focused test set.** `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_textual_tui.py -v`, `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_progress.py -v`, `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_model_input.py -v`, `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_models.py -v`, `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_cli_experience.py -v`를 실행했다. 최종 TUI 보안 회귀를 포함한 결과는 34/34, 23/23, 3/3, 10/10, 134건 중 104 통과·30 skip이다. 설치 PTY는 Task 6 wheel script로 수정 이후 다시 검증했다.
+- [x] **Step 2: 전체 테스트.** `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v`는 906건 중 827 통과·79 skip·실패 0으로 완료했다.
 - [x] **Step 3: 합성 demo와 Ruff.** `PYTHONPATH=src .venv/bin/python -m agent_optimizer run examples/minimal/experiment.toml`은 synthetic `completed`/7 trial이고, `make lint`도 통과했다.
 - [ ] **Step 4: 최종 diff 검사.** `git diff --check`, `git status --short --branch`, `git diff`를 확인한다. 모델 API 및 ACE Docker 자산이 준비되지 않으면 실환경 connectivity/optimization 검증은 미실행이라고 기록한다.
 - [ ] **Step 5: PR 준비.** 최근 commit, branch upstream, base diff, status와 실제 캡처를 확인하고 한국어 PR 본문에 UX before/after 캡처와 재현 방법, Architecture changes, Reused components, Tests, Remaining limitations를 정리한다. PR 생성 후 merge는 별도 승인이 있을 때만 한다.
