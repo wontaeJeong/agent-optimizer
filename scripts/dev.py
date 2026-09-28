@@ -15,10 +15,10 @@ sys.path.insert(0, str(ROOT / "src"))
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.network import network_environment, demo_environment
 from agent_optimizer.registry import Registry
-from agent_optimizer import readiness
+from agent_optimizer import diagnostics, readiness
 from agent_optimizer.terminal_report import PreparationStatus
 from agent_optimizer.terminal_style import ColorArgumentParser, style
-from agent_optimizer.locale import current_language, human
+from agent_optimizer.locale import current_language, human, human_diagnostic_cause
 
 
 def load(name, path):
@@ -28,7 +28,7 @@ def load(name, path):
     return module
 
 
-def run_core(command):
+def run_core(command, *, human_output=False):
     """Use the project venv, never uv run's implicit environment installation."""
     python = ROOT / ".venv/bin/python"  # Do not resolve executable symlinks.
     environment = {key: value for key, value in os.environ.items()
@@ -47,12 +47,84 @@ def run_core(command):
         "lint": ["ruff", "check", "."],
         "demo": ["agent_optimizer", "run", "examples/minimal/experiment.toml"],
     }
-    code = subprocess.run([str(python), "-m", *commands[command]], cwd=ROOT,
-                          env=environment, shell=False).returncode
+    child_options = ({"stdout": subprocess.PIPE, "text": True} if human_output else {})
+    result = subprocess.run([str(python), "-m", *commands[command]], cwd=ROOT,
+                            env=environment, shell=False, **child_options)
+    code = result.returncode
     if code:
         print(style(f"{command} {human('failed')} (exit {code})", "error") + "; " + human(
             "inspect the command output above. If dependencies are missing, run sh scripts/bootstrap.sh setup --core."), flush=True)
     return code
+
+
+def _report_failure_diagnostic(report, *, stage, retry):
+    failed = next((check for check in report.get("checks", []) if check.get("status") != "ok"), None)
+    if failed is None:
+        cause = "final readiness report is not ready"
+        fix = "Inspect the complete doctor report and repair the failing environment checks."
+    else:
+        message = failed.get("message", "")
+        summary, separator, cause = message.partition("\nCause: ")
+        if not separator:
+            summary, separator, cause = message.partition("\nBlocked by: ")
+        cause = cause or summary
+        fix, _, _ = failed.get("remedy", "").partition("\nRetry: ")
+        fix = fix or "Repair the failing readiness check."
+    log = ROOT / "external/setup-logs"
+    return {"stage": stage, "cause": cause,
+            "log": str(log) if log.exists() else None,
+            "fix": fix, "retry": retry}
+
+
+def _render_setup_failure(stage, exc, *, retry, online_retry=None, offline=False):
+    diagnostic = getattr(exc, "failure_diagnostic", None)
+    diagnostic = diagnostic if isinstance(diagnostic, dict) else {}
+    stage = diagnostic.get("stage") or stage
+    cause = diagnostics.sanitize_text(
+        str(diagnostic.get("cause") or diagnostics.summarize_exception(exc, environment=os.environ)),
+        os.environ,
+    )
+    cause = human_diagnostic_cause(cause)
+    log = diagnostic.get("log")
+    if not log and (ROOT / "external/setup-logs").exists():
+        log = "external/setup-logs"
+    if log:
+        log_path = Path(log)
+        try:
+            log = str(log_path.resolve().relative_to(ROOT.resolve()))
+        except (OSError, ValueError):
+            log = str(log_path)
+    fix = diagnostics.sanitize_text(
+        str(diagnostic.get("fix") or "Inspect the setup log, repair the failed stage, and retry."),
+        os.environ,
+    )
+    fix = human(fix)
+    retry_command = retry
+    diagnostic_retry = diagnostic.get("retry")
+    if isinstance(diagnostic_retry, str):
+        safe_retry = diagnostics.sanitize_text(diagnostic_retry, os.environ)
+        if (safe_retry and "[redacted]" not in safe_retry
+                and not safe_retry.startswith("sh scripts/bootstrap.sh setup")):
+            retry_command = safe_retry
+    lowered_cause = f"{cause} {fix}".lower()
+    requires_online_recovery = offline and (
+        any(marker in lowered_cause for marker in ("cache", "offline source missing", "not found in cache"))
+        or ("online" in lowered_cause and "setup" in lowered_cause)
+    )
+    if requires_online_recovery and online_retry:
+        fix = f"{fix} {human('Then rerun offline with:')} {retry}."
+        retry_command = online_retry
+    print(f"[setup] {human(str(stage))}: {human('failed')}", file=sys.stderr)
+    print(f"  {human('Cause:')} {cause}", file=sys.stderr)
+    if log:
+        print(f"  {human('Log:')} {diagnostics.sanitize_text(str(log), os.environ)}", file=sys.stderr)
+    print(f"  {human('Fix:')} {fix}", file=sys.stderr)
+    print(f"  {human('Retry:')} {retry_command}", file=sys.stderr)
+
+
+def _render_setup_ready(next_command):
+    print(f"[setup] {human('ready')}", flush=True)
+    print(f"{human('Next:')} {next_command}", flush=True)
 
 
 def main(argv=None):
@@ -134,11 +206,18 @@ def main(argv=None):
                      "sh scripts/bootstrap.sh doctor --model --platform linux/amd64" if current_language() == "ko"
                      else "--model --platform requires linux/amd64 or linux/arm64. "
                      "Run sh scripts/bootstrap.sh doctor --model --platform linux/amd64")
-    setup_command = "sh scripts/bootstrap.sh setup"
+    online_setup_command = "sh scripts/bootstrap.sh setup"
     if core_only or args.command in {"test", "lint", "demo"}:
-        setup_command += " --core"
+        online_setup_command += " --core"
     elif dataset_id is not None:
-        setup_command += f" --dataset {dataset_id}"
+        online_setup_command += f" --dataset {dataset_id}"
+    selected_platform = getattr(args, "platform", None)
+    if selected_platform is not None:
+        online_setup_command += f" --platform {selected_platform}"
+    setup_command = online_setup_command
+    offline_setup = args.command == "setup" and getattr(args, "offline", False)
+    if offline_setup:
+        setup_command += " --offline"
     repair = f"Inspect external/setup-logs/ and rerun {setup_command}"
     stage = args.command
     try:
@@ -189,11 +268,13 @@ def main(argv=None):
             doctor = load("dev_doctor", Path(__file__).resolve().with_name("dev_doctor.py"))
             with PreparationStatus("dataset", action="doctor", subject="check"):
                 report = doctor.collect_report(ROOT, dataset=dataset_id)
+                doctor.render_report(report)
                 if not report["ready"]:
-                    raise UnavailableError("Selected dataset doctor failed; follow the diagnostic repair instructions")
-            doctor.render_report(report)
-            print(json.dumps({"status": "ready", "scope": "dataset", "dataset": dataset_id,
-                              "next": f'sh scripts/bootstrap.sh doctor --dataset {dataset_id} --json'}))
+                    failure = UnavailableError("Selected dataset doctor failed")
+                    failure.failure_diagnostic = _report_failure_diagnostic(
+                        report, stage="final doctor", retry=setup_command)
+                    raise failure
+            _render_setup_ready(f"sh scripts/bootstrap.sh doctor --dataset {dataset_id} --json")
             return 0
         if not core_only:
             setup = load("ace_environment", "examples/ace-rtl/environment/setup.py")
@@ -226,25 +307,39 @@ def main(argv=None):
             report = doctor.collect_report(ROOT, args.platform, core_only=True) if core_only else doctor.collect_report(ROOT, args.platform)
             doctor.render_report(report)
             if not report["ready"]:
-                raise UnavailableError("Final doctor failed; follow the diagnostic repair instructions")
+                failure = UnavailableError("Final doctor failed")
+                failure.failure_diagnostic = _report_failure_diagnostic(
+                    report, stage="final doctor", retry=setup_command)
+                raise failure
             print(style(f"[setup] {human(stage)}: {human('complete')}", "success"), flush=True)
             stage = "minimal demo"
             print(style(f"[setup] {human(stage)}: {human('starting')}", "warning")
                   + f"; {human('results')}: {ROOT / 'runs'}", flush=True)
-            code = run_core("demo")
+            code = run_core("demo", human_output=True)
             if code:
-                raise UnavailableError(f"Minimal demo failed (exit {code}); inspect runs/")
+                failure = UnavailableError(f"Minimal demo failed (exit {code})")
+                failure.failure_diagnostic = {
+                    "stage": "minimal demo",
+                    "cause": f"minimal demo exited with status {code}",
+                    "log": "runs/",
+                    "fix": "Inspect the generated demo run output and repair the reported failure.",
+                    "retry": setup_command,
+                }
+                raise failure
             print(style(f"[setup] {human(stage)}: {human('complete')}", "success"), flush=True)
             if core_only:
-                print(json.dumps({"status": "ready", "scope": "core", "results": "runs/",
-                                  "next": 'make doctor-core; make menu; make demo'}))
+                _render_setup_ready("make doctor-core; make menu; make demo")
             else:
-                print(json.dumps({"status": "ready", "environment_lock": "external/environment-lock.json",
-                                  "results": "runs/", "next": "make doctor; make test; make smoke"}))
-            return 0
+                _render_setup_ready("make doctor; make test; make smoke")
+        return 0
     except (ConfigurationError, UnavailableError, OSError, subprocess.SubprocessError) as exc:
+        if args.command == "setup":
+            _render_setup_failure(stage, exc, retry=setup_command,
+                                  online_retry=online_setup_command, offline=offline_setup)
+            return 2
         failure = getattr(exc, "failure_diagnostic", None) if args.command == "live" else None
-        reason = failure.get("detail") if isinstance(failure, dict) else str(exc)
+        reason = ((failure.get("detail") or failure.get("cause"))
+                  if isinstance(failure, dict) else str(exc))
         if isinstance(failure, dict):
             print(f"{human('Failure cause')}: {reason}", file=sys.stderr)
             run_root = getattr(exc, "run_root", None)
@@ -256,6 +351,15 @@ def main(argv=None):
                           "repair": repair}))
         return 2
     except KeyboardInterrupt:
+        if args.command == "setup":
+            failure = UnavailableError("setup interrupted")
+            failure.failure_diagnostic = {
+                "stage": stage, "cause": "setup interrupted by user", "log": None,
+                "fix": "Repair or complete the interrupted setup step.", "retry": setup_command,
+            }
+            _render_setup_failure(stage, failure, retry=setup_command,
+                                  online_retry=online_setup_command, offline=offline_setup)
+            return 130
         print(json.dumps({"status": "interrupted", "stage": stage,
                           "repair": repair}))
         return 130

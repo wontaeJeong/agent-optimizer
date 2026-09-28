@@ -51,11 +51,12 @@ def official_row():
 
 
 class DatasetAcquisitionTests(unittest.TestCase):
-    def fetch(self, destination, *, offline=False, payload=b"verified data"):
+    def fetch(self, destination, *, offline=False, payload=b"verified data",
+              retry="sh scripts/bootstrap.sh setup"):
         self.assertTrue(hasattr(setup, "fetch_asset"), "verified atomic downloader missing")
         return setup.fetch_asset(
             "https://example.invalid/pinned/data", destination,
-            hashlib.sha256(payload).hexdigest(), offline=offline,
+            hashlib.sha256(payload).hexdigest(), offline=offline, retry=retry,
         )
 
     def test_verified_cache_reuse_never_needs_network(self):
@@ -85,11 +86,50 @@ class DatasetAcquisitionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "data"
             with patch("urllib.request.urlopen", side_effect=AssertionError("unexpected network")):
-                with self.assertRaises((ConfigurationError, UnavailableError)):
+                with self.assertRaises(UnavailableError) as missing:
                     self.fetch(path, offline=True)
+                missing_diagnostic = getattr(missing.exception, "failure_diagnostic", None)
+                self.assertIsInstance(missing_diagnostic, dict)
+                self.assertIn("offline cache miss", missing_diagnostic["cause"].lower())
                 path.write_bytes(b"corrupt")
-                with self.assertRaises((ConfigurationError, UnavailableError)):
+                with self.assertRaises(UnavailableError) as corrupt:
                     self.fetch(path, offline=True)
+                corrupt_diagnostic = getattr(corrupt.exception, "failure_diagnostic", None)
+                self.assertIsInstance(corrupt_diagnostic, dict)
+                self.assertIn("offline cache miss", corrupt_diagnostic["cause"].lower())
+
+    def test_tls_download_failure_preserves_safe_cause_and_retry(self):
+        import ssl
+
+        with tempfile.TemporaryDirectory() as directory:
+            destination = Path(directory) / "dataset.jsonl"
+            with patch("urllib.request.urlopen", side_effect=ssl.SSLCertVerificationError(
+                    "x509 certificate signed by unknown authority SECRET_TOKEN")):
+                with self.assertRaises(UnavailableError) as raised:
+                    self.fetch(destination, retry="agent-opt datasets prepare cvdp")
+
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertEqual(diagnostic["stage"], "dataset download")
+        self.assertIn("TLS", diagnostic["cause"])
+        self.assertEqual(diagnostic["log"], None)
+        self.assertEqual(diagnostic["retry"], "agent-opt datasets prepare cvdp")
+        self.assertNotIn("SECRET_TOKEN", json.dumps(diagnostic))
+
+    def test_cvdp_offline_provenance_failure_has_online_recovery_diagnostic(self):
+        from examples.benchmarks.cvdp import Provider
+
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaises(UnavailableError) as raised:
+                Provider().prepare(Path(directory), offline=True)
+
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertEqual(diagnostic["stage"], "CVDP imported task provenance")
+        self.assertIn("provenance", diagnostic["cause"])
+        self.assertIn("missing", diagnostic["cause"])
+        self.assertIn("online CVDP setup", diagnostic["fix"])
+        self.assertEqual(diagnostic["retry"], "agent-opt datasets prepare cvdp")
 
     def test_interrupted_download_never_publishes_partial_content(self):
         class BrokenStream(io.BytesIO):
@@ -215,6 +255,31 @@ class EnvironmentChecks(unittest.TestCase):
             with self.assertRaises(UnavailableError):
                 setup.validate_platform(None)
 
+    def test_platform_detection_timeout_keeps_safe_cause_and_retry(self):
+        with patch.object(setup.subprocess, "check_output", side_effect=subprocess.TimeoutExpired(
+                ["docker", "version"], 15, output="SECRET_TIMEOUT")):
+            with self.assertRaises(UnavailableError) as raised:
+                setup.validate_platform(None)
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertIn("timed out", diagnostic["cause"].lower())
+        self.assertIn("docker info", diagnostic["retry"])
+        self.assertNotIn("SECRET_TIMEOUT", json.dumps(diagnostic))
+
+    def test_driver_python_permission_error_keeps_safe_cause_and_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            python = Path(directory) / "external/cvdp-venv/bin/python"
+            with patch.object(setup.subprocess, "check_output",
+                              side_effect=PermissionError("permission denied SECRET_PATH")), \
+                    patch.dict(os.environ, {"CUSTOM_TOKEN": "SECRET_PATH"}):
+                with self.assertRaises(UnavailableError) as raised:
+                    setup.validate_driver_python(python)
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertIn("permission", diagnostic["cause"].lower())
+        self.assertIn("setup", diagnostic["retry"])
+        self.assertNotIn("SECRET_PATH", json.dumps(diagnostic))
+
     def test_failed_explicit_build_never_retries_another_architecture(self):
         builds = []
         def run(argv, *args, **kwargs):
@@ -236,6 +301,86 @@ class EnvironmentChecks(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d, patch.object(setup.subprocess, "run", side_effect=FileNotFoundError("missing uv")):
             with self.assertRaises(UnavailableError):
                 setup.run(["uv", "--version"], log=Path(d) / "setup.log")
+
+    def test_logged_setup_failure_preserves_safe_cause_and_log_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            log = root / "evaluation-build.log"
+
+            def fail(argv, **kwargs):
+                kwargs["stdout"].write(
+                    "ERROR x509 certificate signed by unknown authority SECRET_API_KEY\n")
+                return subprocess.CompletedProcess(argv, 1)
+
+            with patch.dict(os.environ, {"CUSTOM_TOKEN": "SECRET_API_KEY"}), \
+                    patch.object(setup.subprocess, "run", side_effect=fail), \
+                    redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
+                with self.assertRaises(UnavailableError) as raised:
+                    setup.run(["docker", "build", "evaluation"], cwd=root, log=log)
+
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertEqual(diagnostic["stage"], "evaluation image")
+        self.assertIn("TLS", diagnostic["cause"])
+        self.assertEqual(diagnostic["log"], str(log))
+        self.assertNotIn("SECRET_API_KEY", json.dumps(diagnostic))
+
+    def test_git_clone_failure_has_sanitized_log_and_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            external = root / "external"
+
+            def fail(argv, **kwargs):
+                message = ("fatal: unable to access https://git-user:SECRET_GIT@proxy.example: "
+                           "Could not resolve host: github.com\n")
+                if hasattr(kwargs.get("stdout"), "write"):
+                    kwargs["stdout"].write(message)
+                return subprocess.CompletedProcess(argv, 128, "", message)
+
+            with patch.object(setup, "ROOT", root), \
+                    patch.dict(os.environ, {"CUSTOM_TOKEN": "SECRET_GIT"}), \
+                    patch.object(setup.subprocess, "run", side_effect=fail):
+                with self.assertRaises(UnavailableError) as raised:
+                    setup.prepare_sources(external, names=("ACE-RTL",))
+
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertIn("DNS", diagnostic["cause"])
+        self.assertIn("ACE-RTL source clone", diagnostic["stage"])
+        self.assertIn("setup-logs", diagnostic["log"])
+        self.assertEqual(diagnostic["retry"], "sh scripts/bootstrap.sh setup")
+        self.assertNotIn("SECRET_GIT", json.dumps(diagnostic))
+        self.assertNotIn("git-user", json.dumps(diagnostic))
+
+    def test_git_revision_failure_is_sanitized_and_captured(self):
+        with tempfile.TemporaryDirectory() as directory:
+            external = Path(directory) / "external"
+            (external / "ACE-RTL").mkdir(parents=True)
+            error = subprocess.CalledProcessError(
+                128, ["git", "rev-parse", "HEAD"],
+                stderr="fatal: unable to access https://git-user:SECRET_GIT@proxy.example: "
+                       "Could not resolve host: github.com",
+            )
+            calls = []
+
+            def fail(argv, **kwargs):
+                calls.append((argv, kwargs))
+                raise error
+
+            with patch.dict(os.environ, {"CUSTOM_TOKEN": "SECRET_GIT"}), \
+                    patch.object(setup.subprocess, "check_output", side_effect=fail):
+                with self.assertRaises(UnavailableError) as raised:
+                    setup.prepare_sources(external, names=("ACE-RTL",))
+
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertIn("DNS", diagnostic["cause"])
+        self.assertIn("source", diagnostic["stage"])
+        self.assertIsNone(diagnostic["log"])
+        self.assertEqual(diagnostic["retry"], "sh scripts/bootstrap.sh setup")
+        self.assertEqual(calls[0][1].get("stderr"), subprocess.PIPE)
+        self.assertNotIn("SECRET_GIT", json.dumps(diagnostic))
+        self.assertNotIn("git-user", json.dumps(diagnostic))
 
     def test_platform_rejects_injection_and_unsupported_os(self):
         self.assertTrue(hasattr(setup, "validate_platform"), "platform validation missing")
@@ -262,18 +407,42 @@ class EnvironmentChecks(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             def execute(argv, **kwargs):
                 if argv[:2] == ["docker", "run"]:
-                    return subprocess.CompletedProcess(argv, 1, "", "exec format error")
+                    return subprocess.CompletedProcess(argv, 1, "SECRET_STDOUT", "exec format error SECRET_TOKEN")
                 return subprocess.CompletedProcess(argv, 0, "available", "")
-            with patch.object(setup.subprocess, "run", side_effect=execute):
+            with patch.dict(os.environ, {"CUSTOM_TOKEN": "SECRET_TOKEN"}), \
+                    patch.object(setup.subprocess, "run", side_effect=execute):
                 report = setup.doctor(Path(d), "linux/amd64", "eval-image", "agent-image")
             self.assertFalse(report["ready"])
             self.assertEqual(report["checks"]["eval_tools"]["returncode"], 1)
+            self.assertNotIn("SECRET", json.dumps(report))
+            self.assertNotIn("stdout", report["checks"]["eval_tools"])
+            self.assertNotIn("stderr", report["checks"]["eval_tools"])
+            self.assertIn("cause", report["checks"]["eval_tools"])
 
     def test_offline_missing_source_never_clones(self):
         self.assertTrue(hasattr(setup, "prepare_sources"), "offline source verification missing")
         with tempfile.TemporaryDirectory() as d:
-            with self.assertRaises(UnavailableError):
+            with self.assertRaises(UnavailableError) as raised:
                 setup.prepare_sources(Path(d), offline=True)
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertEqual(diagnostic["stage"], "ACE-RTL source checkout")
+        self.assertIn("offline cache", diagnostic["cause"])
+        self.assertIn("online", diagnostic["fix"])
+
+    def test_changed_pinned_checkout_has_safe_setup_diagnostic(self):
+        with tempfile.TemporaryDirectory() as directory:
+            external = Path(directory) / "external"
+            (external / "ACE-RTL").mkdir(parents=True)
+            with patch.object(setup.subprocess, "check_output", side_effect=("wrong-revision\n", "")):
+                with self.assertRaises(ConfigurationError) as raised:
+                    setup.prepare_sources(external, names=("ACE-RTL",))
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertEqual(diagnostic["stage"], "ACE-RTL source verification")
+        self.assertIn("pinned source checkout", diagnostic["cause"].lower())
+        self.assertIn("preserved", diagnostic["fix"].lower())
+        self.assertEqual(diagnostic["retry"], "sh scripts/bootstrap.sh setup")
 
 
 class DriverLockTests(unittest.TestCase):
@@ -302,8 +471,13 @@ class DriverLockTests(unittest.TestCase):
         self.assertTrue(hasattr(setup, "driver_requirements"), "driver lock validation missing")
         self.assertEqual(setup.driver_requirements(self.external), self.expected)
         self.requirements.write_text("pyyaml==0.0.0\n")
-        with self.assertRaisesRegex(ConfigurationError, "requirements.*hash"):
+        with self.assertRaisesRegex(ConfigurationError, "requirements.*hash") as raised:
             setup.driver_requirements(self.external)
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertEqual(diagnostic["stage"], "driver requirements lock")
+        self.assertIn("requirements", diagnostic["cause"])
+        self.assertIn("hash", diagnostic["cause"])
         self.assertEqual(self.requirements.read_text(), "pyyaml==0.0.0\n")
 
     def test_offline_check_rejects_changed_lock_or_installed_packages(self):
@@ -312,12 +486,101 @@ class DriverLockTests(unittest.TestCase):
         with patch.object(setup.subprocess, "check_output", return_value="PyYAML==6.0.2\n"):
             setup.validate_driver_lock(self.external, lock)
             self.lockfile.write_text("pyyaml==0.0.0\n")
-            with self.assertRaisesRegex(ConfigurationError, "lock.*differs"):
+            with self.assertRaisesRegex(ConfigurationError, "lock.*differs") as raised:
                 setup.validate_driver_lock(self.external, lock)
+            diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+            self.assertIsInstance(diagnostic, dict)
+            self.assertEqual(diagnostic["stage"], "driver lock validation")
+            self.assertIn("driver lock", diagnostic["cause"].lower())
         self.lockfile.write_text("pyyaml==6.0.2\n")
         with patch.object(setup.subprocess, "check_output", return_value="PyYAML==0.0.0\n"):
             with self.assertRaisesRegex(ConfigurationError, "packages.*differ"):
                 setup.validate_driver_lock(self.external, lock)
+
+    def test_offline_environment_platform_mismatch_has_online_recovery_diagnostic(self):
+        lock_path = self.external / "environment-lock.json"
+        lock_path.write_text(json.dumps({
+            "platform": "linux/amd64", "ca_bundle_sha256": None,
+            "images": {"evaluation": {"tag": "evaluation", "id": "sha256:" + "a" * 64},
+                       "agent": {"tag": "agent", "id": "sha256:" + "b" * 64}},
+        }))
+        with patch.object(setup, "ca_fingerprint", return_value=None), \
+                patch.object(setup, "validate_driver_python"), \
+                patch.object(setup, "prepare_sources"), \
+                patch.object(setup, "driver_requirements", return_value=self.expected), \
+                patch.object(setup, "validate_driver_lock"), \
+                patch.object(setup, "prepare_data", return_value=(self.external / "cvdp-data", {})), \
+                patch.object(setup, "run"):
+            with self.assertRaises(UnavailableError) as raised:
+                setup.prepare_environment(offline=True, platform="linux/arm64")
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertEqual(diagnostic["stage"], "environment lock validation")
+        self.assertIn("platform differs", diagnostic["cause"])
+        self.assertIn("online setup", diagnostic["fix"])
+
+    def test_offline_environment_image_identity_mismatch_has_online_recovery_diagnostic(self):
+        platform = "linux/arm64"
+        images = {
+            "evaluation": {"tag": setup.evaluation_image(platform), "id": "sha256:" + "a" * 64},
+            "agent": {"tag": f"agent-optimizer-opencode:{setup.OPENCODE_VERSION}-arm64",
+                      "id": "sha256:" + "c" * 64},
+        }
+        (self.external / "cvdp-venv").mkdir()
+        (self.external / "environment-lock.json").write_text(json.dumps({
+            "platform": platform, "ca_bundle_sha256": None, "images": images,
+        }))
+        observed_id = "sha256:" + "d" * 64
+
+        with patch.object(setup, "ca_fingerprint", return_value=None), \
+                patch.object(setup, "validate_driver_python"), \
+                patch.object(setup, "prepare_sources"), \
+                patch.object(setup, "driver_requirements", return_value=self.expected), \
+                patch.object(setup, "validate_driver_lock"), \
+                patch.object(setup, "prepare_data", return_value=(self.external / "cvdp-data", {})), \
+                patch.object(setup, "doctor", return_value={"ready": True}), \
+                patch.object(setup, "driver_packages", return_value="PyYAML==6.0.2\n"), \
+                patch.object(setup, "run"), \
+                patch.object(setup.subprocess, "check_output", return_value=json.dumps([{
+                    "Os": "linux", "Architecture": "arm64", "Id": observed_id,
+                }])):
+            with self.assertRaises(ConfigurationError) as raised:
+                setup.prepare_environment(offline=True, platform=platform)
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertEqual(diagnostic["stage"], "evaluation image identity")
+        self.assertIn("identity differs", diagnostic["cause"])
+        self.assertIn("online setup", diagnostic["fix"])
+
+    def test_offline_selected_cvdp_lock_platform_mismatch_has_recovery_diagnostic(self):
+        cache = self.root / "selected-cache"
+        cache.mkdir()
+        lock_path = cache / "evaluation-lock.json"
+        lock_path.write_text(json.dumps({
+            "platform": "linux/amd64", "ca_bundle_sha256": None,
+            "driver_requirements": self.expected, "driver_packages": "PyYAML==6.0.2\n",
+            "dataset": {},
+            "images": {"evaluation": {"tag": "evaluation", "id": "sha256:" + "a" * 64}},
+        }))
+        with patch.object(setup, "ca_fingerprint", return_value=None):
+            with self.assertRaises(UnavailableError) as raised:
+                setup.prepare_evaluation_environment(offline=True, platform="linux/arm64", cache=cache)
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertEqual(diagnostic["stage"], "CVDP evaluation lock validation")
+        self.assertIn("platform/CA", diagnostic["cause"])
+        self.assertIn("online CVDP setup", diagnostic["fix"])
+
+    def test_driver_package_inventory_timeout_has_safe_cause_and_retry(self):
+        with patch.object(setup.subprocess, "check_output", side_effect=subprocess.TimeoutExpired(
+                ["uv", "pip", "freeze"], 30, output="SECRET_TIMEOUT")):
+            with self.assertRaises(UnavailableError) as raised:
+                setup.driver_packages(self.external)
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertIn("timed out", diagnostic["cause"].lower())
+        self.assertIn("setup", diagnostic["retry"])
+        self.assertNotIn("SECRET_TIMEOUT", json.dumps(diagnostic))
 
     def test_online_and_offline_setup_sync_only_compiled_lock_and_record_hash(self):
         images = {
@@ -440,6 +703,9 @@ class DriverLockTests(unittest.TestCase):
             tasks.unlink()
             rows = provider_module.Provider().doctor(self.external / "datasets/cvdp")
             self.assertEqual(next(row["status"] for row in rows if row["id"] == "dataset.cvdp.tasks"), "error")
+            missing_tasks = next(row for row in rows if row["id"] == "dataset.cvdp.tasks")
+            self.assertIn("Cause: ", missing_tasks["message"])
+            self.assertIn("Retry: agent-opt datasets prepare cvdp", missing_tasks["remedy"])
             tasks.write_bytes(original_tasks.replace(b"cvdp-reviewed", b"cvdp-tampered"))
             rows = provider_module.Provider().doctor(self.external / "datasets/cvdp")
             self.assertEqual(next(row["status"] for row in rows if row["id"] == "dataset.cvdp.tasks"), "error")
@@ -457,12 +723,12 @@ class DriverLockTests(unittest.TestCase):
             evaluation_lock.write_text(json.dumps(changed))
             rows = provider_module.Provider().doctor(self.external / "datasets/cvdp")
             self.assertTrue(any(row["id"] == "dataset.cvdp.image" and row["status"] == "error"
-                                and row["remedy"] for row in rows), rows)
+                                and row["remedy"] and "Cause: " in row["message"] for row in rows), rows)
             evaluation_lock.write_bytes(original_lock)
             (self.external / "cvdp-data" / setup.DATA_REVISION / "LICENSE").write_text("tampered")
             rows = provider_module.Provider().doctor(self.external / "datasets/cvdp")
             self.assertTrue(any(row["status"] == "error" and "LICENSE" in row["id"]
-                                and row["remedy"] for row in rows), rows)
+                                and row["remedy"] and "Cause: " in row["message"] for row in rows), rows)
             self.assertEqual(before_full_lock, full_lock.read_bytes())
             (self.external / "cvdp-data" / setup.DATA_REVISION / "LICENSE").write_bytes(b"license")
             malformed = json.loads(evaluation_lock.read_text())
@@ -507,6 +773,32 @@ class DriverLockTests(unittest.TestCase):
         self.assertEqual(set(lock["repos"]), {"ACE-RTL", "cvdp_benchmark"})
         self.assertEqual(len([cmd for cmd in commands if cmd[:2] == ["docker", "build"]]), 2)
         self.assertTrue((self.external / "environment-lock.json").is_file())
+
+    def test_full_environment_image_inspect_failure_has_safe_cause_and_build_log(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            external = root / "external"
+            logs = external / "setup-logs"
+            error = subprocess.CalledProcessError(
+                1, ["docker", "image", "inspect"], stderr="permission denied SECRET_TOKEN")
+            with patch.object(setup, "ROOT", root), \
+                    patch.object(setup, "run"), \
+                    patch.object(setup, "prepare_sources"), \
+                    patch.object(setup, "prepare_data", return_value=(external / "dataset", {})), \
+                    patch.object(setup, "driver_requirements", return_value={}), \
+                    patch.object(setup, "validate_driver_python"), \
+                    patch.object(setup.subprocess, "check_output", side_effect=error), \
+                    patch.dict(os.environ, {"CUSTOM_TOKEN": "SECRET_TOKEN"}):
+                with self.assertRaises(UnavailableError) as raised:
+                    setup.prepare_environment(platform="linux/amd64")
+
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertEqual(diagnostic["stage"], "evaluation image inspection")
+        self.assertIn("permission denied", diagnostic["cause"].lower())
+        self.assertEqual(diagnostic["log"], str(logs / "evaluation-build.log"))
+        self.assertEqual(diagnostic["retry"], "sh scripts/bootstrap.sh setup")
+        self.assertNotIn("SECRET_TOKEN", json.dumps(diagnostic))
 
     def test_selected_online_rebuild_preserves_full_ace_tag_and_locked_image_identity(self):
         images = {}
@@ -592,8 +884,44 @@ class DriverLockTests(unittest.TestCase):
 
     def test_invalid_evaluation_image_inspection_is_a_configuration_error(self):
         with patch.object(setup.subprocess, "check_output", return_value='[{}]'):
-            with self.assertRaises(ConfigurationError):
+            with self.assertRaises(ConfigurationError) as raised:
                 setup.inspect_image("agent-optimizer-cvdp:test", "linux/arm64")
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertEqual(diagnostic["stage"], "evaluation image inspection")
+        self.assertIn("platform", diagnostic["cause"].lower())
+
+    def test_offline_evaluation_image_inspection_advises_online_recovery(self):
+        with patch.object(setup.subprocess, "check_output", return_value='[{}]'):
+            with self.assertRaises(ConfigurationError) as raised:
+                setup.inspect_image("agent-optimizer-cvdp:test", "linux/arm64", offline=True)
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertIn("online", diagnostic["fix"].lower())
+
+    def test_evaluation_image_inspect_failure_has_safe_cause_and_retry(self):
+        error = subprocess.CalledProcessError(
+            1, ["docker", "image", "inspect"], stderr="permission denied SECRET_TOKEN")
+        with patch.object(setup.subprocess, "check_output", side_effect=error), \
+                patch.dict(os.environ, {"CUSTOM_TOKEN": "SECRET_TOKEN"}):
+            with self.assertRaises(UnavailableError) as raised:
+                setup.inspect_image("agent-optimizer-cvdp:test", "linux/arm64")
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertIn("permission denied", diagnostic["cause"].lower())
+        self.assertIn("agent-opt datasets prepare cvdp", diagnostic["retry"])
+        self.assertNotIn("SECRET_TOKEN", json.dumps(diagnostic))
+
+    def test_offline_simulator_verification_failure_advises_online_recovery(self):
+        def missing(argv, **kwargs):
+            raise FileNotFoundError("docker missing")
+
+        with patch.object(setup.subprocess, "run", side_effect=missing):
+            with self.assertRaises(UnavailableError) as raised:
+                setup.verify_evaluation_tools("sha256:" + "a" * 64, "linux/arm64", offline=True)
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertIn("online", diagnostic["fix"].lower())
 
 
 class PreparedImageTests(unittest.TestCase):

@@ -660,9 +660,104 @@ for _ko, _en in _REPORT_EN.items():
     MESSAGES.setdefault(_ko, (_ko, _en))
 
 _DEVELOPMENT_KO = {
+    "Next:": "다음:",
+    "Log:": "로그:",
+    "Then rerun offline with:": "그 다음 오프라인으로 다음 명령을 다시 실행하세요:",
+    "Cause:": "원인:",
+    "Blocked by:": "선행 검사:",
+    "Fix:": "해결:",
+    "Retry:": "재실행:",
     "Host OS and diagnostic Python compatibility (Mac/Linux, Python >=3.11).": "호스트 OS와 진단 Python 호환성 (Mac/Linux, Python >=3.11).",
     "Use Mac or Ubuntu with Python >=3.11; run sh scripts/bootstrap.sh setup.": "Python >=3.11을 지원하는 Mac 또는 Ubuntu에서 sh scripts/bootstrap.sh setup을 실행하세요.",
     "Use Mac or Ubuntu with Python >=3.11; run sh scripts/bootstrap.sh setup --core.": "Python >=3.11을 지원하는 Mac 또는 Ubuntu에서 sh scripts/bootstrap.sh setup --core를 실행하세요.",
+    "example environment": "예제 환경",
+    "ACE-RTL source checkout": "ACE-RTL 소스 checkout",
+    "cvdp_benchmark source checkout": "cvdp_benchmark 소스 checkout",
+    "ACE-RTL source verification": "ACE-RTL 소스 검증",
+    "cvdp_benchmark source verification": "cvdp_benchmark 소스 검증",
+    "driver requirements lock": "driver requirements lock 검증",
+    "driver lock validation": "CVDP driver lock 검증",
+    "environment lock validation": "ACE environment lock 검증",
+    "CVDP evaluation lock validation": "CVDP evaluation lock 검증",
+    "CVDP dataset lock validation": "CVDP dataset lock 검증",
+    "CVDP evaluation image identity": "CVDP evaluation image identity 검증",
+    "CVDP driver package lock": "CVDP driver package lock 검증",
+    "CVDP imported task provenance": "CVDP imported task provenance 검증",
+    "evaluation image identity": "evaluation image identity 검증",
+    "uv installer": "uv 설치 프로그램",
+    "project dependency sync": "프로젝트 의존성 동기화",
+    "offline project dependency sync": "프로젝트 오프라인 의존성 동기화",
+    "project Python validation": "프로젝트 Python 검증",
+    "Python dispatch": "Python 실행 전달",
+    "existing project .venv validation": "기존 프로젝트 .venv 검증",
+    "driver Python validation": "CVDP driver Python 검증",
+    "driver package inspection": "driver package 검사",
+    "Docker platform detection": "Docker platform 검사",
+    "evaluation image inspection": "평가 이미지 검사",
+    "agent image inspection": "Agent 이미지 검사",
+    "example tool verification": "예제 도구 검증",
+    "minimal demo": "최소 데모",
+    "dataset download": "데이터셋 다운로드",
+    "dataset cache": "데이터셋 cache",
+    "Verilog-Eval image cache": "Verilog-Eval 이미지 cache",
+    "Verilog-Eval evaluation image build": "Verilog-Eval 평가 이미지 빌드",
+    "Verilog-Eval image inspection": "Verilog-Eval 이미지 검사",
+    "Verilog-Eval Icarus v12 runtime": "Verilog-Eval Icarus v12 실행환경",
+    "Verilog-Eval simulator verification": "Verilog-Eval simulator 검증",
+    "Check network, proxy, and CA trust settings.": "네트워크, proxy 및 CA trust 설정을 확인하세요.",
+    "Inspect the log cause and repair uv installation or execution permissions.": "로그 원인을 확인하고 uv 설치 또는 실행 권한을 수정하세요.",
+    "Check Python, uv, and the frozen dependency lock.": "Python, uv와 고정 의존성 lock을 확인하세요.",
+    "Prepare the missing package cache with online setup first.": "먼저 online setup으로 누락된 package cache를 준비하세요.",
+    "Check Python 3.11+ installation and project .venv execution permissions.": "Python 3.11+ 설치와 프로젝트 .venv 실행 권한을 확인하세요.",
+    "Preserve and move the existing .venv aside, then rerun setup.": "기존 .venv를 보존해 옮긴 뒤 setup을 다시 실행하세요.",
+    "Check Git, network access, and the pinned source commit.": "Git·네트워크 접근과 고정 source commit을 확인하세요.",
+    "Check source availability and preserve the pinned commit.": "source 접근성을 확인하고 고정 commit을 보존하세요.",
+    "Preserve the cache and repair the pinned source checkout.": "cache를 보존하고 고정 source checkout을 복구하세요.",
+    "Prepare the pinned source checkout while online before using offline mode.": "offline 모드 전에 online으로 고정 source checkout을 준비하세요.",
+    "Repair the command, access, or selected environment input.": "명령·접근 권한 또는 선택한 환경 입력을 수정하세요.",
+    "Repair the reported tool, network, permission, or pinned input issue.": "표시된 도구·네트워크·권한 또는 고정 입력 문제를 수정하세요.",
+    "Prepare the pinned dataset asset while online before using offline mode.": "offline 모드 전에 online으로 고정 데이터셋 자산을 준비하세요.",
+    "Check write permission for the selected dataset cache directory.": "선택한 데이터셋 cache 디렉터리의 쓰기 권한을 확인하세요.",
+    "Check Docker daemon access and rebuild the pinned evaluation image.": "Docker daemon 접근을 확인하고 고정 평가 이미지를 다시 빌드하세요.",
+    "Rebuild the pinned evaluation image for the locked platform.": "고정 평가 이미지를 lock의 platform으로 다시 빌드하세요.",
+    "Rebuild the pinned evaluation image and verify its simulator versions.": "고정 평가 이미지를 다시 빌드하고 simulator 버전을 확인하세요.",
+    "Confirm the CVDP driver environment and uv cache are available.": "CVDP driver 환경과 uv cache를 확인하세요.",
+    "Check Docker daemon access and restore the pinned image identity.": "Docker daemon 접근을 확인하고 고정 image identity를 복구하세요.",
+    "Restore the pinned image identity for the selected platform.": "선택한 platform에 맞는 고정 image identity를 복구하세요.",
+    "Build the image for the selected Docker platform.": "선택한 Docker platform으로 이미지를 빌드하세요.",
+    "Repair the reported driver, simulator, or OpenCode tool issue.": "표시된 driver·simulator·OpenCode 도구 문제를 수정하세요.",
+    "Check Docker build trust/registry access and preserve the pinned Dockerfile.": "Docker build trust와 registry 접근을 확인하고 고정 Dockerfile을 보존하세요.",
+    "Review the upstream requirements and recompile the pinned CVDP driver lock.": "upstream requirements를 검토하고 고정 CVDP driver lock을 다시 생성하세요.",
+    "Restore the pinned CVDP driver lock with online setup.": "online setup으로 고정 CVDP driver lock을 복구하세요.",
+    "Restore the prepared CVDP driver packages with online setup.": "online setup으로 준비된 CVDP driver package를 복구하세요.",
+    "Run online setup with the selected CA bundle to rebuild and pin the images.": "선택한 CA bundle로 online setup을 실행해 이미지를 다시 만들고 고정하세요.",
+    "Run online setup for the selected platform to build and pin the ACE images.": "선택한 platform으로 online setup을 실행해 ACE 이미지를 다시 만들고 고정하세요.",
+    "Build the image for the selected Docker platform with online setup before offline retry.": "offline 재시도 전에 선택한 Docker platform으로 online setup을 실행해 이미지를 빌드하세요.",
+    "Run online CVDP setup with the selected platform and CA bundle before offline retry.": "offline 재시도 전에 선택한 platform과 CA bundle로 online CVDP setup을 실행하세요.",
+    "Run online CVDP setup to restore the pinned dataset lock.": "online CVDP setup으로 고정 데이터셋 lock을 복구하세요.",
+    "Run online CVDP setup to rebuild and pin the evaluation image for this platform.": "online CVDP setup으로 현재 platform의 평가 이미지를 다시 만들고 고정하세요.",
+    "Run online CVDP setup to restore the pinned driver packages.": "online CVDP setup으로 고정 driver package를 복구하세요.",
+    "Run online setup to rebuild and pin the evaluation image for the selected platform.": "선택한 platform으로 online setup을 실행해 평가 이미지를 다시 만들고 고정하세요.",
+    "Run online setup to rebuild and pin the agent image for the selected platform.": "선택한 platform으로 online setup을 실행해 Agent 이미지를 다시 만들고 고정하세요.",
+    "Run online CVDP setup to restore pinned imported-task provenance before retrying offline.": "offline 재시도 전에 online CVDP setup으로 고정 imported task provenance를 복구하세요.",
+    "Rebuild the selected CVDP image for the expected platform.": "선택한 CVDP 이미지를 기대 platform으로 다시 빌드하세요.",
+    "Check Docker daemon access and rebuild the selected CVDP image.": "Docker daemon 접근을 확인하고 선택한 CVDP 이미지를 다시 빌드하세요.",
+    "Rebuild the selected CVDP image and preserve the expected platform.": "선택한 CVDP 이미지를 다시 빌드하고 기대 platform을 보존하세요.",
+    "Check Docker daemon access and rebuild the selected CVDP image. Run online CVDP setup to rebuild and pin the selected image before offline retry.": "Docker daemon 접근을 확인하고 선택한 CVDP 이미지를 다시 빌드하세요. offline 재시도 전에 online CVDP setup으로 선택한 이미지를 다시 만들고 고정하세요.",
+    "Rebuild the selected CVDP image for the expected platform. Run online CVDP setup to rebuild and pin the selected image before offline retry.": "선택한 CVDP 이미지를 기대 platform으로 다시 빌드하세요. offline 재시도 전에 online CVDP setup으로 선택한 이미지를 다시 만들고 고정하세요.",
+    "Check Docker daemon access and rebuild the pinned evaluation image. Run online CVDP setup to rebuild and pin the evaluation image before offline retry.": "Docker daemon 접근을 확인하고 고정 평가 이미지를 다시 빌드하세요. offline 재시도 전에 online CVDP setup으로 평가 이미지를 다시 만들고 고정하세요.",
+    "Rebuild the pinned evaluation image and verify its simulator versions. Run online CVDP setup to rebuild and pin the evaluation image before offline retry.": "고정 평가 이미지를 다시 빌드하고 simulator 버전을 확인하세요. offline 재시도 전에 online CVDP setup으로 평가 이미지를 다시 만들고 고정하세요.",
+    "Prepare and verify the pinned Icarus v12 image while online before offline use.": "offline 사용 전에 online으로 고정 Icarus v12 이미지를 준비하고 검증하세요.",
+    "Check Docker daemon access and restore the pinned Icarus v12 image.": "Docker daemon 접근을 확인하고 고정 Icarus v12 이미지를 복구하세요.",
+    "Restore the pinned Icarus v12 image identity.": "고정 Icarus v12 image identity를 복구하세요.",
+    "Check Docker daemon access and the pinned Icarus v12 runtime.": "Docker daemon 접근과 고정 Icarus v12 실행환경을 확인하세요.",
+    "Rebuild and verify the pinned Icarus v12 image.": "고정 Icarus v12 이미지를 다시 빌드하고 검증하세요.",
+    "Inspect the setup log, repair the failed stage, and retry.": "setup 로그를 확인하고 실패 단계를 수정한 뒤 다시 실행하세요.",
+    "Inspect the complete doctor report and repair the failing environment checks.": "전체 doctor 보고서를 확인하고 실패한 환경 검사를 수정하세요.",
+    "Repair the failing readiness check.": "준비 상태 검사에서 표시한 원인을 수정하세요.",
+    "Check the setup options and required configuration.": "setup 옵션과 필요한 설정을 확인하세요.",
+    "Repair or complete the interrupted setup step.": "중단된 setup 단계를 수정하거나 완료하세요.",
+    "final readiness report is not ready": "최종 준비 상태 검사에서 해결되지 않은 항목이 있습니다",
     "Host git executable.": "호스트 Git 실행 파일을 사용할 수 있습니다.",
     "Host uv executable.": "호스트 uv 실행 파일을 사용할 수 있습니다.",
     "Install Git: Mac: xcode-select --install; Ubuntu: sudo apt install git.": "Git 설치: Mac: xcode-select --install; Ubuntu: sudo apt install git.",
@@ -741,6 +836,34 @@ _DEVELOPMENT_KO = {
     "Model connectivity probe failed": "모델 연결 검사가 실패했습니다",
     "Verify model credentials, endpoint, connectivity, and tool-call support": "모델 자격증명·endpoint·연결·tool-call 지원을 확인하세요",
 }
+
+_DIAGNOSTIC_CAUSE_KO = {
+    "Docker daemon/socket failure": "Docker daemon/socket 연결 실패",
+    "TLS/certificate failure": "TLS 인증서 검증 실패",
+    "DNS/connection failure": "DNS/네트워크 연결 실패",
+    "offline cache miss": "오프라인 cache 누락",
+    "lock/platform mismatch": "lock/platform 불일치",
+    "required file is missing": "필요한 파일이 없습니다",
+    "command returned a non-zero exit code": "명령이 0이 아닌 종료 코드를 반환했습니다",
+    "unknown failure": "분류되지 않은 오류",
+    "TLS certificate verification failed": "TLS 인증서 검증에 실패했습니다",
+    "pinned source is missing from offline cache": "고정 source가 offline cache에 없습니다",
+    "Pinned source checkout differs or has local changes": "고정 source checkout이 다르거나 로컬 변경이 있습니다",
+    "CVDP requirements input hash differs from the pinned lock": "CVDP requirements 입력 hash가 고정 lock과 다릅니다",
+    "CVDP driver lock differs or is missing": "CVDP driver lock이 다르거나 없습니다",
+    "Installed CVDP driver packages differ from the prepared lock": "설치된 CVDP driver package가 준비된 lock과 다릅니다",
+    "Offline CVDP lock is missing or platform/CA differs": "offline CVDP lock이 없거나 platform/CA가 다릅니다",
+    "Offline CVDP dataset lock differs from the prepared cache": "offline CVDP 데이터셋 lock이 준비된 cache와 다릅니다",
+    "Offline evaluation image identity differs from the lock": "offline 평가 이미지 identity가 lock과 다릅니다",
+    "Offline CVDP driver packages differ from the prepared lock": "offline CVDP driver package가 준비된 lock과 다릅니다",
+    "Offline environment lock is missing or platform differs": "offline environment lock이 없거나 platform이 다릅니다",
+    "image OS/architecture differs from the selected platform": "이미지 OS/architecture가 선택한 platform과 다릅니다",
+    "Offline image identity differs from the prepared lock": "offline 이미지 identity가 준비된 lock과 다릅니다",
+    "evaluation image identity or platform differs from the selected platform": "평가 이미지 identity 또는 platform이 선택한 platform과 다릅니다",
+    "CVDP imported-task provenance is missing from the offline cache": "CVDP imported task provenance가 offline cache에 없습니다",
+    "CVDP imported-task digest differs from its offline lock": "CVDP imported task digest가 offline lock과 다릅니다",
+    "CVDP imported-task file is missing from the offline cache": "CVDP imported task 파일이 offline cache에 없습니다",
+}
 for _en, _ko in _DEVELOPMENT_KO.items():
     MESSAGES.setdefault(_en, (_ko, _en))
 
@@ -765,6 +888,24 @@ def human(text: str, *, lang: str | None = None) -> str:
     return t(text, lang=lang) if text in MESSAGES else text
 
 
+def human_diagnostic_cause(text: str, *, lang: str | None = None) -> str:
+    """Translate fixed classifier phrases while preserving safe raw error detail."""
+    selected = lang or current_language()
+    if selected != "ko":
+        return text
+    translated = text
+    for source, target in _DIAGNOSTIC_CAUSE_KO.items():
+        translated = re.sub(re.escape(source), target, translated, flags=re.IGNORECASE)
+    translated = re.sub(r"\bexecutable not found\b", "실행 파일을 찾을 수 없습니다",
+                        translated, flags=re.IGNORECASE)
+    translated = re.sub(r"\bcould not run: permission denied\b", "실행 권한이 거부되었습니다",
+                        translated, flags=re.IGNORECASE)
+    translated = re.sub(r"\boperation timed out\b", "작업 시간 초과",
+                        translated, flags=re.IGNORECASE)
+    translated = re.sub(r"\btimed out(?=:|$)", "시간 초과", translated, flags=re.IGNORECASE)
+    return re.sub(r"\bexited (\d+)\b", r"종료 코드 \1", translated, flags=re.IGNORECASE)
+
+
 def opencode_error_detail(status: int | None, endpoint: str | None, *,
                           missing_openai_version: bool = False) -> str:
     safe_endpoint = endpoint or t("Unknown API endpoint")
@@ -782,26 +923,47 @@ def opencode_error_detail(status: int | None, endpoint: str | None, *,
     return t(template, status=status, endpoint=safe_endpoint)
 
 
-def render_diagnostic(row: dict, *, lang: str | None = None) -> tuple[str, str]:
-    """Render owned explanations without changing collected diagnostic records."""
+def render_diagnostic(row: dict, *, lang: str | None = None) -> str:
+    """Render the stable check strings as concise, labeled terminal lines."""
     selected = lang or current_language()
-    message, remedy = row["message"], row["remedy"]
+    message = row["message"]
+    cause = blocked_by = ""
+    message, marker, cause = message.partition("\nCause: ")
+    if not marker:
+        message, marker, blocked_by = row["message"].partition("\nBlocked by: ")
+    remedy, marker, retry = row["remedy"].partition("\nRetry: ")
+
     if selected == "ko" and row["id"] == "budget.trials":
         count = re.fullmatch(r"Trial budget must reserve at least (\d+) trials", message)
         if count:
             number = count.group(1)
-            return (f"평가 예산은 최소 {number}회 예약해야 합니다",
-                    f"budget.max_trials를 최소 {number}으로 설정하거나 단계 허용량을 줄이세요" if remedy else "")
+            message = f"평가 예산은 최소 {number}회 예약해야 합니다"
+            if remedy.startswith("Set budget.max_trials to at least "):
+                remedy = f"budget.max_trials를 최소 {number}으로 설정하거나 단계 허용량을 줄이세요"
+        cause_count = re.fullmatch(
+            r"configured budget is (\d+) trials; required reserve is (\d+) trials", cause)
+        if cause_count:
+            cause = (f"설정된 예산은 {cause_count.group(1)}회이며 "
+                     f"최소 {cause_count.group(2)}회가 필요합니다")
     if selected == "ko" and row["id"] == "model.configuration" and remedy:
         prefix = ("Set AGENT_OPT_MODEL_BASE_URL and "
                   "AGENT_OPT_MODEL_API_KEY for research optimizers; set ")
         suffix = " for OpenCode harnesses"
         if remedy.startswith(prefix) and remedy.endswith(suffix):
             harness_keys = remedy[len(prefix):-len(suffix)]
-            return human(message, lang=selected), (
-                "연구 Optimizer에는 AGENT_OPT_MODEL_BASE_URL과 "
-                f"AGENT_OPT_MODEL_API_KEY를, OpenCode 하네스에는 {harness_keys}를 설정하세요")
-    return human(message, lang=selected), human(remedy, lang=selected)
+            remedy = ("연구 Optimizer에는 AGENT_OPT_MODEL_BASE_URL과 "
+                      f"AGENT_OPT_MODEL_API_KEY를, OpenCode 하네스에는 {harness_keys}를 설정하세요")
+
+    lines = [human(message, lang=selected)]
+    if cause:
+        lines.append(f"  {human('Cause:', lang=selected)} {human_diagnostic_cause(cause, lang=selected)}")
+    if blocked_by:
+        lines.append(f"  {human('Blocked by:', lang=selected)} {human(blocked_by, lang=selected)}")
+    if remedy:
+        lines.append(f"  {human('Fix:', lang=selected)} {human(remedy, lang=selected)}")
+    if retry:
+        lines.append(f"  {human('Retry:', lang=selected)} {retry}")
+    return "\n".join(lines)
 
 
 def report_language(summary: dict, root: Path, *, override: str | None = None) -> str:

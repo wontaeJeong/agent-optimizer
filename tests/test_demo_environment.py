@@ -57,6 +57,7 @@ class DemoEnvironmentTests(unittest.TestCase):
         self.assertFalse(report["ready"])
         self.assertEqual(report["model_status"], "blocked")
         self.assertIn("AGENT_OPT_MODEL_", report["checks"][-1]["remedy"])
+        self.assertIn("Cause: ", report["checks"][-1]["message"])
         self.assertNotIn("fixture-secret", json.dumps(report))
         self.assertIn("[doctor] check=host-api starting", progress.getvalue())
         self.assertIn("[doctor] check=host-api failed", progress.getvalue())

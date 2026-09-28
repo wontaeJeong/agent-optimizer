@@ -54,7 +54,7 @@ class TerminalColorsTests(unittest.TestCase):
                 dev.main(["setup", "--not-a-flag"])
         self.assertIn("\x1b[31m", error.getvalue())
 
-    def test_developer_setup_highlights_progress_without_coloring_summary_json(self):
+    def test_developer_setup_highlights_progress_and_prints_human_success(self):
         dev = module("color_dev", ROOT / "scripts/dev.py")
         output = TTYOutput()
         doctor = SimpleNamespace(collect_report=lambda *a, **k: {"ready": True},
@@ -63,9 +63,10 @@ class TerminalColorsTests(unittest.TestCase):
                 patch.object(dev.os, "chdir"), patch.object(dev, "load", return_value=doctor), \
                 patch.object(dev, "run_core", return_value=0), contextlib.redirect_stdout(output):
             self.assertEqual(dev.main(["setup", "--core"]), 0)
-        self.assertIn("\x1b[33m", output.getvalue())
-        self.assertIn("\x1b[32m", output.getvalue())
-        self.assertEqual(json.loads(output.getvalue().splitlines()[-1])["status"], "ready")
+            self.assertIn("\x1b[33m", output.getvalue())
+            self.assertIn("\x1b[32m", output.getvalue())
+            self.assertIn(f"{dev.human('Next:')} make doctor-core; make menu; make demo", output.getvalue())
+            self.assertNotIn('"status": "ready"', output.getvalue())
 
     def test_developer_command_failure_is_red_on_tty(self):
         dev = module("color_dev_failure", ROOT / "scripts/dev.py")
@@ -240,7 +241,9 @@ class TerminalColorsTests(unittest.TestCase):
         doctor = module("color_dev_doctor", ROOT / "scripts/dev_doctor.py")
         report = {"scope": "core", "ready": False, "areas": {"core": False},
                   "checks": [{"status": "error", "id": "core.git", "message": "missing",
-                              "remedy": "Install Git"}]}
+                              "remedy": "Install Git"},
+                             {"status": "blocked", "id": "core.uv", "message": "blocked",
+                              "remedy": "Install uv"}]}
         terminal = TTYOutput()
         with patch.dict(os.environ, {"NO_COLOR": ""}), contextlib.redirect_stdout(terminal):
             doctor.render_report(report)

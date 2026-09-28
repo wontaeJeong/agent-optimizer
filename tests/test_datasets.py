@@ -132,6 +132,39 @@ class Provider:
         with self.assertRaises(ConfigurationError):
             acquire_pinned_git(target, str(origin), revision, offline=True)
 
+    def test_pinned_git_download_failure_keeps_safe_dns_cause_and_retry(self):
+        target = self.root / "cache" / REVISION
+        argv = ["git", "clone", "--quiet", "--no-checkout", "https://source.invalid/repo.git", str(target)]
+        failure = subprocess.CompletedProcess(
+            argv, 128, "", "fatal: unable to access https://git-user:SECRET_GIT@source.invalid: "
+                            "Could not resolve host: source.invalid")
+        with patch.dict(os.environ, {"CUSTOM_TOKEN": "SECRET_GIT"}), \
+                patch("agent_optimizer.datasets.subprocess.run", return_value=failure):
+            with self.assertRaises(UnavailableError) as raised:
+                acquire_pinned_git(target, "https://source.invalid/repo.git", REVISION)
+
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertIn("DNS", diagnostic["cause"])
+        self.assertIn("agent-opt datasets prepare", diagnostic["retry"])
+        self.assertNotIn("SECRET_GIT", json.dumps(diagnostic))
+        self.assertNotIn("git-user", json.dumps(diagnostic))
+
+    def test_verilog_provider_git_failure_retry_names_selected_dataset(self):
+        for provider, dataset_id in ((Provider(), "verilog-spec"),
+                                     (CompletionProvider(), "verilog-completion")):
+            failure = UnavailableError("git clone exited 128: DNS resolution failed")
+            failure.failure_diagnostic = {
+                "stage": "dataset Git checkout", "cause": str(failure), "log": None,
+                "fix": "Check Git and network access.", "retry": "agent-opt datasets prepare",
+            }
+            with self.subTest(dataset=dataset_id), \
+                    patch("examples.benchmarks.verilog_eval.acquire_pinned_git", side_effect=failure):
+                with self.assertRaises(UnavailableError) as raised:
+                    provider.prepare(self.root / "cache")
+            self.assertEqual(raised.exception.failure_diagnostic["retry"],
+                             f"agent-opt datasets prepare {dataset_id}")
+
     def test_provider_prepares_public_manifest_from_a_pinned_local_source(self):
         subprocess.run(["git", "init", "-q", str(self.root)], check=True)
         subprocess.run(["git", "-C", str(self.root), "add", "."], check=True)
@@ -208,14 +241,20 @@ class Provider:
             runtime_lock.write_bytes(original_lock)
             (cache / "source" / revision / "dataset_spec-to-rtl/Prob001_task_ref.sv").unlink()
             rows = providers[0].doctor(cache)
-            self.assertTrue(any(row["status"] == "error" and row["remedy"] for row in rows), rows)
+            task_failure = next(row for row in rows if row["id"] == "dataset.verilog.tasks")
+            self.assertEqual(task_failure["status"], "error")
+            self.assertIn("Cause: ", task_failure["message"])
+            self.assertIn("Retry: agent-opt datasets prepare verilog-spec", task_failure["remedy"])
             rows = providers[1].doctor(cache)
             self.assertEqual(next(row["status"] for row in rows if row["id"] == "dataset.verilog.tasks"), "ok")
             with patch("examples.benchmarks.verilog_eval.subprocess.run", return_value=
                        subprocess.CompletedProcess([], 0, '[{"Id":"sha256:changed"}]', "")):
                 rows = providers[1].doctor(cache)
-            self.assertTrue(any("image" in row["id"] and row["status"] == "error"
-                                and row["remedy"] for row in rows), rows)
+            image_failure = next(row for row in rows if row["id"] == "dataset.verilog.image")
+            self.assertEqual(image_failure["status"], "error")
+            self.assertIn("Cause: ", image_failure["message"])
+            self.assertIn("Retry: agent-opt datasets prepare verilog-completion",
+                          image_failure["remedy"])
         with patch("examples.benchmarks.verilog_eval.subprocess.run", side_effect=FileNotFoundError):
             rows = providers[1].doctor(cache)
         self.assertTrue(any("image" in row["id"] and row["status"] == "error" for row in rows), rows)
@@ -225,6 +264,30 @@ class Provider:
             run.return_value.returncode = 1
             with self.assertRaisesRegex(UnavailableError, "offline"):
                 prepare_runtime(offline=True)
+
+    def test_v12_docker_build_failure_keeps_safe_log_cause_and_retry(self):
+        cache = self.root / "runtime"
+
+        def docker(argv, **kwargs):
+            if argv[:3] == ["docker", "image", "inspect"]:
+                return subprocess.CompletedProcess(argv, 1, "", "image missing")
+            if argv[:2] == ["docker", "build"]:
+                return subprocess.CompletedProcess(
+                    argv, 1, "SECRET_STDOUT", "ERROR x509 certificate signed by unknown authority SECRET_BUILD_TOKEN")
+            raise AssertionError(argv)
+
+        with patch.dict(os.environ, {"CUSTOM_TOKEN": "SECRET_BUILD_TOKEN"}), \
+                patch("examples.benchmarks.verilog_eval.subprocess.run", side_effect=docker):
+            with self.assertRaises(UnavailableError) as raised:
+                prepare_runtime(cache)
+
+        diagnostic = getattr(raised.exception, "failure_diagnostic", None)
+        self.assertIsInstance(diagnostic, dict)
+        self.assertIn("TLS", diagnostic["cause"])
+        self.assertEqual(diagnostic["log"], str(cache / "setup-logs/verilog-eval-image-build.log"))
+        self.assertIn("agent-opt datasets prepare verilog-spec", diagnostic["retry"])
+        self.assertNotIn("SECRET_BUILD_TOKEN", json.dumps(diagnostic))
+        self.assertNotIn("SECRET_STDOUT", json.dumps(diagnostic))
 
     def test_preexisting_unproven_v12_image_requires_online_build_and_owned_lock(self):
         cache = self.root / "runtime"

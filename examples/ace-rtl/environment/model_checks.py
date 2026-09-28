@@ -1,8 +1,10 @@
 """Explicit, potentially billable model checks; separate from read-only doctor."""
 import json
 import os
+import subprocess
 import uuid
 
+from agent_optimizer import diagnostics
 from agent_optimizer.contracts import ConfigurationError, RunRequest, UnavailableError
 from agent_optimizer.harnesses.opencode import OpenCodeHarness
 from agent_optimizer.models import ModelSettings, probe_model
@@ -32,6 +34,7 @@ def check_models(root, report):
     """Append safe diagnostics using the same prepared image and network as live."""
     original = dict(os.environ)
     passed = False
+    failure_cause = None
     try:
         os.environ.update(demo_environment())
         os.environ.update(network_environment())
@@ -49,14 +52,21 @@ def check_models(root, report):
         with PreparationStatus("container-tool", action="doctor", subject="check"):
             probe_harness(root, lock)
         passed = True
-    except (ConfigurationError, UnavailableError, OSError, ValueError, KeyError):
-        pass
+    except (ConfigurationError, UnavailableError, OSError, subprocess.SubprocessError,
+            ValueError, KeyError) as exc:
+        failure_cause = diagnostics.summarize_exception(exc, environment=original)
     finally:
         os.environ.clear()
         os.environ.update(original)
-    report["checks"].append({"id": "live.execution", "area": "live", "status": "ok" if passed else "error",
-                             "message": "Actual host API and container OpenCode/tool execution.",
-                             "remedy": "" if passed else "Check AGENT_OPT_MODEL_* settings, proxy/NO_PROXY, CA and runs/doctor-model-*/logs."})
+    message = "Actual host API and container OpenCode/tool execution."
+    if not passed and failure_cause:
+        message += "\nCause: " + failure_cause
+    remedy = ("" if passed else
+              "Check AGENT_OPT_MODEL_* settings, proxy/NO_PROXY, CA and runs/doctor-model-*/logs."
+              "\nRetry: sh scripts/bootstrap.sh doctor --model")
+    report["checks"].append({"id": "live.execution", "area": "live",
+                             "status": "ok" if passed else "error",
+                             "message": message, "remedy": remedy})
     report["model_status"] = "passed" if passed else "blocked"
     report["areas"]["live"] = passed
     report["ready"] = report["ready"] and passed

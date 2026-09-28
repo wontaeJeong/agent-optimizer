@@ -550,11 +550,9 @@ class OptimizerApp(App[int]):
             symbol = {"ok": "✓", "error": "✗", "blocked": "○"}.get(check["status"], "?")
             status = {"ok": _tr("준비됨", "Ready"), "error": _tr("실패", "Failed"),
                       "blocked": _tr("차단됨", "Blocked")}.get(check["status"], check["status"])
-            message, remedy = render_diagnostic(check)
+            rendered = render_diagnostic(check)
             detail = (f"{symbol} {check['id']} · {check['area']} · {status}\n\n"
-                      f"{self._redact_secrets(message)}")
-            if remedy:
-                detail += f"\n\n{_tr('확인할 사항', 'Check')}\n  {self._redact_secrets(remedy)}"
+                      f"{self._redact_secrets(rendered)}")
             if check["id"] == "model.probe" and check["status"] == "ok":
                 detail += "\n\n" + _tr(
                     "Model connectivity: OK는 연결 probe 성공이며 Agent 최적화 전체 성공을 보장하지 않습니다.",

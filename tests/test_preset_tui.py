@@ -163,6 +163,35 @@ class PresetConfigurationTests(unittest.TestCase):
                                             "OPENROUTER_API_KEY|일치"):
                     run_ace_selection(target)
 
+    def test_ace_execution_readiness_error_keeps_check_causes_and_retries(self):
+        from agent_optimizer.preset_tui import execute_ace_selection, write_ace_selection
+
+        target = write_ace_selection(self.root, "gepa")
+        inspection = {"ready": False, "checks": [
+            {"id": "docker.daemon", "area": "evaluation", "status": "error",
+             "message": "Docker daemon access.\nCause: permission denied on docker.sock",
+             "remedy": "Start Docker daemon.\nRetry: docker info"},
+            {"id": "image.agent", "area": "evaluation", "status": "blocked",
+             "message": "Agent image inspect skipped.\nBlocked by: docker.daemon",
+             "remedy": "Resolve docker.daemon first.\nRetry: sh scripts/bootstrap.sh setup"},
+        ]}
+        with patch.dict(os.environ, {
+                "AGENT_OPT_MODEL": "compatible/fixture",
+                "AGENT_OPT_MODEL_BASE_URL": "http://localhost:1234/v1",
+                "AGENT_OPT_MODEL_API_KEY": "fixture-key",
+                "AGENT_OPT_MODEL_ID": "fixture",
+        }, clear=True), \
+                patch("agent_optimizer.preset_tui.verify_ace_selection"), \
+                patch("agent_optimizer.preset_tui.is_source_checkout", return_value=True), \
+                patch("agent_optimizer.preset_tui._lifecycle",
+                      return_value=SimpleNamespace(inspect=lambda *_args: inspection)):
+            with self.assertRaises(ConfigurationError) as raised:
+                execute_ace_selection(target)
+
+        for phrase in ("docker.daemon", "image.agent", "원인:", "선행 검사:",
+                       "재실행: docker info", "재실행: sh scripts/bootstrap.sh setup"):
+            self.assertIn(phrase, str(raised.exception))
+
     def test_noninteractive_run_uses_same_selected_lifecycle(self):
         from agent_optimizer.preset_tui import write_ace_selection
         target = write_ace_selection(self.root, "meta_harness")
