@@ -2,6 +2,7 @@
 import json
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -676,9 +677,100 @@ class VerilogFullCLITests(unittest.TestCase):
 class VerilogFullWorkflowTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
+        cls.workflow_path = Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml"
+        cls.workflow_text = cls.workflow_path.read_text()
+        cls.workflow = cls._load_workflow(cls.workflow_path, cls.workflow_text)
+
+    @staticmethod
+    def _block(lines, indent, key):
+        marker = " " * indent + key + ":"
+        starts = [index for index, line in enumerate(lines) if line == marker]
+        if len(starts) != 1:
+            raise AssertionError(f"Expected one scoped YAML key: {key}")
+        start = starts[0] + 1
+        end = start
+        while end < len(lines):
+            line = lines[end]
+            if line.strip() and len(line) - len(line.lstrip()) <= indent:
+                break
+            end += 1
+        return lines[start:end]
+
+    @staticmethod
+    def _scalar(value):
+        if value is None:
+            return None
+        if value in ("true", "false"):
+            return value == "true"
+        if value.isdecimal():
+            return int(value)
+        if value.startswith("[") and value.endswith("]"):
+            return [part.strip().strip("\"'") for part in value[1:-1].split(",")]
+        if value.startswith(("'", '"')) and value.endswith(value[0]):
+            return value[1:-1]
+        return value
+
+    @classmethod
+    def _fields(cls, lines, indent):
+        fields = {}
+        for line in lines:
+            match = re.fullmatch(rf" {{{indent}}}([\w-]+):(?: (.*))?", line)
+            if match:
+                key, value = match.groups()
+                if key in fields:
+                    raise AssertionError(f"Duplicate scoped YAML key: {key}")
+                fields[key] = cls._scalar(value)
+        return fields
+
+    @classmethod
+    def _fallback_workflow(cls, text):
+        # Parse only the tested boundaries, with exact indentation and unique keys.
+        lines = text.splitlines()
+        events = cls._block(lines, 0, "on")
+        dispatch = cls._block(events, 2, "workflow_dispatch")
+        inputs = cls._block(dispatch, 4, "inputs")
+        jobs = cls._block(lines, 0, "jobs")
+        tests = cls._block(jobs, 2, "tests")
+        official = cls._fields(cls._block(jobs, 2, "official-cvdp"), 4)
+        full_lines = cls._block(jobs, 2, "verilog-eval-full")
+        full = cls._fields(full_lines, 4)
+        strategy = cls._block(full_lines, 4, "strategy")
+        full["strategy"] = {**cls._fields(strategy, 6),
+                            "matrix": cls._fields(cls._block(strategy, 6, "matrix"), 8)}
+        step_lines = cls._block(full_lines, 4, "steps")
+        starts = [index for index, line in enumerate(step_lines)
+                  if re.fullmatch(r"      - (uses|name): .+", line)]
+        if not starts or step_lines[:starts[0]] not in ([], [""]):
+            raise AssertionError("Verilog-Eval job steps are malformed")
+        steps = []
+        for start, end in zip(starts, starts[1:] + [len(step_lines)]):
+            rows = step_lines[start:end]
+            rows = [rows[0].replace("      - ", "        ", 1), *rows[1:]]
+            step = cls._fields(rows, 8)
+            if "with" in step:
+                step["with"] = cls._fields(cls._block(rows, 8, "with"), 10)
+            if step.get("run") == "|":
+                index = rows.index("        run: |")
+                script = []
+                for line in rows[index + 1:]:
+                    if line.strip() and len(line) - len(line.lstrip()) <= 8:
+                        break
+                    script.append(line)
+                step["run"] = "\n".join(line.strip() for line in script)
+            steps.append(step)
+        full["steps"] = steps
+        return {"on": {"pull_request": cls._block(events, 2, "pull_request"),
+                       "workflow_dispatch": {"inputs": {
+                           key: cls._fields(cls._block(inputs, 6, key), 8)
+                           for key in ("official_cvdp", "verilog_eval_full")}}},
+                "jobs": {"tests": {"strategy": {"matrix": cls._fields(
+                    cls._block(cls._block(tests, 4, "strategy"), 6, "matrix"), 8)}},
+                         "official-cvdp": official, "verilog-eval-full": full}}
+
+    @classmethod
+    def _load_workflow(cls, workflow_path, text):
         if not shutil.which("ruby"):
-            raise unittest.SkipTest("Ruby YAML parser is unavailable")
-        workflow_path = Path(__file__).resolve().parents[1] / ".github/workflows/ci.yml"
+            return cls._fallback_workflow(text)
         result = subprocess.run(
             ["ruby", "-rjson", "-ryaml", "-e",
              "puts JSON.generate(YAML.safe_load(File.read(ARGV.fetch(0))))", str(workflow_path)],
@@ -686,7 +778,7 @@ class VerilogFullWorkflowTests(unittest.TestCase):
         )
         if result.returncode:
             raise AssertionError(result.stderr)
-        cls.workflow = json.loads(result.stdout)
+        return json.loads(result.stdout)
 
     def test_full_job_only_runs_for_explicit_manual_opt_in_without_changing_existing_ci(self):
         events = self.workflow.get("on", self.workflow.get("true"))
@@ -745,8 +837,43 @@ class VerilogFullWorkflowTests(unittest.TestCase):
                          "always() && github.server_url == 'https://github.com'")
         self.assertEqual(uploads[0]["with"]["path"],
                          "runs/verilog-eval-full/${{ matrix.dataset }}/summary.json")
+        self.assertEqual(uploads[0]["with"].get("if-no-files-found"), "error")
         self.assertIn("${{ matrix.dataset }}", uploads[0]["with"]["name"])
         self.assertTrue(all("env" not in step for step in steps))
+
+    def test_python_only_path_enforces_scope_and_artifact_contract(self):
+        with patch("shutil.which", return_value=None):
+            self.workflow = self._load_workflow(self.workflow_path, self.workflow_text)
+            self.assertIsInstance(self.workflow, dict)
+            self.test_full_job_only_runs_for_explicit_manual_opt_in_without_changing_existing_ci()
+            self.test_each_full_mode_gets_pinned_environment_and_strict_host_check()
+            self.test_failure_artifact_contains_only_selected_mode_sanitized_summary()
+            original = self.workflow_text
+            try:
+                self.workflow_text = original.replace(
+                    "    if: github.event_name == 'workflow_dispatch' && inputs.verilog_eval_full",
+                    "    if: always()", 1)
+                self.workflow = self._load_workflow(self.workflow_path, self.workflow_text)
+                with self.assertRaises(AssertionError):
+                    self.test_full_job_only_runs_for_explicit_manual_opt_in_without_changing_existing_ci()
+                self.workflow_text = original.replace(
+                    "          path: runs/verilog-eval-full/${{ matrix.dataset }}/summary.json",
+                    "          path: runs/verilog-eval-full/${{ matrix.dataset }}/", 1)
+                self.workflow = self._load_workflow(self.workflow_path, self.workflow_text)
+                with self.assertRaises(AssertionError):
+                    self.test_failure_artifact_contains_only_selected_mode_sanitized_summary()
+                self.workflow_text = original.replace(
+                    "        dataset: [verilog-spec, verilog-completion]",
+                    "        dataset: [verilog-spec]", 1)
+                self.workflow = self._load_workflow(self.workflow_path, self.workflow_text)
+                with self.assertRaises(AssertionError):
+                    self.test_each_full_mode_gets_pinned_environment_and_strict_host_check()
+                self.workflow_text = original.replace("          if-no-files-found: error", "", 1)
+                self.workflow = self._load_workflow(self.workflow_path, self.workflow_text)
+                with self.assertRaises(AssertionError):
+                    self.test_failure_artifact_contains_only_selected_mode_sanitized_summary()
+            finally:
+                self.workflow_text = original
 
 
 if __name__ == "__main__":

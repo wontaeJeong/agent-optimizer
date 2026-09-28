@@ -177,3 +177,4 @@ jobs:
         with:
           name: verilog-eval-full-${{ matrix.dataset }}-${{ github.run_id }}
           path: runs/verilog-eval-full/${{ matrix.dataset }}/summary.json
+          if-no-files-found: error
