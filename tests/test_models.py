@@ -8,6 +8,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from unittest.mock import patch
 
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
+from agent_optimizer import models
 from agent_optimizer.models import ModelSettings, complete, probe_model
 
 
@@ -63,6 +64,14 @@ def completion(content="hello", usage=None):
 
 
 class ModelTests(unittest.TestCase):
+    def test_settings_use_shared_model_id_default(self):
+        with patch.object(models, "DEFAULT_MODEL_ID", "shared-default", create=True):
+            settings = ModelSettings.from_env({
+                "AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1",
+                "AGENT_OPT_MODEL_API_KEY": "fixture-key",
+            })
+        self.assertEqual(settings.model, "shared-default")
+
     def test_base_url_is_the_only_model_url_and_uses_standard_completion_path(self):
         with model_server([(200, completion())]) as (url, requests), patch.dict(os.environ, {}, clear=True):
             settings = ModelSettings.from_env({"AGENT_OPT_MODEL_BASE_URL": url + "/v1/",

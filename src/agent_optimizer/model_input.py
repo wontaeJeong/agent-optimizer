@@ -9,7 +9,7 @@ from contextlib import contextmanager
 
 from agent_optimizer.contracts import ConfigurationError
 from agent_optimizer.locale import t
-from agent_optimizer.models import ModelSettings
+from agent_optimizer.models import DEFAULT_MODEL_ID, ModelSettings
 
 
 def _ask(label: str) -> str:
@@ -28,7 +28,8 @@ def ensure_model_api(env: dict[str, str]) -> dict[str, str]:
     if not staged.get("AGENT_OPT_MODEL_BASE_URL"):
         staged["AGENT_OPT_MODEL_BASE_URL"] = _ask("AGENT_OPT_MODEL_BASE_URL: ")
     if missing and not staged.get("AGENT_OPT_MODEL_ID"):
-        staged["AGENT_OPT_MODEL_ID"] = _ask("AGENT_OPT_MODEL_ID [glm5.3-flash]: ") or "glm5.3-flash"
+        staged["AGENT_OPT_MODEL_ID"] = _ask(
+            f"AGENT_OPT_MODEL_ID [{DEFAULT_MODEL_ID}]: ") or DEFAULT_MODEL_ID
     if not staged.get("AGENT_OPT_MODEL_API_KEY"):
         try:
             with warnings.catch_warnings():

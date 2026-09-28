@@ -29,23 +29,25 @@ def invoke(cli: Path, project: Path, environment: dict, *args: str) -> dict:
 
 
 def interact_tui(cli: Path, project: Path, environment: dict,
-                 actions: list[tuple[str, bytes]]) -> str:
+                 actions: list[tuple[str, bytes]], size: tuple[int, int] = (30, 100)) -> str:
     """Drive the installed Textual app through a real, continuously drained PTY."""
     master, slave = pty.openpty()
     child = None
     try:
-        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", size[0], size[1], 0, 0))
         child = subprocess.Popen([str(cli), "tui", "--project-root", str(project)],
                                   cwd=project, env={**environment, "AGENT_OPT_LANG": "ko"},
                                   stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
         transcript = bytearray()
         cursor = 0
+        last_marker = "startup"
 
         def visible() -> str:
             return re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "",
                           transcript[cursor:].decode(errors="replace"))
 
         for marker, keys in actions:
+            last_marker = marker
             deadline = time.monotonic() + 12
             while marker not in visible():
                 if time.monotonic() > deadline or child.poll() is not None:
@@ -61,7 +63,8 @@ def interact_tui(cli: Path, project: Path, environment: dict,
         deadline = time.monotonic() + 12
         while child.poll() is None:
             if time.monotonic() > deadline:
-                raise AssertionError("설치형 Textual TUI 종료 시간 초과")
+                raise AssertionError(f"설치형 Textual TUI 종료 시간 초과 after {last_marker}: "
+                                     f"{visible()[-1200:]}")
             if select.select([master], [], [], 0.1)[0]:
                 try:
                     transcript.extend(os.read(master, 65536))
@@ -90,10 +93,11 @@ def check_tui_menu(cli: Path, project: Path, environment: dict) -> None:
         os.close(slave)
         os.close(master)
     interact_tui(cli, project, environment, [
+        ("새 최적화", b"\r"),
         ("ACE-RTL", b"\x1b"),
-        ("새 최적화", b"\x1b[B\x1b[B\r"),
+        ("실행할 작업을 선택하세요", b"\x1b[B\x1b[B\r"),
         ("표시할 항목이 없습니다", b"\x1b"),
-        ("새 최적화", b"q"),
+        ("실행할 작업을 선택하세요", b"q"),
     ])
     if (project / "runs").exists():
         raise AssertionError("이력 조회가 사용자 프로젝트에 파일을 작성했습니다")
@@ -102,18 +106,45 @@ def check_tui_menu(cli: Path, project: Path, environment: dict) -> None:
 def check_preset_cancel(cli: Path, project: Path, environment: dict) -> None:
     workspace = project / "chosen ace"
     interact_tui(cli, project, environment, [
+        ("새 최적화", b"\r"),
         ("ACE-RTL", b"\r"),
-        ("Agent Optimizer  /  Harness", b"\r"),
-        ("Agent Optimizer  /  Optimizer", b"\x1b[B"),
-        ("후보별", b"\r"),
-        ("Agent Optimizer  /  Dataset", b"\r"),
+        ("OpenCode", b"\r"),
+        ("GEPA", b"\x1b[B\r"),
+        ("CVDP", b"\r"),
         ("ACE 작업공간", (str(workspace) + "\r").encode()),
-        ("실행 전 확인", b"\x1b[B\r"),
+        ("모델 설정", b"\x1b"),
         ("ACE 작업공간", b"\x1b"),
-        ("Agent Optimizer  /  Dataset", b"q"),
+        ("Dataset", b"q"),
     ])
     if workspace.exists() or (project / "runs").exists():
         raise AssertionError("wheel-only Textual TUI가 실행 취소 전에 자산을 생성했습니다")
+
+
+def check_tui_existing_run(cli: Path, project: Path, environment: dict,
+                           experiment: Path, check_count: int) -> None:
+    evaluator = project / "evaluator.py"
+    source = evaluator.read_text(encoding="utf-8")
+    needle = "        spec = task.evaluation\n"
+    if needle not in source:
+        raise AssertionError("PTY fixture evaluator no longer has its expected method boundary")
+    evaluator.write_text(source.replace(needle, "        import time\n        time.sleep(0.2)\n" + needle),
+                         encoding="utf-8")
+    before = len(list((project / "runs").glob("*/report.html")))
+    transcript = interact_tui(cli, project, environment, [
+        ("실행할 작업을 선택하세요", b"\x1b[B\r"),
+        ("기존 experiment.toml 경로", (str(experiment) + "\r").encode()),
+        ("실행 전 확인", b"\x1b[B\r"),
+        ("준비 중", b"\r"),
+        ("실행 전 진단", b"\x1b[B" * check_count + b"\r"),
+        ("실행 중", b""),
+        ("최적화 완료", b"q"),
+    ], size=(20, 50))
+    for marker in ("Trial budget", "평가 완료", "최적화 완료"):
+        if marker not in transcript:
+            raise AssertionError(f"설치형 TUI에서 {marker} PTY 근거를 찾지 못했습니다")
+    after = len(list((project / "runs").glob("*/report.html")))
+    if after != before + 1:
+        raise AssertionError(f"설치형 TUI 실행 보고서 수가 증가하지 않았습니다: {before} → {after}")
 
 
 def main(wheel: Path) -> int:
@@ -194,6 +225,7 @@ def main(wheel: Path) -> int:
         summary = invoke(cli, project, environment, "report", str(run_dir))
         if summary["status"] != "completed" or (agent / "configs/strategy.json").read_bytes() != before:
             raise AssertionError("독립 설치 실행이 원본을 수정했거나 결과를 잃었습니다")
+        check_tui_existing_run(cli, project, environment, experiment, len(readiness["checks"]))
         # Installed package contract only: substitute the external ACE preparation
         # while retaining the real wheel CLI, configuration loader, and pinned templates.
         shutil.copytree(ROOT / "examples/ace-rtl", project / "examples/ace-rtl",

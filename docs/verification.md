@@ -1,5 +1,19 @@
 # 검증 기록
 
+## 2026-09-29 Home-first Textual TUI UX
+
+- 기준: `origin/main`의 `c6a4bd4`에서 `feat/tui-ux-completion` worktree를 만들었다. Mac ARM64 / Python 3.12.12 / Textual 7.5.0에서 변경 전 `make setup-core`와 `make lint`가 통과했고, `make test`는 **885개 중 806 통과·79 skip·실패 0**이었다. setup-core 데모는 synthetic 7-trial 실행이며 외부 모델/공식 평가 근거가 아니다.
+- 실제 설치형 TUI/PTy: `.venv/bin/python -m build --wheel` → `PYTHONPATH=src .venv/bin/python tests/test_installed_cli.py dist/agent_optimizer-0.3.0-py3-none-any.whl` 통과. wheel을 source checkout 밖 임시 프로젝트에 설치하고 PTY에서 Home→wizard/선택/뒤로가기, Model Setup 취소, 기존 experiment Review→Preparing(준비 생략)→`Continue to Doctor`→명시 실행→Running→Result를 조작했다. 마지막 흐름은 50x20 PTY이며 local command fixture의 임시 evaluator에 표시 관측용 0.2초 지연을 넣었다. TUI 실행의 실제 합성 `report.html` 생성도 확인했다. Model API, Docker 자산 준비, ACE 공식 평가/Agent 실행은 호출하지 않았다.
+- 화면 자료: 기존 `docs/assets/tui-after.svg`는 변경 전 Agent-first 화면이다. `PYTHONPATH=src:tests .venv/bin/python scripts/capture_tui_ux.py`가 Textual compositor에서 Home, selection, Model Setup, Review, Preparing, Doctor ready/blocked, Running, Result completed/failed 화면을 100x30으로 export한다. Model/API 값·readiness·runner event/result는 화면 렌더링용 fixture이며 실모델/Agent 성공 증거가 아니다. SVG에서 API key 값은 표시되지 않는다.
+- 사람용 안내를 갱신한 website는 `website/`에서 `npm run build` 및 내부 링크 검사가 통과했다. 빌드에는 기존 Astro/Vite `use astro:head-inject` directive 경고와 `/404` content entry 경고가 출력됐다.
+- 최종 `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v`는 **905개 중 826 통과·79 skip·실패 0**. `test_textual_tui.py` **33개 통과**, `test_progress.py` **23개 통과**, `test_cli_experience.py` **134개 중 104 통과·30 skip**, `test_plugin_contracts.py` **18개 통과**, `test_research.py` **13개 통과**. `make lint`와 synthetic `examples/minimal/experiment.toml` 실행(`completed`, 7 trial)도 통과했다. 최신 설치 wheel PTY 검증도 같은 build/run 명령으로 다시 통과했다.
+
+| 변경 전 Agent-first 화면 (`origin/main`) | 변경 후 Home-first 화면 |
+|---|---|
+| ![변경 전 Agent 선택 화면](assets/tui-after.svg) | ![변경 후 Home 화면](assets/tui-ux-home.svg) |
+
+추가 화면: [선택 설명](assets/tui-ux-selection.svg), [Model Setup](assets/tui-ux-model.svg), [Review](assets/tui-ux-review.svg), [Preparing](assets/tui-ux-preparing.svg), [Doctor 통과](assets/tui-ux-doctor.svg), [Doctor blocked/error](assets/tui-ux-doctor-blocked.svg), [Running dashboard](assets/tui-ux-running.svg), [완료 결과](assets/tui-ux-result.svg), [실패 결과](assets/tui-ux-result-failed.svg).
+
 ## 2026-09-28 Verilog-Eval Mac 두 모드 실도구 smoke
 
 - 환경: Mac `Darwin/arm64`, Colima Docker daemon `linux/arm64` (`docker version --format '{{.Server.Os}}/{{.Server.Arch}}'`, exit 0), `make doctor-core` exit 0. 기존 `docker info`에 `.Server.Os/.Server.Arch`를 적용한 호출은 template 오류로 실패해 실제 CLI와 수동 CI 호출을 `docker version`으로 수정했다. 고정 Docker 이미지 `agent-opt/iverilog-v12:4fd52916`, ID `sha256:2f3a2506d13f117b42f4dfb1d95ee8c6d883313dd5ae00288a647226d9523d9d` (`linux/arm64`); `docker run --rm --network none agent-opt/iverilog-v12:4fd52916 iverilog -V` exit 0, v12.0. CVDP v13/다른 이미지 사용 없음.

@@ -61,4 +61,4 @@ Agent는 수정할 **원본 소스**, Harness는 후보를 실행할 **프로필
 
 **예상 결과:** `doctor --plan`은 선언과 선택 자산을 읽기 전용으로 점검하고 JSON에 `"scope": "plan"`과 준비 여부를 표시합니다. 이는 실제 모델 호출·채점 성공과 별개입니다. `run`의 `run_dir`에서 [결과 읽기](/agent-optimizer/getting-started/results/) 순서로 보고서를 확인하세요. 새 데이터셋은 선택 자산의 준비 상태를 따로 확인합니다. 시간과 횟수는 `init`의 `--max-wall-time-seconds`, `--max-trials`, `--trial-timeout-seconds`로 지정합니다.
 
-TTY에서는 `.venv/bin/agent-opt init`으로 설정만 만들거나 `.venv/bin/agent-opt tui`의 첫 화면에서 네 프리셋을 선택할 수 있습니다. 첫 화면에서 `Esc`로 번호 메뉴를 열면 1번은 최근 생성 설정 또는 직접 경로, 2번은 새 실험, 3번은 기존 ACE 예제, 4번은 이전 결과 경로, 5번은 프리셋 재진입입니다. 팀 구현을 추가하려면 [컴포넌트 연결](/agent-optimizer/developer/components/)로 이동하세요.
+TTY에서는 `.venv/bin/agent-opt init`으로 설정만 만들거나 `.venv/bin/agent-opt tui`의 Home에서 `New Optimization`, `Existing Experiment`, `Run History`, `Advanced Setup`, `Quit`을 선택할 수 있습니다. 새 실험은 네 프리셋 wizard 뒤에 Model Setup, Review, Preparing, Doctor, Running, Result를 표시합니다. 팀 구현을 추가하려면 [컴포넌트 연결](/agent-optimizer/developer/components/)로 이동하세요.

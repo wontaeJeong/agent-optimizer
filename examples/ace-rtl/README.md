@@ -16,18 +16,22 @@ ACE의 native runner / 자체 반복 루프 / 역할별 모델 호출과 동일�
 
 ## 준비
 
-앱 사용자는 `agent-opt tui`의 **첫 프리셋 선택 화면**에서
-`ACE-RTL → OpenCode → GEPA 또는 Meta-Harness → CVDP`를 한 항목씩 확정합니다.
-마지막 화면에서 수정 파일과 모델/자산/예산을 확인한 뒤 `y`를 누르면 준비·정적 진단·실행을 진행합니다.
+앱 사용자는 `agent-opt tui`의 Home에서 **New Optimization**을 고른 뒤
+`ACE-RTL → OpenCode → GEPA 또는 Meta-Harness → CVDP`를 선택합니다. Model Setup은 현재
+환경 값을 우선 표시하고 모델 ID 기본값 `glm5.3-flash`를 재사용합니다. API endpoint는 임의로 채우지 않으며,
+API key는 입력 중 마스킹되고 앱 세션에만 유지됩니다. Review에서 수정 파일·모델·예산·고정 자산 준비와
+외부 호출을 확인한 다음 Preparing에서 준비 진행을 보고 `Continue to Doctor`를 선택합니다. Doctor
+검사를 통과해야 `Run Optimization`을 선택할 수 있습니다. model connectivity probe 성공은 전체
+Agent 최적화 성공을 보장하지 않습니다.
 Agent의 OpenCode 모델 선택자는 `openrouter/<모델>` + `OPENROUTER_API_KEY` 또는
 `compatible/<모델>` + `AGENT_OPT_MODEL_BASE_URL`/`AGENT_OPT_MODEL_API_KEY`입니다.
-TUI에 `deepseek-flash`처럼 접두어 없는 모델 ID를 입력하면 compatible 모델로 안내하며,
-`AGENT_OPT_MODEL_ID`와 다를 때는 변경을 확인한 뒤 세션에만 적용합니다.
+TUI에 `deepseek-flash`처럼 접두어 없는 모델 ID를 입력하면 준비 단계에서 compatible 선택자로
+정규화합니다. compatible 선택자와 `AGENT_OPT_MODEL_ID`가 다르면 준비가 차단되므로 두 값을 맞추세요.
 compatible을 쓰면 현재 고정 OpenCode plugin의 모델 등록 제약으로 `AGENT_OPT_MODEL_ID`와
 선택자의 모델명이 일치해야 합니다. Optimizer 모델 API와 Agent 모델의 역할/호출은 각각 표시하며
 OpenRouter Agent와 별도 Optimizer API 모델은 서로 다른 모델을 사용할 수 있습니다.
-기존 **3번 ACE-RTL + CVDP 예제**는 여전히 `simple_feedback` 고정 설정으로 작업공간 준비,
-필요한 모델 값의 세션 한정 입력, 실행 확인, 공식 CVDP 평가까지 진행할 수 있습니다.
+고정 `simple_feedback` 예제는 TUI의 별도 Home 바로가기가 아니라
+`agent-opt init --profile ace-rtl --workspace PATH`로 선택하는 기존 경로입니다.
 비대화형 앱은 `agent-opt init --profile ace-rtl --workspace PATH` →
 `agent-opt prepare PATH/experiment.toml` → `agent-opt run PATH/experiment.toml`을 사용합니다.
 아래 명령은 개발자의 환경·모델·평가 분리 진단에 사용합니다.

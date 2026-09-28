@@ -76,8 +76,10 @@ TUI의 사용자 표시 텍스트, event/error/debug, 알림에 credential redac
 
 새 ACE 선택은 현재 `prepare_ace_selection`/lifecycle을, fixture dataset 준비는 기존
 `prepare_selection` 경로를 사용한다. 현재 숨겨지는 preparation status/output은 TUI에 단계적으로
-보이며 실패한 준비 단계를 식별한다. 선택형 ACE의 다운로드/Docker 준비 가능성을 Review에서 미리
-알린다. 기존 experiment는 암묵적으로 자산 다운로드/빌드를 하지 않는다.
+보이며 실패한 준비 단계를 식별한다. 준비가 끝나면 사용자가 `Continue to Doctor`를 선택해 사전
+검사로 이동한다. 선택형 ACE의 다운로드/Docker 준비 가능성을 Review에서 미리 알린다. 기존
+experiment는 암묵적으로 자산 다운로드/빌드를 하지 않고 생략 상태를 보여준 뒤 같은 명시적
+Doctor 단계로 이어진다.
 
 Doctor는 기존 `collect_plan(experiment, Registry())` report를 표시하고, 필요한 model 설정이 있는
 실험에서만 `collect_plan(..., model=True)`로 connectivity probe를 수행한다. probe는 실제 외부 API
