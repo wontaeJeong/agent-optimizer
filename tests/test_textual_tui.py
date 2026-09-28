@@ -622,6 +622,16 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
                 await pilot.pause()
                 self.assertFalse(entry.password)
 
+                entry.cursor_position = len("https://")
+                inserted_password = "inserted-password-933"
+                for character in f"user:{inserted_password}":
+                    await pilot.press(character)
+                    self.assertTrue(entry.password)
+                    self.assertNotIn(inserted_password, str(entry.render()))
+                await pilot.press("@")
+                await pilot.pause()
+                self.assertTrue(entry.password)
+
                 incomplete_authority = "https://user:input-password-931"
                 entry.value = incomplete_authority
                 await pilot.pause()

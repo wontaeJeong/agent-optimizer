@@ -379,13 +379,17 @@ class OptimizerApp(App[int]):
             "missing": _tr("미설정", "not set"),
         }[source]
 
-    def _endpoint_input_is_sensitive(self, value: str) -> bool:
+    def _endpoint_input_is_sensitive(self, value: str, cursor_position: int | None = None) -> bool:
         if "?" in value or "#" in value:
             return True
         scheme_end = value.find("://")
-        authority_and_path = value[scheme_end + 3:] if scheme_end >= 0 else value
-        authority = authority_and_path.split("/", 1)[0]
-        return "@" in authority or "/" not in authority_and_path
+        authority_start = scheme_end + 3 if scheme_end >= 0 else 0
+        authority_and_path = value[authority_start:]
+        authority = authority_and_path.split("/", 1)[0].split("?", 1)[0].split("#", 1)[0]
+        authority_end = authority_start + len(authority)
+        editing_authority = (cursor_position is not None and
+                             authority_start <= cursor_position <= authority_end)
+        return "@" in authority or "/" not in authority_and_path or editing_authority
 
     def _model_field_row(self, field: str) -> tuple:
         value, source = self._model_value(field)
@@ -759,7 +763,8 @@ class OptimizerApp(App[int]):
     def on_input_changed(self, event: Input.Changed) -> None:
         if self.page == "Model" and self.model_mode == "input" and \
                 self.model_field == "AGENT_OPT_MODEL_BASE_URL":
-            event.input.password = self._endpoint_input_is_sensitive(event.value)
+            event.input.password = self._endpoint_input_is_sensitive(
+                event.value, event.input.cursor_position)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         value = event.value.strip()
