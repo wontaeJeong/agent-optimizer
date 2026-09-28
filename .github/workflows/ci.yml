@@ -169,7 +169,7 @@ jobs:
       - name: 선택 모드의 전체 평가
         run: |
           uname -m
-          docker info --format '{{.Server.Os}}/{{.Server.Arch}}'
+          docker version --format '{{.Server.Os}}/{{.Server.Arch}}'
           .venv/bin/python examples/benchmarks/verify_verilog_eval_full.py --dataset '${{ matrix.dataset }}' --require-ubuntu-amd64
       - name: 정제된 결과만 보존
         if: always() && github.server_url == 'https://github.com'

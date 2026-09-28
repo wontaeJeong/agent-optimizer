@@ -85,8 +85,9 @@ def _start_ledger(out: Path, summary: dict) -> Path:
     return summary_path
 
 
-def _initial_summary(mode: str, remaining: int) -> dict:
-    return {"dataset": mode, "expected": 156, "attempted": 0,
+def _initial_summary(mode: str, remaining: int, scope: str = "full") -> dict:
+    return {"dataset": mode, "scope": scope, "expected": 1 if scope == "smoke" else 156,
+            "attempted": 0,
             "unattempted": remaining, "failed": 0, "cases": [], "status": "running",
             "host": {"os": None, "arch": None},
             "docker_daemon": {"os": None, "arch": None},
@@ -94,19 +95,23 @@ def _initial_summary(mode: str, remaining: int) -> dict:
 
 
 def verify_tasks(tasks: list[Task], evaluator, out: Path, mode: str, *, timeout: float = 90,
-                 _summary: dict | None = None, _finalize: bool = True) -> dict:
+                 _summary: dict | None = None, _finalize: bool = True,
+                 scope: str = "full") -> dict:
     """Visit all supplied tasks, recording only public IDs and categorized verdicts."""
     if not isinstance(mode, str) or mode not in _MODES:
         raise ConfigurationError("Unsupported Verilog-Eval dataset")
+    if scope not in {"full", "smoke"}:
+        raise ConfigurationError("Unsupported Verilog-Eval verification scope")
     out = Path(out)
     if _summary is None:
-        summary = _initial_summary(mode, len(tasks))
+        summary = _initial_summary(mode, len(tasks), scope)
         summary_path = _start_ledger(out, summary)
     else:
         summary_path = safe_path(out, "summary.json")
         safe_path(out, "summary.json.tmp")
-        initial = _initial_summary(mode, 156)
-        core = ("dataset", "expected", "attempted", "unattempted", "failed", "cases", "status")
+        initial = _initial_summary(mode, 1 if scope == "smoke" else 156, scope)
+        core = ("dataset", "scope", "expected", "attempted", "unattempted", "failed",
+                "cases", "status")
         if (summary_path.is_symlink() or not summary_path.is_file()
                 or (out / "summary.json.tmp").exists()
                 or json.loads(summary_path.read_text(encoding="utf-8")) != _summary
@@ -170,7 +175,7 @@ def verify_tasks(tasks: list[Task], evaluator, out: Path, mode: str, *, timeout:
 
 def _docker_daemon() -> dict:
     try:
-        result = subprocess.run(["docker", "info", "--format", "{{.Server.Os}}/{{.Server.Arch}}"],
+        result = subprocess.run(["docker", "version", "--format", "{{.Server.Os}}/{{.Server.Arch}}"],
                                 capture_output=True, text=True, timeout=20, shell=False)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise UnavailableError("Verilog-Eval Docker daemon is unavailable") from exc
@@ -234,22 +239,24 @@ class _SafeParser(argparse.ArgumentParser):
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = _SafeParser(description="고정 Verilog-Eval 전체 reference 검증")
+    parser = _SafeParser(description="고정 Verilog-Eval reference 검증")
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--require-ubuntu-amd64", action="store_true")
+    parser.add_argument("--smoke-one", action="store_true")
     try:
         args = parser.parse_args(argv)
     except SystemExit as exc:
         return int(exc.code)
-    if args.dataset not in _MODES:
+    if args.dataset not in _MODES or (args.smoke_one and args.require_ubuntu_amd64):
         try:
             parser.error("Unsupported Verilog-Eval dataset")
         except SystemExit:
             return 2
 
-    summary = _initial_summary(args.dataset, 156)
+    scope = "smoke" if args.smoke_one else "full"
+    summary = _initial_summary(args.dataset, 1 if args.smoke_one else 156, scope)
     try:
-        out = safe_path(ROOT, f"runs/verilog-eval-full/{args.dataset}")
+        out = safe_path(ROOT, f"runs/verilog-eval-{scope}/{args.dataset}")
         ledger = _start_ledger(out, summary)
     except (OSError, ConfigurationError):
         print("infrastructure_error: Verilog-Eval ledger unavailable")
@@ -274,8 +281,10 @@ def main(argv: list[str] | None = None) -> int:
         provider = registry.resolve("datasets", args.dataset)()
         prepared = provider.prepare(cache)
         tasks, evaluator = _prepared_tasks(prepared, provider, cache, args.dataset, summary, ledger)
-        summary = verify_tasks(tasks, evaluator, out, args.dataset, _summary=summary,
-                               _finalize=False)
+        selected = ([next(task for task in tasks if task.id == "Prob001_zero")]
+                    if args.smoke_one else tasks)
+        summary = verify_tasks(selected, evaluator, out, args.dataset, _summary=summary,
+                               _finalize=False, scope=scope)
         wrong = next(task for task in tasks if task.id == "Prob001_zero")
         output = safe_path(out, "sanity/Prob001_zero/output")
         candidate = safe_path(output, "solution.sv")
@@ -290,8 +299,8 @@ def main(argv: list[str] | None = None) -> int:
             verdict = ("infrastructure_error", None, "infrastructure_error")
         summary["wrong"] = {"id": "Prob001_zero", "status": verdict[0],
                             "passed": verdict[1], "reason": verdict[2]}
-        summary["status"] = ("passed" if summary["attempted"] == 156
-                             and summary["failed"] == 0 and verdict[2] == "mismatch"
+        summary["status"] = ("passed" if summary["attempted"] == summary["expected"]
+                              and summary["failed"] == 0 and verdict[2] == "mismatch"
                              else "failed")
         write_json(ledger, summary)
     except Exception:
@@ -301,7 +310,7 @@ def main(argv: list[str] | None = None) -> int:
     if summary["status"] != "passed":
         print("infrastructure_error: Verilog-Eval verification failed")
         return 1
-    print("Verilog-Eval: 156 reference passed; wrong mismatch confirmed")
+    print(f"Verilog-Eval {scope}: {summary['attempted']} reference passed; wrong mismatch confirmed")
     return 0
 
 
