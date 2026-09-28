@@ -2,7 +2,7 @@
 
 **2026-09-28 CLI 선택형 경로:** `catalog list/show`는 등록 항목의 설명을 읽기 전용으로
 조회하고, `init --agent-preset ace-rtl --harness-profile ace-opencode --optimizer gepa|meta_harness
---dataset cvdp --yes`는 독립된 run-owned 설정을 생성합니다. `tui` 5번도 네 항목을 순서대로
+--dataset cvdp --yes`는 독립된 run-owned 설정을 생성합니다. `tui` 첫 화면도 네 항목을 순서대로
 선택하고 같은 설정 생성 함수를 사용합니다. `init --yes`는 선택 데이터셋과 ACE 고정 자산을 준비하고
 `prepare EXPERIMENT`는 준비된 자산을 검증·재사용합니다. GEPA의 후보 role-guidance는
 기존 ACE adapter의 prompt에, Meta-Harness의 후보 `.py`는 각 trial의 공개 과제

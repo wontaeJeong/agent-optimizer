@@ -27,7 +27,7 @@ make doctor-core
 
 ### ACE 프리셋: TUI 또는 CLI
 
-TTY에서 `.venv/bin/agent-opt tui`의 **5번**을 골라 **ACE-RTL → OpenCode → GEPA 또는 Meta-Harness → CVDP**를 선택합니다. 아래 CLI는 GEPA에 대해 같은 네 선택과 `experiment.toml`을 만듭니다. 먼저 Docker·고정 자산 및 **별도 역할의 Agent/Optimizer 모델 설정**을 준비하세요. 상세 준비·키 조작·활성 수정 파일과 예산은 [프리셋 실행 가이드](https://wontaejeong.github.io/agent-optimizer/getting-started/presets/)에 있습니다.
+TTY에서 `.venv/bin/agent-opt tui`를 실행하면 **Agent → Harness → Optimizer → Dataset** 프리셋 선택부터 시작합니다. **ACE-RTL → OpenCode → GEPA 또는 Meta-Harness → CVDP**를 고르세요. 첫 화면의 `Esc`로 기존 번호 메뉴를 열 수 있습니다. 아래 CLI는 GEPA에 대해 같은 네 선택과 `experiment.toml`을 만듭니다. 먼저 Docker·고정 자산 및 **별도 역할의 Agent/Optimizer 모델 설정**을 준비하세요. 상세 준비·키 조작·활성 수정 파일과 예산은 [프리셋 실행 가이드](https://wontaejeong.github.io/agent-optimizer/getting-started/presets/)에 있습니다.
 
 ```bash
 .venv/bin/agent-opt catalog list --kind harness
@@ -144,11 +144,11 @@ train 자료만 후보 수정 근거로 사용하고, test는 선택을 고정�
 .venv/bin/agent-opt run runs/configs/my-fixture/experiment.toml
 ```
 
-실제 Agent는 `--agent <로컬 경로>` 또는 `--agent <Git URL> --revision <전체 commit>`을 연결하고 실행/평가 방식과 `--editable`을 지정합니다. `--command`는 `command` 하네스 전용 argv 문자열이며 셸 확장·파이프는 실행하지 않습니다. 비대화형 `init`에는 `--dataset`, `--optimizer`, `--yes`가 필요합니다. TTY에서는 `.venv/bin/agent-opt init`으로 새 설정만 만들거나 `.venv/bin/agent-opt tui`의 **5번 프리셋 선택형 새 최적화**를 사용합니다. 기존 1번(설정 실행), 2번(고급 사용자 정의 설정), 3번(고정 `simple_feedback` ACE 예제), 4번(이전 보고서)도 유지됩니다. 1번 목록은 `runs/configs/`에 생성된 설정만 표시합니다.
+실제 Agent는 `--agent <로컬 경로>` 또는 `--agent <Git URL> --revision <전체 commit>`을 연결하고 실행/평가 방식과 `--editable`을 지정합니다. `--command`는 `command` 하네스 전용 argv 문자열이며 셸 확장·파이프는 실행하지 않습니다. 비대화형 `init`에는 `--dataset`, `--optimizer`, `--yes`가 필요합니다. TTY에서는 `.venv/bin/agent-opt init`으로 새 설정만 만들거나 `.venv/bin/agent-opt tui`에서 **프리셋 선택형 새 최적화**를 바로 시작합니다. 첫 화면에서 `Esc`로 번호 메뉴를 열면 기존 1번(설정 실행), 2번(고급 사용자 정의 설정), 3번(고정 `simple_feedback` ACE 예제), 4번(이전 보고서), 5번(프리셋 재진입)을 사용할 수 있습니다. 1번 목록은 `runs/configs/`에 생성된 설정만 표시합니다.
 
 ### 프리셋 선택과 기존 ACE 예제의 차이
 
-TUI **5번**/위 CLI의 GEPA는 후보 `role-guidance.md`를 OpenCode prompt에, Meta-Harness는 후보 `agent_opt_scaffold.py`를 공개 과제 선행 실행에 사용합니다. 기본은 각 3회 반복·최대 9 trial/5760초·`final_test=false`입니다. [2026-09-28 기존 실환경 기록](docs/verification.md#2026-09-28-선택형-gepameta-harness-실모델공식-cvdp-후속-검증)은 **각각 별도 1회 반복·실제 4/최대 5 trial**의 공식 CVDP raw 평가와 validation 동점에 따른 baseline 선택입니다. 기본 예산 실행이나 성능 향상 입증이 아닙니다. 설치형 wheel의 고정 예제 commit은 이 기록의 GPT-5 plugin 후속 변경을 자동 반영하지 않습니다.
+TUI 첫 프리셋 화면/위 CLI의 GEPA는 후보 `role-guidance.md`를 OpenCode prompt에, Meta-Harness는 후보 `agent_opt_scaffold.py`를 공개 과제 선행 실행에 사용합니다. 기본은 각 3회 반복·최대 9 trial/5760초·`final_test=false`입니다. [2026-09-28 기존 실환경 기록](docs/verification.md#2026-09-28-선택형-gepameta-harness-실모델공식-cvdp-후속-검증)은 **각각 별도 1회 반복·실제 4/최대 5 trial**의 공식 CVDP raw 평가와 validation 동점에 따른 baseline 선택입니다. 기본 예산 실행이나 성능 향상 입증이 아닙니다. 설치형 wheel의 고정 예제 commit은 이 기록의 GPT-5 plugin 후속 변경을 자동 반영하지 않습니다.
 
 TUI **3번** 또는 `init --profile ace-rtl --workspace PATH`는 기존 고정 `simple_feedback` 예제이며 위 선택형 설정과 다릅니다. TUI의 합성 `rtl-solo`/`rtl-team → Fixture → Baseline`/`FileVariants → sample_text`도 ACE 실평가와 다릅니다. 선택 화면 조작과 프로필별 준비·결과 해석은 [프리셋 가이드](https://wontaejeong.github.io/agent-optimizer/getting-started/presets/)를 참고하세요.
 

@@ -32,6 +32,10 @@ class CLIExperienceTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.agent = self.root / "examples/minimal/agents/solo"
         self.data = self.root / "examples/minimal/tasks.json"
+        # Legacy numbered-menu cases enter it by escaping the initial preset screen.
+        preset = patch("agent_optimizer.preset_tui.select_four", return_value=None)
+        preset.start()
+        self.addCleanup(preset.stop)
 
     def command_harness_choice(self):
         return str(sorted(Registry().factories["harnesses"]).index("command") + 1)

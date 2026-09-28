@@ -168,6 +168,7 @@ class TerminalLanguageTests(unittest.TestCase):
                                   (["1", EOFError()], "Existing experiment.toml path:")):
             with self.subTest(answers=answers), patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}), \
                     patch("sys.stdin.isatty", return_value=True), \
+                    patch("agent_optimizer.preset_tui.select_four", return_value=None), \
                     patch("builtins.input", side_effect=answers):
                 output = Terminal()
                 with contextlib.redirect_stderr(output):
@@ -188,6 +189,7 @@ class TerminalLanguageTests(unittest.TestCase):
             output, terminal = io.StringIO(), io.StringIO()
             with patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}), \
                     patch("sys.stdin.isatty", return_value=True), \
+                    patch("agent_optimizer.preset_tui.select_four", return_value=None), \
                     patch.object(terminal, "isatty", return_value=True), \
                     patch("builtins.input", side_effect=["4", "1"]), \
                     contextlib.redirect_stdout(output), contextlib.redirect_stderr(terminal):

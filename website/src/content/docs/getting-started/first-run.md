@@ -55,6 +55,6 @@ make doctor-core
 
 ## 다음 경로: ACE 프리셋 또는 내 Agent
 
-Docker·고정 자산과 별도의 Agent/Optimizer 모델을 준비했다면 [ACE 프리셋 TUI/CLI 가이드](/agent-optimizer/getting-started/presets/)로 이동하세요. TUI **5번**에서 `ACE-RTL → OpenCode → GEPA 또는 Meta-Harness → CVDP`를 고르거나 같은 네 선택을 CLI로 지정하는 실환경 경로입니다. TUI **3번**의 고정 `simple_feedback` ACE 예제와는 다른 설정입니다. 모델·Docker 없이 선택 화면을 둘러볼 수도 있지만 ACE의 실제 실행에는 준비가 필요합니다.
+Docker·고정 자산과 별도의 Agent/Optimizer 모델을 준비했다면 [ACE 프리셋 TUI/CLI 가이드](/agent-optimizer/getting-started/presets/)로 이동하세요. TUI는 프리셋 선택 화면에서 바로 시작하며 `ACE-RTL → OpenCode → GEPA 또는 Meta-Harness → CVDP`를 고르거나 같은 네 선택을 CLI로 지정하는 실환경 경로입니다. 첫 화면에서 `Esc`로 번호 메뉴에 들어가면 3번의 고정 `simple_feedback` ACE 예제를 선택할 수 있습니다. 모델·Docker 없이 선택 화면을 둘러볼 수도 있지만 ACE의 실제 실행에는 준비가 필요합니다.
 
 자신의 소스·Harness·데이터셋·별도 평가기를 연결하려면 [실험 구성](/agent-optimizer/guides/experiment/)으로 이동하세요. 위 7-trial 캡처와 2-trial 직접 생성은 모두 합성 경로입니다.

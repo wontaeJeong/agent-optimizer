@@ -65,7 +65,7 @@ Dataset provider의 `describe()`는 이름·과제 형태·평가기를 기술�
 `doctor(cache)`는 파일/해시/도구를 읽기 전용으로 확인하고 `id`/`area`/`status`/`message`/`remedy` 체크를 반환합니다.
 private 채점 자료는 Agent workspace나 공개 과제 파일에 넣지 않습니다.
 CLI 목록·wizard는 데이터셋을 추천하지 않고, 사용자가 선택한 provider의 `prepare`를 호출합니다.
-TUI의 5번 기본 선택 화면은 실제 지원 조합(`ACE-RTL/OpenCode/CVDP`, 합성 `rtl-solo`·`rtl-team/Fixture/sample_text`)을
+TUI 시작 시 바로 열리는 기본 선택 화면은 실제 지원 조합(`ACE-RTL/OpenCode/CVDP`, 합성 `rtl-solo`·`rtl-team/Fixture/sample_text`)을
 한 종류씩 확정하고 `registry.py`의 구현 ID와 manifest/profile의 ID를 구분합니다. 팀의 새 구현은 먼저
 위 `PROJECT_COMPONENTS`에 등록하고 기존 2번 고급 설정/`init` 또는 기존 experiment.toml에서 검증하세요.
 기본 선택 화면에 새로운 **실행 가능** 조합을 노출하려면 `preset_tui.py:select_four`의 호환성·설명을

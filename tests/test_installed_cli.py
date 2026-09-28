@@ -30,12 +30,26 @@ def check_tui_menu(cli: Path, project: Path, environment: dict) -> None:
     master, slave = pty.openpty()
     try:
         child = subprocess.Popen([str(cli), "tui", "--project-root", str(project)],
-                                 cwd=project, env=environment, stdin=slave, stderr=slave,
-                                 stdout=subprocess.PIPE, text=True)
+                                  cwd=project, env=environment, stdin=slave, stderr=slave,
+                                  stdout=subprocess.PIPE, text=True)
+        chunks = []
+        while "Agent Optimizer · Agent".encode() not in b"".join(chunks):
+            if not select.select([master], [], [], 30)[0]:
+                raise AssertionError("설치형 TUI 프리셋 시작 화면을 기다리다 제한 시간을 넘겼습니다")
+            chunks.append(os.read(master, 4096))
+        deadline = time.monotonic() + 5
+        while termios.tcgetattr(slave)[3] & termios.ICANON:
+            if time.monotonic() > deadline:
+                raise AssertionError("설치형 TUI가 키 입력을 준비하지 않았습니다")
+            time.sleep(0.005)
+        os.write(master, b"\x1b")
+        while "선택 [5/1/2/3/4]".encode() not in b"".join(chunks):
+            if not select.select([master], [], [], 30)[0]:
+                raise AssertionError("설치형 TUI 이전 메뉴를 기다리다 제한 시간을 넘겼습니다")
+            chunks.append(os.read(master, 4096))
+        os.write(master, f"3\n{declined}\nn\n".encode())
         os.close(slave)
         slave = -1
-        os.write(master, f"3\n{declined}\nn\n".encode())
-        chunks = []
         while True:
             readable, _, _ = select.select([master], [], [], 30)
             if not readable:
@@ -85,8 +99,6 @@ def check_preset_cancel(cli: Path, project: Path, environment: dict) -> None:
                                          f"rc={child.poll()}, 화면={transcript.decode(errors='replace')[-1200:]}")
                 time.sleep(0.005)
 
-        until("선택 [5/1/2/3/4]")
-        os.write(master, b"5\n")
         until("Agent Optimizer · Agent")
         await_raw()
         os.write(master, b"\r")

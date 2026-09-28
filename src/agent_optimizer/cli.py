@@ -148,6 +148,19 @@ def _tui_model_environment(spec: dict, env: dict[str, str] | None = None) -> dic
                 profile["adapter"] == "ace_opencode" and spec.get("preset_selection")):
             selector = profile.get("model_env", "AGENT_OPT_MODEL")
             staged = ensure_model_selector(staged, selector)
+            if profile["adapter"] == "ace_opencode" and spec.get("preset_selection") and "/" not in staged[selector]:
+                model_id = staged[selector]
+                if any(char.isspace() for char in model_id):
+                    raise ConfigurationError(f"{selector}에 공백 없는 모델 ID를 입력하세요")
+                if staged.get("AGENT_OPT_MODEL_ID") and staged["AGENT_OPT_MODEL_ID"] != model_id:
+                    print(human("compatible OpenCode 모델은 Optimizer 모델 ID와 같아야 합니다. "
+                                f"AGENT_OPT_MODEL_ID를 {model_id}(으)로 바꿀까요? [y/N]: "),
+                          end="", file=sys.stderr, flush=True)
+                    if input().strip().lower() not in {"y", "yes"}:
+                        raise ConfigurationError("ACE compatible 모델 선택자는 AGENT_OPT_MODEL_ID와 일치해야 합니다")
+                staged["AGENT_OPT_MODEL_ID"] = model_id
+                staged[selector] = "compatible/" + model_id
+                print(f"{selector}: {staged[selector]} (compatible API)", file=sys.stderr)
             if (profile["adapter"] == "ace_opencode" and spec.get("preset_selection")
                     and staged[selector].startswith("compatible/") and not api):
                 staged = ensure_model_api(staged)
@@ -319,11 +332,15 @@ def _run_ace_selection(project_root: Path, optimizer: str) -> int:
         print(human("실험 준비를 취소했습니다"), file=sys.stderr)
         return 2
     from agent_optimizer.preset_tui import prepare_ace_selection, run_ace_selection
+    from agent_optimizer.model_input import session_environment
+    environment = _tui_model_environment({"_profiles": [{"adapter": "ace_opencode",
+                                                     "model_env": "AGENT_OPT_MODEL"}],
+                                          "preset_selection": True,
+                                          "stages": [] if optimizer == "baseline" else
+                                          [{"optimizer": optimizer}]})
     prepare_ace_selection(root)
     experiment = write_ace_selection(root, optimizer)
-    spec = load_experiment(experiment)
-    from agent_optimizer.model_input import session_environment
-    with session_environment(_tui_model_environment(spec)):
+    with session_environment(environment):
         return run_ace_selection(experiment)
 
 
@@ -813,10 +830,15 @@ def _dispatch(args):
                                          _tr("자동화에는 agent-opt init과 agent-opt run을 사용하세요",
                                              "Use agent-opt init and agent-opt run for noninteractive automation"))
             try:
+                start_with_preset = True
                 while True:
-                    print("\n" + human("실험 시작: 5. 프리셋 선택형 새 최적화  1. 기존 실험 실행  2. 고급 새 실험 만들고 실행  3. ACE-RTL + CVDP 예제  4. 이전 실행 보기"), file=sys.stderr)
-                    print(human("선택 [5/1/2/3/4]: "), end="", file=sys.stderr, flush=True)
-                    choice = input().strip()
+                    if start_with_preset:
+                        choice = "5"
+                        start_with_preset = False
+                    else:
+                        print("\n" + human("실험 시작: 5. 프리셋 선택형 새 최적화  1. 기존 실험 실행  2. 고급 새 실험 만들고 실행  3. ACE-RTL + CVDP 예제  4. 이전 실행 보기"), file=sys.stderr)
+                        print(human("선택 [5/1/2/3/4]: "), end="", file=sys.stderr, flush=True)
+                        choice = input().strip()
                     if choice == "5":
                         from agent_optimizer.preset_tui import select_four
                         previous = None
@@ -825,7 +847,7 @@ def _dispatch(args):
                                                     start_page=3) if previous else
                                         select_four(args.project_root.absolute()))
                             if selected is None:
-                                return 2
+                                break
                             if selected[0] == "custom":
                                 choice = "2"
                             elif selected[0] == "existing":
@@ -837,6 +859,8 @@ def _dispatch(args):
                                 if result != -1:
                                     return result
                                 previous = selected
+                    if choice == "5":
+                        continue
                     if choice != "4":
                         break
                     history = _tui_run_history(args.project_root)

@@ -11,7 +11,7 @@ Agent는 수정할 **원본 소스**, Harness는 후보를 실행할 **프로필
 후보를 만드는 **알고리즘**, Dataset은 공개 과제와 별도 **평가기**입니다.
 `.venv/bin/agent-opt catalog list --kind agent`에서 목록을 보고, `--kind`를
 `harness`, `optimizer`, `dataset`으로 바꿔 살펴볼 수 있습니다. `catalog show optimizer meta_harness --json`으로 제약을 확인합니다.
-등록/구현 상태는 외부 모델·Docker 성공을 뜻하지 않습니다. `catalog`는 **네 구성요소의 선택 설명/준비 사유** 조회이고, `.venv/bin/agent-opt datasets list`는 **실제 데이터셋 목록**입니다. TUI 5번의 검증된 단일 ACE 조합과 같은 설정을 만드는 CLI 명령, GEPA/Meta의 수정 파일·예산·실환경 근거는 [ACE 프리셋 TUI/CLI](/agent-optimizer/getting-started/presets/)에 모았습니다.
+등록/구현 상태는 외부 모델·Docker 성공을 뜻하지 않습니다. `catalog`는 **네 구성요소의 선택 설명/준비 사유** 조회이고, `.venv/bin/agent-opt datasets list`는 **실제 데이터셋 목록**입니다. TUI에서 바로 시작하는 검증된 단일 ACE 조합과 같은 설정을 만드는 CLI 명령, GEPA/Meta의 수정 파일·예산·실환경 근거는 [ACE 프리셋 TUI/CLI](/agent-optimizer/getting-started/presets/)에 모았습니다.
 
 | 설정 경로 | 입력과 결과 |
 |---|---|
@@ -61,4 +61,4 @@ Agent는 수정할 **원본 소스**, Harness는 후보를 실행할 **프로필
 
 **예상 결과:** `doctor --plan`은 선언과 선택 자산을 읽기 전용으로 점검하고 JSON에 `"scope": "plan"`과 준비 여부를 표시합니다. 이는 실제 모델 호출·채점 성공과 별개입니다. `run`의 `run_dir`에서 [결과 읽기](/agent-optimizer/getting-started/results/) 순서로 보고서를 확인하세요. 새 데이터셋은 선택 자산의 준비 상태를 따로 확인합니다. 시간과 횟수는 `init`의 `--max-wall-time-seconds`, `--max-trials`, `--trial-timeout-seconds`로 지정합니다.
 
-TTY에서는 `.venv/bin/agent-opt init`으로 설정만 만들거나 `.venv/bin/agent-opt tui` 1번에서 최근 생성 설정 또는 직접 경로를 선택할 수 있습니다. 2번은 새 실험, 3번은 기존 ACE 예제, 4번은 이전 결과 경로, 5번은 네 프리셋 선택입니다. 팀 구현을 추가하려면 [컴포넌트 연결](/agent-optimizer/developer/components/)로 이동하세요.
+TTY에서는 `.venv/bin/agent-opt init`으로 설정만 만들거나 `.venv/bin/agent-opt tui`의 첫 화면에서 네 프리셋을 선택할 수 있습니다. 첫 화면에서 `Esc`로 번호 메뉴를 열면 1번은 최근 생성 설정 또는 직접 경로, 2번은 새 실험, 3번은 기존 ACE 예제, 4번은 이전 결과 경로, 5번은 프리셋 재진입입니다. 팀 구현을 추가하려면 [컴포넌트 연결](/agent-optimizer/developer/components/)로 이동하세요.
