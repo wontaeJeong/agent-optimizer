@@ -30,20 +30,27 @@ def _tr(korean: str, english: str) -> str:
 
 def preset_options(root: Path, page: str, agent: str = "ace-rtl") -> list[tuple]:
     """프리셋의 호환성·준비 조건을 UI와 분리해 한 곳에서 제공한다."""
-    agents = [("ACE-RTL", _tr("고정 Git 소스의 ACE 스킬 프로필 · 준비 후 OpenCode 실행",
-                               "Pinned Git ACE skill profile · OpenCode after preparation"), True,
+    agents = [("ACE-RTL", _tr(
+        "RTL 문제 해결에 사용하는 외부 ACE Agent입니다.\n\nSource\n  pinned Git revision\n\n"
+        "Used with\n  OpenCode harness\n\nPreparation\n  Git source·CVDP 자산·Docker 준비가 필요할 수 있습니다",
+        "External ACE Agent for RTL problem solving.\n\nSource\n  pinned Git revision\n\n"
+        "Used with\n  OpenCode harness\n\nPreparation\n  Git source, CVDP assets and Docker may be required"), True,
                _tr("자산 준비 필요", "Assets to prepare"))]
     for path in sorted((root / "examples").glob("*/agent.toml")):
         registered_agent = load_agent(path)
-        agents.append((registered_agent.id, _tr("등록된 Agent입니다. 전용 설정을 기존 실험 경로에서 선택하세요",
-                                      "Registered Agent; select its dedicated experiment in existing runs"), False,
-                       _tr("이번 조합과 호환 불가", "Not compatible")))
+        agents.append((registered_agent.id, _tr(
+            "등록된 Agent입니다. 이번 preset과 연결된 실행 조합은 확인되지 않았습니다.",
+            "Registered Agent; no execution combination is verified for this preset."), False,
+                        _tr("이번 조합과 호환 불가", "Not compatible")))
     for path in (root / "examples/minimal/solo.toml", root / "examples/minimal/team.toml"):
         if path.is_file():
             registered_agent = load_agent(path)
-            agents.append((registered_agent.id, _tr("합성 fixture Agent · sample_text 데이터셋과 조합",
-                                          "Synthetic fixture Agent · compatible with sample_text"), True,
-                           _tr("구현됨", "Implemented")))
+            agents.append((registered_agent.id, _tr(
+                "합성 예제용 Agent입니다.\n\nSource\n  local fixture\n\n"
+                "Used with\n  Fixture harness\n\nDataset\n  sample_text",
+                "Synthetic fixture Agent.\n\nSource\n  local fixture\n\n"
+                "Used with\n  Fixture harness\n\nDataset\n  sample_text"), True,
+                            _tr("구현됨", "Implemented")))
     agents += [(_tr("내 Agent 연결하기", "Connect my Agent"),
                 _tr("로컬/Git Agent와 editable을 입력하는 고급 설정", "Advanced local/Git Agent and editable configuration"), True,
                 _tr("입력/설정 필요", "Configuration needed")),
@@ -52,9 +59,24 @@ def preset_options(root: Path, page: str, agent: str = "ace-rtl") -> list[tuple]
                 _tr("입력/설정 필요", "Configuration needed"))]
     registry = Registry()
     optimizer_options = []
-    for name, description in (("gepa", _tr("role-guidance.md 텍스트 수정 · Optimizer 모델 필요", "Edit role-guidance.md · optimizer model required")),
-                              ("meta_harness", _tr(f"후보별 {ACE_SCAFFOLD} 실행 · Optimizer 모델 필요", f"Execute candidate {ACE_SCAFFOLD} · optimizer model required")),
-                              ("baseline", _tr("변경 없는 기준 측정 · Optimizer 모델 호출 없음", "Unchanged baseline · no optimizer model call"))):
+    for name, description in (("gepa", _tr(
+                                  "평가 결과를 이용해 Agent guidance를 반복적으로 개선합니다.\n\n"
+                                  "수정 대상\n  role-guidance.md\n\n필요 조건\n  train / validation 데이터\n  Model API\n\n"
+                                  "평가 방식\n  후보 생성 → validation → 선택",
+                                  "Iteratively improves Agent guidance using evaluation feedback.\n\n"
+                                  "What it changes\n  role-guidance.md\n\nRequires\n  train / validation tasks\n  Model API\n\n"
+                                  "Evaluation\n  candidate → validation → selection")),
+                              ("meta_harness", _tr(
+                                  f"후보마다 Python scaffold를 생성·실행합니다.\n\n수정 대상\n  {ACE_SCAFFOLD}\n\n"
+                                  "필요 조건\n  train / validation 데이터\n  Model API\n\n평가 방식\n  scaffold 후보 → 실행 → validation 선택",
+                                  f"Generates and runs a Python scaffold for each candidate.\n\n"
+                                  f"What it changes\n  {ACE_SCAFFOLD}\n\nRequires\n  train / validation tasks\n  Model API\n\n"
+                                  "Evaluation\n  scaffold candidate → execution → validation selection")),
+                              ("baseline", _tr(
+                                  "수정 없이 기준 평가만 실행합니다.\n\n수정 대상\n  없음\n\n필요 조건\n  validation 데이터\n\n"
+                                  "평가 방식\n  baseline 측정",
+                                  "Runs a baseline evaluation without edits.\n\nWhat it changes\n  nothing\n\n"
+                                  "Requires\n  validation tasks\n\nEvaluation\n  baseline measurement"))):
         if name in registry.factories["optimizers"]:
             optimizer_options.append(({"gepa": "GEPA", "meta_harness": "Meta-Harness",
                                        "baseline": "Baseline"}[name], description, True,
@@ -69,8 +91,11 @@ def preset_options(root: Path, page: str, agent: str = "ace-rtl") -> list[tuple]
             optimizer_options.append((name, _tr("프로젝트 등록 팀 Optimizer · 이번 프리셋의 옵션/수정 파일은 고급 설정에서 지정",
                                                 "Project-registered team optimizer; configure its options/editable file in advanced setup"), False,
                                       _tr("입력/설정 필요", "Configuration needed")))
-    dataset_options = [("CVDP", _tr("고정 공개 train 1·validation 1 · 공식 evaluator=cvdp · 자산 준비 필요",
-                                      "Pinned public train 1 / validation 1 · official evaluator=cvdp · preparation needed"), True,
+    dataset_options = [("CVDP", _tr(
+        "공식 RTL benchmark/evaluator를 사용합니다.\n\nTasks\n  train 1\n  validation 1\n\n"
+        "Requires\n  준비된 CVDP assets",
+        "Uses the official RTL benchmark and evaluator.\n\nTasks\n  train 1\n  validation 1\n\n"
+        "Requires\n  prepared CVDP assets"), True,
                         _tr("자산 준비 필요", "Assets to prepare"))]
     dataset_options.extend((name, _tr("ACE OpenCode 과제/평가기 호환성 미확인 · 기존 실험 사용",
                                       "ACE OpenCode task/evaluator compatibility not established; use existing experiment"), False,
@@ -81,14 +106,20 @@ def preset_options(root: Path, page: str, agent: str = "ace-rtl") -> list[tuple]
                                           "Project-registered dataset; ACE output/evaluator compatibility not verified"), False,
                                 _tr("이번 조합과 호환 불가", "Not compatible"))
                                for name in sorted(PROJECT_COMPONENTS["datasets"]) if name not in DATASETS)
-    ace_harness = [("OpenCode", _tr("ACE 프로필 ace-opencode · adapter ace_opencode · Docker/모델 필요",
-                                     "ACE profile ace-opencode · adapter ace_opencode · Docker/model required"), True,
+    ace_harness = [("OpenCode", _tr(
+        "선택한 ACE Agent를 OpenCode에서 실행합니다.\n\nRuntime\n  Docker\n\n"
+        "Requires\n  OpenCode model selector\n  Docker",
+        "Runs the selected ACE Agent through OpenCode.\n\nRuntime\n  Docker\n\n"
+        "Requires\n  OpenCode-compatible model selector\n  Docker"), True,
                     _tr("자산 준비 필요", "Assets to prepare")),
                    ("Claude Code", _tr("ACE 프로필 구현됨 · 선택형 조합은 기존 실험에서 지정",
                                        "ACE profile implemented · select it via existing experiment"), False,
                     _tr("이번 조합과 호환 불가", "Not compatible"))]
-    fixture_harness = [("Fixture", _tr("합성 과제 전용 · 모델·Docker 필요 없음",
-                                           "Synthetic tasks only · no model/Docker required"), True,
+    fixture_harness = [("Fixture", _tr(
+                           "합성 fixture 과제만 실행합니다.\n\nRuntime\n  local fixture\n\n"
+                           "Requires\n  no model or Docker",
+                           "Runs synthetic fixture tasks only.\n\nRuntime\n  local fixture\n\n"
+                           "Requires\n  no model or Docker"), True,
                         _tr("구현됨", "Implemented")),
                        ("OpenCode", _tr("합성 과제용 OpenCode 프리셋 미검증 · 기존 실험 사용",
                                            "No verified OpenCode fixture preset; use existing experiment"), False,
@@ -138,8 +169,11 @@ def preset_options(root: Path, page: str, agent: str = "ace-rtl") -> list[tuple]
     pages = {"Agent": agents,
              "Harness": [*(fixture_harness if fixture else ace_harness), own_harness, existing_config],
              "Optimizer": fixture_optimizers if fixture else optimizer_options,
-             "Dataset": [("sample_text", _tr("내장 공개 합성 과제 · evaluator=sample_eval · 실제 RTL/LLM 점수 아님",
-                                                "Built-in synthetic tasks · evaluator=sample_eval · not RTL/LLM performance"), True,
+             "Dataset": [("sample_text", _tr(
+                            "내장 합성 과제를 sample_eval로 채점합니다. 실제 RTL/LLM 점수가 아닙니다.\n\n"
+                            "Tasks\n  synthetic train / validation / test\n\nRequires\n  없음",
+                            "Scores built-in synthetic tasks with sample_eval; not RTL/LLM performance.\n\n"
+                            "Tasks\n  synthetic train / validation / test\n\nRequires\n  none"), True,
                           _tr("구현됨", "Implemented")),
                           ("CVDP", _tr("fixture 출력은 공식 CVDP 채점 형식과 호환되지 않음",
                                             "Fixture outputs are incompatible with official CVDP scoring"), False,

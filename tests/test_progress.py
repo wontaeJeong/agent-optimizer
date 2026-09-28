@@ -12,6 +12,7 @@ from agent_optimizer.cli import main
 from agent_optimizer.contracts import ConfigurationError, Evaluation, OptimizationResult
 from agent_optimizer.registry import Registry
 from agent_optimizer.runner import run_experiment
+from agent_optimizer import terminal_report
 from agent_optimizer.terminal_report import PreparationStatus, ProgressDisplay, SessionProgress
 from support import ROOT, module, test_project
 
@@ -25,6 +26,31 @@ class ProgressTests(unittest.TestCase):
         self.spec = load_experiment(self.root / "examples/minimal/experiment.toml")
         self.spec["_agents"] = self.spec["_agents"][:1]
         self.spec.update(stages=[], final_stages=["baseline"], final_test=False)
+
+    def test_shared_progress_state_tracks_activity_and_completed_trial_budget(self):
+        state_type = getattr(terminal_report, "ProgressState", None)
+        self.assertIsNotNone(state_type)
+        state = state_type(max_trials=9)
+        self.assertTrue(state.update({"event": "trial_started", "stage_id": "gepa",
+                                      "task_id": "prob_001", "phase": "workspace"}))
+        self.assertEqual((state.stage, state.task, state.phase),
+                         ("gepa", "prob_001", "workspace"))
+        self.assertTrue(state.update({"event": "optimizer_iteration_started", "stage_id": "gepa",
+                                      "iteration": 2, "total": 3}))
+        self.assertEqual((state.iteration, state.total), (2, 3))
+        self.assertTrue(state.update({"event": "trial_completed", "stage_id": "gepa",
+                                      "task_id": "prob_001", "phase": "evaluation"}))
+        self.assertEqual((state.completed, state.remaining), (1, 8))
+        self.assertFalse(state.update({"event": "optimizer_usage"}))
+
+    def test_shared_progress_formatter_ignores_raw_unrecognized_events(self):
+        formatter = getattr(terminal_report, "format_progress_event", None)
+        self.assertTrue(callable(formatter))
+        text = formatter({"event": "trial_completed", "timestamp": "2026-09-29T10:00:00Z",
+                          "stage_id": "gepa", "task_id": "prob_001", "phase": "evaluation",
+                          "metrics": {"task_wall_time_seconds": 1.2}})
+        self.assertIn("prob_001", text)
+        self.assertIsNone(formatter({"event": "optimizer_usage", "api_key": "never-render"}))
 
     def test_trial_phase_start_is_durable_before_completion(self):
         root, summary = run_experiment(self.spec, Registry(), self.root / "runs")

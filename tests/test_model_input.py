@@ -6,10 +6,18 @@ from contextlib import redirect_stderr, redirect_stdout
 from unittest.mock import patch
 
 from agent_optimizer.contracts import ConfigurationError
+from agent_optimizer import model_input
 from agent_optimizer.model_input import ensure_model_api, session_environment
 
 
 class ModelInputTests(unittest.TestCase):
+    def test_model_input_uses_shared_model_id_default(self):
+        with patch.object(model_input, "DEFAULT_MODEL_ID", "shared-default", create=True), \
+                patch("builtins.input", side_effect=["https://example.invalid/v1", ""]), \
+                patch("getpass.getpass", return_value="fixture-key"):
+            staged = ensure_model_api({})
+        self.assertEqual(staged["AGENT_OPT_MODEL_ID"], "shared-default")
+
     def test_hidden_input_failure_does_not_echo_or_publish_partial_settings(self):
         values = {}
         output, errors = io.StringIO(), io.StringIO()

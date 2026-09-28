@@ -35,9 +35,9 @@ Mac 또는 Linux에서 Git, Python 3.11+, uv, Docker Engine/Compose(맥은 공�
 .venv/bin/agent-opt tui
 ```
 
-시작 화면에서 Agent **ACE-RTL** → Harness **OpenCode** → Optimizer **GEPA** 또는 **Meta-Harness** → Dataset **CVDP** 순서로 고릅니다. `↑/↓`로 초점과 설명을 보고 `Enter`로 확정하며 `Esc`로 이전 단계(첫 화면에서는 기존 번호 메뉴), `Ctrl+C`로 취소합니다. 선택 불가능한 조합에는 이유가 표시됩니다. 설명은 75열 이상에서 오른쪽, 좁은 터미널에서는 해당 항목 아래에 표시됩니다. `내 … 연결하기`와 `기존 experiment.toml 선택`은 별도의 고급 입력/기존 설정 경로입니다.
+Home에서 **New Optimization**을 고른 뒤 Agent **ACE-RTL** → Harness **OpenCode** → Optimizer **GEPA** 또는 **Meta-Harness** → Dataset **CVDP** 순서로 선택합니다. 이후 Model Setup → Review → Preparing → Doctor → Running → Result로 진행하며 `↑/↓`로 이동, `Enter`로 확정, `Esc`로 직전 단계로 돌아갑니다. 선택 불가능한 조합에는 이유와 대안이 표시됩니다. `Existing Experiment`와 `Advanced Setup`은 Home의 별도 경로입니다.
 
-마지막 확인 화면에서 수정 파일, 두 모델의 **설정 여부**, 공식 평가·자산 준비, 예산과 설정/보고서 위치를 확인하세요. 확인 전에는 다운로드·Docker 빌드·모델 호출·설정 쓰기를 하지 않습니다. 확인 후 준비 → 정적 계획 진단 → 실제 실행으로 진행하며 생성한 설정은 `runs/configs/<생성-ID>/experiment.toml`에 보관됩니다. 같은 파일을 CLI `run EXPERIMENT`에 넘겨 재실행할 수 있습니다. 모델 입력은 TUI 세션에서만 유지됩니다.
+Review에서 수정 파일, 모델 값/source, 평가·자산 준비, 외부 호출, 최대 trial budget과 보고서 위치를 확인합니다. 실행을 고르면 Preparing에서 기존 준비 출력을 보고 완료 후 `Continue to Doctor`를 선택합니다. Doctor의 readiness 및 필요한 경우 실제 model connectivity probe 결과를 확인합니다. Doctor가 실패하거나 blocked면 run하지 않으며, 통과 뒤에도 `Run Optimization`을 명시적으로 선택해야 합니다. 준비된 설정은 `runs/configs/<생성-ID>/experiment.toml`에 보관되고, model input은 TUI 세션에만 유지됩니다.
 
 ## 자동화용 CLI: GEPA 한 번 구성하기
 
@@ -73,4 +73,4 @@ Mac 또는 Linux에서 Git, Python 3.11+, uv, Docker Engine/Compose(맥은 공�
 
 [2026-09-28 날짜별 검증 기록](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/verification.md#2026-09-28-선택형-gepameta-harness-실모델공식-cvdp-후속-검증)은 준비된 **Mac ARM64 source checkout**에서 GEPA와 Meta-Harness를 **각각 별도 1 iteration, 실제 4/최대 5 trial**로 실행한 결과입니다. 후보 `role-guidance.md`의 prompt 반영, 후보 `.py`의 선행 실행 및 두 실행의 공식 CVDP raw 결과(각 4건에서 `result=0`, `passed=1.0`)가 확인됐습니다. 두 validation은 baseline과 후보가 동점이어서 **baseline 선택**, `final_test=[]`입니다. 기본 3회/9 trial 실행, 일반 성능 향상, 전체 CVDP 검증은 아닙니다. 설치형 wheel은 고정 first-party commit을 사용하므로 이 기록의 GPT-5 OpenCode plugin 후속 수정이 자동 반영되지 않습니다. 기록의 Git 제외 `runs/`는 공개 다운로드 파일이 아닙니다.
 
-TUI **3번** 및 `init --profile ace-rtl --workspace PATH`는 고정 `simple_feedback` ACE 예제이며 선택형 GEPA/Meta와 수정 대상·설정 경로가 다릅니다. 내 Agent/팀 구현은 [실험 구성](/agent-optimizer/guides/experiment/)과 [컴포넌트 연결](/agent-optimizer/developer/components/)을 참고하세요.
+`init --profile ace-rtl --workspace PATH`는 고정 `simple_feedback` ACE 예제이며 TUI Home의 `New Optimization`에서 네 항목을 고르는 선택형 GEPA/Meta 흐름과 수정 대상·설정 경로가 다릅니다. 내 Agent/팀 구현은 [실험 구성](/agent-optimizer/guides/experiment/)과 [컴포넌트 연결](/agent-optimizer/developer/components/)을 참고하세요.

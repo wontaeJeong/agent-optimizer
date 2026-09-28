@@ -9,6 +9,92 @@ import os
 from agent_optimizer.locale import current_language, human
 
 
+PROGRESS_EVENTS = frozenset({
+    "trial_started", "agent_started", "evaluation_started", "trial_completed",
+    "optimizer_iteration_started", "optimizer_iteration_completed", "optimizer_review_started",
+    "optimizer_merge_started", "optimizer_merge_completed", "stage_started", "stage_completed",
+    "stage_budget_exhausted", "budget_exhausted", "candidate_created", "candidate_evaluated",
+    "error", "source_error", "interrupted",
+})
+CLI_PROGRESS_EVENTS = frozenset({
+    "trial_started", "agent_started", "evaluation_started", "trial_completed",
+    "optimizer_iteration_started", "optimizer_iteration_completed", "optimizer_review_started",
+    "optimizer_merge_started", "optimizer_merge_completed", "stage_budget_exhausted",
+    "budget_exhausted", "error", "interrupted",
+})
+
+
+class ProgressState:
+    """Interpret the existing run events into shared progress values."""
+
+    def __init__(self, max_trials: int | None = None):
+        self.max_trials = max_trials
+        self.completed = 0
+        self.stage = None
+        self.task = None
+        self.phase = None
+        self.iteration = None
+        self.total = None
+
+    @property
+    def remaining(self) -> int | None:
+        return None if self.max_trials is None else max(0, self.max_trials - self.completed)
+
+    def configure_budget(self, max_trials: int) -> None:
+        self.max_trials = max_trials
+        self.completed = 0
+
+    def update(self, event: dict) -> bool:
+        name = event.get("event")
+        if name not in PROGRESS_EVENTS:
+            return False
+        if name == "trial_completed":
+            self.completed += 1
+        if event.get("stage_id") is not None:
+            self.stage = event["stage_id"]
+        if event.get("task_id") is not None:
+            self.task = event["task_id"]
+        if event.get("phase") is not None:
+            self.phase = event["phase"]
+        elif name in {"stage_started", "stage_completed", "optimizer_iteration_started",
+                      "optimizer_iteration_completed", "optimizer_review_started",
+                      "optimizer_merge_started", "optimizer_merge_completed"}:
+            self.phase = name.replace("_", " ")
+        if event.get("iteration") is not None:
+            self.iteration = event["iteration"]
+        if event.get("total") is not None:
+            self.total = event["total"]
+        return True
+
+
+def format_progress_event(event: dict, *, humanize: bool = False) -> str | None:
+    """Describe a known event without serializing its untrusted raw payload."""
+    name = event.get("event")
+    if name not in PROGRESS_EVENTS:
+        return None
+    stage = event.get("stage_id", "-")
+    task = event.get("task_id", "-")
+    phase = event.get("phase", name.replace("_", " "))
+    iteration = event.get("iteration")
+    total = event.get("total")
+    if humanize:
+        label = human(name)
+        if label == name:
+            label = name.replace("_", " ")
+        label = f"{stage} · {task} · {phase} · {label}"
+    else:
+        dataset = event.get("dataset", "-")
+        label = f"dataset={dataset} stage={stage} task={task} phase={phase}"
+        if current_language() == "ko":
+            label += f" · {human(name)}"
+    if iteration is not None:
+        label += (f" · {iteration}/{total}" if humanize and total is not None else
+                  f" · {iteration}" if humanize else
+                  f" iteration={iteration}/{total}" if total is not None else
+                  f" iteration={iteration}")
+    return label
+
+
 def _terminal_progress(stream):
     from rich.console import Console
     from rich.progress import Progress, ProgressColumn, SpinnerColumn, TimeElapsedColumn
@@ -33,8 +119,7 @@ class ProgressDisplay:
         self.tty = self.stream.isatty()
         self.active = None
         self.active_started = None
-        self.completed = 0
-        self.max_trials = None
+        self.state = ProgressState()
         self.slowest = []
         self.lock = threading.Lock()
         self.progress = None
@@ -43,9 +128,16 @@ class ProgressDisplay:
 
     def configure_budget(self, max_trials):
         with self.lock:
-            self.max_trials = max_trials
-            self.completed = 0
+            self.state.configure_budget(max_trials)
             self.slowest = []
+
+    @property
+    def completed(self):
+        return self.state.completed
+
+    @property
+    def max_trials(self):
+        return self.state.max_trials
 
     def _summary(self):
         budget = (f" · MAX TRIAL BUDGET completed={self.completed} "
@@ -74,24 +166,14 @@ class ProgressDisplay:
         self._managed = False
 
     def __call__(self, event):
-        name = event["event"]
-        interesting = {"trial_started", "agent_started", "evaluation_started", "trial_completed",
-                       "optimizer_iteration_started", "optimizer_iteration_completed",
-                       "optimizer_review_started", "optimizer_merge_started", "optimizer_merge_completed",
-                       "stage_budget_exhausted", "budget_exhausted", "error", "interrupted"}
-        if name not in interesting:
+        name = event.get("event")
+        if name not in CLI_PROGRESS_EVENTS:
+            return
+        label = format_progress_event(event)
+        if label is None:
             return
         task = event.get("task_id", "-")
-        stage = event.get("stage_id", "-")
         dataset = event.get("dataset", "-")
-        phase = event.get("phase", name.replace("_", " "))
-        iteration = event.get("iteration")
-        label = f"dataset={dataset} stage={stage} task={task} phase={phase}"
-        if current_language() == "ko":
-            label += f" · {human(name)}"
-        if iteration is not None:
-            total = event.get("total")
-            label += f" iteration={iteration}/{total}" if total is not None else f" iteration={iteration}"
         if name == "trial_completed":
             tone = ("green" if event.get("status", "passed") == "passed" else
                     "yellow" if event["status"] == "interrupted" else "red")
@@ -104,8 +186,8 @@ class ProgressDisplay:
         else:
             tone = "red" if name == "error" else "yellow"
         with self.lock:
+            self.state.update(event)
             if name == "trial_completed":
-                self.completed += 1
                 seconds = event.get("metrics", {}).get("task_wall_time_seconds")
                 if seconds is not None:
                     self.slowest = sorted([*self.slowest, (seconds, task, dataset)], reverse=True)[:5]

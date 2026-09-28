@@ -17,6 +17,9 @@ from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.network import ca_bundle, network_environment
 
 
+DEFAULT_MODEL_ID = "glm5.3-flash"
+
+
 @lru_cache(maxsize=1)
 def _environment_settings():
     # Developer help and core doctor import this module before project setup.
@@ -30,7 +33,7 @@ def _environment_settings():
         model_config = SettingsConfigDict(env_prefix="AGENT_OPT_MODEL_", env_file=None)
 
         base_url: str = ""
-        id: str = "glm5.3-flash"
+        id: str = DEFAULT_MODEL_ID
         api_key: SecretStr = SecretStr("")
 
     return EnvironmentSettings
@@ -52,7 +55,7 @@ class ModelSettings:
         # cannot leak into a menu session or a read-only diagnostic.
         values = ({} if env is None else {
             "base_url": env.get("AGENT_OPT_MODEL_BASE_URL", ""),
-            "id": env.get("AGENT_OPT_MODEL_ID", "glm5.3-flash"),
+            "id": env.get("AGENT_OPT_MODEL_ID", DEFAULT_MODEL_ID),
             "api_key": env.get("AGENT_OPT_MODEL_API_KEY", ""),
         })
         try:
