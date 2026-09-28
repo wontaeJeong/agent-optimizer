@@ -69,6 +69,16 @@ class PresetCLITests(unittest.TestCase):
         self.assertIsInstance(details["requirements"], list)
         self.assertEqual(details["runtime"]["kind"], "local")
 
+    def test_catalog_reads_new_agent_manifest_from_examples(self):
+        status, value, error = self.call("catalog", "list", "--kind", "agent", "--json")
+        self.assertEqual(status, 0, error)
+        agents = {row["id"]: row for row in json.loads(value)}
+        self.assertIn("model-rtl-agent", agents)
+        self.assertIn("model_rtl_command", agents["model-rtl-agent"]["supported_harnesses"])
+        status, value, error = self.call("catalog", "show", "harness", "model-rtl-command", "--json")
+        self.assertEqual(status, 0, error)
+        self.assertEqual(json.loads(value)["adapter"], "model_rtl_command")
+
     def test_cli_gepa_and_meta_share_tui_stage_profile_and_active_seed(self):
         for optimizer in ("gepa", "meta_harness"):
             with self.subTest(optimizer=optimizer):

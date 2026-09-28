@@ -41,7 +41,8 @@ def list_choices(kind, root):
                            "ready": False, "description": "고정 ACE 스킬 소스; 자산 준비 및 모델 필요",
                            "requirements": ["고정 Git 소스", "선택 Harness 프로필"]}
         if is_source_checkout(root):
-            for path in sorted((root / "examples").glob("*/source.toml")):
+            for path in sorted({*(root / "examples").glob("*/source.toml"),
+                                *(root / "examples").glob("*/agent.toml")}):
                 agent = load_agent(path)
                 rows[agent.id] = {**rows.get(agent.id, {}), "id": agent.id,
                                   "name": agent.id, "implemented": True,
@@ -65,7 +66,7 @@ def list_choices(kind, root):
                                 "ready": False, "adapter": adapter,
                                 "description": "ACE-RTL 전용 프로필; 고정 자산·도구·모델 준비 필요"}
         if is_source_checkout(root):
-            for path in sorted((root / "examples/ace-rtl").glob("harness*.toml")):
+            for path in sorted((root / "examples").glob("*/harness*.toml")):
                 profile = read_toml(path)
                 rows.setdefault(profile["id"], {
                     "id": profile["id"], "name": profile["id"], "implemented": True,
