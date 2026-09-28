@@ -8,6 +8,7 @@ import threading
 import time
 import traceback
 from pathlib import Path
+from urllib.parse import parse_qsl, unquote, unquote_plus, urlsplit
 
 from rich.text import Text
 from textual import work
@@ -381,6 +382,7 @@ class OptimizerApp(App[int]):
         value, source = self._model_value(field)
         shown = (_tr("설정됨", "configured") if value else _tr("설정 필요", "not configured")) \
             if self._is_secret_field(field) else value or _tr("설정 필요", "not configured")
+        shown = self._redact_secrets(shown)
         description = f"{_tr('출처', 'source')}: {self._source_label(source)}"
         return (f"{self._model_label(field)}  {shown} [{self._source_label(source)}]",
                 description, True)
@@ -392,6 +394,7 @@ class OptimizerApp(App[int]):
         if environment_value:
             shown = (_tr("설정됨", "configured") if self._is_secret_field(field)
                      else environment_value)
+            shown = self._redact_secrets(shown)
             rows.append((_tr("현재 환경", "Current environment") + f" · {shown}",
                          _tr("기존 환경 값을 사용합니다.", "Use the existing environment value."), True))
             self.model_choice_actions.append("environment")
@@ -399,6 +402,7 @@ class OptimizerApp(App[int]):
         if session_value:
             shown = (_tr("설정됨", "configured") if self._is_secret_field(field)
                      else session_value)
+            shown = self._redact_secrets(shown)
             rows.append((_tr("현재 세션", "Current session") + f" · {shown}",
                          _tr("현재 앱 세션의 값을 유지합니다.", "Keep the current app-session value."), True))
             self.model_choice_actions.append("session")
@@ -555,8 +559,27 @@ class OptimizerApp(App[int]):
 
     def _redact_secrets(self, text: object) -> str:
         rendered = str(text)
-        secrets = {value for name, value in {**os.environ, **self.model_values}.items()
-                   if value and self._is_secret_field(name)}
+        sources = [*os.environ.items(), *self.model_values.items()]
+        secrets = {value for name, value in sources if value and self._is_secret_field(name)}
+        for name, value in sources:
+            if not value or name not in {"AGENT_OPT_MODEL_BASE_URL", "AGENT_OPT_MODEL_ENDPOINT"}:
+                continue
+            try:
+                endpoint = urlsplit(value)
+            except ValueError:
+                continue
+            for component in (endpoint.username, endpoint.password):
+                if component:
+                    secrets.update((component, unquote(component)))
+            for query in (endpoint.query, endpoint.fragment):
+                raw_parameters = query.split("&")
+                parsed_parameters = parse_qsl(query, keep_blank_values=True)
+                for (parameter, credential), raw_parameter in zip(parsed_parameters, raw_parameters):
+                    if credential and (self._is_secret_field(parameter) or "AUTH" in parameter.upper()):
+                        secrets.add(credential)
+                        raw_credential = raw_parameter.partition("=")[2]
+                        if raw_credential:
+                            secrets.update((raw_credential, unquote_plus(raw_credential)))
         for secret in sorted(secrets, key=len, reverse=True):
             rendered = rendered.replace(secret, "••••")
         return rendered
@@ -784,6 +807,7 @@ class OptimizerApp(App[int]):
             value, source = self._model_value(field)
             shown = (_tr("설정됨", "configured") if value else _tr("미설정", "not configured")) \
                 if self._is_secret_field(field) else value or _tr("미설정", "not configured")
+            shown = self._redact_secrets(shown)
             lines.append(f"  {self._model_label(field)}  {shown} [{self._source_label(source)}]")
         return lines
 
@@ -846,7 +870,7 @@ class OptimizerApp(App[int]):
         if self.experiment is not None:
             rows.insert(2, f"  {_tr('설정', 'Configuration')}  {self.experiment}")
         rows += ["", _tr("Enter: 선택한 설정으로 계속   Esc: 이전 단계", "Enter: continue   Esc: back")]
-        return "\n".join(rows)
+        return self._redact_secrets("\n".join(rows))
 
     def _required_model_fields(self) -> list[str]:
         values = {**os.environ, **self.model_values}

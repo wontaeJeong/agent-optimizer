@@ -547,6 +547,43 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
                 self.assertFalse(app.query_one(Input).password)
                 self.assertEqual(app.model_values["AGENT_OPT_MODEL_API_KEY"], secret)
 
+    async def test_model_endpoint_credentials_are_redacted_from_setup_errors_and_run_events(self):
+        from agent_optimizer.tui import OptimizerApp
+        from textual.widgets import Static
+
+        credentials = ("endpoint-login-923", "endpoint-password-924",
+                       "endpoint%2Fquery%2Ftoken-925", "endpoint/query/token-925")
+        endpoint = (f"https://{credentials[0]}:{credentials[1]}@model.example/v1"
+                    f"?api_key={credentials[2]}")
+        environment = {
+            "AGENT_OPT_LANG": "en",
+            "AGENT_OPT_MODEL": "compatible/glm5.3-flash",
+            "AGENT_OPT_MODEL_BASE_URL": endpoint,
+            "AGENT_OPT_MODEL_ID": "glm5.3-flash",
+            "AGENT_OPT_MODEL_API_KEY": "separate-api-key-926",
+        }
+        with patch.dict(os.environ, environment):
+            app = OptimizerApp(self.root)
+            async with app.run_test() as pilot:
+                await pilot.press("enter", "enter", "enter", "enter", "enter")
+                self.assertEqual(app.page, "Model")
+
+                model_text = "\n".join(f"{row[0]} {row[1]}" for row in app.rows)
+                model_text += str(app.query_one("#details", Static).render())
+                for credential in credentials:
+                    self.assertNotIn(credential, model_text)
+
+                app._error(RuntimeError(f"Invalid model URL: {endpoint}"))
+                error_text = str(app.query_one("#details", Static).render())
+                app._handle_run_event({"event": "error", "detail": f"Request failed: {endpoint}"})
+                self.assertIsNotNone(app.run_failure_reason)
+                app._finish({"status": "failed", "reason": app.run_failure_reason})
+                result_text = str(app.query_one("#review", Static).render())
+                for credential in credentials:
+                    self.assertNotIn(credential, error_text)
+                    self.assertNotIn(credential, app.run_failure_reason)
+                    self.assertNotIn(credential, result_text)
+
     async def test_cli_rejects_piped_output_even_with_tty_input_and_error(self):
         from agent_optimizer.cli import main
 
