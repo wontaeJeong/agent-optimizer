@@ -13,7 +13,7 @@
 ## Ubuntu CI와 공개 증거
 
 - `.github/workflows/ci.yml`에 수동 `workflow_dispatch.inputs.verilog_eval_full`(기본 false)과 **모드별 독립 job matrix**를 추가한다. `runs-on: ubuntu-24.04`에서 `uname -m=x86_64`·Docker `linux/amd64`를 확인하고, 사용자 선택 두 데이터셋을 각각 준비한다. 모드당 156개에 case 상한 90초, CI job 상한 330분을 둔다. PR에서는 전체 job을 실행하지 않고 API-free 계약 테스트만 수행한다. 병합·사용자 승인 뒤 `gh workflow run ci.yml --ref main -f verilog_eval_full=true`로 수동 실행한다.
-- 각 job은 최종 **sanitized JSON**에 플랫폼·고정 Git revision·이미지 ID·공개 task 총수, 각 공개 ID/status/passed/경과·오류 범주와 완료 건수를 남긴다. 성공·실패 어느 쪽이든 시도된 과제와 못 시도한 과제를 구분해 artifact로 보존한다. 실패 사유는 정해진 값만 사용하고 private scorer/원시 로그·제출 reference·API 키는 artifact/문서에 넣지 않는다. 두 모드 점수를 하나로 합치거나 순위화하지 않는다.
+- verifier가 시작되면 각 job은 최종 **sanitized JSON**에 플랫폼·고정 Git revision·이미지 ID·공개 task 총수, 각 공개 ID/status/passed/경과·오류 범주와 완료 건수를 남긴다. verifier 실행 중 성공·실패 어느 쪽이든 시도된 과제와 못 시도한 과제를 구분해 artifact로 보존한다. 그 전에 checkout/Python 설치가 실패하면 job 로그가 차단 근거이며 과제 평가 성공으로 표현하지 않는다. 실패 사유는 정해진 값만 사용하고 private scorer/원시 로그·제출 reference·API 키는 artifact/문서에 넣지 않는다. 두 모드 점수를 하나로 합치거나 순위화하지 않는다.
 
 ## 검증 순서와 경계
 
