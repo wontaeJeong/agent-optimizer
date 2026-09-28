@@ -1,11 +1,21 @@
 """API-free checks for the pinned Verilog-Eval reference verifier."""
 import json
+import io
+import os
+import subprocess
+import sys
 import tempfile
 import time
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import asdict
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from agent_optimizer.contracts import ConfigurationError, Evaluation, Task
+from examples.benchmarks import verify_verilog_eval_full as cli
+from examples.benchmarks.verilog_eval import REVISION, RUNTIME_IMAGE
 from examples.benchmarks.verify_verilog_eval_full import reference_submission, verify_tasks
 
 
@@ -280,6 +290,260 @@ class VerilogFullTests(unittest.TestCase):
         evaluator = SlowEvaluator({task.id: Evaluation("passed", {"passed": 1.0})}, self.source)
         summary = verify_tasks([task], evaluator, self.run / "verilog-spec", "verilog-spec")
         self.assertGreaterEqual(summary["cases"][0]["elapsed_seconds"], 0.02)
+
+
+class VerilogFullCLITests(unittest.TestCase):
+    task = VerilogFullTests.task
+
+    def setUp(self):
+        VerilogFullTests.setUp(self)
+        self.tasks = [self.task("Prob001_zero")]
+        self.tasks.extend(self.task(f"Prob{number:03d}") for number in range(2, 157))
+        self.image_id = "sha256:" + "a" * 64
+        self.prepared = {
+            "benchmark": str(self.root / "tasks.json"), "evaluator": "verilog_eval",
+            "evaluation_runtime": {"kind": "docker", "image": RUNTIME_IMAGE},
+            "evaluator_config": {"image_id": self.image_id},
+            "provenance": {"url": "https://github.com/NVlabs/verilog-eval.git",
+                           "revision": REVISION, "mode": "spec-to-rtl", "image_id": self.image_id},
+        }
+        self.publish_tasks()
+        self.prepare_error = None
+        self.doctor_status = "ok"
+        self.preflight_error = None
+        self.wrong_feedback = "Verilog-Eval: 1 mismatches in 17 samples"
+        self.reference_fail = None
+        self.prepare_calls = []
+        self.doctor_calls = []
+        self.evaluations = []
+
+    def publish_tasks(self, *, revision=REVISION):
+        self.root.mkdir(parents=True, exist_ok=True)
+        (self.root / "tasks.json").write_text(json.dumps({
+            "schema_version": 1, "synthetic": False, "source_revision": revision,
+            "tasks": [asdict(task) for task in self.tasks],
+        }))
+
+    def invoke(self, *args):
+        test = self
+
+        class FakeProvider:
+            def prepare(self, cache):
+                test.prepare_calls.append(cache)
+                initial = json.loads((test.run / args[1] / "summary.json").read_text())
+                test.assertEqual((initial["expected"], initial["attempted"], initial["unattempted"]),
+                                 (156, 0, 156))
+                test.assertEqual(initial["status"], "running")
+                if test.prepare_error:
+                    raise test.prepare_error
+                return test.prepared
+
+            def doctor(self, cache):
+                test.doctor_calls.append(cache)
+                return [{"status": test.doctor_status, "detail": PRIVATE}]
+
+        class FakeRegistry:
+            def load_project(self, root):
+                test.assertEqual(root, test.root)
+
+            def resolve(self, kind, name):
+                test.assertEqual((kind, name), ("datasets", args[1]))
+                return FakeProvider
+
+        class FakeEvaluator:
+            def __init__(self, config):
+                test.assertEqual(config, {"kind": "docker", "image": RUNTIME_IMAGE,
+                                          "image_id": test.image_id})
+
+            def validate_benchmark(self, tasks, metadata):
+                test.assertEqual(len(tasks), 156)
+                test.assertEqual(metadata["source_revision"], REVISION)
+                if test.preflight_error:
+                    raise test.preflight_error
+
+            def evaluate(self, task, output_dir, timeout_seconds):
+                source = (output_dir / "solution.sv").read_text()
+                test.evaluations.append((task.id, source))
+                if "assign zero = 1'b1" in source:
+                    test.assertEqual(task.id, "Prob001_zero")
+                    return Evaluation("failed", {"passed": 0.0}, test.wrong_feedback)
+                test.assertEqual(source, REFERENCE.replace("module RefModule(output",
+                                                           "module TopModule(output"))
+                if task.id == test.reference_fail:
+                    return Evaluation("failed", {"passed": 0.0},
+                                      "Verilog-Eval: 1 mismatches in 17 samples")
+                return Evaluation("passed", {"passed": 1.0}, PRIVATE)
+
+        output = io.StringIO()
+        with (patch.object(cli, "ROOT", self.root, create=True),
+              patch.object(cli, "Registry", FakeRegistry, create=True),
+              patch.object(cli, "VerilogEvaluator", FakeEvaluator, create=True),
+              redirect_stdout(output), redirect_stderr(output)):
+            code = cli.main(list(args))
+        return code, output.getvalue()
+
+    def ledger(self, mode="verilog-spec"):
+        return json.loads((self.run / mode / "summary.json").read_text())
+
+    def test_cli_rejects_missing_unknown_and_injected_dataset_without_prepare_or_logs(self):
+        for argv in ((), ("--dataset", "../private/SECRET_MODEL_KEY"),
+                     ("--dataset", "cvdp")):
+            with self.subTest(argv=argv):
+                code, output = self.invoke(*argv)
+                self.assertEqual(code, 2)
+                self.assertNotIn("SECRET_MODEL_KEY", output)
+                self.assertFalse(self.run.exists())
+                self.assertEqual(self.prepare_calls, [])
+
+    def test_direct_script_help_works_with_only_src_on_pythonpath(self):
+        root = Path(cli.__file__).resolve().parents[2]
+        result = subprocess.run([sys.executable, str(Path(cli.__file__)), "--help"],
+                                cwd=root, env={**os.environ, "PYTHONPATH": str(root / "src")},
+                                capture_output=True, text=True, timeout=15, shell=False)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--dataset", result.stdout)
+
+    def test_prepare_and_doctor_fail_with_sanitized_zero_attempt_ledger(self):
+        for stage in ("prepare", "doctor"):
+            with self.subTest(stage=stage):
+                self.root = Path(self.temp.name) / stage
+                self.source = self.root / "pinned"
+                self.run = self.root / "runs/verilog-eval-full"
+                self.prepared["benchmark"] = str(self.root / "tasks.json")
+                self.publish_tasks()
+                self.prepare_error = RuntimeError(PRIVATE + "/personal/path") if stage == "prepare" else None
+                self.doctor_status = "failed" if stage == "doctor" else "ok"
+                code, output = self.invoke("--dataset", "verilog-spec")
+                summary = self.ledger()
+                self.assertNotEqual(code, 0)
+                self.assertEqual((summary["expected"], summary["attempted"],
+                                  summary["unattempted"], summary["status"]),
+                                 (156, 0, 156, "failed"))
+                self.assertEqual(summary["reason"], "infrastructure_error")
+                self.assertNotIn(PRIVATE, json.dumps(summary) + output)
+                self.assertNotIn("/personal/path", json.dumps(summary) + output)
+
+    def test_inventory_revision_image_and_preflight_fail_before_evaluation(self):
+        for stage in ("count", "revision", "image", "image_id", "missing_first", "preflight"):
+            with self.subTest(stage=stage):
+                self.root = Path(self.temp.name) / stage
+                self.source = self.root / "pinned"
+                self.run = self.root / "runs/verilog-eval-full"
+                self.prepared["benchmark"] = str(self.root / "tasks.json")
+                self.tasks = self.tasks[:155] if stage == "count" else [self.task("Prob001_zero")]
+                if stage not in {"count", "missing_first"}:
+                    self.tasks += [self.task(f"Prob{n:03d}") for n in range(2, 157)]
+                if stage == "missing_first":
+                    self.tasks = [self.task(f"Prob{n:03d}") for n in range(1, 157)]
+                self.publish_tasks(revision="wrong" if stage == "revision" else REVISION)
+                self.prepared["evaluation_runtime"]["image"] = (
+                    "untrusted:v13" if stage == "image" else RUNTIME_IMAGE)
+                self.prepared["provenance"]["image_id"] = (
+                    "sha256:" + "b" * 64 if stage == "image_id" else self.image_id)
+                self.preflight_error = (ConfigurationError(PRIVATE) if stage == "preflight" else None)
+                code, output = self.invoke("--dataset", "verilog-spec")
+                summary = self.ledger()
+                self.assertNotEqual(code, 0)
+                self.assertEqual((summary["expected"], summary["attempted"], summary["failed"]),
+                                 (156, 0, 0))
+                self.assertEqual(summary["reason"], "infrastructure_error")
+                self.assertEqual(self.evaluations, [])
+                self.assertNotIn(PRIVATE, json.dumps(summary) + output)
+
+    def test_both_modes_attempt_156_references_and_require_proven_wrong_mismatch(self):
+        for dataset, mode in (("verilog-spec", "spec-to-rtl"),
+                              ("verilog-completion", "code-complete-iccad2023")):
+            with self.subTest(dataset=dataset):
+                self.tasks = [self.task("Prob001_zero", dataset)]
+                self.tasks += [self.task(f"Prob{n:03d}", dataset) for n in range(2, 157)]
+                self.publish_tasks()
+                self.prepared["provenance"]["mode"] = mode
+                code, output = self.invoke("--dataset", dataset)
+                summary = self.ledger(dataset)
+                self.assertEqual(code, 0, output)
+                self.assertEqual((summary["expected"], summary["attempted"],
+                                  summary["unattempted"], summary["failed"], summary["status"]),
+                                 (156, 156, 0, 0, "passed"))
+                self.assertEqual(len(summary["cases"]), 156)
+                self.assertEqual(summary["wrong"]["reason"], "mismatch")
+                self.assertEqual([item[0] for item in self.evaluations[-157:-1]],
+                                 ["Prob001_zero"] + [f"Prob{n:03d}" for n in range(2, 157)])
+                self.assertEqual(self.evaluations[-1][0], "Prob001_zero")
+                self.assertNotIn(PRIVATE, json.dumps(summary) + output)
+
+    def test_compile_failure_is_not_accepted_as_negative_sanity(self):
+        self.wrong_feedback = "Verilog-Eval compile did not complete"
+        code, output = self.invoke("--dataset", "verilog-spec")
+        summary = self.ledger()
+        self.assertNotEqual(code, 0)
+        self.assertEqual((summary["attempted"], summary["failed"], summary["status"]),
+                         (156, 0, "failed"))
+        self.assertEqual(summary["wrong"]["reason"], "compile_failure")
+        self.assertNotIn(PRIVATE, json.dumps(summary) + output)
+
+    def test_wrong_rtl_rejected_without_a_proven_mismatch(self):
+        self.wrong_feedback = "RTL solution missing"
+        code, _ = self.invoke("--dataset", "verilog-spec")
+        self.assertNotEqual(code, 0)
+        self.assertEqual(self.ledger()["wrong"]["reason"], "reference_invalid")
+        self.assertEqual(self.ledger()["status"], "failed")
+
+    def test_reference_failure_cannot_report_success_even_when_wrong_mismatches(self):
+        self.reference_fail = "Prob078"
+        code, _ = self.invoke("--dataset", "verilog-spec")
+        summary = self.ledger()
+        self.assertNotEqual(code, 0)
+        self.assertEqual((summary["attempted"], summary["failed"], summary["status"]),
+                         (156, 1, "failed"))
+
+    def test_existing_ledger_is_not_overwritten_or_prepared(self):
+        out = self.run / "verilog-spec"
+        out.mkdir(parents=True)
+        (out / "summary.json").write_text("existing private ledger")
+        code, output = self.invoke("--dataset", "verilog-spec")
+        self.assertNotEqual(code, 0)
+        self.assertEqual((out / "summary.json").read_text(), "existing private ledger")
+        self.assertEqual(self.prepare_calls, [])
+        self.assertNotIn("existing private ledger", output)
+
+    def test_symlinked_selected_run_folder_fails_without_exposing_host_path(self):
+        self.run.mkdir(parents=True)
+        (self.run / "verilog-spec").symlink_to(self.source, target_is_directory=True)
+        code, output = self.invoke("--dataset", "verilog-spec")
+        self.assertNotEqual(code, 0)
+        self.assertNotIn(str(self.root), output)
+        self.assertEqual(self.prepare_calls, [])
+
+    def test_ubuntu_flag_stops_on_host_or_daemon_mismatch_without_prepare(self):
+        for system, machine, daemon in (("Darwin", "arm64", "linux/amd64"),
+                                        ("Linux", "x86_64", "linux/arm64")):
+            with self.subTest(system=system, daemon=daemon):
+                self.root = Path(self.temp.name) / system / daemon.replace("/", "-")
+                self.run = self.root / "runs/verilog-eval-full"
+                with (patch.object(cli, "platform", SimpleNamespace(
+                          system=lambda: system, machine=lambda: machine), create=True),
+                      patch.object(cli, "subprocess", SimpleNamespace(run=lambda *a, **kw:
+                          SimpleNamespace(returncode=0, stdout=daemon + "\n", stderr=PRIVATE)),
+                          create=True)):
+                    code, output = self.invoke("--dataset", "verilog-spec", "--require-ubuntu-amd64")
+                self.assertNotEqual(code, 0)
+                self.assertEqual(self.ledger()["attempted"], 0)
+                self.assertEqual(self.prepare_calls, [])
+                self.assertNotIn(PRIVATE, output)
+
+    def test_ubuntu_flag_accepts_matching_host_and_daemon(self):
+        def docker_info(argv, **kwargs):
+            self.assertEqual(argv, ["docker", "info", "--format",
+                                    "{{.Server.Os}}/{{.Server.Arch}}"])
+            self.assertFalse(kwargs["shell"])
+            return SimpleNamespace(returncode=0, stdout="linux/amd64\n", stderr="")
+
+        with (patch.object(cli, "platform", SimpleNamespace(system=lambda: "Linux",
+                                                             machine=lambda: "x86_64")),
+              patch.object(cli, "subprocess", SimpleNamespace(run=docker_info))):
+            code, output = self.invoke("--dataset", "verilog-spec", "--require-ubuntu-amd64")
+        self.assertEqual(code, 0, output)
+        self.assertEqual(self.ledger()["status"], "passed")
 
 
 if __name__ == "__main__":
