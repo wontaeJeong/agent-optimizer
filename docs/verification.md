@@ -7,6 +7,7 @@
 - 화면 자료: 기존 `docs/assets/tui-after.svg`는 변경 전 Agent-first 화면이다. `PYTHONPATH=src:tests .venv/bin/python scripts/capture_tui_ux.py`가 Textual compositor에서 Home, selection, Model Setup, Review, Preparing, Doctor ready/blocked, Running, Result completed/failed 화면을 100x30으로 export한다. Model/API 값·readiness·runner event/result는 화면 렌더링용 fixture이며 실모델/Agent 성공 증거가 아니다. SVG에서 API key 값은 표시되지 않는다.
 - 사람용 안내를 갱신한 website는 `website/`에서 `npm run build` 및 내부 링크 검사가 통과했다. 빌드에는 기존 Astro/Vite `use astro:head-inject` directive 경고와 `/404` content entry 경고가 출력됐다.
 - 최종 `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v`는 **908개 중 829 통과·79 skip·실패 0**. `test_textual_tui.py` **36개 통과**(endpoint URL userinfo/query redaction, Custom 입력 마스킹 회귀 포함), `test_progress.py` **23개 통과**, `test_cli_experience.py` **134개 중 104 통과·30 skip**, `test_plugin_contracts.py` **18개 통과**, `test_research.py` **13개 통과**. `make lint`와 synthetic `examples/minimal/experiment.toml` 실행(`completed`, 7 trial)도 통과했다. endpoint 자격증명 redaction 수정 뒤 wheel build 및 설치형 PTY 검증도 다시 통과했다.
+- GitHub Actions 확인에서 Python 3.11이 f-string 대체 필드 내부 줄바꿈(3.12 PEP 701 이전에는 미지원) 때문에 `tui.py`를 파싱하지 못하는 문제를 발견해, 해당 안내 문구를 f-string 밖으로 분리하고 `_show`의 중복 `Result` 분기를 제거했다. Python 3.11.14와 3.12.12에서 같은 커밋이 컴파일되고 전체 unittest가 각각 **908개 중 829 통과·79 skip**으로 통과함을 확인했다. 설치형 PTY 테스트는 준비 완료(`Doctor로 계속`)와 검사 로드(`plan.schema`) 마커를 기다리도록 조정해 CI에서의 조기 키 입력 경합을 없앴고, wheel build 뒤 다시 통과했다.
 
 | 변경 전 Agent-first 화면 (`origin/main`) | 변경 후 Home-first 화면 |
 |---|---|

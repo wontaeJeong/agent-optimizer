@@ -273,15 +273,6 @@ class OptimizerApp(App[int]):
                               "Start another optimization or inspect run history."), True)]
             self.query_one("#review-panel").styles.display = "block"
             review.update(self._result_text())
-        elif page == "Result":
-            self.rows = [(_tr("진단으로 돌아가기", "Back to Doctor"),
-                          _tr("실행 전 진단 결과와 선택을 확인합니다.",
-                              "Return to the pre-flight result and selection."), True),
-                         (_tr("시작 화면으로", "Back to Home"),
-                          _tr("다른 실행을 시작하거나 이전 결과를 확인합니다.",
-                              "Start another optimization or inspect run history."), True)]
-            self.query_one("#review-panel").styles.display = "block"
-            review.update(self._result_text())
         elif page == "Advanced":
             self.rows = [(_tr("기존 설정 선택", "Select existing config"),
                           _tr("agent-opt init으로 생성한 설정을 실행합니다.", "Run a configuration created by agent-opt init."), True)]
@@ -534,10 +525,11 @@ class OptimizerApp(App[int]):
 
     def _doctor_detail(self, index: int | None) -> str:
         if self.doctor_error:
+            guidance = _tr('다음: 다시 시도하거나 Review로 돌아가세요.',
+                           'Next: retry checks or return to Review.')
             return (f"{_tr('사전 진단 실패', 'Pre-flight checks failed')}\n\n"
                     f"{self._redact_secrets(self.doctor_error)}\n\n"
-                    f"{_tr('다음: 다시 시도하거나 Review로 돌아가세요.',
-                          'Next: retry checks or return to Review.')}")
+                    f"{guidance}")
         if self.doctor_report is None:
             return (f"{_tr('사전 검사 진행 중', 'Pre-flight checks in progress')}\n\n"
                     + _tr("실행 준비 상태를 확인하고 있습니다.",
