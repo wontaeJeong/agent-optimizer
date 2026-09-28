@@ -340,7 +340,8 @@ class VerilogFullCLITests(unittest.TestCase):
                 test.prepare_calls.append(cache)
                 initial = json.loads((test.run / args[1] / "summary.json").read_text())
                 test.assertEqual((initial["expected"], initial["attempted"], initial["unattempted"]),
-                                 (156, 0, 156))
+                                 (1, 0, 1) if "--smoke-one" in args else (156, 0, 156))
+                test.assertEqual(initial["scope"], "smoke" if "--smoke-one" in args else "full")
                 test.assertEqual(initial["status"], "running")
                 test.assertEqual(initial["host"], {"os": "Darwin", "arch": "arm64"}
                                      if test.host_os == "Darwin" else
@@ -399,7 +400,7 @@ class VerilogFullCLITests(unittest.TestCase):
         def docker_run(argv, **kwargs):
             test.docker_calls.append(argv)
             test.assertFalse(kwargs["shell"])
-            if argv == ["docker", "info", "--format", "{{.Server.Os}}/{{.Server.Arch}}"]:
+            if argv == ["docker", "version", "--format", "{{.Server.Os}}/{{.Server.Arch}}"]:
                 return SimpleNamespace(returncode=0, stdout=test.daemon_platform, stderr=PRIVATE)
             test.assertEqual(argv, ["docker", "image", "inspect", RUNTIME_IMAGE])
             return SimpleNamespace(returncode=0, stdout=json.dumps([{"Id": test.observed_image_id}]),
@@ -522,6 +523,64 @@ class VerilogFullCLITests(unittest.TestCase):
                                  ["Prob001_zero"] + [f"Prob{n:03d}" for n in range(2, 157)])
                 self.assertEqual(self.evaluations[-1][0], "Prob001_zero")
                 self.assertNotIn(PRIVATE, json.dumps(summary) + output)
+
+    def test_smoke_evaluates_only_first_reference_and_wrong_in_each_mode(self):
+        for dataset, mode in (("verilog-spec", "spec-to-rtl"),
+                              ("verilog-completion", "code-complete-iccad2023")):
+            with self.subTest(dataset=dataset):
+                self.root = Path(self.temp.name) / dataset
+                self.source = self.root / "pinned"
+                self.run = self.root / "runs/verilog-eval-smoke"
+                self.tasks = [self.task("Prob001_zero", dataset)]
+                self.tasks += [self.task(f"Prob{n:03d}", dataset) for n in range(2, 157)]
+                self.prepared["benchmark"] = str(self.root / "tasks.json")
+                self.prepared["provenance"]["mode"] = mode
+                self.publish_tasks()
+                self.evaluations = []
+                code, output = self.invoke("--dataset", dataset, "--smoke-one")
+                self.assertEqual(code, 0, output)
+                summary = self.ledger(dataset)
+                self.assertEqual((summary["scope"], summary["expected"], summary["attempted"],
+                                  summary["unattempted"], summary["actual_task_count"],
+                                  summary["status"]), ("smoke", 1, 1, 0, 156, "passed"))
+                self.assertEqual([case["id"] for case in summary["cases"]], ["Prob001_zero"])
+                self.assertEqual(summary["cases"][0]["passed"], 1.0)
+                self.assertEqual((summary["wrong"]["status"], summary["wrong"]["reason"],
+                                  summary["wrong"]["passed"]), ("failed", "mismatch", 0.0))
+                self.assertEqual([row[0] for row in self.evaluations],
+                                 ["Prob001_zero", "Prob001_zero"])
+                self.assertEqual(json.loads((self.run / dataset / "summary.json").read_text()),
+                                 summary)
+                self.assertNotIn(PRIVATE, json.dumps(summary) + output)
+
+    def test_smoke_rejects_bad_reference_or_unproven_wrong_verdict(self):
+        for failure in ("reference", "wrong"):
+            with self.subTest(failure=failure):
+                self.root = Path(self.temp.name) / failure
+                self.source = self.root / "pinned"
+                self.run = self.root / "runs/verilog-eval-smoke"
+                self.tasks = [self.task("Prob001_zero")]
+                self.tasks += [self.task(f"Prob{n:03d}") for n in range(2, 157)]
+                self.prepared["benchmark"] = str(self.root / "tasks.json")
+                self.publish_tasks()
+                self.evaluations = []
+                self.reference_fail = "Prob001_zero" if failure == "reference" else None
+                self.wrong_feedback = ("Verilog-Eval compile did not complete" if failure == "wrong"
+                                       else "Verilog-Eval: 1 mismatches in 17 samples")
+                code, _ = self.invoke("--dataset", "verilog-spec", "--smoke-one")
+                self.assertEqual(code, 1)
+                summary = self.ledger()
+                self.assertEqual((summary["scope"], summary["expected"], summary["attempted"],
+                                  summary["status"]), ("smoke", 1, 1, "failed"))
+                self.assertEqual(len(self.evaluations), 2)
+
+    def test_smoke_and_ubuntu_full_flags_conflict_before_ledger_or_prepare(self):
+        code, output = self.invoke("--dataset", "verilog-spec", "--smoke-one",
+                                   "--require-ubuntu-amd64")
+        self.assertEqual(code, 2)
+        self.assertFalse(self.run.exists())
+        self.assertEqual(self.prepare_calls, [])
+        self.assertNotIn(PRIVATE, output)
 
     def test_compile_failure_is_not_accepted_as_negative_sanity(self):
         self.wrong_feedback = "Verilog-Eval compile did not complete"
@@ -670,7 +729,7 @@ class VerilogFullCLITests(unittest.TestCase):
         self.assertEqual(self.ledger()["status"], "passed")
         self.assertEqual(self.ledger()["host"], {"os": "Linux", "arch": "x86_64"})
         self.assertEqual(self.ledger()["docker_daemon"], {"os": "linux", "arch": "amd64"})
-        self.assertEqual(self.docker_calls[0], ["docker", "info", "--format",
+        self.assertEqual(self.docker_calls[0], ["docker", "version", "--format",
                                                 "{{.Server.Os}}/{{.Server.Arch}}"])
 
 
@@ -818,7 +877,8 @@ class VerilogFullWorkflowTests(unittest.TestCase):
         self.assertLess(bootstrap, preparation)
         self.assertLess(preparation, evaluation)
         self.assertIn("uname -m", steps[evaluation]["run"])
-        self.assertIn("docker info --format", steps[evaluation]["run"])
+        self.assertIn("docker version --format '{{.Server.Os}}/{{.Server.Arch}}'",
+                      steps[evaluation]["run"])
         self.assertIn(".venv/bin/python examples/benchmarks/verify_verilog_eval_full.py",
                       steps[evaluation]["run"])
         self.assertIn("--dataset '${{ matrix.dataset }}' --require-ubuntu-amd64",

@@ -79,6 +79,7 @@ native `ace_agent_runner.py`/`ace_cvdp_native_runner.py`의 자체 역할·반�
 
 ## 검증 수준
 
+- **2026-09-28 Verilog-Eval Mac 실도구 smoke:** `verilog-spec`·`verilog-completion` 각각 고정 156개 목록의 `Prob001_zero` **reference 1건**이 Docker Icarus v12에서 `passed=1.0`, 고정 오답은 `status=failed`/`passed=0.0`/`reason=mismatch`였다. 요약 `scope=smoke`, `expected=attempted=1`이며 실제 목록의 나머지 문제는 채점하지 않았다. 명령/이미지·로그 경계는 [실행 근거](verification.md#2026-09-28-verilog-eval-mac-두-모드-실도구-smoke)와 [예제 안내](../examples/benchmarks/README.md). **Ubuntu 전체 312건은 병합 후 수동 CI 실행 전까지 미검증**이다.
 - **2026-09-28 후속 실환경 검사:** 고정 소스·driver·이미지를 준비한 Mac ARM64에서 호스트 모델 도구 호출과 Docker OpenCode 도구 호출, 공식 CVDP smoke 정답/오답이 통과했다. GEPA·Meta-Harness **각 1 iteration, 실제 4/최대 5 trial**에서 후보 파일 변경·실제 Harness 입력/실행·공식 raw 채점(각 test 1건 `result=0`)이 연결됐다. 두 validation은 baseline/후보가 1.0 동점이어서 baseline을 선택했고 최종 test는 없다. **성능 향상·기본 3회 반복·설치형 wheel의 해당 모델 연동** 검증은 아니다. [별도 실환경 근거](verification.md#2026-09-28-선택형-gepameta-harness-실모델공식-cvdp-후속-검증).
 - **2026-09-28 선택형 TUI 계약:** 최신 main 반영 후 `make test` 781건 중 766 통과·15 skip, Ruff·합성 데모·독립 wheel TUI·사이트 빌드 통과. `make doctor`는 이 워크트리의 ACE 자산/환경 lock 누락으로 exit 2였으므로 두 선택형 알고리즘의 **실모델/OpenCode·공식 CVDP 결과는 미검증**이다. [날짜별 근거](verification.md#2026-09-28-선택형-tuiace-후보-연결-계약-검증).
 - **2026-09-27 첫 실행 UX 검증:** Mac ARM64의 `make lint/test/demo`, 독립 wheel 사용자 CLI,
@@ -104,5 +105,5 @@ native `ace_agent_runner.py`/`ace_cvdp_native_runner.py`의 자체 역할·반�
 - **연구 예제 실행 경계:** 두 실행은 신뢰한 로컬 Python 후보 코드에서만 적용한다. `runtime.kind="local"` 후보는 호스트의 동일 사용자 권한으로 실행되며 공개 workspace/private 평가의 논리적 파일 분리는 OS 격리가 아니다. 후보는 동일 사용자의 private 자산·Optimizer API 키에 접근할 수 있다. `model_unavailable` stdout/exit 2에 따른 `infrastructure_error`는 후보 자기보고 오류 분류이지 신뢰된 인프라 인증 장애의 증명이 아니다. 위 첫 run의 무효/null은 좋은 점수나 공식 raw로 바뀌지 않는다.
 - **선택형 wheel의 새 검증:** Mac ARM64에서 소스 밖 wheel 설치·사용자 Agent 합성 실행, 선택형 ACE 고정 Git/driver/이미지 준비와 읽기 전용 계획 진단, Docker 공식 LFSR 정답·오답을 확인했다. 모델 키 없는 `run`은 `blocked_auth`로 차단된다. [같은 날짜의 별도 기록](verification.md#2026-09-25-선택형-wheel-연동-검증).
 - **미검증:** 세 연구 알고리즘의 일반화된 성능 향상·후보별 최종 test, native ACE,
-  Verilog-Eval의 전체 과제/Ubuntu x86_64 실행, 전체 sub-agent 사용량. 새 팀 컴포넌트도
+  Verilog-Eval의 두 모드 각 156건/Ubuntu x86_64 실행, 전체 sub-agent 사용량. 새 팀 컴포넌트도
   복사/fixture 검증과 실제 환경 실행을 각각 구분한다. plan doctor는 설정/등록·로컬 자산 수준 검사다.

@@ -1,5 +1,13 @@
 # 검증 기록
 
+## 2026-09-28 Verilog-Eval Mac 두 모드 실도구 smoke
+
+- 환경: Mac `Darwin/arm64`, Colima Docker daemon `linux/arm64` (`docker version --format '{{.Server.Os}}/{{.Server.Arch}}'`, exit 0), `make doctor-core` exit 0. 기존 `docker info`에 `.Server.Os/.Server.Arch`를 적용한 호출은 template 오류로 실패해 실제 CLI와 수동 CI 호출을 `docker version`으로 수정했다. 고정 Docker 이미지 `agent-opt/iverilog-v12:4fd52916`, ID `sha256:2f3a2506d13f117b42f4dfb1d95ee8c6d883313dd5ae00288a647226d9523d9d` (`linux/arm64`); `docker run --rm --network none agent-opt/iverilog-v12:4fd52916 iverilog -V` exit 0, v12.0. CVDP v13/다른 이미지 사용 없음.
+- `PYTHONPATH=src .venv/bin/python examples/benchmarks/verify_verilog_eval_full.py --dataset verilog-spec --smoke-one` → exit 0, `runs/verilog-eval-smoke/verilog-spec/summary.json`: `scope=smoke`, `expected=1`, `attempted=1`, `failed=0`, `actual_task_count=156`, `status=passed`; `cases[0]` `Prob001_zero` reference `passed=1.0`; `wrong` `Prob001_zero` `status=failed`, `passed=0.0`, `reason=mismatch`.
+- `PYTHONPATH=src .venv/bin/python examples/benchmarks/verify_verilog_eval_full.py --dataset verilog-completion --smoke-one` → exit 0, `runs/verilog-eval-smoke/verilog-completion/summary.json`: 동일한 범위/정답·오답 판정. `Provider.prepare`와 `doctor`를 각 모드에서 사용했고, 절대 cache 경로로 별도 `doctor`의 provenance/source/tasks/image 네 검사 모두 `ok`; 고정 source HEAD는 `c498220d0a52248f8e3fdffe279075215bde2da6`다.
+- 둘 다 `actual_task_count=156`은 **목록 검사**이고 채점은 모드별 정답 1건+오답 1건뿐이다. `--smoke-one` 없이 호출하는 full 검증은 수행하지 않았다. `--require-ubuntu-amd64`와 smoke의 혼용은 종료 2로 거부하며 CI는 전자만 사용한다. private `_ref.sv`/`_test.sv`, 평가 내부 로그·키는 Git/공개 artifact에 담지 않는다. **Ubuntu x86_64 156×2=312건은 병합 후 수동 workflow 실행 전까지 미검증**이다. 모델/Agent 최적화는 수행하지 않았다.
+- 계약 검증은 smoke 옵션 없음→CLI exit 2인 RED와 Docker `version` 호출 불일치→focused 실패인 RED를 거쳐 `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_verilog_full.py -q` **38건 통과**로 GREEN을 확인했다. 최종 `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -v`는 **844건 중 829 통과·15 skip·실패 0** (Verilog 실도구 환경변수 미설정으로 `test_verilog_live` 1 skip 포함). `make lint`와 `actionlint .github/workflows/ci.yml` exit 0, 최소 합성 `PYTHONPATH=src .venv/bin/python -m agent_optimizer run examples/minimal/experiment.toml` exit 0 (`completed`, 7 trial, `runs/20260928T023103Z-9adc04d3/`); 합성 점수는 Verilog 실평가와 별개다.
+
 ## 2026-09-28 선택형 GEPA·Meta-Harness 실모델/공식 CVDP 후속 검증
 
 Mac ARM64, Docker daemon `linux/arm64`, Python 3.12.12, OpenCode 1.18.31. `feat/preset-tui-flow` 병합 후 고정 ACE/CVDP/HF 출처 SHA는 바꾸지 않았다. 기존 프로젝트 워크트리에서 `make setup` → `make doctor` → `make smoke`를 실행해 lock·고정 소스/데이터/driver·두 Docker 이미지와 공식 CVDP 정답/오답 검사가 통과했다. `sh scripts/bootstrap.sh setup --offline`도 준비된 이미지·driver·데이터를 재검증했고, 변경한 Agent 이미지로 다시 `make smoke`를 통과했다. `make setup`의 7 trial은 별도 **합성** 데모다.

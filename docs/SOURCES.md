@@ -66,8 +66,8 @@ upstream 패키지를 설치하거나 원본 소스를 복사·실행한 것은 
 
 | 소스 | 소비 파일과 실제 범위 |
 |---|---|
-| [NVlabs/verilog-eval v2](https://github.com/NVlabs/verilog-eval/tree/c498220d0a52248f8e3fdffe279075215bde2da6) `c498220d0a52248f8e3fdffe279075215bde2da6` | `examples/benchmarks/verilog_eval.py`에서 pinned Git clone과 두 Human Eval task 모드, `verilog_evaluator.py`에서 별도 `_test.sv`/`_ref.sv`, `Makefile.in`의 Icarus `-g2012 -s tb` 및 `scripts/sv-iv-analyze`의 mismatch verdict를 대조. 원본 `_ref`는 Agent에게 전달하지 않음. |
-| [Icarus Verilog v12 branch](https://github.com/steveicarus/iverilog/tree/4fd5291632232fbe1ba49b2c26bb6b2bf1c6c9cf) `4fd5291632232fbe1ba49b2c26bb6b2bf1c6c9cf` | upstream Verilog-Eval README가 v12를 요구하고 v13을 미지원으로 표시. `examples/benchmarks/Dockerfile.iverilog12`에 고정하여 Mac Docker linux/arm64에서 `iverilog -V` v12.0, 작은 정답/오답 실행 확인. CVDP의 v13 이미지는 사용하지 않음. |
+| [NVlabs/verilog-eval v2](https://github.com/NVlabs/verilog-eval/tree/c498220d0a52248f8e3fdffe279075215bde2da6) `c498220d0a52248f8e3fdffe279075215bde2da6` | `examples/benchmarks/verilog_eval.py`의 고정 Git clone·두 Human Eval task 모드, `verilog_evaluator.py`의 분리된 `_test.sv`/`_ref.sv`, `Makefile.in`의 Icarus `-g2012 -s tb` 및 `scripts/sv-iv-analyze`의 mismatch 판정을 대조. `verify_verilog_eval_full.py`는 준비된 각 모드 156개 목록을 검사하고 `--smoke-one`에서는 `Prob001_zero` 정답·고정 오답만 실행한다. `examples/benchmarks/README.md`에 실행 경계를 안내한다. 원본 `_ref`는 Agent에게 전달하지 않음. |
+| [Icarus Verilog v12 branch](https://github.com/steveicarus/iverilog/tree/4fd5291632232fbe1ba49b2c26bb6b2bf1c6c9cf) `4fd5291632232fbe1ba49b2c26bb6b2bf1c6c9cf` | upstream Verilog-Eval README가 v12를 요구하고 v13을 미지원으로 표시. `examples/benchmarks/Dockerfile.iverilog12`에 고정. 2026-09-28 Mac ARM64/Docker `linux/arm64`에서 이미지 `sha256:2f3a2506d13f117b42f4dfb1d95ee8c6d883313dd5ae00288a647226d9523d9d`의 `iverilog -V` v12.0과 두 선택 모드의 각 한 문제 정답/오답을 [실제로 확인](verification.md#2026-09-28-verilog-eval-mac-두-모드-실도구-smoke). CVDP의 v13 이미지는 사용하지 않음. |
 | [고정 CVDP 소스/데이터](#고정-버전) | `examples/benchmarks/cvdp.py`가 기존 `examples/ace-rtl/environment/setup.py`, `prepare.py`, `evaluator.py`의 지원 no-commercial importer·다운로드·공식 채점 경로를 재사용. ACE/CVDP/HF SHA를 변경하지 않음. |
 
 선택 CVDP는 위 동일한 고정 CVDP/HF 자료를 `examples/ace-rtl/environment/setup.py`의
@@ -75,7 +75,8 @@ upstream 패키지를 설치하거나 원본 소스를 복사·실행한 것은 
 옵션 없는 전체 ACE setup은 기존 ACE 소스와 OpenCode Agent 이미지까지 별도로 준비한다.
 이 분리는 외부 버전 변경이 아니며 모델/실 Agent 결과의 신규 검증을 뜻하지 않는다.
 
-Verilog-Eval v2 전체 문제/Ubuntu 실도구와 실제 Agent/모델 최적화는 검증하지 않았다.
+Verilog-Eval v2의 Mac 단일 문제 실도구 판정과 **전체 156×2건 Ubuntu 실도구 검증**은 다르다.
+Ubuntu 전체는 병합 후 수동 CI 전까지 미검증이며 실제 Agent/모델 최적화도 검증하지 않았다.
 
 ## Task 5 pinned data / provider inspection (2026-09-20)
 
