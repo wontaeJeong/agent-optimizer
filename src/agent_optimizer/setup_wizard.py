@@ -45,14 +45,14 @@ def supports_generated_profile(adapter: type) -> bool:
 
 
 def prepare_selection(project_root: Path, selection: str, *, evaluator: str | None = None,
-                      offline: bool = False) -> tuple[dict, dict, dict]:
+                      offline: bool = False, progress_stream=None) -> tuple[dict, dict, dict]:
     registry, _, _ = component_inventory(project_root)
     plugins, dependencies = {}, {}
     custom_source = Path(selection)
     if not custom_source.is_absolute():
         custom_source = project_root / custom_source
     if selection in registry.factories["datasets"]:
-        with PreparationStatus(selection), contextlib.redirect_stdout(sys.stderr):
+        with PreparationStatus(selection, stream=progress_stream), contextlib.redirect_stdout(sys.stderr):
             result = registry.resolve("datasets", selection)().prepare(
                 project_root / "external" / "datasets" / selection, offline=offline)
         evaluator_id = result["evaluator"]
@@ -62,7 +62,7 @@ def prepare_selection(project_root: Path, selection: str, *, evaluator: str | No
         result = {**result, "evaluator": evaluator_id, "dataset_provider": selection}
     elif selection in CATALOG_DATASETS:
         from agent_optimizer.integrations import prepare_catalog_dataset
-        with PreparationStatus(selection), contextlib.redirect_stdout(sys.stderr):
+        with PreparationStatus(selection, stream=progress_stream), contextlib.redirect_stdout(sys.stderr):
             result = prepare_catalog_dataset(project_root, selection, offline=offline)
     elif custom_source.is_file():
         if not evaluator:
@@ -73,7 +73,7 @@ def prepare_selection(project_root: Path, selection: str, *, evaluator: str | No
         else:
             registry.resolve("evaluators", evaluator)
             result_name = evaluator
-        with PreparationStatus(custom_source.name):
+        with PreparationStatus(custom_source.name, stream=progress_stream):
             result = CustomDataset(custom_source, evaluator=result_name).prepare(
                 project_root / "external" / "datasets" / "custom", offline=offline)
     else:

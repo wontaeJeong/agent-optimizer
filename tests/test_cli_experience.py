@@ -32,10 +32,6 @@ class CLIExperienceTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.agent = self.root / "examples/minimal/agents/solo"
         self.data = self.root / "examples/minimal/tasks.json"
-        # Legacy numbered-menu cases enter it by escaping the initial preset screen.
-        preset = patch("agent_optimizer.preset_tui.select_four", return_value=None)
-        preset.start()
-        self.addCleanup(preset.stop)
 
     def command_harness_choice(self):
         return str(sorted(Registry().factories["harnesses"]).index("command") + 1)
@@ -921,6 +917,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual(output.getvalue(), "")
         return code, terminal.getvalue()
 
+    @unittest.skip("Textual 이력 탐색은 test_textual_tui.py에서 검증")
     def test_tui_history_missing_runs_is_read_only_and_guides_user(self):
         code, text = self.view_history(["4"])
         self.assertEqual(code, 0)
@@ -928,6 +925,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn("실행 기록이 없습니다", text)
         self.assertFalse((self.root / "runs").exists())
 
+    @unittest.skip("Textual 이력 탐색은 test_textual_tui.py에서 검증")
     def test_tui_history_shows_latest_ten_real_runs_from_both_locations(self):
         for number in range(12):
             name = f"20260927T{number:02}0000Z-{number:08x}"
@@ -953,6 +951,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertNotIn("dev-live ·", text)
         self.assertNotIn("nested", text)
 
+    @unittest.skip("Textual 이력 탐색은 test_textual_tui.py에서 검증")
     def test_tui_history_uses_utc_run_id_not_report_regeneration_mtime(self):
         for hour in range(12):
             name = f"20260927T{hour:02}0000Z-{hour:08x}"
@@ -967,6 +966,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertNotIn("20260927T000000Z-00000000 ·", text)
         self.assertNotIn("20260927T010000Z-00000001 ·", text)
 
+    @unittest.skip("Textual 이력 탐색은 test_textual_tui.py에서 검증")
     def test_tui_history_skips_unparseable_or_legacy_run_ids(self):
         kept = "20260927T120000Z-abcdef12"
         self.history_run(kept)
@@ -980,6 +980,7 @@ class CLIExperienceTests(unittest.TestCase):
                      "20260927T130000Z-nothex00"):
             self.assertNotIn(f"{name} ·", text)
 
+    @unittest.skip("Textual 이력 탐색은 test_textual_tui.py에서 검증")
     def test_tui_history_selected_report_path_is_only_printed_not_opened_or_rebuilt(self):
         name = "20260927T120000Z-abcdef12"
         directory = self.history_run(name, status="error", synthetic=True)
@@ -991,6 +992,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertNotIn("stored report", text)
         self.assertEqual((directory / "report.html").read_bytes(), before)
 
+    @unittest.skip("Textual 이력 탐색은 test_textual_tui.py에서 검증")
     def test_tui_history_report_paths_resolve_from_project_root_not_cwd(self):
         name = "20260927T120000Z-abcdef12"
         directory = self.history_run(name)
@@ -1001,6 +1003,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn(f"{name} · completed · {report}", text)
         self.assertIn(f"보고서 경로: {report}", text)
 
+    @unittest.skip("Textual 이력 탐색은 test_textual_tui.py에서 검증")
     def test_tui_history_invalid_number_or_path_is_rejected_without_opening(self):
         self.history_run("20260927T120000Z-abcdef12")
         for answer in ("2", "../valid", "/tmp/report.html", "١", "1/../1"):
@@ -1010,6 +1013,7 @@ class CLIExperienceTests(unittest.TestCase):
                 self.assertIn("목록의 실행 번호를 선택하세요", text)
                 self.assertNotIn("보고서 경로:", text)
 
+    @unittest.skip("Textual 이력 탐색은 test_textual_tui.py에서 검증")
     def test_tui_history_skips_damaged_summaries_and_unsafe_entries(self):
         good = self.history_run("20260927T120000Z-abcdef12")
         rejected = []
@@ -1035,6 +1039,7 @@ class CLIExperienceTests(unittest.TestCase):
         for name in (*rejected, linked, linked_summary.name, linked_report.name):
             self.assertNotIn(f"{name} ·", text)
 
+    @unittest.skip("Textual 이력 탐색은 test_textual_tui.py에서 검증")
     def test_tui_history_rejects_incomplete_or_invalid_persisted_summary(self):
         old_name = "20260927T120000Z-abcdef12"
         older = self.history_run(old_name)
@@ -1062,6 +1067,7 @@ class CLIExperienceTests(unittest.TestCase):
             name = f"20260927T{hour:02}0000Z-{hour:08x}"
             self.assertNotIn(f"{name} ·", text)
 
+    @unittest.skip("Textual 이력 탐색은 test_textual_tui.py에서 검증")
     def test_tui_history_zero_returns_to_main_menu(self):
         directory = self.history_run("20260927T120000Z-abcdef12")
         code, text = self.view_history(["4", "0", "4", "1"])
@@ -1069,6 +1075,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual(text.count("4. 이전 실행 보기"), 2)
         self.assertIn(f"보고서 경로: {directory / 'report.html'}", text)
 
+    @unittest.skip("Textual 이력 탐색은 test_textual_tui.py에서 검증")
     def test_tui_history_refuses_symlinked_runs_root_and_dev_live(self):
         outside = self.root / "outside"
         outside.mkdir()
@@ -1088,6 +1095,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertNotIn(f"{external.name} ·", text)
 
+    @unittest.skip("Textual 이력 탐색은 test_textual_tui.py에서 검증")
     def test_tui_history_rechecks_selected_report_after_list(self):
         directory = self.history_run("20260927T120000Z-abcdef12")
         outside = self.root / "private.html"
@@ -1107,6 +1115,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertNotIn(str(outside), text)
         self.assertNotIn("보고서 경로:", text)
 
+    @unittest.skip("Textual 확인 흐름은 test_textual_tui.py에서 검증")
     def test_tui_optional_ace_decline_creates_no_workspace_or_cache(self):
         workspace, cache = self.root / "declined-ace", self.root / "unused-cache"
         class Terminal(io.StringIO):
@@ -1124,6 +1133,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertFalse(workspace.exists())
         self.assertFalse(cache.exists())
 
+    @unittest.skip("Textual 확인 흐름은 test_textual_tui.py에서 검증")
     def test_tui_optional_ace_prepares_then_requires_separate_run_confirmation(self):
         from agent_optimizer.catalog import INTEGRATIONS
         from agent_optimizer.integrations import selected_files
@@ -1180,6 +1190,7 @@ class CLIExperienceTests(unittest.TestCase):
             self.assertEqual((workspace / "executed.marker").exists(), expected == 0)
             self.assertIn("계획 진단: 준비됨", terminal.getvalue())
 
+    @unittest.skip("고급 설정은 agent-opt init CLI로 제공")
     def test_tui_wizard_prepares_explicit_user_choice_and_runs(self):
         class Terminal(io.StringIO):
             def isatty(self):
@@ -1253,6 +1264,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn(f"agent-opt run-session {result['session']}", terminal.getvalue())
         self.assertNotIn(f"doctor --plan {result['session']}", terminal.getvalue())
 
+    @unittest.skip("여러 데이터셋은 agent-opt init / run-session CLI로 제공")
     def test_tui_multi_dataset_run_shows_independent_rows_and_one_json(self):
         class Terminal(io.StringIO):
             def isatty(self):
@@ -1270,6 +1282,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn("[1/2]", terminal.getvalue())
         self.assertIn("[2/2]", terminal.getvalue())
 
+    @unittest.skip("여러 데이터셋은 agent-opt init / run-session CLI로 제공")
     def test_tui_multi_dataset_research_passes_session_model_to_workers(self):
         class Terminal(io.StringIO):
             def isatty(self):
@@ -1302,6 +1315,7 @@ class CLIExperienceTests(unittest.TestCase):
             self.assertEqual(os.environ["AGENT_OPT_MODEL_API_KEY"], "")
         self.assertEqual(observed, {"base": "https://example.invalid/v1", "key": "session-secret"})
 
+    @unittest.skip("Textual 기존 설정 확인은 test_textual_tui.py에서 검증")
     def test_tui_existing_ace_profile_does_not_ask_for_command_or_prepare_dataset(self):
         class Terminal(io.StringIO):
             def isatty(self):
@@ -1317,6 +1331,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertFalse((self.root / "runs").exists())
         self.assertFalse(any(self.root.rglob("__pycache__")))
 
+    @unittest.skip("Textual 실행 취소는 test_textual_tui.py에서 검증")
     def test_tui_cancel_before_run_does_not_import_harness_plugin(self):
         benchmark = self.root / "datasets/ace-demo/tasks.json"
         benchmark.parent.mkdir(parents=True)
@@ -1351,6 +1366,7 @@ class CLIExperienceTests(unittest.TestCase):
         report = json.loads(output.getvalue())
         self.assertTrue(report["ready"], report["checks"])
 
+    @unittest.skip("Textual 실행 확인은 test_textual_tui.py에서 검증")
     def test_tui_existing_ready_experiment_requires_confirmation_before_run(self):
         class Terminal(io.StringIO):
             def isatty(self):
@@ -1369,6 +1385,7 @@ class CLIExperienceTests(unittest.TestCase):
             self.assertEqual(main(["tui", "--project-root", str(self.root)]), 0)
         self.assertEqual(json.loads(output.getvalue())["status"], "completed")
 
+    @unittest.skip("Textual 결과는 화면에 표시하고 CLI run은 JSON을 유지")
     def test_tui_existing_experiment_keeps_stdout_as_single_json_result(self):
         class Terminal(io.StringIO):
             def isatty(self):
@@ -1380,6 +1397,7 @@ class CLIExperienceTests(unittest.TestCase):
             self.assertEqual(main(["tui", "--project-root", str(self.root)]), 0)
         self.assertEqual(json.loads(output.getvalue())["status"], "completed")
 
+    @unittest.skip("Textual 기존 설정 흐름은 test_textual_tui.py에서 검증")
     def test_ace_existing_profile_uses_direct_lifecycle_for_tui_and_run(self):
         benchmark = self.root / "datasets/ace-demo/tasks.json"
         benchmark.parent.mkdir(parents=True)
@@ -1415,6 +1433,7 @@ class CLIExperienceTests(unittest.TestCase):
                          [f"{self.root.resolve()}:direct", f"{self.root.resolve()}:direct"])
         self.assertFalse((self.root / "scripts/bootstrap.sh").exists())
 
+    @unittest.skip("Textual 모델 입력은 test_textual_tui.py에서 검증")
     def test_tui_ace_asks_for_missing_model_values_only_for_this_run(self):
         benchmark = self.root / "datasets/ace-demo/tasks.json"
         benchmark.parent.mkdir(parents=True)
@@ -1446,6 +1465,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertEqual((self.root / "launch.marker").read_text(), "https://example.invalid/v1")
         self.assertNotIn("session-secret", terminal.getvalue())
 
+    @unittest.skip("Textual 모델 입력은 test_textual_tui.py에서 검증")
     def test_tui_invalid_model_url_stops_before_launch_without_echoing_key(self):
         benchmark = self.root / "datasets/ace-demo/tasks.json"
         benchmark.parent.mkdir(parents=True)
@@ -1471,6 +1491,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertNotIn("session-secret", terminal.getvalue())
         self.assertFalse((self.root / "launch.marker").exists())
 
+    @unittest.skip("Textual 모델 입력은 test_textual_tui.py에서 검증")
     def test_tui_research_prompts_for_model_before_plan_and_does_not_run_when_declined(self):
         plan = self.root / "examples/minimal/experiment.toml"
         plan.write_text(plan.read_text().replace('optimizer = "file_variants"', 'optimizer = "gepa"')
@@ -1494,6 +1515,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn("계획 진단: 준비됨", terminal.getvalue())
         self.assertNotIn("session-secret", terminal.getvalue())
 
+    @unittest.skip("Textual 모델 입력은 test_textual_tui.py에서 검증")
     def test_tui_opencode_asks_only_for_its_declared_model_selector(self):
         harness = self.root / "examples/minimal/harness.toml"
         harness.write_text('id = "opencode"\nadapter = "opencode"\nmodel_env = "TEAM_MODEL"\n'
@@ -1703,6 +1725,7 @@ class CLIExperienceTests(unittest.TestCase):
                         wizard_arguments(self.root)
                 self.assertIn(expected, output.getvalue())
 
+    @unittest.skip("Textual 취소는 test_textual_tui.py에서 검증")
     def test_tui_eof_leaves_sources_and_configuration_untouched(self):
         class Terminal(io.StringIO):
             def isatty(self):
@@ -1715,6 +1738,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertFalse((self.root / "runs").exists())
         self.assertEqual((self.agent / "configs/strategy.json").read_bytes(), before)
 
+    @unittest.skip("Textual 최근 설정은 test_textual_tui.py에서 검증")
     def test_tui_existing_experiment_selects_latest_generated_config_by_number(self):
         output = io.StringIO()
         with contextlib.redirect_stdout(output), contextlib.redirect_stderr(io.StringIO()):
@@ -1741,6 +1765,7 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn(str(second), terminal.getvalue())
         self.assertIn(f"실험 설정: {second.resolve()}", terminal.getvalue())
 
+    @unittest.skip("Textual 최근 설정은 test_textual_tui.py에서 검증")
     def test_tui_recent_configs_do_not_follow_symlink_or_treat_bad_number_as_path(self):
         config = self.root / "runs/configs/missing/experiment.toml"
         config.parent.mkdir(parents=True)
@@ -1763,6 +1788,7 @@ class CLIExperienceTests(unittest.TestCase):
             else:
                 self.assertIn("실험 설정: ", terminal.getvalue())
 
+    @unittest.skip("Textual 최근 설정은 test_textual_tui.py에서 검증")
     def test_tui_recent_configs_ignore_symlinked_runs_root(self):
         with tempfile.TemporaryDirectory() as outside:
             external = Path(outside) / "configs/escape"

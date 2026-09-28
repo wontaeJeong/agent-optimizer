@@ -4,12 +4,8 @@ from __future__ import annotations
 import importlib.util
 import math
 import os
-import select
 import shutil
 import sys
-import termios
-import textwrap
-import tty
 import uuid
 from pathlib import Path
 
@@ -32,97 +28,20 @@ def _tr(korean: str, english: str) -> str:
     return english if current_language() == "en" else korean
 
 
-def _key() -> str:
-    fd = sys.stdin.fileno()
-    previous = termios.tcgetattr(fd)
-    try:
-        tty.setraw(fd)
-        char = os.read(fd, 1)
-        if char == b"\x1b":
-            if select.select([fd], [], [], 0.04)[0]:
-                next_char = os.read(fd, 1)
-                if next_char == b"[" and select.select([fd], [], [], 0.04)[0]:
-                    return {b"A": "up", b"B": "down"}.get(os.read(fd, 1), "escape")
-            return "escape"
-        return {b"\r": "enter", b"\n": "enter", b"\x03": "cancel",
-                b"\x04": "escape"}.get(char, char.decode("utf-8", "ignore"))
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, previous)
-
-
-def choose_preset(title: str, options: list[tuple], *,
-                  read_key=None, initial: int = 0) -> int | None:
-    """화살표 초점 변경만으로 설명을 갱신하고 Enter만 선택을 확정한다."""
-    if not options:
-        raise ConfigurationError("선택 가능한 항목이 없습니다")
-    focus = initial if 0 <= initial < len(options) and options[initial][2] else 0
-    read_key = read_key or _key
-    while True:
-        width = shutil.get_terminal_size((80, 24)).columns
-        rows = [f"Agent Optimizer · {title}", ""]
-        if width >= 75:
-            rows.append(f"{_tr('선택지 / 상태', 'Options / status'):<43} │ {_tr('선택한 항목 설명', 'Focused description')}")
-            for index, option in enumerate(options):
-                name, description, enabled = option[:3]
-                marker = ">" if index == focus else " "
-                status = (option[3] if len(option) > 3 else
-                          _tr("사용 가능", "Available") if enabled else _tr("사용 불가", "Unavailable"))
-                left = f"{marker} {name[:23]:<24} {status[:15]:<15}"
-                if index == focus:
-                    wrapped = textwrap.wrap(description, width=max(20, width - 47),
-                                            break_long_words=True, break_on_hyphens=False) or [""]
-                    rows.append(f"{left} │ {wrapped[0]}")
-                    rows.extend(" " * 43 + " │ " + part for part in wrapped[1:])
-                else:
-                    rows.append(left)
-        else:
-            for index, option in enumerate(options):
-                name, description, enabled = option[:3]
-                marker = ">" if index == focus else " "
-                status = (option[3] if len(option) > 3 else
-                          _tr("사용 가능", "Available") if enabled else _tr("사용 불가", "Unavailable"))
-                rows.append(f"{marker} {name} · " +
-                            status)
-                if index == focus:
-                    rows.append("   " + description)
-        rows += ["", (_tr("↑↓ 탐색   Enter 선택   Esc 메뉴   Ctrl+C 취소",
-                            "↑↓ Navigate   Enter Select   Esc Menu   Ctrl+C Cancel") if title == "Agent" else
-                      _tr("↑↓ 탐색   Enter 선택   Esc 이전   Ctrl+C 취소",
-                          "↑↓ Navigate   Enter Select   Esc Back   Ctrl+C Cancel"))]
-        print("\x1b[2J\x1b[H" + "\n".join(rows), file=sys.stderr, flush=True)
-        key = read_key()
-        if key == "up":
-            focus = (focus - 1) % len(options)
-        elif key == "down":
-            focus = (focus + 1) % len(options)
-        elif key == "cancel":
-            raise KeyboardInterrupt
-        elif key in {"escape", ""}:
-            return None
-        elif key == "enter":
-            if options[focus][2]:
-                return focus
-            print(options[focus][1], file=sys.stderr, flush=True)
-        elif key.isdecimal() and 1 <= int(key) <= len(options):
-            focus = int(key) - 1
-
-
-def select_four(root: Path, *, choose=choose_preset,
-                initial: tuple[str, str, str, str] | None = None,
-                start_page: int = 0) -> tuple[str, str, str, str] | None:
-    """지원 가능한 프리셋만 활성화하고 사용자 선택은 모두 독립적으로 받는다."""
+def preset_options(root: Path, page: str, agent: str = "ace-rtl") -> list[tuple]:
+    """프리셋의 호환성·준비 조건을 UI와 분리해 한 곳에서 제공한다."""
     agents = [("ACE-RTL", _tr("고정 Git 소스의 ACE 스킬 프로필 · 준비 후 OpenCode 실행",
                                "Pinned Git ACE skill profile · OpenCode after preparation"), True,
                _tr("자산 준비 필요", "Assets to prepare"))]
     for path in sorted((root / "examples").glob("*/agent.toml")):
-        agent = load_agent(path)
-        agents.append((agent.id, _tr("등록된 Agent입니다. 전용 설정을 기존 실험 경로에서 선택하세요",
+        registered_agent = load_agent(path)
+        agents.append((registered_agent.id, _tr("등록된 Agent입니다. 전용 설정을 기존 실험 경로에서 선택하세요",
                                       "Registered Agent; select its dedicated experiment in existing runs"), False,
                        _tr("이번 조합과 호환 불가", "Not compatible")))
     for path in (root / "examples/minimal/solo.toml", root / "examples/minimal/team.toml"):
         if path.is_file():
-            agent = load_agent(path)
-            agents.append((agent.id, _tr("합성 fixture Agent · sample_text 데이터셋과 조합",
+            registered_agent = load_agent(path)
+            agents.append((registered_agent.id, _tr("합성 fixture Agent · sample_text 데이터셋과 조합",
                                           "Synthetic fixture Agent · compatible with sample_text"), True,
                            _tr("구현됨", "Implemented")))
     agents += [(_tr("내 Agent 연결하기", "Connect my Agent"),
@@ -215,64 +134,23 @@ def select_four(root: Path, *, choose=choose_preset,
     optimizer_options.extend([own_optimizer, existing_config])
     fixture_optimizers.extend([own_optimizer, existing_config])
     dataset_options.extend([own_dataset, existing_config])
-    chosen = []
-    if initial is not None:
-        first = next((number for number, row in enumerate(agents) if row[0] ==
-                      ("ACE-RTL" if initial[0] == "ace-rtl" else initial[0])), None)
-        if first is None or initial[2] not in ({"baseline", "file_variants"} if initial[0] in
-                                               {"rtl-solo", "rtl-team"} else
-                                               {"gepa", "meta_harness", "baseline"}):
-            raise ConfigurationError("이전 프리셋 선택을 복원할 수 없습니다")
-        names = (["baseline", "file_variants"] if initial[0] in {"rtl-solo", "rtl-team"}
-                 else ["gepa", "meta_harness", "baseline"])
-        chosen = [first, 0, names.index(initial[2]), 0]
-    page = start_page if chosen else 0
-    if not 0 <= page < 4:
-        raise ConfigurationError("잘못된 프리셋 선택 단계입니다")
-    while page < 4:
-        fixture = bool(chosen and agents[chosen[0]][0] in {"rtl-solo", "rtl-team"})
-        pages = [("Agent", agents),
-                 ("Harness", [*(fixture_harness if fixture else ace_harness), own_harness, existing_config]),
-                 ("Optimizer", fixture_optimizers if fixture else optimizer_options),
-                 ("Dataset", [("sample_text", _tr("내장 공개 합성 과제 · evaluator=sample_eval · 실제 RTL/LLM 점수 아님",
-                                                    "Built-in synthetic tasks · evaluator=sample_eval · not RTL/LLM performance"), True,
-                              _tr("구현됨", "Implemented")),
-                              ("CVDP", _tr("fixture 출력은 공식 CVDP 채점 형식과 호환되지 않음",
-                                                "Fixture outputs are incompatible with official CVDP scoring"), False,
-                               _tr("이번 조합과 호환 불가", "Not compatible")), own_dataset, existing_config]
-                  if fixture else dataset_options)]
-        title, options = pages[page]
-        index = (choose(title, options, initial=chosen[page] if page < len(chosen) else 0)
-                 if choose is choose_preset else choose(title, options))
-        if index is None:
-            if page == 0:
-                return None
-            page -= 1
-            continue
-        if not isinstance(index, int) or not 0 <= index < len(options) or not options[index][2]:
-            raise ConfigurationError(f"{title}: 이번 조합에서 선택할 수 없는 항목입니다")
-        if page == 0 and index >= len(agents) - 2:
-            return ("custom" if index == len(agents) - 2 else "existing", "", "", "")
-        if page and options[index][0] == own_harness[0] or page and options[index][0] in {
-                own_optimizer[0], own_dataset[0]}:
-            return ("custom", "", "", "")
-        if page and options[index][0] == existing_config[0]:
-            return ("existing", "", "", "")
-        if page >= len(chosen) or chosen[page] != index:
-            if len(chosen) > page + 1:
-                print(_tr("앞선 선택이 바뀌어 뒤의 선택을 다시 확인합니다.",
-                          "Earlier selection changed; review later choices again."), file=sys.stderr)
-            chosen = chosen[:page] + [index]
-        page += 1
-    agent_name = agents[chosen[0]][0]
-    if agent_name in {"rtl-solo", "rtl-team"}:
-        return (agent_name, "fixture", ("baseline", "file_variants")[chosen[2]], "sample_text")
-    return ("ace-rtl", "ace-opencode", ("gepa", "meta_harness", "baseline")[chosen[2]], "cvdp")
+    fixture = agent in {"rtl-solo", "rtl-team"}
+    pages = {"Agent": agents,
+             "Harness": [*(fixture_harness if fixture else ace_harness), own_harness, existing_config],
+             "Optimizer": fixture_optimizers if fixture else optimizer_options,
+             "Dataset": [("sample_text", _tr("내장 공개 합성 과제 · evaluator=sample_eval · 실제 RTL/LLM 점수 아님",
+                                                "Built-in synthetic tasks · evaluator=sample_eval · not RTL/LLM performance"), True,
+                          _tr("구현됨", "Implemented")),
+                          ("CVDP", _tr("fixture 출력은 공식 CVDP 채점 형식과 호환되지 않음",
+                                            "Fixture outputs are incompatible with official CVDP scoring"), False,
+                           _tr("이번 조합과 호환 불가", "Not compatible")), own_dataset, existing_config]
+              if fixture else dataset_options}
+    return pages[page]
 
 
 def write_sample_selection(root: Path, agent_id: str, optimizer: str, *, name: str | None = None,
-                           max_trials: int | None = None, wall_time: float | None = None,
-                           trial_timeout: float | None = None) -> Path:
+                            max_trials: int | None = None, wall_time: float | None = None,
+                            trial_timeout: float | None = None, progress_stream=None) -> Path:
     """등록된 합성 fixture와 evaluator를 기존 init 계약으로만 연결한다."""
     if agent_id not in {"rtl-solo", "rtl-team"} or optimizer not in {"baseline", "file_variants"}:
         raise ConfigurationError("지원하지 않는 합성 프리셋 조합입니다")
@@ -280,7 +158,8 @@ def write_sample_selection(root: Path, agent_id: str, optimizer: str, *, name: s
     agent = root / "examples/minimal/agents" / agent_id.removeprefix("rtl-")
     if not (agent / "prompts/system.md").is_file():
         raise ConfigurationError("합성 Agent 파일이 없습니다")
-    dataset, plugins, dependencies = prepare_selection(root, "sample_text")
+    dataset, plugins, dependencies = prepare_selection(root, "sample_text",
+                                                       progress_stream=progress_stream)
     stages = []
     if optimizer == "file_variants":
         stages = [{"id": "file-variants", "optimizer": "file_variants", "max_trials": 1,
@@ -524,15 +403,13 @@ def prepare_ace_selection(root: Path, *, offline: bool = False) -> None:
         prepare_pointer(pointer, offline=offline)
 
 
-def run_ace_selection(experiment: Path) -> int:
-    """선택된 TOML을 고정 평가 lock 및 기존 runner에 연결한다."""
-    from agent_optimizer.cli import next_command, show
+def execute_ace_selection(experiment: Path, *, on_event=None) -> tuple[Path, dict]:
+    """선택된 TOML을 검증·고정 평가 lock·runner에 연결한다."""
     from agent_optimizer.model_input import session_environment
     from agent_optimizer.models import ModelSettings
     from agent_optimizer.network import demo_environment, network_environment
     from agent_optimizer.readiness import collect_plan
     from agent_optimizer.runner import run_experiment
-    from agent_optimizer.terminal_report import ProgressDisplay
 
     spec = load_experiment(experiment)
     verify_ace_selection(spec)
@@ -569,14 +446,21 @@ def run_ace_selection(experiment: Path) -> int:
         if not diagnosis["ready"]:
             failures = [item["id"] for item in diagnosis["checks"] if item["status"] != "ok"]
             raise ConfigurationError("선택한 실험의 정적 계획 진단 실패: " + ", ".join(failures))
-        print(f"정적 계획 진단: 준비됨 (실모델·공식 평가 성공은 미검증) · {experiment}",
-              file=sys.stderr)
         for profile in spec["_profiles"]:
             if profile.get("runtime", {}).get("kind") == "docker":
                 profile["runtime"]["image"] = inspection["lock"]["images"]["agent"]["id"]
-        with ProgressDisplay() as progress:
-            progress.configure_budget(spec["budget"]["max_trials"])
-            run_dir, summary = run_experiment(spec, Registry(), on_event=progress)
+        run_dir, summary = run_experiment(spec, Registry(), on_event=on_event)
+    return run_dir, summary
+
+
+def run_ace_selection(experiment: Path) -> int:
+    """비대화형 CLI의 기존 출력·종료 코드 유지."""
+    from agent_optimizer.cli import next_command, show
+    from agent_optimizer.terminal_report import ProgressDisplay
+
+    with ProgressDisplay() as progress:
+        progress.configure_budget(load_experiment(experiment)["budget"]["max_trials"])
+        run_dir, summary = execute_ace_selection(experiment, on_event=progress)
     show({"run_dir": run_dir, "status": summary["status"], "trials_used": summary["trials_used"],
           "report_html": run_dir / "report.html"})
     print(f"결과 HTML: {run_dir / 'report.html'}", file=sys.stderr)
