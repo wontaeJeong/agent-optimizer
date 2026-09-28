@@ -61,4 +61,8 @@ Optimizer는 **train** 결과만 수정 근거로 사용하고 **validation** �
 첫 실행의 fixture 점수는 연결 확인용입니다. 점수가 올라도 실제 모델이나 외부 Agent 성능 향상은 입증되지 않습니다. 실환경 결과는 선택한 Agent·데이터셋·모델·평가기·예산과 실행 근거를 함께 기록하세요.
 :::
 
-다음 단계: 자신의 과제를 연결하려면 [실험 구성](/agent-optimizer/guides/experiment/)으로 이동하세요.
+## ACE 프리셋 보고서를 읽을 때
+
+[ACE 프리셋 안내](/agent-optimizer/getting-started/presets/#결과와-검증-범위)의 GEPA/Meta-Harness 실행에서는 `synthetic=false`와 Agent/Harness/Optimizer/Dataset, baseline·후보의 **validation**, `final_test` 여부를 먼저 확인하세요. `changes.diff`만으로 후보가 실제 실행·채점됐다고 단정하지 말고 `events.jsonl`의 후보별 입력/선행 실행 근거 및 존재하는 공식 CVDP `raw_result.json`을 대조하세요. 미수집 토큰/비용은 `null`, 하네스의 partial 값은 전체 사용량이 아닙니다. 이 페이지의 이미지는 계속 **합성 fixture**이고 실환경 캡처는 아닙니다.
+
+다음 단계: [ACE 프리셋 실행](/agent-optimizer/getting-started/presets/) 또는 [내 Agent 실험 구성](/agent-optimizer/guides/experiment/)으로 이동하세요.

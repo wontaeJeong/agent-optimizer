@@ -27,6 +27,12 @@
   max-width: 100%;
 }
 
+.sl-markdown-content table {
+  display: block;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
 .sl-link-card .title {
   overflow-wrap: anywhere;
 }

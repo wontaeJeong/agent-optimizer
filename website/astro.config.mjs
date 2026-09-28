@@ -18,6 +18,7 @@ export default defineConfig({
         { slug: 'index' },
         { label: '시작하기', items: [
           { slug: 'getting-started/first-run' },
+          { slug: 'getting-started/presets' },
           { slug: 'getting-started/results' },
         ] },
         { label: '실험하기', items: [
