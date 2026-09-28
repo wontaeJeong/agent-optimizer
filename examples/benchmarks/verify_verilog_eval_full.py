@@ -45,8 +45,16 @@ def _verdict(result: Evaluation | None) -> tuple[str, float | None, str]:
     if status == "passed" and passed == 1:
         return "passed", 1.0, "passed"
     if status == "failed" and passed == 0:
-        reason = "compile_failure" if "compile" in str(result.feedback).lower() else "mismatch"
-        return "failed", 0.0, reason
+        feedback = result.feedback
+        if feedback == "Verilog-Eval compile did not complete":
+            return "failed", 0.0, "compile_failure"
+        if feedback in {"RTL solution missing", "Candidate contains unsupported simulation control"}:
+            return "failed", 0.0, "reference_invalid"
+        if isinstance(feedback, str) and re.fullmatch(
+            r"Verilog-Eval: [1-9][0-9]* mismatches in [1-9][0-9]* samples", feedback
+        ):
+            return "failed", 0.0, "mismatch"
+        return "infrastructure_error", None, "infrastructure_error"
     if status == "timeout":
         return "timeout", 0.0, "timeout"
     return "infrastructure_error", None, "infrastructure_error"
@@ -54,6 +62,8 @@ def _verdict(result: Evaluation | None) -> tuple[str, float | None, str]:
 
 def verify_tasks(tasks: list[Task], evaluator, out: Path, mode: str, *, timeout: float = 90) -> dict:
     """Visit all supplied tasks, recording only public IDs and categorized verdicts."""
+    if not isinstance(mode, str) or mode not in _MODES:
+        raise ConfigurationError("Unsupported Verilog-Eval dataset")
     out = Path(out)
     safe_path(out, ".")
     summary_path = safe_path(out, "summary.json")
@@ -67,11 +77,6 @@ def verify_tasks(tasks: list[Task], evaluator, out: Path, mode: str, *, timeout:
     out.mkdir(parents=True, exist_ok=True)
     with summary_path.open("x", encoding="utf-8") as stream:
         json.dump(summary, stream, ensure_ascii=False, allow_nan=False)
-
-    if mode not in _MODES:
-        summary["status"] = "failed"
-        write_json(summary_path, summary)
-        raise ConfigurationError("Unsupported Verilog-Eval dataset")
 
     seen = set()
     for task in sorted(tasks, key=lambda row: row.id if isinstance(row.id, str) else ""):

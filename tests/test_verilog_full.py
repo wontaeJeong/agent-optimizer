@@ -91,7 +91,7 @@ class VerilogFullTests(unittest.TestCase):
         tasks = [self.task("Prob002"), self.task("Prob001_zero")]
         outcomes = {
             "Prob001_zero": Evaluation("failed", {"passed": 0.0},
-                                       f"Mismatches: 3; {PRIVATE}; /private/ref.sv"),
+                                       "Verilog-Eval: 3 mismatches in 17 samples"),
             "Prob002": Evaluation("passed", {"passed": 1.0},
                                   f"success; {PRIVATE}; /private/test.sv"),
         }
@@ -116,7 +116,8 @@ class VerilogFullTests(unittest.TestCase):
             "Prob001": RuntimeError(f"private reference: {PRIVATE}"),
             "Prob002": Evaluation("timeout", {"passed": 0.0}, PRIVATE),
             "Prob003": None,
-            "Prob004": Evaluation("failed", {"passed": 0.0}, "compile did not complete " + PRIVATE),
+            "Prob004": Evaluation("failed", {"passed": 0.0},
+                                  "Verilog-Eval compile did not complete"),
             "Prob005": Evaluation("passed", {"passed": 1.0}, PRIVATE),
         }
         evaluator = RecordingEvaluator(outcomes, self.source)
@@ -130,6 +131,29 @@ class VerilogFullTests(unittest.TestCase):
                           "compile_failure", "passed"])
         self.assertEqual(summary["status"], "failed")
         self.assertNotIn(PRIVATE, json.dumps(summary))
+
+    def test_only_proven_simulation_mismatches_are_labeled_mismatch(self):
+        task = self.task("Prob001_zero")
+        outcomes = (
+            ("RTL solution missing", "reference_invalid"),
+            ("Candidate contains unsupported simulation control", "reference_invalid"),
+            ("Verilog-Eval: 2 mismatches in 17 samples", "mismatch"),
+            ("Verilog-Eval: 0 mismatches in 17 samples", "infrastructure_error"),
+            ("Verilog-Eval: 2 mismatches in 0 samples", "infrastructure_error"),
+            (f"Verilog-Eval: 2 mismatches in 17 samples; {PRIVATE}", "infrastructure_error"),
+            (f"compiler aborted: {PRIVATE}", "infrastructure_error"),
+            ("Verilog-Eval compile did not complete", "compile_failure"),
+        )
+        for number, (feedback, reason) in enumerate(outcomes):
+            with self.subTest(feedback=feedback):
+                evaluator = RecordingEvaluator({task.id: Evaluation("failed", {"passed": 0.0},
+                                                                     feedback)}, self.source)
+                out = self.root / f"run{number}" / "verilog-eval-full/verilog-spec"
+                summary = verify_tasks([task], evaluator, out, "verilog-spec")
+                self.assertEqual(summary["cases"][0]["reason"], reason)
+                self.assertEqual(summary["failed"], 1)
+                self.assertEqual(summary["status"], "failed")
+                self.assertNotIn(PRIVATE, (out / "summary.json").read_text())
 
     def test_summary_exists_before_first_evaluation_and_counts_only_visited_cases(self):
         tasks = [self.task("Prob002"), self.task("Prob001")]
@@ -169,6 +193,16 @@ class VerilogFullTests(unittest.TestCase):
         with self.assertRaisesRegex(ConfigurationError, "summary.json"):
             verify_tasks([task], RecordingEvaluator({}, self.source), out, "verilog-spec")
         self.assertEqual((out / "summary.json").read_text(), "preexisting ledger")
+
+    def test_unselected_mode_never_creates_or_writes_a_public_summary(self):
+        task = self.task("Prob001_zero")
+        secret_mode = "../private/SECRET_MODEL_KEY"
+        out = self.run / "unknown"
+        with self.assertRaises(ConfigurationError) as caught:
+            verify_tasks([task], RecordingEvaluator({}, self.source), out, secret_mode)
+        self.assertNotIn(secret_mode, str(caught.exception))
+        self.assertFalse(out.exists())
+        self.assertFalse((out / "summary.json").exists())
 
     def test_verifier_rejects_unsafe_id_and_symlinked_output(self):
         task = self.task("Prob001_zero")
@@ -215,6 +249,25 @@ class VerilogFullTests(unittest.TestCase):
         self.assertEqual(summary["unattempted"], 0)
         self.assertEqual(len(summary["cases"]), 156)
         self.assertEqual(json.loads((out / "summary.json").read_text()), summary)
+
+    def test_middle_failure_still_persists_all_156_attempts_as_failed(self):
+        tasks = [self.task(f"Prob{number:03d}") for number in range(1, 157)]
+        outcomes = {task.id: Evaluation("passed", {"passed": 1.0}) for task in tasks}
+        outcomes["Prob078"] = Evaluation("failed", {"passed": 0.0},
+                                         "Verilog-Eval: 1 mismatches in 23 samples")
+        evaluator = RecordingEvaluator(outcomes, self.source)
+        out = self.run / "verilog-spec"
+        summary = verify_tasks(tasks[::-1], evaluator, out, "verilog-spec")
+        persisted = json.loads((out / "summary.json").read_text())
+        self.assertEqual(evaluator.calls, [f"Prob{number:03d}" for number in range(1, 157)])
+        self.assertEqual(persisted, summary)
+        self.assertEqual(persisted["attempted"], 156)
+        self.assertEqual(persisted["unattempted"], 0)
+        self.assertEqual(persisted["failed"], 1)
+        self.assertEqual(persisted["status"], "failed")
+        self.assertEqual(len(persisted["cases"]), 156)
+        self.assertEqual(persisted["cases"][77]["reason"], "mismatch")
+        self.assertEqual(persisted["cases"][155]["status"], "passed")
 
     def test_case_elapsed_time_reflects_an_actual_evaluation(self):
         task = self.task("Prob001_zero")
