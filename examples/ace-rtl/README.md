@@ -16,11 +16,13 @@ ACE의 native runner / 자체 반복 루프 / 역할별 모델 호출과 동일�
 
 ## 준비
 
-앱 사용자는 `agent-opt tui`에서 **5번 프리셋 선택형 새 최적화**를 선택하고
+앱 사용자는 `agent-opt tui`의 **첫 프리셋 선택 화면**에서
 `ACE-RTL → OpenCode → GEPA 또는 Meta-Harness → CVDP`를 한 항목씩 확정합니다.
 마지막 화면에서 수정 파일과 모델/자산/예산을 확인한 뒤 `y`를 누르면 준비·정적 진단·실행을 진행합니다.
 Agent의 OpenCode 모델 선택자는 `openrouter/<모델>` + `OPENROUTER_API_KEY` 또는
 `compatible/<모델>` + `AGENT_OPT_MODEL_BASE_URL`/`AGENT_OPT_MODEL_API_KEY`입니다.
+TUI에 `deepseek-flash`처럼 접두어 없는 모델 ID를 입력하면 compatible 모델로 안내하며,
+`AGENT_OPT_MODEL_ID`와 다를 때는 변경을 확인한 뒤 세션에만 적용합니다.
 compatible을 쓰면 현재 고정 OpenCode plugin의 모델 등록 제약으로 `AGENT_OPT_MODEL_ID`와
 선택자의 모델명이 일치해야 합니다. Optimizer 모델 API와 Agent 모델의 역할/호출은 각각 표시하며
 OpenRouter Agent와 별도 Optimizer API 모델은 서로 다른 모델을 사용할 수 있습니다.

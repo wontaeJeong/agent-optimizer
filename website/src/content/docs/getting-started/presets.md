@@ -24,7 +24,7 @@ Mac 또는 Linux에서 Git, Python 3.11+, uv, Docker Engine/Compose(맥은 공�
 
 | 역할 | 환경 설정 | 확인할 것 |
 |---|---|---|
-| OpenCode **Agent** 모델 | `AGENT_OPT_MODEL` | `openrouter/<모델>`에는 `OPENROUTER_API_KEY`가 필요합니다. `compatible/<모델>`은 모델 API URL·키가 필요하고 현재 고정 OpenCode 이미지의 plugin에서는 `<모델>`이 `AGENT_OPT_MODEL_ID`와 일치해야 합니다. |
+| OpenCode **Agent** 모델 | `AGENT_OPT_MODEL` | `openrouter/<모델>`에는 `OPENROUTER_API_KEY`가 필요합니다. `compatible/<모델>`은 모델 API URL·키가 필요하고 현재 고정 OpenCode 이미지의 plugin에서는 `<모델>`이 `AGENT_OPT_MODEL_ID`와 일치해야 합니다. TUI에 `deepseek-flash`처럼 접두어 없는 ID를 입력하면 compatible 모델로 연결하며, ID가 다르면 변경 여부를 확인합니다. |
 | **Optimizer** 모델 | `AGENT_OPT_MODEL_BASE_URL`, `AGENT_OPT_MODEL_API_KEY`, 필요하면 `AGENT_OPT_MODEL_ID` | 모델 API의 기본 URL(`/chat/completions` 제외), 인증과 ID를 설정합니다. Agent 모델 선택자와 별개입니다. |
 
 키는 환경 또는 credential store에만 두세요. `.env`를 자동 로딩하거나 설정 파일에 키를 저장하지 않습니다. OpenRouter Agent와 Optimizer 모델은 서로 달라도 됩니다. `catalog` 조회나 `doctor --plan` 성공은 모델 인증·도구 호출이나 공식 채점 성공을 확인하지 않습니다.
@@ -35,7 +35,7 @@ Mac 또는 Linux에서 Git, Python 3.11+, uv, Docker Engine/Compose(맥은 공�
 .venv/bin/agent-opt tui
 ```
 
-메뉴 **5. 프리셋 선택형 새 최적화** → Agent **ACE-RTL** → Harness **OpenCode** → Optimizer **GEPA** 또는 **Meta-Harness** → Dataset **CVDP** 순서로 고릅니다. `↑/↓`로 초점과 설명을 보고 `Enter`로 확정하며 `Esc`로 이전 단계, `Ctrl+C`로 취소합니다. 선택 불가능한 조합에는 이유가 표시됩니다. 설명은 75열 이상에서 오른쪽, 좁은 터미널에서는 해당 항목 아래에 표시됩니다. `내 … 연결하기`와 `기존 experiment.toml 선택`은 별도의 고급 입력/기존 설정 경로입니다.
+시작 화면에서 Agent **ACE-RTL** → Harness **OpenCode** → Optimizer **GEPA** 또는 **Meta-Harness** → Dataset **CVDP** 순서로 고릅니다. `↑/↓`로 초점과 설명을 보고 `Enter`로 확정하며 `Esc`로 이전 단계(첫 화면에서는 기존 번호 메뉴), `Ctrl+C`로 취소합니다. 선택 불가능한 조합에는 이유가 표시됩니다. 설명은 75열 이상에서 오른쪽, 좁은 터미널에서는 해당 항목 아래에 표시됩니다. `내 … 연결하기`와 `기존 experiment.toml 선택`은 별도의 고급 입력/기존 설정 경로입니다.
 
 마지막 확인 화면에서 수정 파일, 두 모델의 **설정 여부**, 공식 평가·자산 준비, 예산과 설정/보고서 위치를 확인하세요. 확인 전에는 다운로드·Docker 빌드·모델 호출·설정 쓰기를 하지 않습니다. 확인 후 준비 → 정적 계획 진단 → 실제 실행으로 진행하며 생성한 설정은 `runs/configs/<생성-ID>/experiment.toml`에 보관됩니다. 같은 파일을 CLI `run EXPERIMENT`에 넘겨 재실행할 수 있습니다. 모델 입력은 TUI 세션에서만 유지됩니다.
 

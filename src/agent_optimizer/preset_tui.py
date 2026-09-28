@@ -85,8 +85,10 @@ def choose_preset(title: str, options: list[tuple], *,
                             status)
                 if index == focus:
                     rows.append("   " + description)
-        rows += ["", _tr("↑↓ 탐색   Enter 선택   Esc 이전   Ctrl+C 취소",
-                          "↑↓ Navigate   Enter Select   Esc Back   Ctrl+C Cancel")]
+        rows += ["", (_tr("↑↓ 탐색   Enter 선택   Esc 메뉴   Ctrl+C 취소",
+                            "↑↓ Navigate   Enter Select   Esc Menu   Ctrl+C Cancel") if title == "Agent" else
+                      _tr("↑↓ 탐색   Enter 선택   Esc 이전   Ctrl+C 취소",
+                          "↑↓ Navigate   Enter Select   Esc Back   Ctrl+C Cancel"))]
         print("\x1b[2J\x1b[H" + "\n".join(rows), file=sys.stderr, flush=True)
         key = read_key()
         if key == "up":

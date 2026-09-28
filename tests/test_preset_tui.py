@@ -179,7 +179,8 @@ class PresetConfigurationTests(unittest.TestCase):
                 return True
 
         with patch("sys.stdin.isatty", return_value=True), \
-             patch("builtins.input", side_effect=["1", str(target), "y"]), \
+             patch("agent_optimizer.preset_tui.select_four", return_value=("existing", "", "", "")), \
+             patch("builtins.input", side_effect=[str(target), "y"]), \
              patch("agent_optimizer.cli._tui_model_environment", return_value={}), \
              patch("agent_optimizer.cli.collect_plan", return_value={"ready": True, "checks": []}), \
              patch("agent_optimizer.preset_tui.run_ace_selection", return_value=3) as run, \
@@ -222,6 +223,35 @@ class PresetNavigationTests(unittest.TestCase):
             self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
         self.assertIn("agent-opt init", terminal.getvalue())
         self.assertIn("agent-opt run", terminal.getvalue())
+
+    def test_tui_opens_preset_without_numbered_start_menu(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        screen = Terminal()
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("agent_optimizer.preset_tui.select_four",
+                   return_value=("ace-rtl", "ace-opencode", "baseline", "cvdp")), \
+             patch("builtins.input", side_effect=["n"]), redirect_stderr(screen):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
+        self.assertIn("준비하고 실행할까요?", screen.getvalue())
+        self.assertNotIn("선택 [5/1/2/3/4]", screen.getvalue())
+
+    def test_escaping_preset_opens_previous_menu_and_history(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        screen = Terminal()
+        with patch("sys.stdin.isatty", return_value=True), \
+             patch("agent_optimizer.preset_tui.select_four", return_value=None) as preset, \
+             patch("builtins.input", side_effect=["4"]), \
+             patch("agent_optimizer.cli._tui_run_history", return_value=0), \
+             redirect_stderr(screen):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 0)
+        preset.assert_called_once()
+        self.assertIn("선택 [5/1/2/3/4]", screen.getvalue())
 
     def test_four_explicit_choices_are_read_only_and_go_back_preserves_agent(self):
         from agent_optimizer.preset_tui import select_four
@@ -314,7 +344,7 @@ class PresetNavigationTests(unittest.TestCase):
                       ("ace-rtl", "ace-opencode", "meta_harness", "cvdp")]
         with patch("sys.stdin.isatty", return_value=True), \
              patch("agent_optimizer.preset_tui.select_four", side_effect=selections) as chooser, \
-             patch("builtins.input", side_effect=["5", "b", "n"]), \
+             patch("builtins.input", side_effect=["b", "n"]), \
              redirect_stderr(Terminal()):
             self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
         self.assertEqual(chooser.call_count, 2)
@@ -367,6 +397,14 @@ class PresetNavigationTests(unittest.TestCase):
         self.assertIn("공식 평가", observed.getvalue())
         self.assertIn("Esc", observed.getvalue())
 
+    def test_agent_screen_explains_escape_opens_previous_menu(self):
+        from agent_optimizer.preset_tui import choose_preset
+        screen = io.StringIO()
+        with redirect_stderr(screen):
+            self.assertIsNone(choose_preset("Agent", [("ACE-RTL", "선택", True)],
+                                            read_key=lambda: "escape"))
+        self.assertIn("Esc 메뉴", screen.getvalue())
+
     def test_english_navigation_translates_status_and_keys(self):
         from agent_optimizer.preset_tui import choose_preset
         observed = io.StringIO()
@@ -396,7 +434,7 @@ class PresetNavigationTests(unittest.TestCase):
         with patch("sys.stdin.isatty", return_value=True), \
              patch("agent_optimizer.preset_tui.select_four",
                    return_value=("ace-rtl", "ace-opencode", "gepa", "cvdp")), \
-             patch("builtins.input", side_effect=["5", "n"]), \
+             patch("builtins.input", side_effect=["n"]), \
              redirect_stderr(terminal):
             self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
         self.assertFalse((self.root / "runs").exists())
@@ -413,7 +451,7 @@ class PresetNavigationTests(unittest.TestCase):
              patch("sys.stdin.isatty", return_value=True), \
              patch("agent_optimizer.preset_tui.select_four",
                    return_value=("ace-rtl", "ace-opencode", "meta_harness", "cvdp")), \
-             patch("builtins.input", side_effect=["5", "n"]), redirect_stderr(terminal):
+             patch("builtins.input", side_effect=["n"]), redirect_stderr(terminal):
             self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
         self.assertIn("Agent model", terminal.getvalue())
         self.assertIn("Optimizer model", terminal.getvalue())
@@ -461,6 +499,38 @@ class PresetNavigationTests(unittest.TestCase):
         with patch("builtins.input", return_value="compatible/model"), redirect_stderr(io.StringIO()):
             self.assertEqual(ensure_model_selector({}, "AGENT_OPT_MODEL")["AGENT_OPT_MODEL"],
                              "compatible/model")
+
+    def test_bare_ace_model_id_uses_compatible_api_after_confirming_model_change(self):
+        from agent_optimizer.cli import _tui_model_environment
+        spec = {"_profiles": [{"adapter": "ace_opencode", "model_env": "AGENT_OPT_MODEL"}],
+                "preset_selection": {"agent": "ace-rtl"},
+                "stages": [{"optimizer": "gepa"}]}
+        env = {"AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1",
+               "AGENT_OPT_MODEL_API_KEY": "fixture-secret", "AGENT_OPT_MODEL_ID": "glm5.3-flash"}
+        with patch("builtins.input", side_effect=["deepseek-flash", "y"]), \
+             redirect_stderr(io.StringIO()):
+            staged = _tui_model_environment(spec, env)
+        self.assertEqual(staged["AGENT_OPT_MODEL"], "compatible/deepseek-flash")
+        self.assertEqual(staged["AGENT_OPT_MODEL_ID"], "deepseek-flash")
+        self.assertEqual(env["AGENT_OPT_MODEL_ID"], "glm5.3-flash")
+
+    def test_declined_ace_model_change_does_not_prepare_assets(self):
+        class Terminal(io.StringIO):
+            def isatty(self):
+                return True
+
+        screen = Terminal()
+        env = {"AGENT_OPT_MODEL": "", "AGENT_OPT_MODEL_BASE_URL": "https://example.invalid/v1",
+               "AGENT_OPT_MODEL_API_KEY": "fixture-secret", "AGENT_OPT_MODEL_ID": "glm5.3-flash"}
+        with patch.dict(os.environ, env), patch("sys.stdin.isatty", return_value=True), \
+             patch("agent_optimizer.preset_tui.select_four",
+                   return_value=("ace-rtl", "ace-opencode", "gepa", "cvdp")), \
+             patch("agent_optimizer.preset_tui.prepare_ace_selection",
+                   side_effect=AssertionError("model must be checked before preparation")), \
+             patch("builtins.input", side_effect=["y", "deepseek-flash", "n"]), \
+             redirect_stderr(screen):
+            self.assertEqual(main(["tui", "--project-root", str(self.root)]), 2)
+        self.assertIn("AGENT_OPT_MODEL_ID", screen.getvalue())
 
     def test_ace_baseline_does_not_request_optimizer_api(self):
         from agent_optimizer.cli import _tui_model_environment
@@ -533,7 +603,7 @@ class PresetNavigationTests(unittest.TestCase):
              patch("agent_optimizer.preset_tui.prepare_ace_selection", side_effect=prepare), \
              patch("agent_optimizer.preset_tui.run_ace_selection", side_effect=execute), \
              patch("agent_optimizer.cli._tui_model_environment", return_value={}), \
-             patch("builtins.input", side_effect=["5", "y"]), \
+             patch("builtins.input", side_effect=["y"]), \
              redirect_stderr(Terminal()):
             self.assertEqual(main(["tui", "--project-root", str(self.root)]), 0)
         self.assertEqual(destinations, ["meta_harness"])
@@ -549,7 +619,7 @@ class PresetNavigationTests(unittest.TestCase):
                    return_value=("rtl-solo", "fixture", "baseline", "sample_text")), \
              patch("agent_optimizer.preset_tui.prepare_ace_selection",
                    side_effect=AssertionError("합성 프리셋은 ACE 자산을 준비하면 안 됩니다")), \
-             patch("builtins.input", side_effect=["5", "y"]), \
+             patch("builtins.input", side_effect=["y"]), \
              patch("sys.stdout", output), redirect_stderr(Terminal()):
             self.assertEqual(main(["tui", "--project-root", str(self.root)]), 0)
         self.assertEqual(json.loads(output.getvalue())["status"], "completed")
