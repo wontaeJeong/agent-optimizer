@@ -1,10 +1,13 @@
 """Run the installed wheel outside its source tree with a user-owned fixture."""
 
 import json
+import fcntl
 import os
 import pty
+import re
 import select
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -25,108 +28,92 @@ def invoke(cli: Path, project: Path, environment: dict, *args: str) -> dict:
     return json.loads(result.stdout)
 
 
+def interact_tui(cli: Path, project: Path, environment: dict,
+                 actions: list[tuple[str, bytes]]) -> str:
+    """Drive the installed Textual app through a real, continuously drained PTY."""
+    master, slave = pty.openpty()
+    child = None
+    try:
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 30, 100, 0, 0))
+        child = subprocess.Popen([str(cli), "tui", "--project-root", str(project)],
+                                  cwd=project, env={**environment, "AGENT_OPT_LANG": "ko"},
+                                  stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+        transcript = bytearray()
+        cursor = 0
+
+        def visible() -> str:
+            return re.sub(r"\x1b\[[0-?]*[ -/]*[@-~]", "",
+                          transcript[cursor:].decode(errors="replace"))
+
+        for marker, keys in actions:
+            deadline = time.monotonic() + 12
+            while marker not in visible():
+                if time.monotonic() > deadline or child.poll() is not None:
+                    raise AssertionError(f"설치형 Textual TUI 화면 대기: {marker}; "
+                                         f"rc={child.poll()}, 화면={visible()[-1200:]}")
+                if select.select([master], [], [], 0.1)[0]:
+                    try:
+                        transcript.extend(os.read(master, 65536))
+                    except OSError as exc:
+                        raise AssertionError(f"설치형 TUI PTY 읽기 실패: {exc}") from exc
+            cursor = len(transcript)
+            os.write(master, keys)
+        deadline = time.monotonic() + 12
+        while child.poll() is None:
+            if time.monotonic() > deadline:
+                raise AssertionError("설치형 Textual TUI 종료 시간 초과")
+            if select.select([master], [], [], 0.1)[0]:
+                try:
+                    transcript.extend(os.read(master, 65536))
+                except OSError:
+                    break
+        if child.wait(timeout=2) != 0:
+            raise AssertionError(f"설치형 Textual TUI 종료 코드 {child.returncode}: {visible()[-1200:]}")
+        return transcript.decode(errors="replace")
+    finally:
+        if child is not None and child.poll() is None:
+            child.kill()
+            child.wait()
+        os.close(slave)
+        os.close(master)
+
+
 def check_tui_menu(cli: Path, project: Path, environment: dict) -> None:
-    declined = project / "declined ace"
     master, slave = pty.openpty()
     try:
-        child = subprocess.Popen([str(cli), "tui", "--project-root", str(project)],
-                                  cwd=project, env=environment, stdin=slave, stderr=slave,
-                                  stdout=subprocess.PIPE, text=True)
-        chunks = []
-        while "Agent Optimizer · Agent".encode() not in b"".join(chunks):
-            if not select.select([master], [], [], 30)[0]:
-                raise AssertionError("설치형 TUI 프리셋 시작 화면을 기다리다 제한 시간을 넘겼습니다")
-            chunks.append(os.read(master, 4096))
-        deadline = time.monotonic() + 5
-        while termios.tcgetattr(slave)[3] & termios.ICANON:
-            if time.monotonic() > deadline:
-                raise AssertionError("설치형 TUI가 키 입력을 준비하지 않았습니다")
-            time.sleep(0.005)
-        os.write(master, b"\x1b")
-        while "선택 [5/1/2/3/4]".encode() not in b"".join(chunks):
-            if not select.select([master], [], [], 30)[0]:
-                raise AssertionError("설치형 TUI 이전 메뉴를 기다리다 제한 시간을 넘겼습니다")
-            chunks.append(os.read(master, 4096))
-        os.write(master, f"3\n{declined}\nn\n".encode())
-        os.close(slave)
-        slave = -1
-        while True:
-            readable, _, _ = select.select([master], [], [], 30)
-            if not readable:
-                raise AssertionError("설치형 TUI 선택 입력을 기다리다 제한 시간을 넘겼습니다")
-            try:
-                part = os.read(master, 4096)
-            except OSError:
-                break
-            if not part:
-                break
-            chunks.append(part)
-        stdout, _ = child.communicate(timeout=30)
-        transcript = b"".join(chunks).decode(errors="replace")
-        if (child.returncode != 2 or "3. ACE-RTL + CVDP 예제" not in transcript
-                or str(declined) not in transcript or stdout or declined.exists()):
-            raise AssertionError(f"설치형 TUI rc={child.returncode}, stdout={stdout!r}, stderr={transcript!r}")
+        result = subprocess.run([str(cli), "tui", "--project-root", str(project)],
+                                cwd=project, env=environment, stdin=slave, stdout=subprocess.PIPE,
+                                stderr=subprocess.PIPE, timeout=10)
+        if result.returncode != 2 or b"TTY" not in result.stderr:
+            raise AssertionError("설치형 Textual TUI가 파이프 출력을 거부하지 않았습니다")
     finally:
-        if slave >= 0:
-            os.close(slave)
+        os.close(slave)
         os.close(master)
+    interact_tui(cli, project, environment, [
+        ("ACE-RTL", b"\x1b"),
+        ("새 최적화", b"\x1b[B\x1b[B\r"),
+        ("표시할 항목이 없습니다", b"\x1b"),
+        ("새 최적화", b"q"),
+    ])
+    if (project / "runs").exists():
+        raise AssertionError("이력 조회가 사용자 프로젝트에 파일을 작성했습니다")
 
 
 def check_preset_cancel(cli: Path, project: Path, environment: dict) -> None:
-    master, slave = pty.openpty()
     workspace = project / "chosen ace"
-    try:
-        child = subprocess.Popen([str(cli), "tui", "--project-root", str(project)],
-                                 cwd=project, env=environment, stdin=slave, stderr=slave,
-                                 stdout=subprocess.PIPE, text=True)
-        transcript = bytearray()
-
-        def until(text: str) -> None:
-            marker = text.encode()
-            deadline = time.monotonic() + 15
-            while marker not in transcript:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0 or not select.select([master], [], [], remaining)[0]:
-                    raise AssertionError(f"선택형 설치 TUI 단계 대기 시간 초과: {text}; "
-                                         f"화면: {transcript.decode(errors='replace')[-1000:]}")
-                transcript.extend(os.read(master, 4096))
-
-        def await_raw() -> None:
-            deadline = time.monotonic() + 5
-            while termios.tcgetattr(slave)[3] & termios.ICANON:
-                if time.monotonic() > deadline:
-                    raise AssertionError("선택형 TUI 키 입력 상태가 준비되지 않았습니다: "
-                                         f"rc={child.poll()}, 화면={transcript.decode(errors='replace')[-1200:]}")
-                time.sleep(0.005)
-
-        until("Agent Optimizer · Agent")
-        await_raw()
-        os.write(master, b"\r")
-        until("Agent Optimizer · Harness")
-        await_raw()
-        os.write(master, b"\r")
-        until("Agent Optimizer · Optimizer")
-        await_raw()
-        os.write(master, b"\x1b[B")
-        until("> Meta-Harness")
-        if "후보별 skills/ace-rtl/scripts/agent_" not in transcript.decode(errors="replace"):
-            raise AssertionError("방향키 초점이 Meta-Harness 설명을 갱신하지 않았습니다")
-        await_raw()
-        os.write(master, b"\r")
-        until("Agent Optimizer · Dataset")
-        await_raw()
-        os.write(master, b"\r")
-        until("ACE-RTL 작업공간 경로:")
-        os.write(master, (str(workspace) + "\n").encode())
-        until("준비하고 실행할까요?")
-        os.write(master, b"n\n")
-        stdout, _ = child.communicate(timeout=15)
-        if child.returncode != 2 or stdout or workspace.exists() or (project / "runs").exists():
-            raise AssertionError("wheel-only 선택형 TUI가 취소 전 자산을 생성했습니다")
-    finally:
-        if slave >= 0:
-            os.close(slave)
-        os.close(master)
+    interact_tui(cli, project, environment, [
+        ("ACE-RTL", b"\r"),
+        ("Agent Optimizer  /  Harness", b"\r"),
+        ("Agent Optimizer  /  Optimizer", b"\x1b[B"),
+        ("후보별", b"\r"),
+        ("Agent Optimizer  /  Dataset", b"\r"),
+        ("ACE 작업공간", (str(workspace) + "\r").encode()),
+        ("실행 전 확인", b"\x1b[B\r"),
+        ("ACE 작업공간", b"\x1b"),
+        ("Agent Optimizer  /  Dataset", b"q"),
+    ])
+    if workspace.exists() or (project / "runs").exists():
+        raise AssertionError("wheel-only Textual TUI가 실행 취소 전에 자산을 생성했습니다")
 
 
 def main(wheel: Path) -> int:
