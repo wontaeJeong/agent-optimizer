@@ -5,13 +5,13 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
-import os
 import re
 import shutil
 import tempfile
 from pathlib import Path
 
 from agent_optimizer.catalog import INTEGRATIONS
+from agent_optimizer.app_paths import app_path, resolve_dataset_cache
 from agent_optimizer.config import read_toml
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.datasets import acquire_pinned_git
@@ -83,9 +83,8 @@ def acquire_integration(workspace: Path, integration_id: str, *, offline: bool =
     source_info = INTEGRATIONS[integration_id]
     url = source_url or source_info["url"]
     commit = revision or source_info["revision"]
-    cache_home = Path(os.environ["XDG_CACHE_HOME"]).expanduser() if os.environ.get("XDG_CACHE_HOME") else Path.home() / ".cache"
-    cache = cache_dir or cache_home / "agent-optimizer/integrations"
-    source = acquire_pinned_git(cache / commit, url, commit, offline=offline)
+    cache = Path(cache_dir) if cache_dir is not None else app_path('cache') / 'integrations'
+    source = acquire_pinned_git(safe_path(cache, commit), url, commit, offline=offline)
     originals = selected_files(source, integration_id)
     for original in originals:
         relative = original.relative_to(source).as_posix()
@@ -259,7 +258,8 @@ def publish_marker(workspace: Path, integration_id: str, obtained: dict) -> None
                         "url": obtained["url"], "files": fingerprint})
 
 
-def prepare_catalog_dataset(workspace: Path, selection: str, *, offline: bool = False) -> dict:
+def prepare_catalog_dataset(workspace: Path, selection: str, *, offline: bool = False,
+                            cache_dir: Path | None = None) -> dict:
     from agent_optimizer.registry import Registry
 
     if selection not in {"cvdp", "verilog-spec", "verilog-completion"}:
@@ -272,11 +272,12 @@ def prepare_catalog_dataset(workspace: Path, selection: str, *, offline: bool = 
     plugin_files(workspace, plugins, dependencies)
     registry.load_plugins(workspace, plugins)
     provider = registry.resolve("datasets", selection)()
-    result = provider.prepare(workspace / "external/datasets" / selection, offline=offline)
+    cache = resolve_dataset_cache(selection, cache_dir)
+    result = provider.prepare(cache, offline=offline)
     if result.get("evaluator") not in plugins["evaluators"]:
         raise ConfigurationError("선택한 데이터셋의 평가기 등록이 일치하지 않습니다")
     registry.resolve("evaluators", result["evaluator"])
-    checks = provider.doctor(workspace / "external/datasets" / selection)
+    checks = provider.doctor(cache)
     if not checks or any(row.get("status") != "ok" for row in checks):
         raise UnavailableError(f"데이터셋 준비 진단 실패: {selection}")
     publish_marker(workspace, selection, obtained)

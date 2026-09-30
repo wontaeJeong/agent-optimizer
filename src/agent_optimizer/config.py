@@ -184,7 +184,7 @@ def load_experiment(path: Path) -> dict:
     if "integration" in data:
         from agent_optimizer.integrations import resolve_pointer
         return load_experiment(resolve_pointer(path))
-    only_keys(data, {"schema_version", "name", "project_root", "agents", "harnesses", "pairs", "benchmark",
+    only_keys(data, {"schema_version", "name", "project_root", "config_root", "agents", "harnesses", "pairs", "benchmark",
                     "evaluator", "evaluation_runtime", "objective", "budget", "stages",
                     "repetitions", "seed", "final_test", "final_stages", "output_dir", "plugins",
                     "plugin_dependencies", "evaluator_config", "candidate_seed_files",
@@ -193,15 +193,25 @@ def load_experiment(path: Path) -> dict:
         raise ConfigurationError("Unsupported experiment schema_version")
     identifier(data["name"])
     root = (path.parent / data.get("project_root", "../..")).resolve()
+    config_root = root
+    if 'config_root' in data:
+        value = data['config_root']
+        if not isinstance(value, str) or not value or '\0' in value:
+            raise ConfigurationError('config_root는 유효한 설정 디렉터리 경로여야 합니다')
+        declared = Path(value).expanduser()
+        config_root = declared if declared.is_absolute() else path.parent / declared
+        safe_path(config_root, '.')
+        config_root = config_root.resolve()
     data["_root"] = root
+    data["_config_root"] = config_root
     data["_source"] = path.resolve()
-    agents = [load_agent(safe_path(root, p)) for p in data["agents"]]
+    agents = [load_agent(safe_path(config_root, p)) for p in data["agents"]]
     if not agents or len({a.id for a in agents}) != len(agents):
         raise ConfigurationError("Agent IDs must be present and unique")
     data["_agents"] = agents
     profiles = []
     for filename in data["harnesses"]:
-        profile = read_toml(safe_path(root, filename))
+        profile = read_toml(safe_path(config_root, filename))
         only_keys(profile, {"id", "adapter", "command", "model_env", "agent", "runtime",
                            "allow_local", "notes", "required_cli_version"}, "harness profile")
         required = profile.get("required_cli_version")
@@ -227,7 +237,7 @@ def load_experiment(path: Path) -> dict:
     validate_runtime(data.get("evaluation_runtime", {}))
     if not isinstance(data.get("evaluator_config", {}), dict):
         raise ConfigurationError("evaluator_config must be a mapping")
-    tasks, metadata = load_tasks(safe_path(root, data["benchmark"]))
+    tasks, metadata = load_tasks(safe_path(config_root, data["benchmark"]))
     data["_tasks"], data["_benchmark_metadata"] = tasks, metadata
     if data.get("final_test", False) and not any(t.split == "test" for t in tasks):
         raise ConfigurationError("final_test requires test tasks")

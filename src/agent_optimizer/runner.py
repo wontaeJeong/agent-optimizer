@@ -12,6 +12,8 @@ from dataclasses import replace
 from pathlib import Path
 
 from agent_optimizer import __version__
+from agent_optimizer.app_paths import resolve_run_base
+from agent_optimizer.history import record_lifecycle
 from agent_optimizer.config import selected_pairs, validate_objective, validate_stages
 from agent_optimizer.contracts import (
     BudgetExceeded, Candidate, ConfigurationError, Evaluation, RunRequest, StageBudgetExceeded,
@@ -425,10 +427,13 @@ def _failed_trial_diagnostic(records):
 
 def run_experiment(spec, registry, output: Path | None = None, on_event=None):
     preflight(spec, registry)
-    base = output or safe_path(spec["_root"], spec.get("output_dir", "runs"))
+    base = resolve_run_base(spec, output)
+    safe_path(base, '.')
     run_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + uuid.uuid4().hex[:8]
     root = base.resolve() / run_id
     root.mkdir(parents=True, exist_ok=False)
+    lifecycle = record_lifecycle(root, status='running', experiment_name=spec['name'],
+                                 session_id=spec.get('_session_id'))
     run_started = time.monotonic()
     budget = Budget(spec.get("budget", {}))
     events = EventStore(root / "events.jsonl", on_event=on_event)
@@ -456,7 +461,7 @@ def run_experiment(spec, registry, output: Path | None = None, on_event=None):
             path: hashlib.sha256(safe_path(spec["_root"], source).read_bytes()).hexdigest()
             for path, source in spec.get("candidate_seed_files", {}).items()}
         manifest["benchmark_sha256"] = hashlib.sha256(
-            safe_path(spec["_root"], spec["benchmark"]).read_bytes()).hexdigest()
+            safe_path(spec.get('_config_root', spec['_root']), spec["benchmark"]).read_bytes()).hexdigest()
         write_json(root / "manifest.json", manifest)
         phase = "source"
         for agent in spec["_agents"]:
@@ -508,6 +513,8 @@ def run_experiment(spec, registry, output: Path | None = None, on_event=None):
         events.append(error_event)
         raise
     finally:
+        record_lifecycle(root, status=summary['status'], experiment_name=spec['name'],
+                         session_id=spec.get('_session_id'), created_at=lifecycle['created_at'])
         if group is not None and group.summary["status"] == "running":
             for stage in group.summary["stages"]:
                 if stage["status"] == "running":

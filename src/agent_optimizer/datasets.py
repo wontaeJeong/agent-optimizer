@@ -3,14 +3,17 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
 import tempfile
 from pathlib import Path
 
 from agent_optimizer import diagnostics
+from agent_optimizer.app_paths import app_path
 from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.results import write_json
+from agent_optimizer.workspace import safe_path
 
 
 def _git(*args: str, timeout: float = 180) -> str:
@@ -83,6 +86,7 @@ def _verify(path: Path, revision: str) -> None:
 def acquire_pinned_git(target: Path, url: str, revision: str, *, offline: bool = False) -> Path:
     if not re.fullmatch(r"[0-9a-f]{40}", revision):
         raise ConfigurationError("Dataset Git revision must be a full commit SHA")
+    safe_path(target.parent, target.name)
     if target.is_symlink():
         raise ConfigurationError("Dataset cache cannot be a symlink")
     if target.exists():
@@ -107,7 +111,12 @@ def acquire_pinned_git(target: Path, url: str, revision: str, *, offline: bool =
         if target.exists():
             _verify(target, revision)
         else:
-            staged.rename(target)
+            try:
+                staged.rename(target)
+            except OSError:
+                if not target.exists() and not target.is_symlink():
+                    raise
+                _verify(target, revision)
     return target
 
 
@@ -130,7 +139,7 @@ class CustomDataset:
     def describe(self) -> dict:
         return {"name": self.source.stem, "task_form": "custom", "evaluator": self.evaluator}
 
-    def prepare(self, cache: Path, *, offline: bool = False) -> dict:
+    def prepare(self, cache: Path | None = None, *, offline: bool = False) -> dict:
         if not self.evaluator:
             raise ConfigurationError("Custom dataset requires a registered evaluator")
         raw = self.source.read_bytes()
@@ -144,7 +153,11 @@ class CustomDataset:
             splits = split_families([task["family"] for task in tasks])
             tasks = [{**task, "split": splits[task["family"]]} for task in tasks]
         document = {**data, "tasks": tasks, "source_sha256": hashlib.sha256(raw).hexdigest()}
-        output = cache / "custom" / (self.source.stem + ".json")
+        filename = self.source.stem + '.json'
+        if cache is None:
+            cache = app_path('cache') / 'datasets'
+            filename = self.source.stem + '-' + document['source_sha256'][:16] + '.json'
+        output = safe_path(cache, 'custom/' + filename)
         output.parent.mkdir(parents=True, exist_ok=True)
         with tempfile.NamedTemporaryFile(dir=output.parent, suffix=".json", delete=False) as stream:
             temporary = Path(stream.name)
@@ -152,7 +165,12 @@ class CustomDataset:
         try:
             write_json(temporary, document)
             load_tasks(temporary)
-            temporary.replace(output)
+            try:
+                os.link(temporary, output)
+            except FileExistsError:
+                safe_path(cache, 'custom/' + filename)
+                if output.read_bytes() != temporary.read_bytes():
+                    raise ConfigurationError('준비된 사용자 데이터셋 파일이 변경됐습니다. 기존 파일을 보존하세요') from None
         finally:
             temporary.unlink(missing_ok=True)
         return {"benchmark": str(output), "evaluator": self.evaluator,

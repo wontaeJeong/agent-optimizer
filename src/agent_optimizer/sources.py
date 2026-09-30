@@ -140,7 +140,7 @@ def materialize_agent(agent: AgentSpec, target: Path) -> tuple[AgentSpec, dict]:
             url = source.url
             if "://" not in url and ":" not in url:
                 url = str((agent.root / url).resolve())
-            with tempfile.TemporaryDirectory(prefix="agent-opt-git-") as temporary:
+            with tempfile.TemporaryDirectory(prefix="agent-opt-git-", dir=target) as temporary:
                 repo = Path(temporary)
                 fmt = "sha256" if len(source.revision) == 64 else "sha1"
                 _git(repo, ["init", "--quiet", f"--object-format={fmt}"], deadline)
