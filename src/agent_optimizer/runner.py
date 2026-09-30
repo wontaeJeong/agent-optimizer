@@ -177,6 +177,8 @@ class GroupRunner:
         error = {}
         evaluation = Evaluation("error", {"passed": None})
         outer_count, outer_wall_time = 0, None
+        native_mode = (self.profile.get('compatibility', {}).get('execution_mode') == 'native' or
+                       getattr(self.harness, 'execution_mode', None) == 'native')
         try:
             copy_tree(candidate.path, agent_dir)
             task_dir.mkdir(parents=True)
@@ -210,7 +212,7 @@ class GroupRunner:
             if execution is None and time.monotonic() < trial_deadline:
                 request = RunRequest(workspace, agent_dir, task_dir, prompt, seed,
                                      trial_deadline-time.monotonic(), self.profile,
-                                     trial / ('logs' if self.profile['adapter'] == 'ace_native' else 'harness_logs'))
+                                     trial / ('logs' if native_mode else 'harness_logs'))
                 execution = self.harness.run(request)
             self.events.append({"event": "agent_completed", "phase": "agent", **identity})
             self.budget.remaining()
@@ -266,23 +268,18 @@ class GroupRunner:
                       "execution": jsonable(execution), "artifacts": evaluation.artifacts,
                       **({"scaffold_attempted": scaffold_attempted} if scaffold_attempted is not None else {}),
                        **({"scaffold_used": scaffold_used} if scaffold_used is not None else {}), **error}
-            if self.profile['adapter'] == 'ace_native':
+            if native_mode:
                 from agent_optimizer.native_summary import summarize_native
                 try:
-                    import stat
-                    lock_file = safe_path(candidate.path, 'native/source-lock.json')
-                    with os.fdopen(os.open(lock_file, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK), encoding='utf-8') as stream:
-                        if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-                            raise ConfigurationError('native source lock는 일반 파일이어야 합니다')
-                        lock = json.loads(stream.read(1024 * 1024 + 1))
-                    lock = lock if isinstance(lock, dict) else {}
-                except (ConfigurationError, OSError, ValueError, RecursionError):
-                    lock = {}
-                native = summarize_native(trial / 'logs', task_id=task.id,
-                    candidate_hash=candidate.content_hash, profile=self.profile['id'],
-                    outer_count=outer_count, outer_wall_time=outer_wall_time,
-                    generated_targets=task.evaluation.get('targets', []),
-                    source_revision=lock.get('revision', ''), source_hash=lock.get('source_hash', ''))
+                    evidence_reader = getattr(self.harness, 'native_evidence', None)
+                    evidence = evidence_reader(candidate, task, self.profile) if evidence_reader else {}
+                    native = summarize_native(trial / 'logs', task_id=task.id,
+                        candidate_hash=candidate.content_hash, profile=self.profile['id'],
+                        outer_count=outer_count, outer_wall_time=outer_wall_time,
+                        **{key: value for key, value in evidence.items()
+                           if key in {'generated_targets', 'source_revision', 'source_hash'}})
+                except Exception:
+                    native = None
                 if native is not None:
                     record['native_execution'] = native
                 else:
@@ -395,9 +392,6 @@ def preflight(spec, registry):
     pairs = selected_pairs(spec)
     validate_objective(spec["objective"])
     validate_stages(spec)
-    if any(profile['adapter'] == 'ace_native' for profile in spec['_profiles']):
-        from agent_optimizer.native_selection import verify_native_selection
-        verify_native_selection(spec)
     seeds = spec.get("candidate_seed_files", {})
     if not isinstance(seeds, dict) or not all(isinstance(path, str) and isinstance(source, str)
                                               for path, source in seeds.items()):
@@ -430,7 +424,10 @@ def preflight(spec, registry):
     registry.selected_files(spec["_root"], spec)
     registry.load_plugins(spec["_root"], spec.get("plugins", {}))
     for profile in spec["_profiles"]:
-        registry.resolve("harnesses", profile["adapter"])
+        adapter = registry.resolve("harnesses", profile["adapter"])
+        validator = getattr(adapter, 'validate_experiment', None)
+        if validator is not None:
+            validator(spec, profile)
     evaluator = registry.resolve("evaluators", spec["evaluator"])(evaluator_settings(spec))
     for stage in spec.get("stages", []):
         registry.resolve("optimizers", stage["optimizer"])

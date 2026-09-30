@@ -88,6 +88,14 @@ class NativeProductTests(unittest.TestCase):
         self.assertEqual({task.id for task in spec['_tasks']}, set(chosen))
         self.assertEqual(spec['_benchmark_metadata']['native']['reviewed_cids'], ['cid002', 'cid004', 'cid007', 'cid016'])
 
+    def test_core_selection_consumes_example_eligibility_without_redefining_it(self):
+        from agent_optimizer.native_selection import selection_policy, validate_selection
+        policy, prepare = selection_policy(ROOT)
+        policy.CIDS.add('future-domain-cid')
+        with patch('agent_optimizer.native_selection.selection_policy', return_value=(policy, prepare)):
+            validate_selection(['future-domain-cid'], {'row': 'validation'}, 'baseline')
+        self.assertFalse((self.base / 'home').exists())
+
     def test_offline_native_prepare_fails_without_install_or_replacing_selection(self):
         config = write_native_selection(ROOT, 'baseline', cids=['cid002'], rows=self.rows,
                                         dataset=self.data, source=self.source, evaluator=self.evaluator)
@@ -191,6 +199,161 @@ class NativeProductTests(unittest.TestCase):
         self.assertEqual(len(report['native_execution']), len(trials))
         self.assertTrue(report['native_execution'][0]['evidence_paths'])
         self.assertNotIn('PRIVATE-SENTINEL', (run / 'report.html').read_text())
+
+    def test_overflow_sidecar_keeps_completed_outer_trial_records(self):
+        config = write_native_selection(ROOT, 'baseline', cids=['cid002'], rows=self.rows,
+                                        dataset=self.data, source=self.source, evaluator=self.evaluator)
+        spec = load_experiment(config)
+        registry = Registry()
+        registry.load_project(ROOT)
+        def harness_run(adapter, request):
+            from agent_optimizer.workspace import digest
+            descriptor = json.loads((request.task_dir / 'native-task.json').read_text())
+            (request.task_dir / 'rtl/result.sv').write_text('module result; endmodule')
+            request.logs.mkdir(parents=True)
+            payload = {'schema_version': 1, 'execution_mode': 'native', 'task_id': descriptor['id'],
+                'candidate_hash': digest(request.agent_dir), 'profile': 'ace-native',
+                'source_revision': 'fead921f18bb57345b5a41ef93ba625be208e99c', 'source_hash': 'a' * 64,
+                'status': 'completed', 'native_wall_time_seconds': 10 ** 400}
+            (request.logs / 'native-execution.json').write_text(json.dumps(payload))
+            return ExecutionResult('completed', 0, .01, '', '')
+        with patch.object(registry.resolve('harnesses', 'ace_native'), 'run', harness_run), patch.object(registry.resolve('evaluators', 'cvdp_native'), 'evaluate', return_value=Evaluation('passed', {'passed': 1.0})):
+            run, summary = run_experiment(spec, registry)
+        self.assertEqual(summary['status'], 'completed')
+        trials = [json.loads(line) for line in (run / 'events.jsonl').read_text().splitlines()
+                  if json.loads(line)['event'] == 'trial_completed']
+        self.assertEqual(len(trials), 2)
+        for event in trials:
+            self.assertEqual(event['status'], 'passed')
+            self.assertEqual(event['metrics']['passed'], 1.0)
+            self.assertNotIn('native_execution', event)
+            self.assertEqual(event['native_execution_diagnostic'], {'code': 'missing_or_invalid_sidecar'})
+            result = run / event['agent_id'] / event['harness_id'] / 'trials' / event['trial_id'] / 'result.json'
+            self.assertEqual(json.loads(result.read_text())['status'], 'passed')
+        self.assertTrue((run / 'report.html').is_file())
+
+    def test_native_changes_after_preparation_regenerate_real_configuration(self):
+        import asyncio
+        from textual.widgets import Input, OptionList
+        from agent_optimizer.tui import OptimizerApp
+        other_source = self.base / 'other-source'
+        shutil.copytree(self.source, other_source)
+        (other_source / 'native/guidance.md').write_text('변경된 공개 guidance')
+        async def flow(action):
+            app = OptimizerApp(ROOT)
+            app.selections = {'Agent': 'ace-rtl', 'Harness': 'ace-native', 'Optimizer': 'baseline', 'Dataset': 'cvdp'}
+            app.native_values = {'cids': ['cid002'], 'rows': dict(self.rows), 'dataset': str(self.data),
+                                 'source': str(self.source), 'evaluator': dict(self.evaluator)}
+            async with app.run_test() as pilot:
+                async def prepare():
+                    app._prepare()
+                    for _ in range(100):
+                        await pilot.pause(.02)
+                        if not app.busy:
+                            break
+                    self.assertTrue(app.preparation_complete, app.preparation_error)
+                async def choose(identifier):
+                    options = app.query_one(OptionList)
+                    options.highlighted = options.get_option_index(identifier)
+                    options.focus()
+                    await pilot.press('enter')
+                    await pilot.pause()
+                await prepare()
+                previous = app.experiment
+                app.doctor_report = {'ready': True, 'checks': []}
+                app.doctor_error = '이전 진단'
+                app._show('Native')
+                if action == 'rows-json':
+                    app.native_field = 'rows'
+                    app.on_input_submitted(Input.Submitted(app.query_one(Input), json.dumps({'row-validation': 'validation', 'row-test': 'validation'})))
+                elif action == 'row-picker':
+                    await choose('rows.pick')
+                    await choose('row-test')
+                    await choose('remove')
+                    await choose('row-train')
+                    await choose('validation')
+                    await choose('native.back')
+                else:
+                    app.native_field = 'source'
+                    app.on_input_submitted(Input.Submitted(app.query_one(Input), str(other_source)))
+                await pilot.pause()
+                self.assertIsNone(app.experiment)
+                self.assertFalse(app.preparation_complete)
+                self.assertIsNone(app.doctor_report)
+                self.assertIsNone(app.doctor_error)
+                expected = json.loads(json.dumps(app.native_values))
+                app.action_back()
+                app._show('Native')
+                await choose('native.continue')
+                app._show('Review')
+                self.assertEqual(app.native_values, expected)
+                await prepare()
+                self.assertNotEqual(app.experiment, previous)
+                self.assertTrue(previous.is_file())
+                spec = load_experiment(app.experiment)
+                self.assertEqual({task.id: task.split for task in spec['_tasks']}, expected['rows'])
+                self.assertEqual(str(spec['_agents'][0].source.path), expected['source'])
+                self.assertEqual(spec['final_test'], 'test' in expected['rows'].values())
+                runtime_requests = []
+                class RuntimeHarness:
+                    @staticmethod
+                    def validate_experiment(spec, profile):
+                        from agent_optimizer.native_selection import verify_native_selection
+                        verify_native_selection(spec, profile)
+                    def __init__(self, config=None):
+                        pass
+                    def run(self, request):
+                        descriptor = json.loads((request.task_dir / 'native-task.json').read_text())
+                        runtime_requests.append((descriptor['id'], descriptor['split'], request.profile['native']['dataset'],
+                                                 (request.agent_dir / 'native/guidance.md').read_text()))
+                        (request.task_dir / 'rtl/result.sv').write_text('module result; endmodule')
+                        return ExecutionResult('completed', 0, .01, '', '')
+                class RuntimeEvaluator:
+                    def __init__(self, config=None):
+                        pass
+                    def evaluate(self, task, output_dir, timeout_seconds):
+                        return Evaluation('passed', {'passed': 1.0})
+                original_resolve = Registry.resolve
+                def resolve(registry, kind, name):
+                    if (kind, name) == ('harnesses', 'ace_native'):
+                        return RuntimeHarness
+                    if (kind, name) == ('evaluators', 'cvdp_native'):
+                        return RuntimeEvaluator
+                    return original_resolve(registry, kind, name)
+                with patch.object(Registry, 'resolve', resolve):
+                    app._run()
+                    for _ in range(100):
+                        await pilot.pause(.02)
+                        if not app.busy:
+                            break
+                self.assertEqual(app.run_result['status'], 'completed', app.run_result)
+                wanted = {(row_id, split) for row_id, split in expected['rows'].items() if split != 'train'}
+                self.assertEqual({(row_id, split) for row_id, split, _, _ in runtime_requests}, wanted)
+                self.assertEqual({dataset for _, _, dataset, _ in runtime_requests}, {expected['dataset']})
+                self.assertEqual({text for _, _, _, text in runtime_requests}, {(Path(expected['source']) / 'native/guidance.md').read_text()})
+        with patch.dict(os.environ, {'AGENT_OPT_MODEL_BASE_URL': 'http://127.0.0.1:12345/v1', 'AGENT_OPT_MODEL_ID': 'fixture', 'AGENT_OPT_MODEL_API_KEY': 'KEY-SENTINEL'}):
+            for action in ('rows-json', 'row-picker', 'source'):
+                with self.subTest(action=action):
+                    asyncio.run(flow(action))
+
+    def test_native_review_split_counts_match_generated_final_test(self):
+        import asyncio
+        from agent_optimizer.tui import OptimizerApp
+        async def flow():
+            app = OptimizerApp(ROOT)
+            app.selections = {'Agent': 'ace-rtl', 'Harness': 'ace-native', 'Optimizer': 'baseline', 'Dataset': 'cvdp'}
+            app.native_values = {'cids': ['cid002'], 'rows': {'row-train': 'validation', 'row-validation': 'validation', 'row-test': 'test'},
+                                 'source': str(self.source), 'dataset': str(self.data), 'evaluator': self.evaluator}
+            async with app.run_test() as pilot:
+                app._show('Review')
+                self.assertIn('train 0 / validation 2 / test 1', app._review())
+                self.assertIn('final_test=true', app._review())
+                self.assertNotIn('train 1 / validation 1 · final_test=false', app._review())
+                config = write_native_selection(ROOT, 'baseline', **{key: Path(value) if key in {'source', 'dataset'} else value for key, value in app.native_values.items()})
+                app.experiment = config
+                self.assertIn('train 0 / validation 2 / test 1', app._review())
+                self.assertEqual(load_experiment(config)['budget']['max_trials'], 4)
+        asyncio.run(flow())
 
     def test_native_tui_selection_prepare_matches_cli_contract(self):
         import asyncio

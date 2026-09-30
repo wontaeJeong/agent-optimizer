@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import stat
+import sys
 
 from agent_optimizer.contracts import ConfigurationError
 from agent_optimizer.workspace import safe_path
@@ -38,7 +39,15 @@ def summarize_native(logs: Path, *, task_id: str, candidate_hash: str, profile: 
             return None
 
         def number(value, integer=False):
-            return value if (type(value) in ({int} if integer else {int, float}) and math.isfinite(value) and value >= 0) else None
+            if value is None:
+                return None
+            if type(value) not in ({int} if integer else {int, float}):
+                raise ValueError('native 숫자 형식이 잘못됐습니다')
+            if type(value) is int and value > int(sys.float_info.max):
+                raise ValueError('native 숫자가 지원 범위를 벗어났습니다')
+            if value < 0 or type(value) is float and not math.isfinite(value):
+                raise ValueError('native 숫자는 유한한 비음수여야 합니다')
+            return value
 
         def status(value):
             return value if value in ('started', 'completed', 'passed', 'failed', 'error',
@@ -106,5 +115,5 @@ def summarize_native(logs: Path, *, task_id: str, candidate_hash: str, profile: 
             value = cleanup.get('status')
             result['cleanup'] = {'status': value if value in ('completed', 'incomplete', 'deferred', 'not_started') else None}
         return result
-    except (OSError, ValueError, TypeError, RecursionError, ConfigurationError):
+    except (OSError, ValueError, TypeError, OverflowError, RecursionError, ConfigurationError):
         return None

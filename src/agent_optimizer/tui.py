@@ -316,7 +316,7 @@ class OptimizerApp(App[int]):
                               "Use agent-opt init for custom Agent, Harness, Optimizer or Dataset."), True),
                          ChoiceRow("quit", "action", _tr("종료", "Quit"), _tr("앱을 종료합니다.", "Exit the app."), True)]
         elif page in STEPS:
-            self.rows = preset_options(self.root, page, self.selections.get("Agent", "ace-rtl"))
+            self.rows = preset_options(self.root, page, self.selections.get("Agent", "ace-rtl"), harness=self.selections.get('Harness'))
         elif page == "Existing":
             from agent_optimizer.setup_wizard import recent_configurations
             recent = recent_configurations(self.root)
@@ -920,10 +920,13 @@ class OptimizerApp(App[int]):
                 self._show('NativeSplit')
         elif self.page == 'NativeSplit':
             chosen = self.native_values.setdefault('rows', {})
+            previous = dict(chosen)
             if action == 'remove':
                 chosen.pop(self.native_row_id, None)
             else:
                 chosen[self.native_row_id] = action
+            if chosen != previous:
+                self._invalidate_native_configuration()
             self._show('NativeRows')
         elif self.page == "Review":
             if action == "model.edit":
@@ -1053,13 +1056,11 @@ class OptimizerApp(App[int]):
             try:
                 field = self.native_field
                 parsed = [v.strip() for v in value.split(',') if v.strip()] if field == 'cids' else json.loads(value) if field in {'rows', 'evaluator'} and value else value
-                if field == 'rows' and (not isinstance(parsed, dict) or not all(isinstance(split, str) and split in {'train', 'validation', 'test'} for split in parsed.values())):
-                    raise ConfigurationError('row ID → train/validation/test JSON 객체가 필요합니다')
-                if field == 'evaluator' and (not isinstance(parsed, dict) or set(parsed) - {'repo', 'python', 'sim_image', 'sim_image_id'}):
-                    raise ConfigurationError('native evaluator에는 repo/python/sim_image/sim_image_id만 허용합니다')
-                if field not in {'cids', 'rows', 'evaluator'} and value and not Path(value).is_absolute():
-                    raise ConfigurationError('native 자산 경로는 절대경로로 입력하세요')
-                self.native_values[field] = parsed
+                from agent_optimizer.native_selection import validate_field
+                validate_field(self.workspace, field, parsed)
+                if self.native_values.get(field) != parsed:
+                    self.native_values[field] = parsed
+                    self._invalidate_native_configuration()
                 self._show('Native')
             except (ValueError, ConfigurationError):
                 self._error(ConfigurationError('native 선택 형식이 잘못됐습니다. 경로·CID·row JSON을 확인하세요.'))
@@ -1113,6 +1114,14 @@ class OptimizerApp(App[int]):
         self.return_page = "Existing"
         self._show("Review")
 
+    def _invalidate_native_configuration(self) -> None:
+        self.experiment = None
+        self.preparation_complete = False
+        self.preparation_error = None
+        self.doctor_report = None
+        self.doctor_error = None
+        self.native_rows = []
+
     def _selection_name(self, step: str, value: str) -> str:
         names = {
             "Agent": {"ace-rtl": "ACE-RTL", "rtl-solo": "rtl-solo", "rtl-team": "rtl-team"},
@@ -1164,7 +1173,9 @@ class OptimizerApp(App[int]):
             except (ConfigurationError, OSError, KeyError, TypeError) as exc:
                 return self._redact_secrets(str(exc))
             selection = [f"  Agent       {agent}", f"  Harness     {harness}",
-                         f"  Optimizer   {optimizer}", f"  Dataset     {dataset}"]
+                          f"  Optimizer   {optimizer}", f"  Dataset     {dataset}"]
+            counts = {split: sum(task.split == split for task in spec['_tasks']) for split in ('train', 'validation', 'test')}
+            selection.append(f"  평가 방식  train {counts['train']} / validation {counts['validation']} / test {counts['test']} · final_test={str(spec.get('final_test', False)).lower()}")
             preparation = ["  " + _tr("기존 experiment 선택 · 자산 자동 준비 안 함",
                                        "Existing experiment · no automatic asset preparation")]
             external = ["  " + self._external_call_summary()]
@@ -1190,6 +1201,10 @@ class OptimizerApp(App[int]):
                            "sample_eval · synthetic train / validation / test"))
             from agent_optimizer.app_paths import app_path
             report = str(app_path('runs') / '<run-id>/report.html')
+            if self.selections.get('Harness') == 'ace-native':
+                selected = self.native_values.get('rows', {})
+                counts = {split: sum(value == split for value in selected.values()) for split in ('train', 'validation', 'test')}
+                dataset = f"cvdp · train {counts['train']} / validation {counts['validation']} / test {counts['test']} · final_test={str(counts['test'] > 0).lower()}"
             selection.append(f"  {_tr('평가 방식', 'Evaluation')}  {dataset}")
             if self.selections.get('Harness') == 'ace-native':
                 from agent_optimizer.native_selection import native_trial_budget

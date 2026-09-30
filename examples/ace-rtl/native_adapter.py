@@ -136,6 +136,17 @@ def cleanup_evaluators(logs, *, deadline):
 
 
 class ACENative:
+    execution_mode = 'native'
+
+    @staticmethod
+    def native_evidence(candidate, task, profile):
+        return sibling('native_selection').execution_evidence(candidate, task, profile)
+
+    @staticmethod
+    def validate_experiment(spec, profile):
+        from agent_optimizer.native_selection import verify_native_selection
+        verify_native_selection(spec, profile)
+
     def __init__(self, config=None):
         self.config = config or {}
 

@@ -220,24 +220,6 @@ def load_experiment(path: Path) -> dict:
         for key in ('native', 'compatibility'):
             if key in profile and not isinstance(profile[key], dict):
                 raise ConfigurationError(f'{key}는 객체여야 합니다')
-        if 'native' in profile:
-            if profile['adapter'] != 'ace_native':
-                raise ConfigurationError('native 설정에는 ace_native adapter가 필요합니다')
-            native = profile['native']
-            only_keys(native, {'python', 'dataset', 'max_iterations', 'llm_timeout', 'evaluator_timeout', 'evaluator'}, 'native')
-            for key in ('python', 'dataset'):
-                if key in native and (not isinstance(native[key], str) or not Path(native[key]).is_absolute() or '\0' in native[key]):
-                    raise ConfigurationError(f'native.{key}에는 절대경로가 필요합니다')
-            if type(native.get('max_iterations', 3)) is not int or not 1 <= native.get('max_iterations', 3) <= 30:
-                raise ConfigurationError('native.max_iterations는 1~30 정수여야 합니다')
-            for key in ('llm_timeout', 'evaluator_timeout'):
-                positive(native.get(key, 60), f'native.{key}')
-            evaluator = native.get('evaluator', {})
-            if not isinstance(evaluator, dict):
-                raise ConfigurationError('native.evaluator는 객체여야 합니다')
-            only_keys(evaluator, {'repo', 'python', 'sim_image', 'sim_image_id'}, 'native.evaluator')
-            if not all(isinstance(value, str) and value for value in evaluator.values()):
-                raise ConfigurationError('native.evaluator 값에는 비어 있지 않은 문자열이 필요합니다')
         if 'compatibility' in profile:
             compatibility = profile['compatibility']
             only_keys(compatibility, {'agent_ids', 'dataset_ids', 'reviewed_cids', 'execution_mode', 'model_fields', 'roles', 'live_verification'}, 'compatibility')

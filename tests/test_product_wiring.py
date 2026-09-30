@@ -25,6 +25,25 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class ProductWiringTests(unittest.TestCase):
+    def test_generic_native_profile_delegates_preflight_to_registered_harness(self):
+        from agent_optimizer.contracts import ConfigurationError
+        from agent_optimizer.harnesses.command import FixtureHarness
+        config = write_sample_selection(ROOT, 'rtl-solo', 'baseline')
+        manifest = config.parent / 'agent.toml'
+        manifest.write_text(manifest.read_text().replace('["fixture"]', '["team-policy"]'))
+        (config.parent / 'harness.toml').write_text('id = "team-profile"\nadapter = "team-policy"\nallow_local = true\n[runtime]\nkind = "local"\n[native]\nteam_mode = "fixture"\n')
+        spec = load_experiment(config)
+        class TeamPolicy(FixtureHarness):
+            @staticmethod
+            def validate_experiment(spec, profile):
+                if profile['native']['team_mode'] == 'fixture':
+                    raise ConfigurationError('팀 정책의 명시 거부')
+        registry = Registry()
+        registry.factories['harnesses']['team-policy'] = TeamPolicy
+        with self.assertRaisesRegex(ConfigurationError, '팀 정책'):
+            run_experiment(spec, registry)
+        self.assertFalse((self.home / 'runs').exists())
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)

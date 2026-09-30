@@ -12,6 +12,31 @@ from agent_optimizer.tui import OptimizerApp
 
 
 class ProductTUITests(unittest.IsolatedAsyncioTestCase):
+    async def test_each_native_field_edit_invalidates_prepared_config_and_diagnostics(self):
+        from textual.widgets import Input
+        with tempfile.TemporaryDirectory() as directory, patch.dict(os.environ, {'AGENT_OPT_HOME': str(Path(directory) / 'home')}):
+            app = OptimizerApp(Path(__file__).resolve().parents[1])
+            app.selections = {'Agent': 'ace-rtl', 'Harness': 'ace-native', 'Optimizer': 'baseline', 'Dataset': 'cvdp'}
+            async with app.run_test() as pilot:
+                for field, value in [('cids', 'cid016'), ('rows', '{"new":"validation"}'), ('dataset', '/new/data.jsonl'),
+                                     ('source', '/new/source'), ('upstream', '/new/upstream'), ('python', '/new/python'),
+                                     ('evaluator', '{"repo":"/new/evaluator","python":"/new/python"}')]:
+                    with self.subTest(field=field):
+                        app.experiment = Path(directory) / 'old/experiment.toml'
+                        app.preparation_complete = True
+                        app.doctor_report = {'ready': True}
+                        app.doctor_error = '이전 진단'
+                        app.native_rows = [{'id': 'old'}]
+                        app.native_field = field
+                        app._show('Native')
+                        app.on_input_submitted(Input.Submitted(app.query_one(Input), value))
+                        await pilot.pause()
+                        self.assertIsNone(app.experiment)
+                        self.assertFalse(app.preparation_complete)
+                        self.assertIsNone(app.doctor_report)
+                        self.assertIsNone(app.doctor_error)
+                        self.assertEqual(app.native_rows, [])
+
     async def test_result_explicit_output_parent_is_visible_in_shared_history(self):
         from agent_optimizer.preset_tui import write_sample_selection
         from agent_optimizer.config import load_experiment

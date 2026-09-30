@@ -40,7 +40,7 @@ PROJECT_DEPENDENCIES: dict[str, list[str]] = {
 
 NATIVE_DEPENDENCIES = [f'examples/ace-rtl/{name}' for name in (
     'native_worker.py', 'native_bridge.py', 'native_cvdp.py', 'native_evaluator.py',
-    'native_prepare.py', 'native_artifacts.py', 'native_cleanup.py', 'evaluator.py',
+    'native_prepare.py', 'native_selection.py', 'native_artifacts.py', 'native_cleanup.py', 'evaluator.py',
     'source-native.toml', 'harness-native.toml',
     'native/guidance.md', 'native/orchestration.py', 'environment/network_driver.py')]
 PROJECT_DEPENDENCIES['harnesses/ace_native'] = NATIVE_DEPENDENCIES

@@ -391,7 +391,7 @@ def _dispatch(args):
             app_path('experiments')  # Validate the publication boundary before asset preparation.
             native_requested = args.harness_profile in {'ace-native', 'ace_native'}
             if native_requested:
-                from agent_optimizer.native_selection import write_native_selection
+                from agent_optimizer.native_selection import write_native_selection, validate_product_options
                 if args.agent_preset != 'ace-rtl' or args.dataset != ['cvdp'] or len(args.optimizer or []) != 1:
                     raise ConfigurationError('native에는 ACE-RTL·CVDP·단일 Optimizer를 명시하세요')
                 if any((args.agent, args.revision, args.editable, args.command_text, args.explicit_harness, args.scaffold_file, args.target_file, args.evaluator)):
@@ -399,16 +399,13 @@ def _dispatch(args):
                 if not args.yes or args.native_dataset is None:
                     raise ConfigurationError('native 선택 확인에는 --yes와 --native-dataset이 필요합니다')
                 selected_rows = json.loads(args.rows) if args.rows else {}
-                if (args.metric != 'passed' or args.direction != 'maximize' or args.prompt_file not in {'prompts/system.md', 'native/guidance.md'} or
-                        args.max_tasks not in {9, len(selected_rows)}):
-                    raise ConfigurationError('native는 passed/maximize·활성 guidance·명시 row 전체를 사용합니다. max_tasks는 row 수와 같아야 합니다')
+                validate_product_options(args.project_root, metric=args.metric, direction=args.direction,
+                    prompt_file=args.prompt_file, max_tasks=args.max_tasks, rows=selected_rows)
                 configs = json.loads(args.optimizer_config) if args.optimizer_config else {}
                 optimizer = args.optimizer[0]
                 if not isinstance(configs, dict) or set(configs) - {optimizer}:
                     raise ConfigurationError('선택 Optimizer의 옵션만 지정하세요')
                 evaluator_config = json.loads(args.native_evaluator) if args.native_evaluator else None
-                if evaluator_config is not None and (not isinstance(evaluator_config, dict) or set(evaluator_config) - {'repo', 'python', 'sim_image', 'sim_image_id'}):
-                    raise ConfigurationError('native evaluator 설정 키를 확인하세요')
                 target = write_native_selection(args.project_root, optimizer, cids=args.cid or [],
                     rows=selected_rows, dataset=args.native_dataset,
                     source=args.native_source, upstream=args.native_upstream, python=args.native_python,

@@ -49,7 +49,7 @@ class ChoiceRow:
         return 4
 
 
-def preset_options(root: Path, page: str, agent: str = "ace-rtl") -> list[ChoiceRow]:
+def preset_options(root: Path, page: str, agent: str = "ace-rtl", *, harness: str | None = None) -> list[ChoiceRow]:
     """프리셋의 호환성·준비 조건을 UI와 분리해 한 곳에서 제공한다."""
     agents = [ChoiceRow("ace-rtl", "component", "ACE-RTL", _tr(
         "RTL 문제 해결에 사용하는 외부 ACE Agent입니다.\n\nSource\n  pinned Git revision\n\n"
@@ -118,6 +118,10 @@ def preset_options(root: Path, page: str, agent: str = "ace-rtl") -> list[Choice
         "Uses the official RTL benchmark and evaluator.\n\nTasks\n  train 1\n  validation 1\n\n"
         "Requires\n  prepared CVDP assets"), True,
                         _tr("자산 준비 필요", "Assets to prepare"))]
+    if harness == 'ace-native':
+        dataset_options[0] = ChoiceRow('cvdp', 'component', 'CVDP',
+            '고정 데이터에서 CID·row·split을 직접 선택합니다. 실제 split 수와 final_test는 선택 결과를 사용합니다.\n평가 환경·지원 상태는 row별로 확인합니다.',
+            True, '자산 준비 필요 · row 형태 검토와 실환경 검증은 별개')
     dataset_options.extend(ChoiceRow(name, "component", name, _tr("ACE OpenCode 과제/평가기 호환성 미확인 · 기존 실험 사용",
                                       "ACE OpenCode task/evaluator compatibility not established; use existing experiment"), False,
                             _tr("이번 조합과 호환 불가", "Not compatible"))

@@ -143,3 +143,48 @@ Ruff `All checks passed!`, diff 검사 종료 0. 캡처 80×30 SVG:
 **not_run:** 실제 native 모델/API·실 CVDP Docker/EDA·Ubuntu x86_64·실 브라우저/SSH·실 wheel build/install·G 준비 후 통합 native 실행. F는 실제 loopback HTTP·OS process/SIGINT·합성 runner·계약/Pilot 증거까지 완료했으며, 이 미검증 영역을 성공으로 기록하지 않는다.
 
 최종 자체 검토는 요청 계획·소유권·flat 계약·비밀·snapshot·private/test·JSON·server 수명을 diff와 위 검사로 대조했다. 하위 에이전트 리뷰/자동 merge 없이 지정 워크트리에 한국어 로컬 커밋만 남긴다.
+
+## 7. 수정 라운드 1 — 독립 리뷰 R1~R4 대응
+
+확인일: 2026-10-01. 기준 HEAD `0a9fe842eaf13d1a5b8b5be3ebbe5fc4c73513a4`. `final-mvp-f-review-20261001.md` 전체를 읽고 Important 3건·Minor 1건을 재현했다. 총괄이 승인한 예제 소유 변경을 사용하며 리뷰 원문은 보존하여 이번 의도된 커밋에 포함한다.
+
+### 실제 수정
+
+- **R1 — 선택 무효화:** Native JSON/경로 입력과 NativeSplit의 변경·제거가 같은 `_invalidate_native_configuration()`을 호출한다. 변경된 값은 보존하고 이전 `experiment`, 준비 완료/오류, doctor 결과/오류, stale target preview만 무효화한다. 원래 TOML은 삭제하지 않는다. 동일 값 재확정은 설정을 무효화하지 않는다. source/rows를 실제 UI 경계에서 바꾸고 Back→재확인→실제 writer→실제 runner/TUI execute까지 새 source/task/split이 소비됨을 검증했다. 모델/Agent·평가 실행만 계약 fixture이며 live 호출은 없다.
+- **R2 — optional 오류 격리:** 숫자 검사에서 Python int를 `math.isfinite`로 float 변환하지 않는다. `sys.float_info.max`를 넘는 정수와 비유한/음수/bool/문자열/객체 숫자는 안전한 `ValueError`로 optional 요약을 제외한다. None/수집된 0은 유지하고 `OverflowError`도 요약 경계에서 차단한다. runner의 optional evidence/summary 단계 오류 역시 native만 제외해 `missing_or_invalid_sidecar` diagnostic을 남긴다. 실제 완료된 outer 평가·`result.json`·`trial_completed`·HTML은 유지된다.
+- **R3 — examples 정책 경계:** 코어 `native_selection.py`는 출처 해석·helper 로드·인자 전달만 남긴 thin 연결이다. CID 범위, row eligibility·private 평가 원본 대조, native profile 제한, source pin/target evidence, guidance/orchestration 파일·symbol, stage/budget 정책, CLI/TUI native 선택 필드 검증은 **`examples/ace-rtl/native_selection.py`**에 있다. 예제 생성은 기존 generic `app_paths`/`setup_wizard.write_experiment`를 소비하며 공통 Home·config_root·소스 provenance·writer를 예제로 복제하지 않았다.
+- **runner 연결:** `ACENative.validate_experiment(spec, profile)`과 `native_evidence(candidate, task, profile)`을 예제에서 제공한다. core preflight는 등록 Harness의 optional 검증 hook을 호출하며 CVDP row/schema를 재구성하지 않는다. native mode는 일반 execution_mode metadata를 소비하고 source-lock 위치·target 추출은 예제 hook이 담당한다. 새 범용 provider 계층은 추가하지 않았다.
+- **loader:** 공통 loader는 native 객체·공통 compatibility metadata의 구조를 처리한다. ACE의 iteration/timeout·CVDP evaluator 필드 제한은 예제 `validate_profile`에서 생성/실행 전 검증한다. 다른 팀 native 설정도 자기 Harness 정책을 거칠 수 있으며 private 보호를 완화하지 않았다.
+- **R4 — Review:** 준비 전은 선택된 rows, 준비/기존 설정은 실제 `_tasks`와 `final_test`에서 train/validation/test 수를 표시한다. native Dataset 설명도 명시 row 선택으로 바꿨고 legacy 두 과제 설명은 legacy Harness에만 남겼다. validation 2/test 1의 Review와 생성 TOML이 `train 0 / validation 2 / test 1`, `final_test=true`, trial budget 4로 일치한다.
+
+### 의미 있는 covering·RED→GREEN
+
+- 신규 covering 8개: 7개 native 필드의 설정/진단 무효화, JSON row 변경·row-picker split 변경/삭제·source 변경 후 실제 재생성/실행, 준비 전/후 Review final_test 일치, optional 숫자 7개 위치의 `10**400`, `1e999/-1e999/음수/bool/문자열/객체`, overflow 후 실제 outer trial 파일/event/보고서 보존, 예제 eligibility 변경의 thin facade 소비, 일반 팀 Harness의 native 설정·검증 hook.
+- 최초 R1/R2/R4 실행: **4개/1.212초 FAILED(failures=2, errors=10)**. 7개 숫자 위치와 실제 trial finally의 OverflowError, 이전 TOML 재사용, Review 불일치를 확인했다. R1 assertion 직후 테스트 종료에 남은 Highlight 메시지가 추가 NoMatches를 만들었으며 `pilot.pause()`로 UI 경계를 동기화했다. 이후 같은 4개는 **1.736초 OK**였다.
+- 추가 비유한/잘못된 숫자 RED: **1개/0.007초 FAILED(failures=6)**. 숫자를 null로 바꾸어 optional을 남기는 경로를 확인하고 optional 전체 제외로 수정했다.
+- 보호 의미는 유지: private 평가 row 변조의 실행 생성 전 거부, source/template/active 파일 대조, benchmark seed 거부, train/test 경계, sidecar identity/provenance, 키 sentinel 부재, JSON/serve/server cleanup 회귀를 모두 포함한다. true bug를 skip으로 숨기거나 기존 공유 assertion을 변경하지 않았다.
+
+### 정확한 최종 명령·결과
+
+모든 CWD는 지정 통합 워크트리이며 shared Python 실행만 사용했다. `env -i`와 F 전용 Home/TMPDIR 경계를 유지했다.
+
+```bash
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-f/home AGENT_OPT_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-f/home TMPDIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-f/tmp /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m unittest test_cli_entry test_product_wiring test_product_tui test_native_product test_native_producer test_product_package -v
+```
+
+**39개/6.844초 OK**, 종료 0, skip 없음. 기존 F 31개 + 라운드 1 covering 8개다.
+
+```bash
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-f/home AGENT_OPT_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-f/home TMPDIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-f/tmp /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m unittest test_cli_entry test_product_wiring test_product_tui test_native_product test_native_producer test_product_package test_native_ace test_native_cvdp test_plugin_contracts test_research test_run_lifecycle test_app_paths test_history test_final_report test_report_server -q
+PYTHONDONTWRITEBYTECODE=1 /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m ruff check . --no-cache
+git diff --check
+```
+
+**209개/22.264초 OK**, 종료 0, skip 없음. 직전 확대 실행은 비유한 숫자 covering 추가 전 208개/22.399초 OK였다. Ruff `All checks passed!`, diff whitespace 검사 종료 0. asyncio debug가 동기 fixture run의 약 0.1초 task 관측을 출력했으나 테스트 실패/생략은 없다.
+
+### 후속 소비·미검증 범위
+
+- G의 native wheel data-files/선택형 dependency 및 fingerprint에 새 **`examples/ace-rtl/native_selection.py`**를 포함해야 한다. `NATIVE_DEPENDENCIES`에는 추가했다. 고정 upstream SHA는 바꾸지 않았다.
+- G readiness는 기존 thin `verify_native_selection`을 소비할 수 있고, 일반 Harness 검증은 optional `validate_experiment(spec, profile)`을 사용할 수 있다. native profile의 도메인 제한은 `examples/ace-rtl/native_selection.validate_profile`을 소비한다. G 공통 models/contracts/locale/dep·공유 assertion 수정 책임은 기존 인계를 유지한다.
+- 전체 공유 suite는 이번 수정 라운드에 재실행하지 않았다. §5의 1121개/41 failure/41 error/80 skip은 이전 시점 증거이며 R1~R4 통과와 구분한다. 전체 녹색 또는 새 G 준비 완료를 주장하지 않는다.
+- 실제 native/모델/Docker/EDA/Ubuntu/wheel/브라우저·SSH 및 새 화면 캡처는 이번 라운드 **not_run**이다. 변경 내용은 actual fixture/Pilot/runner/record/evidence 검증으로 확인했다. 사용자 Home, install/sync/live, 하위 에이전트, push/PR 없음.
