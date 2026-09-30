@@ -901,7 +901,7 @@ class OptimizerApp(App[int]):
             elif action == 'native.continue':
                 try:
                     from agent_optimizer.native_selection import validate_selection, inspect_selection
-                    validate_selection(self.native_values.get('cids', []), self.native_values.get('rows', {}), self.selections['Optimizer'])
+                    validate_selection(self.native_values.get('cids', []), self.native_values.get('rows', {}), self.selections['Optimizer'], root=self.workspace)
                     if not self.native_values.get('dataset') or bool(self.native_values.get('source')) == bool(self.native_values.get('upstream')):
                         raise ConfigurationError('고정 dataset와 source/upstream 중 하나를 명시하세요')
                     self.native_rows = inspect_selection(self.workspace, self.native_values['cids'], self.native_values['rows'], self.native_values['dataset'])
@@ -1208,7 +1208,7 @@ class OptimizerApp(App[int]):
             selection.append(f"  {_tr('평가 방식', 'Evaluation')}  {dataset}")
             if self.selections.get('Harness') == 'ace-native':
                 from agent_optimizer.native_selection import native_trial_budget
-                budget = {'max_trials': native_trial_budget(optimizer, self.native_values.get('rows', {})),
+                budget = {'max_trials': native_trial_budget(optimizer, self.native_values.get('rows', {}), root=self.workspace),
                           'trial_timeout_seconds': 600, 'max_wall_time_seconds': 3600}
                 selection += [f"  CID         {', '.join(self.native_values.get('cids', []))}",
                               f"  rows        {len(self.native_values.get('rows', {}))} · {self.native_values.get('rows', {})}"]

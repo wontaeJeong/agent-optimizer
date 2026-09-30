@@ -188,3 +188,28 @@ git diff --check
 - G readiness는 기존 thin `verify_native_selection`을 소비할 수 있고, 일반 Harness 검증은 optional `validate_experiment(spec, profile)`을 사용할 수 있다. native profile의 도메인 제한은 `examples/ace-rtl/native_selection.validate_profile`을 소비한다. G 공통 models/contracts/locale/dep·공유 assertion 수정 책임은 기존 인계를 유지한다.
 - 전체 공유 suite는 이번 수정 라운드에 재실행하지 않았다. §5의 1121개/41 failure/41 error/80 skip은 이전 시점 증거이며 R1~R4 통과와 구분한다. 전체 녹색 또는 새 G 준비 완료를 주장하지 않는다.
 - 실제 native/모델/Docker/EDA/Ubuntu/wheel/브라우저·SSH 및 새 화면 캡처는 이번 라운드 **not_run**이다. 변경 내용은 actual fixture/Pilot/runner/record/evidence 검증으로 확인했다. 사용자 Home, install/sync/live, 하위 에이전트, push/PR 없음.
+
+## 8. 수정 라운드 2 — 명시 workspace 정책 출처 일치
+
+확인일: 2026-10-01. 기준 `908966144a15afa57797d6dd2c2b2a29fa6993fb`. 추가 Important finding을 실제 다른 subprocess CWD/workspace fixture로 재현했다.
+
+- 실제 누락 호출은 TUI의 `validate_selection(...)` 및 `native_trial_budget(...)`이었다. 둘 모두 `root=self.workspace`를 명시했다. `available_rows`, `inspect_selection`, `validate_field`, `write_native_selection`은 이미 같은 workspace를 positional 인자로 전달하고 있음을 전체 UI 소비 경로에서 대조했다.
+- 새 fixture는 source marker/examples 없는 package-only 코어를 임시 `installed/`에 복사하고, **실제 subprocess CWD**는 `foreign-cwd`, 선택한 workspace는 `explicit-workspace`로 분리한다. Workspace 정책은 선택을 허용하고 budget 7을 생성한다. CWD에 별도 정책이 있는 경우 그 정책은 같은 선택을 거부하고 budget 99를 반환한다. 다른 경우 CWD에는 helper가 전혀 없다.
+- 두 경우 모두 실제 Textual NativeRows 조회→Native 계속/검증→Review→worker 준비→공통 writer로 생성한 TOML→준비 후 Review를 통과하고, 정책 출처/`project_root`/row/split/budget이 명시 workspace 값과 일치한다. 단순 root mock assertion이 아니라 실제 파일 helper 로드·다른 CWD·생성 결과를 검증했다. 이 fixture는 실제 wheel build/install·native 실행 증거가 아니다.
+- 최초 RED는 **2개/0.894초 FAILED(failures=2)**: 명시 workspace의 row 조회는 되지만 Native 계속이 CWD 정책 거부/자산 없음으로 막혔다. validation root만 먼저 수정한 두 번째 RED는 **2개/0.948초 FAILED(failures=2)**: CWD budget 99가 Review에 나타나거나 자산 없음으로 Review가 실패했다. budget root까지 수정한 GREEN은 **2개/0.962초 OK**, 종료 0이다.
+
+정확한 covering 명령:
+
+```bash
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-f/home AGENT_OPT_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-f/home TMPDIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-f/tmp /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m unittest test_product_package.PackageProductTests.test_native_explicit_workspace_overrides_actual_cwd_policy test_product_package.PackageProductTests.test_package_only_native_valid_workspace_without_cwd_assets -v
+```
+
+최종 관련 회귀·lint:
+
+```bash
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-f/home AGENT_OPT_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-f/home TMPDIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-f/tmp /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m unittest test_cli_entry test_product_wiring test_product_tui test_native_product test_native_producer test_product_package test_native_ace test_native_cvdp test_plugin_contracts test_research test_run_lifecycle test_app_paths test_history test_final_report test_report_server -q
+PYTHONDONTWRITEBYTECODE=1 /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m ruff check . --no-cache
+git diff --check
+```
+
+**211개/23.157초 OK**, 종료 0, skip 없음. 신규 2개 및 라운드 1 209개 회귀다. Ruff `All checks passed!`, diff 검사 종료 0. 공유 전체 suite/G handoff와 실환경·wheel not_run 상태는 유지하며 이번 실행으로 전체 녹색을 주장하지 않는다. 수정은 `tui.py`의 root 전달 두 곳, `test_product_package.py`의 실제 CWD/workspace fixture, 이 보고서 append뿐이며 no push/subagent/user Home/live 정책을 유지했다.

@@ -7,11 +7,127 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import textwrap
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackageProductTests(unittest.TestCase):
+    def _native_workspace_flow(self, *, decoy_policy):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory).resolve()
+            package = base / 'installed'
+            shutil.copytree(ROOT / 'src/agent_optimizer', package / 'agent_optimizer', ignore=shutil.ignore_patterns('__pycache__'))
+            workspace, cwd = base / 'explicit-workspace', base / 'foreign-cwd'
+            workspace.mkdir()
+            cwd.mkdir()
+            loader = textwrap.dedent('''
+                import importlib.util
+                from pathlib import Path
+                def sibling(name):
+                    file = Path(__file__).with_name(name + '.py')
+                    spec = importlib.util.spec_from_file_location('_workspace_' + name, file)
+                    module = importlib.util.module_from_spec(spec)
+                    spec.loader.exec_module(module)
+                    return module
+            ''')
+            helpers = workspace / 'examples/ace-rtl'
+            helpers.mkdir(parents=True)
+            (helpers / 'native_prepare.py').write_text(loader)
+            policy = textwrap.dedent('''
+                from pathlib import Path
+                from agent_optimizer.app_paths import app_path
+                from agent_optimizer.setup_wizard import write_experiment
+                def validate_selection(cids, rows, optimizer):
+                    assert cids == ['workspace-category'] and rows == {'workspace-row': 'validation'}
+                def inspect_selection(root, cids, rows, dataset, prepare=None):
+                    return [{'id': 'workspace-row', 'targets': ['output.txt']}]
+                def available_rows(root, dataset, cids, prepare=None):
+                    return [{'id': 'workspace-row', 'cid': 'workspace-category', 'targets': ['output.txt'], 'tools': [], 'supported': True, 'reason': ''}]
+                def native_trial_budget(optimizer, rows, options=None):
+                    return 7
+                def write_native_selection(root, optimizer, *, prepare=None, source, dataset, rows, **options):
+                    return write_experiment(app_path('experiments') / 'workspace-generated', agent=Path(source),
+                        harness={'adapter': 'command', 'command': ['python', 'agent.py']},
+                        dataset={'benchmark': str(dataset), 'evaluator': 'scorer'}, stages=[],
+                        plugins={'evaluators': {'scorer': 'evaluator.py:Scorer'}}, dependencies={}, name='workspace-generated',
+                        editable=['prompts/system.md'], project_root=Path(root), max_tasks=1, max_trials=7)
+            ''')
+            (helpers / 'native_selection.py').write_text(policy)
+            if decoy_policy:
+                decoy = cwd / 'examples/ace-rtl'
+                decoy.mkdir(parents=True)
+                (decoy / 'native_prepare.py').write_text(loader)
+                (decoy / 'native_selection.py').write_text(textwrap.dedent('''
+                    from agent_optimizer.contracts import ConfigurationError
+                    def validate_selection(cids, rows, optimizer):
+                        raise ConfigurationError('CWD의 다른 정책은 이 선택을 거부합니다')
+                    def native_trial_budget(optimizer, rows, options=None):
+                        return 99
+                '''))
+            agent = base / 'source'
+            (agent / 'prompts').mkdir(parents=True)
+            (agent / 'prompts/system.md').write_text('공개 fixture guidance')
+            (workspace / 'evaluator.py').write_text('class Scorer: pass\n')
+            dataset = base / 'dataset.json'
+            dataset.write_text(json.dumps({'schema_version': 1, 'synthetic': True, 'tasks': [
+                {'id': 'workspace-row', 'split': 'validation', 'prompt': '공개 fixture', 'files': {'input.txt': '공개'}, 'evaluation': {'expected': 'ok'}}]}))
+            program = textwrap.dedent('''
+                import asyncio, os
+                from pathlib import Path
+                from textual.widgets import OptionList
+                from agent_optimizer.tui import OptimizerApp
+                from agent_optimizer.config import load_experiment
+                async def flow():
+                    workspace = Path(os.environ['FIXTURE_WORKSPACE'])
+                    app = OptimizerApp(Path.cwd())
+                    app.workspace = workspace
+                    app.selections = {'Agent':'ace-rtl', 'Harness':'ace-native', 'Optimizer':'baseline', 'Dataset':'cvdp'}
+                    app.native_values = {'cids':['workspace-category'], 'rows':{'workspace-row':'validation'},
+                        'source':os.environ['FIXTURE_SOURCE'], 'dataset':os.environ['FIXTURE_DATASET']}
+                    async with app.run_test() as pilot:
+                        app._show('Native')
+                        options = app.query_one(OptionList)
+                        options.highlighted = options.get_option_index('rows.pick')
+                        options.focus()
+                        await pilot.press('enter')
+                        await pilot.pause()
+                        assert app.page == 'NativeRows', app.page
+                        app._show('Native')
+                        options.highlighted = options.get_option_index('native.continue')
+                        options.focus()
+                        await pilot.press('enter')
+                        await pilot.pause()
+                        assert app.page == 'Model', app.page
+                        app._show('Review')
+                        review = app._review()
+                        assert '  최대 trial budget  7' in review, review
+                        assert '  최대 trial budget  99' not in review, review
+                        app._prepare()
+                        for _ in range(100):
+                            await pilot.pause(.02)
+                            if not app.busy: break
+                        assert app.preparation_complete, app.preparation_error
+                        spec = load_experiment(app.experiment)
+                        assert spec['_root'] == workspace, spec['_root']
+                        assert spec['budget']['max_trials'] == 7, spec['budget']
+                        assert {task.id:task.split for task in spec['_tasks']} == {'workspace-row':'validation'}
+                        assert '  최대 trial budget  7' in app._review(), app._review()
+                asyncio.run(flow())
+            ''')
+            env = {**os.environ, 'PYTHONPATH': str(package), 'PYTHONDONTWRITEBYTECODE': '1',
+                   'AGENT_OPT_HOME': str(base / 'home'), 'HOME': str(base / 'user-home'),
+                   'FIXTURE_WORKSPACE': str(workspace), 'FIXTURE_SOURCE': str(agent), 'FIXTURE_DATASET': str(dataset),
+                   'AGENT_OPT_MODEL_BASE_URL': 'http://127.0.0.1:12345/v1', 'AGENT_OPT_MODEL_ID': 'fixture', 'AGENT_OPT_MODEL_API_KEY': 'KEY-SENTINEL'}
+            process = subprocess.run([sys.executable, '-c', program], cwd=cwd, env=env, capture_output=True, text=True, timeout=30)
+            self.assertEqual(process.returncode, 0, process.stderr)
+
+    def test_native_explicit_workspace_overrides_actual_cwd_policy(self):
+        self._native_workspace_flow(decoy_policy=True)
+
+    def test_package_only_native_valid_workspace_without_cwd_assets(self):
+        self._native_workspace_flow(decoy_policy=False)
+
     def test_package_only_custom_project_from_two_cwds(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory).resolve()
