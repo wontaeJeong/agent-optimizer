@@ -201,6 +201,165 @@ def _finite_number(value) -> bool:
         return False
 
 
+def _normalize_numbers(value, warnings):
+    if isinstance(value, dict):
+        return {key: _normalize_numbers(item, warnings) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_normalize_numbers(item, warnings) for item in value]
+    if type(value) is float and not math.isfinite(value):
+        warnings.append("nonfinite_values")
+        return None
+    return value
+
+
+def _native_execution(root: Path, event: dict) -> dict | None:
+    """검증된 producer 요약만 소비하고 sidecar·본문·모델 입력은 읽지 않는다."""
+    payload = event.get("native_execution")
+    if (not isinstance(payload, dict) or type(payload.get("schema_version")) is not int
+            or payload["schema_version"] != 1 or payload.get("execution_mode") != "native"):
+        return None
+    if (any(not isinstance(event.get(name), str) or not event[name]
+            for name in ("agent_id", "harness_id", "trial_id"))
+            or (event.get("task_id") is not None and payload.get("task_id") != event["task_id"])
+            or (event.get("content_hash") is not None and payload.get("candidate_hash") != event["content_hash"])):
+        return None
+    key = f'{event.get("agent_id")}/{event.get("harness_id")}'
+    warnings = []
+
+    def strings(record, names):
+        return {name: record.get(name) if isinstance(record.get(name), str) else None
+                for name in names}
+
+    def number(record, name, integer=False):
+        value = record.get(name)
+        if value is None:
+            return None
+        if (_finite_number(value) and value >= 0 and (not integer or type(value) is int)):
+            return value
+        warnings.append(f"invalid_{name}")
+        return None
+
+    def paths(values, evidence=False):
+        if not isinstance(values, list):
+            return []
+        accepted = []
+        for path in values:
+            if (not isinstance(path, str) or not path or Path(path).is_absolute()
+                    or "\\" in path or ":" in path or any(part in (".", "..") or part.startswith(".")
+                                                          for part in path.split("/"))):
+                warnings.append("unsafe_path")
+                continue
+            if evidence:
+                # Raw evidence stays local and never becomes a server asset/link.
+                prefix = f'{key}/trials/{event.get("trial_id")}/logs/'
+                if not path.startswith(prefix) and (path == 'native' or path.startswith('native/')
+                                                    or path == 'native-execution.json'):
+                    path = prefix + path
+                target = _relative_path(root, path)
+                if (not path.startswith(prefix) or target is None
+                        or not (target.is_file() or target.is_dir())):
+                    warnings.append("evidence_unavailable")
+                    continue
+            if path not in accepted:
+                accepted.append(path)
+        return accepted
+
+    def files(values):
+        names, hashes = [], {}
+        for item in values if isinstance(values, list) else []:
+            name = item.get("path") if isinstance(item, dict) else item
+            accepted = paths([name])
+            if not accepted:
+                continue
+            if name not in names:
+                names.append(name)
+            sha256 = item.get("sha256") if isinstance(item, dict) else None
+            if (isinstance(sha256, str) and len(sha256) == 64
+                    and all(char in "0123456789abcdefABCDEF" for char in sha256)):
+                hashes[name] = sha256
+        return names, hashes
+
+    generated_files, generated_hashes = files(payload.get("generated_files"))
+    row = {"schema_version": 1, "execution_mode": "native", "group_key": key,
+           "evaluation_ref": _qualified(key, event.get("trial_id")),
+           **strings(event, ("trial_id", "stage_id", "candidate_id", "split")),
+           **strings(payload, ("source_revision", "source_hash", "profile", "task_id",
+                               "candidate_hash", "status")),
+           "native_wall_time_seconds": number(payload, "native_wall_time_seconds"),
+           "generated_files": generated_files, "generated_file_hashes": generated_hashes,
+           "evidence_paths": paths(payload.get("evidence_paths"), evidence=True),
+           "attempts": [], "requests": []}
+    attempts = payload.get("attempts")
+    for attempt in attempts if isinstance(attempts, list) else []:
+        if not isinstance(attempt, dict):
+            warnings.append("invalid_attempt")
+            continue
+        generated_files, generated_hashes = files(attempt.get("generated_files"))
+        evidence_paths = attempt.get("evidence_paths")
+        if not isinstance(evidence_paths, list):
+            evidence_paths = [attempt["evidence_path"]] if isinstance(attempt.get("evidence_path"), str) else []
+        row["attempts"].append({**strings(attempt, ("status", "hash")),
+                                "attempt": number(attempt, "attempt", integer=True),
+                                "iteration": number(attempt, "iteration", integer=True),
+                                "generated_files": generated_files, "generated_file_hashes": generated_hashes,
+                                "evidence_paths": paths(evidence_paths, evidence=True)})
+    seen = set()
+    requests = payload.get("requests")
+    for request in requests if isinstance(requests, list) else []:
+        if not isinstance(request, dict):
+            warnings.append("invalid_request")
+            continue
+        identifier = request.get("request_id")
+        if not isinstance(identifier, str) or not identifier or identifier in seen:
+            warnings.append("duplicate_or_missing_request_id")
+            continue
+        seen.add(identifier)
+        row["requests"].append({**strings(request, ("request_id", "role", "model", "status")),
+                                **{name: number(request, name, integer=name.endswith("tokens"))
+                                   for name in ("duration_seconds", "input_tokens", "output_tokens", "cost_usd")}})
+    usage_status = payload.get("usage_status")
+    measured = any(request[name] is not None for request in row["requests"]
+                   for name in ("input_tokens", "output_tokens", "cost_usd"))
+    complete = (bool(row["requests"]) and not warnings and
+                all(request[name] is not None for request in row["requests"]
+                    for name in ("input_tokens", "output_tokens", "cost_usd")))
+    row["usage_status"] = ("complete" if usage_status == "complete" and complete else
+                           "partial" if measured or usage_status in ("partial", "complete") else "unreported")
+    if usage_status == "complete" and not complete:
+        warnings.append("usage_incomplete")
+    row["warnings"] = list(dict.fromkeys(warnings))
+    return row
+
+
+def _algorithm_trail(group, events):
+    """알고리즘 이름으로 내부 trace를 추측하지 않고 실제 기록만 연결한다."""
+    trails = []
+    stages = {stage.get("id"): stage for stage in group.get("stages", []) if isinstance(stage, dict)}
+    for event in events:
+        stage_id = event.get("stage_id")
+        if isinstance(stage_id, str) and stage_id not in stages:
+            stages[stage_id] = {"id": stage_id, "optimizer": event.get("optimizer")}
+    for stage_id, stage in stages.items():
+        rows = []
+        for event in events:
+            name = event.get("event")
+            if event.get("stage_id") != stage_id or not isinstance(name, str):
+                continue
+            if not (name.startswith("optimizer_") or name in ("candidate_created", "candidate_evaluated",
+                                                               "stage_started", "stage_completed", "report_unit")):
+                continue
+            rows.append({field: event.get(field) for field in (
+                "event", "timestamp", "iteration", "pass_number", "role", "candidate_id",
+                "accepted", "status", "split")})
+        checkpoint = stage.get("checkpoint") or {}
+        frontier = checkpoint.get("frontier") if isinstance(checkpoint, dict) else None
+        trails.append({"stage_id": stage_id, "optimizer": stage.get("optimizer"),
+                       "status": stage.get("status"), "events": rows,
+                       "frontier": [item for item in frontier if isinstance(item, str)]
+                       if isinstance(frontier, list) else []})
+    return trails
+
+
 def _metric_value(row, key: str, name: str):
     if (not isinstance(row, dict) or row.get("split") != "validation"
             or row.get("valid") is not True or row.get("partial", False)):
@@ -424,13 +583,20 @@ def _visualization(group: dict, events: list[dict], evaluations: list[dict], obj
          _objective_vector(event.get("metrics"), objective) !=
          _objective_vector(row.get("metrics"), objective))
         for event in validation_events for row in expected if row.get("candidate_id") is not None)
-    progress, best_vector, best_metrics = [], None, None
+    progress, leaders = [], {}
+    baseline_vector = (_objective_vector(baseline.get("metrics"), objective)
+                       if baseline.get("valid") is True and not baseline.get("partial", False) else None)
     for event in ([] if conflicting else validation_events):
         candidate_id = event.get("candidate_id")
         if not isinstance(candidate_id, str):
             continue
         vector = (_objective_vector(event.get("metrics"), objective)
-                  if event.get("valid") is True and not event.get("partial", False) else None)
+                   if event.get("valid") is True and not event.get("partial", False) else None)
+        stage_id = event.get("stage_id")
+        best_vector, best_metrics = leaders.get(stage_id, (
+            baseline_vector, baseline.get("metrics") if baseline_vector is not None else None))
+        if candidate_id == baseline.get("candidate_id") and stage_id == "baseline":
+            best_vector, best_metrics = None, None
         if vector is None:
             improvement = "invalid"
         elif best_vector is None or vector > best_vector:
@@ -439,6 +605,7 @@ def _visualization(group: dict, events: list[dict], evaluations: list[dict], obj
             best_vector, best_metrics = vector, event["metrics"]
         else:
             improvement = "equal" if vector == best_vector else "regressed"
+        leaders[stage_id] = best_vector, best_metrics
         progress.append({"candidate_id": candidate_id, "stage_id": event.get("stage_id"),
                          "metrics": event.get("metrics"), "best_metrics": best_metrics,
                          "improvement": improvement, "selected": candidate_id in selected,
@@ -510,6 +677,7 @@ def _group(root: Path, group: dict, events: list[dict], objective: dict) -> dict
             "final_test": group.get("final_test", []), "stages": group.get("stages", []),
             "optimizer_usage": group.get("optimizer_usage", []), "status": group.get("status"),
             "agent_usage": _agent_usage(group, group_events),
+            "algorithm_trail": _algorithm_trail(group, group_events),
             "candidates": candidates, "evaluations": evaluations, "failures": failures,
              "structure": structure,
              "visualization": _visualization(group, group_events, evaluations, objective),
@@ -529,6 +697,28 @@ def build_report(root: Path, summary: dict) -> dict:
     """집계와 선택은 그대로 두고 trial별 근거만 별도로 보존한다."""
     manifest = _read_json(safe_path(root, "manifest.json"), {})
     events, present, invalid_lines = _read_events(root)
+    number_warnings = []
+    summary = _normalize_numbers(summary, number_warnings)
+    manifest = _normalize_numbers(manifest, number_warnings)
+    events = _normalize_numbers(events, number_warnings)
+    native_rows, native_warnings = [], []
+    group_keys = {(group.get("agent_id"), group.get("harness_id")) for group in summary.get("groups", [])}
+    for event in events:
+        if "native_execution" not in event:
+            continue
+        payload = event.pop("native_execution")
+        if event.get("event") != "trial_completed":
+            continue
+        normalized = (_native_execution(root, {**event, "native_execution": payload})
+                      if (event.get("agent_id"), event.get("harness_id")) in group_keys else None)
+        code = "native_execution_invalid" if normalized is None else "native_execution_warning"
+        if normalized is None or normalized["warnings"]:
+            native_warnings.append({"code": code,
+                                    "group_key": f'{event.get("agent_id")}/{event.get("harness_id")}',
+                                    "expected": None, "observed": None})
+        if normalized is not None:
+            native_rows.append(normalized)
+            event["native_execution"] = normalized
     experiment = manifest.get("experiment", {})
     objective = experiment.get("objective", {})
     groups = [_group(root, group, events, objective) for group in summary.get("groups", [])]
@@ -541,9 +731,17 @@ def build_report(root: Path, summary: dict) -> dict:
                            error=summary.get("error"))
     if run_failure is not None:
         identity["failure"] = run_failure
+    evidence = _evidence(summary, events, present, invalid_lines)
+    evidence["warnings"].extend(native_warnings)
+    if number_warnings:
+        evidence["warnings"].append({"code": "nonfinite_values", "group_key": None,
+                                     "expected": 0, "observed": len(number_warnings)})
+    if evidence["warnings"]:
+        evidence["status"] = "warning"
     return {"report_schema_version": 3,
             "identity": identity,
             "configuration": experiment, "provenance": manifest,
             "objective": objective,
             "counts": _counts(groups, summary), "groups": groups, "events": events,
-            "evidence": _evidence(summary, events, present, invalid_lines)}
+             "evidence": evidence,
+             **({"native_execution": native_rows} if native_rows else {})}

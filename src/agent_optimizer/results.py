@@ -97,7 +97,10 @@ def write_report(root: Path, summary: dict, report: dict | None = None,
         "events_invalid_lines": phrase("읽지 못한 이벤트 줄", "unreadable event lines"),
         "group_trial_count_mismatch": phrase("그룹 평가 건수 불일치", "group evaluation count mismatch"),
         "reserved_completed_gap": phrase("예약 예산과 완료 평가의 차이 (유실 단정 불가)",
-                                         "reserved/completed gap (not necessarily missing records)"),
+                                          "reserved/completed gap (not necessarily missing records)"),
+        "native_execution_invalid": phrase("native 실행 자료 형식 미지원", "unsupported native execution schema"),
+        "native_execution_warning": phrase("native 실행 자료 일부 누락·불일치", "incomplete native execution evidence"),
+        "nonfinite_values": phrase("유한하지 않은 수치를 null로 표시", "nonfinite values shown as null"),
     }
     for warning in evidence.get("warnings", []):
         scope = f" {_cell(warning['group_key'])}" if warning.get("group_key") else ""
@@ -161,20 +164,25 @@ def write_report(root: Path, summary: dict, report: dict | None = None,
     lines += ["", f"## {phrase('최종 테스트', 'Final test')}", "",
               phrase("검증 선택을 확정한 뒤 기록된 별도 test 집계입니다.",
                      "Separate test aggregates recorded after validation selection."), "",
-              header('Agent', 'Harness', 'Candidate', 'Split', 'Metric', 'Value', 'Completed'),
-              "|---|---|---|---|---|---|---|"]
+               header('Agent', 'Harness', 'Candidate', 'Split', 'Metric', 'Value', 'Completed', 'Status'),
+               "|---|---|---|---|---|---|---|---|"]
     for group in groups:
         for row in group["final_test"]:
             if not isinstance(row, dict):
                 continue
-            metrics = row.get("metrics") or {}
-            if not isinstance(metrics, dict):
-                continue
+            metrics = row.get("metrics")
+            if not isinstance(metrics, dict) or not metrics:
+                metrics = {phrase("지표 미수집", "Metrics unreported"): None}
             for metric, number in metrics.items():
+                state = (phrase("부분 집계", "Partial aggregate") if row.get("partial") else
+                         phrase("집계", "Aggregate")) + " · " + (
+                    phrase("유효", "Valid") if row.get("valid") is True else
+                    phrase("무효", "Invalid") if row.get("valid") is False else
+                    phrase("유효성 미수집", "Validity unreported"))
                 lines.append(_table_row(group["agent_id"], group["harness_id"],
-                                        row.get("candidate_id"), row.get("split"), metric,
-                                        number, row.get("trial_count")))
-    if lines[-1] == "|---|---|---|---|---|---|---|":
+                                         row.get("candidate_id"), row.get("split"), metric,
+                                         number, row.get("trial_count"), state))
+    if lines[-1] == "|---|---|---|---|---|---|---|---|":
         lines += ["", phrase("기록된 최종 테스트 없음", "No recorded final test")]
     lines += ["", f"## {label('Agent usage (Harness-reported partial; not complete totals)')}", "",
                header('Agent', 'Harness', 'Candidate', 'Split', 'IO tokens', 'Cost USD'), "|---|---|---|---|---|---|"]
@@ -193,6 +201,25 @@ def write_report(root: Path, summary: dict, report: dict | None = None,
                                                                for row in stage.get("selected", [])
                                                                if isinstance(row, dict)) or "—"))
     for group in groups:
+        for trail in group.get("algorithm_trail", []):
+            if not trail["events"] and not trail["frontier"]:
+                continue
+            lines += ["", f"### {_cell(trail['stage_id'])} · {_cell(trail['optimizer'])}", "",
+                      _table_row(phrase("이벤트", "Event"), phrase("반복", "Iteration"),
+                                 phrase("역할", "Role"), phrase("후보", "Candidate"),
+                                 phrase("데이터 구분", "Split"), phrase("상태", "Status")),
+                      "|---|---|---|---|---|---|"]
+            for event in trail["events"][:200]:
+                accepted = event.get("accepted")
+                state = (phrase("채택", "Accepted") if accepted is True else
+                         phrase("미채택", "Not accepted") if accepted is False else event.get("status"))
+                lines.append(_table_row(event.get("event"), event.get("iteration"), event.get("role"),
+                                        event.get("candidate_id"), event.get("split"), state))
+            if len(trail["events"]) > 200:
+                lines.append(phrase("표시 상한 200건 · 전체 기록은 report.json", "Display limit: 200 · full records are in report.json"))
+            if trail["frontier"]:
+                lines.append(phrase("기록된 frontier: ", "Recorded frontier: ") +
+                             _cell(", ".join(trail["frontier"])))
         links = [_relative_link(root, f"{group['key']}/stages/{stage.get('id')}.json",
                                 f"{stage.get('id')}.json") for stage in group["stages"]]
         lines += ["", f"{_cell(group['key'])}: " + " · ".join(link for link in links if link),
@@ -228,7 +255,36 @@ def write_report(root: Path, summary: dict, report: dict | None = None,
                           f" — {_cell(failure['message']) if failure['message'] else label('not reported')}")
     if identity.get("failure"):
         lines.append(f"{label('Run failure')}: {_cell(identity['failure']['category'])} — "
-                     f"{_cell(identity['failure'].get('message') or label('not reported'))}")
+                      f"{_cell(identity['failure'].get('message') or label('not reported'))}")
+    if report.get("native_execution"):
+        lines += ["", "## " + phrase("native 실행 · 내부 attempt", "Native execution · inner attempts"), "",
+                  phrase("내부 attempt/iteration은 outer trial·trusted 최종 평가와 별개입니다. 요청 시간 합계는 벽시계 시간이 아닙니다. 원본 근거는 로컬 전용이며 서버 공개 자산이 아닙니다.",
+                         "Inner attempts/iterations are separate from outer trials and trusted final evaluation. Request duration sums are not wall time. Raw evidence is local, outside server assets.")]
+        usage_labels = {"complete": phrase("전체 수집", "Complete"), "partial": phrase("부분 수집", "Partial"),
+                        "unreported": phrase("미수집", "Unreported")}
+        for native in report["native_execution"]:
+            lines += ["", "### " + _cell(native["evaluation_ref"]),
+                      f"{_cell(native['stage_id'])} · {_cell(native['split'])} · "
+                      f"native {phrase('벽시계 시간', 'wall time')}: {_cell(native['native_wall_time_seconds'])} s · "
+                      + usage_labels[native["usage_status"]], "",
+                      f"{phrase('소스·프로필', 'Source/profile')}: {_cell(native['source_revision'])} · "
+                      f"{_cell(native['source_hash'])} · {_cell(native['profile'])} · "
+                      f"{phrase('후보 해시', 'Candidate hash')}: {_cell(native['candidate_hash'])}",
+                      f"{phrase('생성 파일 해시', 'Generated file hashes')}: "
+                      + _cell(_json(native.get('generated_file_hashes', {})), limit=None), "",
+                      _table_row("attempt", "iteration", phrase("상태", "Status"), phrase("생성 파일", "Generated files")),
+                      "|---|---|---|---|"]
+            for attempt in native["attempts"]:
+                lines.append(_table_row(attempt["attempt"], attempt["iteration"], attempt["status"],
+                                        ", ".join(attempt["generated_files"])))
+            lines += ["", _table_row("request_id", phrase("역할", "Role"), phrase("모델", "Model"),
+                                    phrase("상태", "Status"), phrase("요청 시간 (s)", "Request duration (s)"),
+                                    "input_tokens", "output_tokens", "cost_usd"), "|---|---|---|---|---|---|---|---|"]
+            for request in native["requests"]:
+                lines.append(_table_row(*(request[name] for name in ("request_id", "role", "model", "status",
+                                                                    "duration_seconds", "input_tokens", "output_tokens", "cost_usd"))))
+            if native["warnings"]:
+                lines.append(phrase("제약: ", "Limitations: ") + _cell(", ".join(native["warnings"])))
     provenance = report["provenance"]
     lines += ["", f"## {label('Reproducibility')}", "",
                f"{label('Dataset')}: {_cell(provenance.get('benchmark', {}).get('id', label('not recorded')))}",

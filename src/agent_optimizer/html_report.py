@@ -63,10 +63,15 @@ CONTEXT_LABELS = {'timestamp': '시각', 'stage_id': '단계', 'phase': '작업'
 PHASES = {'workspace': '작업 공간', 'agent': 'Agent', 'evaluation': '채점'}
 
 _language = ContextVar('report_language', default='ko')
+EVENT_DISPLAY_LIMIT = 200
 
 
 def _s(label):
     return human(label, lang=_language.get())
+
+
+def _phrase(ko, en):
+    return ko if _language.get() == 'ko' else en
 
 
 def text(item, limit=None):
@@ -132,6 +137,8 @@ def _link(root: Path, reference, label, directory=False):
         if relative.is_absolute():
             relative = relative.relative_to(root.resolve())
         location = relative.as_posix()
+        if any(part.startswith('.') or part in ('private', 'evaluator') for part in relative.parts):
+            return None
         target = safe_path(root, location)
     except (ConfigurationError, ValueError):
         return None
@@ -144,7 +151,7 @@ def _link(root: Path, reference, label, directory=False):
 def _table(caption, headers, body, numeric=()):
     titles = ''.join(f'<th scope="col" class="{"number" if index in numeric else ""}">'
                      f'{_term(label)}</th>' for index, label in enumerate(headers))
-    return (f'<div class="table-scroll"><table><caption>{text(_s(caption))}</caption>'
+    return (f'<div class="table-scroll" tabindex="0" role="region" aria-label="{text(_s(caption))}"><table><caption>{text(_s(caption))}</caption>'
             f'<thead><tr>{titles}</tr></thead><tbody>'
             + (''.join(body) or f'<tr><td colspan="{len(headers)}" class="subtle">{text(_s("평가 기록 없음"))}</td></tr>')
             + '</tbody></table></div>')
@@ -173,7 +180,12 @@ def _aggregate_rows(rows, group_label=None):
         if not isinstance(row, dict):
             continue
         cells = ([text(group_label)] if group_label is not None else []) + [
-            text(row.get('candidate_id')), _split(row.get('split')),
+            text(row.get('candidate_id')), _split(row.get('split')) + '<br><span class="tag">' +
+            text(_phrase('부분 집계', 'Partial aggregate') if row.get('partial') else
+                 _phrase('집계', 'Aggregate')) + ' · ' +
+            text(_phrase('유효', 'Valid') if row.get('valid') is True else
+                 _phrase('무효', 'Invalid') if row.get('valid') is False else
+                 _phrase('유효성 미수집', 'Validity unreported')) + '</span>',
             _metrics(row.get('metrics')), _count(row.get('trial_count'))]
         rendered.append(_cells(cells, numeric=(4,) if group_label is not None else (3,)))
     return rendered
@@ -223,7 +235,7 @@ def _metadata(report):
     if 'run_wall_time_seconds' in report['identity']:
         fields += (('실측 실행 시간', f'{report["identity"]["run_wall_time_seconds"]:.3f}{_s("초")}'),)
     return '<dl class="meta">' + ''.join(
-        f'<div><dt>{_term(label)}</dt><dd class="{"mono" if label == "실행 ID" else ""}">'
+        f'<div class="{"wide" if label in ("벤치마크 경로", "목적 지표", "Agent × 하네스") else ""}"><dt>{_term(label)}</dt><dd class="{"mono" if label == "실행 ID" else ""}">'
         f'{text(json.dumps(item, ensure_ascii=False) if isinstance(item, dict) else item)}</dd></div>'
         for label, item in fields) + '</dl>'
 
@@ -304,7 +316,7 @@ def _recorded_events(report, group, structured=False):
                    if structured else '기록된 탐색 구조가 없어 그룹 이벤트를 로그 순서로 보여줍니다. '
                    '나머지 필드는 원본 기록에서 확인하세요.')
     parts = [f'<p class="subtle">{text(_s(description))}</p><ol class="lineage">']
-    for event in events:
+    for event in events[:EVENT_DISPLAY_LIMIT]:
         context_parts = []
         for name in ('timestamp', 'stage_id', 'phase', 'status', 'candidate_id', 'task_id'):
             if event.get(name) is None:
@@ -316,7 +328,11 @@ def _recorded_events(report, group, structured=False):
         parts.append(f'<li><strong>{_display(event["event"], EVENTS)}</strong>'
                      + (f' <span class="tag">{context}</span>' if context else '')
                      + _details(_s('이벤트 원본'), _json(event)) + '</li>')
-    return ''.join(parts) + '</ol>'
+    parts.append('</ol>')
+    if len(events) > EVENT_DISPLAY_LIMIT:
+        parts.append(f'<p class="subtle">{text(_phrase("표시 상한", "Display limit"))}: {EVENT_DISPLAY_LIMIT}/{len(events)} · '
+                     f'{text(_phrase("전체 기록은 report.json", "Full records are in report.json"))}</p>')
+    return ''.join(parts)
 
 
 def _journey(report):
@@ -326,6 +342,26 @@ def _journey(report):
         units = structure.get('units') or []
         edges = structure.get('edges') or []
         sections.append(f'<h3>{text(group["key"])} · {_display(structure.get("kind"), STRUCTURES) if structure.get("kind") else text(_s("기록된 근거"))}</h3>')
+        for trail in group.get('algorithm_trail', []):
+            rows = []
+            for event in trail['events'][:EVENT_DISPLAY_LIMIT]:
+                accepted = event.get('accepted')
+                rows.append(_cells((text(event.get('event')), text(event.get('iteration')),
+                                    text(event.get('role')), text(event.get('pass_number')),
+                                    text(event.get('candidate_id')), _split(event.get('split')),
+                                    text(_phrase('채택', 'Accepted') if accepted is True else
+                                         _phrase('미채택', 'Not accepted') if accepted is False else
+                                         event.get('status')))))
+            if rows or trail.get('frontier'):
+                sections.append(_details(
+                    f'{trail.get("stage_id")} · {trail.get("optimizer") or "—"}',
+                    _table(_phrase('실제 알고리즘 기록', 'Recorded algorithm events'),
+                           (_phrase('이벤트', 'Event'), '반복', _phrase('역할', 'Role'),
+                            _phrase('검토 회차', 'Review pass'), '후보', '데이터 구분', '상태'), rows)
+                    + (f'<p>{text(_phrase("표시 상한 · 전체 기록은 report.json", "Display limit · full records are in report.json"))}: '
+                       f'{EVENT_DISPLAY_LIMIT}/{len(trail["events"])}</p>' if len(trail['events']) > EVENT_DISPLAY_LIMIT else '')
+                    + (f'<p>{text(_phrase("기록된 frontier", "Recorded frontier"))}: '
+                       f'{text(", ".join(trail["frontier"]))}</p>' if trail.get('frontier') else '')))
         if units:
             sections.append('<ol class="lineage">')
             for unit in units:
@@ -357,6 +393,40 @@ def _journey(report):
     return ''.join(sections) + '</section>'
 
 
+def _native(report):
+    records = report.get('native_execution') or []
+    if not records:
+        return ''
+    parts = [f'<section id="native-execution"><h2>{text(_phrase("native 실행 · 내부 attempt", "Native execution · inner attempts"))}</h2>',
+             f'<p class="subtle">{text(_phrase("내부 attempt/iteration은 outer trial·trusted 최종 평가 횟수와 별개입니다. 모델 요청 시간은 벽시계 시간이 아니며 미수집 토큰·비용은 null입니다. 원본 근거는 로컬 전용이며 서버 공개 자산이 아닙니다.", "Inner attempts/iterations are separate from outer trials and trusted final evaluations. Model request duration is not wall time; missing tokens/cost are null. Raw evidence remains local, outside server assets."))}</p>']
+    usage = {'complete': _phrase('전체 수집', 'Complete'), 'partial': _phrase('부분 수집', 'Partial'),
+             'unreported': _phrase('미수집', 'Unreported')}
+    for row in records:
+        heading = (f'{row.get("group_key")} · {row.get("trial_id")} · '
+                   f'{row.get("stage_id")} · {row.get("split")}')
+        details = [f'<p>{text(_phrase("native 벽시계 시간", "Native wall time"))}: '
+                   f'{value(row.get("native_wall_time_seconds"))} s · '
+                   f'{text(usage.get(row.get("usage_status"), usage["unreported"]))}</p>']
+        attempts = [_cells((text(item.get('attempt')), text(item.get('iteration')),
+                            _display(item.get('status'), STATES),
+                            text(', '.join(item.get('generated_files') or []))))
+                    for item in row.get('attempts', [])]
+        details.append(_table(_phrase('내부 attempt/iteration', 'Inner attempt/iteration'),
+                              ('attempt', 'iteration', '상태', _phrase('생성 파일', 'Generated files')), attempts))
+        requests = [_cells((text(item.get('request_id')), text(item.get('role')), text(item.get('model')),
+                            _display(item.get('status'), STATES), value(item.get('duration_seconds')),
+                            value(item.get('input_tokens')), value(item.get('output_tokens')),
+                            value(item.get('cost_usd'))), numeric=(4, 5, 6, 7))
+                    for item in row.get('requests', [])]
+        details.append(_table(_phrase('Agent 모델 요청 · 관측값', 'Agent model requests · observed values'),
+                              ('request_id', _phrase('역할', 'Role'), _phrase('모델', 'Model'), '상태',
+                               _phrase('요청 시간 (s)', 'Request duration (s)'), 'input_tokens', 'output_tokens',
+                               'cost_usd'), requests, numeric=(4, 5, 6, 7)))
+        details.append(_details(_phrase('정규화 metadata · 로컬 근거 경로', 'Normalized metadata · local evidence paths'), _json(row)))
+        parts.append(_details(heading, ''.join(details)))
+    return ''.join(parts) + '</section>'
+
+
 def _feedback(message):
     if not isinstance(message, str) or not message:
         return value(None)
@@ -375,6 +445,20 @@ def _evidence_links(root, evaluation):
         references.extend(artifacts.items())
     links = []
     for label, reference in references:
+        # Arbitrary evaluator artifacts are not a report-serving allowlist.
+        prefix = f'{evaluation.get("group_key")}/trials/{evaluation.get("trial_id")}/logs/'
+        if isinstance(reference, str) and Path(reference).is_absolute():
+            try:
+                try:
+                    relative = Path(reference).relative_to(root.absolute())
+                except ValueError:
+                    relative = Path(reference).relative_to(root.resolve())
+                reference = relative.as_posix()
+            except ValueError:
+                continue
+        if (not isinstance(reference, str) or not reference.startswith(prefix)
+                or label not in ('stdout_path', 'stderr_path')):
+            continue
         link = _link(root, reference, _s({'stdout_path': '표준 출력 로그',
                                           'stderr_path': '표준 오류 로그'}.get(label, label)))
         if link:
@@ -556,7 +640,10 @@ def _evidence_notice(root, report):
         'events_invalid_lines': phrase('읽지 못한 이벤트 줄', 'Unreadable event lines'),
         'group_trial_count_mismatch': phrase('그룹 평가 건수 불일치', 'Group evaluation count mismatch'),
         'reserved_completed_gap': phrase('예약 예산과 완료 평가의 차이 (유실 단정 불가)',
-                                          'Reserved/completed gap (not necessarily missing records)'),
+                                           'Reserved/completed gap (not necessarily missing records)'),
+        'native_execution_invalid': phrase('native 실행 자료 형식 미지원', 'Unsupported native execution schema'),
+        'native_execution_warning': phrase('native 실행 자료 일부 누락·불일치', 'Incomplete/inconsistent native execution evidence'),
+        'nonfinite_values': phrase('유한하지 않은 수치를 null로 표시', 'Nonfinite values shown as null'),
     }
     rows = []
     for warning in evidence.get('warnings', []):
@@ -641,7 +728,7 @@ def _render_report(root: Path, report: dict) -> str:
     parts.extend(_comparison(group, index, report.get('objective') or {})
                  for index, group in enumerate(report['groups']))
     parts.extend(('<div class="cards">' + cards + '</div>',
-                  _test_results(report), _journey(report), _evaluations(root, report),
+                  _test_results(report), _journey(report), _native(report), _evaluations(root, report),
                   _candidates(root, report), _failures(report), _stages(report), _provenance(report)))
     source_links = [_link(root, name, name) for name in ('summary.json', 'events.jsonl', 'report.md')]
     parts.append('</main><footer>' + text(_s('일부만 기록된 하네스 사용량을 전체 사용량으로 표시하지 않습니다. 데이터·모델·예산이 같은 실험끼리 비교하세요. ')) +
