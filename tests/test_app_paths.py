@@ -3,6 +3,7 @@ import os
 import json
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -224,3 +225,19 @@ class AppPathsTests(unittest.TestCase):
         with patch.object(Path, 'rename', competing_publish):
             self.assertEqual(acquire_pinned_git(target, str(repo), revision), target)
         self.assertEqual((target / 'data').read_text(), 'fixture')
+
+    def test_explicit_relative_output_uses_real_process_cwd(self):
+        script = ('import json; from pathlib import Path; '
+                  'from agent_optimizer.app_paths import resolve_run_base; '
+                  f'spec = {{"_root": Path({str(ROOT)!r}), "output_dir": "legacy"}}; '
+                  'print(json.dumps(str(resolve_run_base(spec, Path("상대 output"))), ensure_ascii=False))')
+        for name in ('첫 cwd', '둘째 cwd'):
+            cwd = self.root / name
+            cwd.mkdir()
+            result = subprocess.run([sys.executable, '-c', script], cwd=cwd,
+                                    env={**os.environ, 'PYTHONPATH': str(ROOT / 'src')},
+                                    capture_output=True, text=True, check=False)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(json.loads(result.stdout), str(cwd / '상대 output'))
+            self.assertFalse((cwd / '상대 output').exists())
+        self.assertFalse(self.home.exists())

@@ -165,3 +165,49 @@ PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src /Users/wt.jeong/workspace/agent-optimiz
 | G | 기존 tests | 위 15개 interpreter 오류와 XDG 기대값 1개·경로 문자열 오인 1개를 단독 취합하여 수정 |
 
 **not_run:** 외부 모델/API, 원본 native ACE/네 CID 실평가, 실제 Docker/EDA·Ubuntu, F 통합 이후 fresh-home 제품 전체 flow, E 서버 연결, 실제 UI 변경 캡처. A가 UI를 변경하지 않아 캡처는 대상이 아니다. 현재 검증은 synthetic/local Git/fixture/모의 계약과 기존 regression이며 실환경 통합 완료 선언이 아니다.
+
+## 7. 수정 라운드 1 — 리뷰 I1–I3·M1 대응 (2026-10-01)
+
+기준 커밋은 `b665efe5c2e5cb4d04185cb9ed18e588523d2e25`다. `final-mvp-a-review-20261001.md` 전체를 읽고 A 소유 결함을 재현했다. 리뷰 문서는 원문을 유지하여 이번 로컬 커밋에 포함한다. 위 기존 검증 기록은 당시 결과이며 이번 수정의 증거와 구분한다.
+
+### 실제 원인과 수정
+
+- **I1:** `run_bases`를 전부 run으로 해석하고 legacy project의 sessions를 조회하지 않았다. public signature는 유지하고, 명시 output parent 및 Home/project의 runs/sessions에서 안전하게 읽은 lifecycle·run/session summary 형식으로 실제 종류를 식별한다. HTML/실제 `runs/<숫자 slot>` 레이아웃은 종류를 식별하는 보조 근거일 뿐 성공 근거가 아니다. 정상 run summary는 우연히 남은 index.html보다 우선한다. 명시 project_root의 `sessions`도 제한된 조회 경계에 추가했다. `row['kind']`가 session이면 실제 child만 조회하며 index.html을 보고서로 재검증한다. Home 기본 경계와 explicit 부모가 겹쳐도 디렉터리 이름으로 잘못 분류한 row가 정본을 가리지 않는다.
+- **I2:** `running`이 허용 상태 집합에 있다는 이유로 events 보완을 건너뛰었다. 유효 terminal summary/lifecycle이 없으면 running에서도 실제 interrupted/source_error/error/budget_exhausted 이벤트를 확인한다. 손상 이벤트 한 줄은 진단하고 건너뛰어 이후 유효 종료 근거를 보존한다. terminal summary의 우선순위는 유지하고 stage_completed 등의 중간 이벤트는 전체 성공으로 만들지 않는다. 종료 근거가 없을 때만 stale이다.
+- **I3:** session summary에 run과 같은 구조 검증 경계가 없었다. legacy의 schema_version/run_id 없는 형식은 그대로 허용하되 상태·비어 있지 않은 experiments 배열·child 객체의 dataset/status/nullable report를 검증한다. optional run_dir는 안전한 상대 문자열/null, optional trials_used는 bool이 아닌 0 이상 int다. URI/절대/traversal 참조와 completed 부모 아래 실패 child 등 손상·불일치는 diagnostic을 남기고 유효 lifecycle 또는 unknown/stale로 보완한다. Home과 custom/legacy session에 동일 검증을 적용한다. JSON의 child/report 참조를 따라가거나 metadata를 갱신하지 않는다.
+- **M1:** 같은 격리 Home을 서로 다른 **실제 subprocess CWD 2개**에서 조회하여 row가 동일함을 확인했다. 별도 subprocess에서 각 CWD의 explicit 상대 output이 그 CWD의 output 부모로 해석되고 디렉터리를 만들지 않는지도 검증했다.
+
+F는 기존 `list_history(..., run_bases=(명시 output 부모,))`를 그대로 사용할 수 있으며 이제 session과 run이 혼재한 부모도 처리한다. 추가 public API·schema 변경은 없다. 기존 `verified_report(row)`의 원래 row/inode 보존과 E의 추가 FD 검증 계약은 유지한다.
+
+### covering test와 RED→GREEN
+
+신규 **13개**(History 12 + app_paths 1)를 추가했다. custom lifecycle session, legacy summary-only session, custom/Home-runs/Home-sessions mixed parent, reportless 손상 session의 실제 child 레이아웃, 정상 partial session의 report 없는 인프라 child, 종류 오분류 방지, 12개 running/종료-event 조합, Home/custom × error/interrupted × 14개 손상 summary 조합, 손상 event 뒤 terminal, terminal 우선순위, 실제 CWD/상대 output을 검증한다.
+
+첫 History RED는 **26개/1.017초, failures=41/errors=1**, 종료 1이었다. legacy session 누락의 StopIteration, custom kind 오분류, running→stale 오분류, 손상 session의 completed 오판을 확인했다. I1 수정 직후 해당 3개는 0.014초 OK였다. I2 관련 종료-event 3개도 통과했으며 그 시점의 나머지 24개 subtest 실패는 아직 수정 전인 I3였다. 종류 추론 보강 시 정상 run에 오래된 index.html이 있으면 오분류하는 별도 RED 1개도 확인하고 정상 run summary 우선으로 수정했다.
+
+아래 명령은 모두 A 워크트리 CWD에서 공유 interpreter를 **실행에만** 사용했다. 각 테스트는 지정 TMPDIR 하위 고유 fixture 디렉터리를 만들고 제거한다. 사용자 Home 이력은 읽거나 변경하지 않았고 기본 repo·타 담당 소유 파일은 수정하지 않았다. 하위 에이전트·설치/sync·push는 없다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src AGENT_OPT_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-a/review-r1-paths-home TMPDIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-a /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m unittest discover -s tests -p test_app_paths.py -v
+```
+
+**14개/2.458초 OK**, 종료 0. 상대 env 거부·기존 output 우선순위·source/config 경계·두 run·cache 격리와 실제 상대 output CWD 검증을 포함한다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src AGENT_OPT_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-a/review-r1-history-home TMPDIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-a /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m unittest discover -s tests -p test_history.py -v
+```
+
+**최종 29개/1.147초 OK**, 종료 0. 직전 실행도 29개/1.304초 OK였다. 이후 mixed 부모 검증을 Home/sessions에도 확장하여 경계 중복 시 run 오분류 subtest 1개를 재현했고 모든 경계의 실제 kind 식별로 수정했다. I1–I3/M1 covering과 기존 FD/no-follow·FIFO·URI·root 교체·spawn session·중단/오류 정리 회귀를 포함한다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src AGENT_OPT_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-a/review-r1-session-home TMPDIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-a /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m unittest discover -s tests -p test_cli_experience.py -k session -v
+```
+
+**최종 11개/3.903초 OK (skipped=1)**, 종료 0. 직전 실행도 11개/4.102초 OK였다. 실제 통과 10개이며 기존 multi-dataset TUI skip 1개는 그대로다. spawn/jobs overlap·직렬·실패·Ctrl-C worker/Agent 정리·보고서/JSON/순서 보존을 확인했다.
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m ruff check . --no-cache
+git diff --check
+```
+
+둘 다 종료 0, Ruff `All checks passed!`. 이번 변경은 History 해석과 전용 tests·보고서만이다. 전체 suite는 이번 라운드에서 재실행하지 않았으며, §5의 기존 15개 interpreter 오류와 G 인계 2개 실패가 해결됐다고 주장하지 않는다. 외부 모델/native/EDA/Ubuntu는 not_run이며 새 증거는 local fixture·합성 runner·실제 subprocess/spawn 회귀다.

@@ -9,7 +9,7 @@ import stat
 import sys
 import tempfile
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 from agent_optimizer.contracts import ConfigurationError
 from agent_optimizer.workspace import safe_path
@@ -122,6 +122,71 @@ def _regular(fd: int, name: str) -> bool:
         return False
 
 
+def _valid_run_summary(summary: dict, run_id: str) -> bool:
+    return (type(summary.get('schema_version')) is int and summary['schema_version'] == 1
+            and summary.get('run_id') == run_id and isinstance(summary.get('groups'), list)
+            and type(summary.get('trials_used')) is int and summary['trials_used'] >= 0)
+
+
+def _recorded_kind(fd: int, root: Path, summary: dict, lifecycle: dict) -> str:
+    recorded = lifecycle.get('kind')
+    if (type(lifecycle.get('schema_version')) is int and lifecycle['schema_version'] == 1
+            and lifecycle.get('run_id') == root.name and isinstance(recorded, str)
+            and recorded in {'run', 'session'}):
+        return recorded
+    if _valid_run_summary(summary, root.name):
+        return 'run'
+    if 'experiments' in summary or _regular(fd, 'index.html'):
+        return 'session'
+    try:
+        runs_fd = os.open('runs', _DIRECTORY, dir_fd=fd)
+        try:
+            with os.scandir(runs_fd) as entries:
+                if any(re.fullmatch(r'[0-9]+', entry.name) and entry.is_dir(follow_symlinks=False)
+                       for entry in entries):
+                    return 'session'
+        finally:
+            os.close(runs_fd)
+    except OSError:
+        pass
+    return 'run'
+
+
+def _relative_reference(value) -> bool:
+    if value is None:
+        return True
+    if not isinstance(value, str) or not value or any(char in value for char in ('\\', '\0', ':')):
+        return False
+    path = PurePosixPath(value)
+    return not path.is_absolute() and '..' not in path.parts
+
+
+def _valid_session_summary(summary: dict, run_id: str) -> bool:
+    status = summary.get('status')
+    if not isinstance(status, str) or status not in _STATUSES:
+        return False
+    if 'schema_version' in summary and (type(summary['schema_version']) is not int
+                                        or summary['schema_version'] != 1):
+        return False
+    if 'run_id' in summary and summary['run_id'] != run_id:
+        return False
+    entries = summary.get('experiments')
+    if not isinstance(entries, list) or not entries:
+        return False
+    for entry in entries:
+        if (not isinstance(entry, dict) or not isinstance(entry.get('dataset'), str)
+                or not entry['dataset'] or not isinstance(entry.get('status'), str)
+                or entry['status'] not in _STATUSES or 'report' not in entry
+                or not _relative_reference(entry['report'])
+                or not _relative_reference(entry.get('run_dir'))):
+            return False
+        if 'trials_used' in entry and (type(entry['trials_used']) is not int or entry['trials_used'] < 0):
+            return False
+        if status == 'completed' and entry['status'] != 'completed':
+            return False
+    return True
+
+
 def _row(fd: int, root: Path, *, kind: str, session_id: str | None = None) -> dict | None:
     created = _created(root.name)
     if created is None:
@@ -130,29 +195,38 @@ def _row(fd: int, root: Path, *, kind: str, session_id: str | None = None) -> di
     summary = _json(fd, 'summary.json', diagnostic)
     manifest = _json(fd, 'manifest.json', diagnostic)
     lifecycle = _json(fd, 'lifecycle.json', diagnostic)
+    if kind == 'auto':
+        kind = _recorded_kind(fd, root, summary, lifecycle)
     if lifecycle and (type(lifecycle.get('schema_version')) is not int
                       or lifecycle['schema_version'] != 1 or lifecycle.get('run_id') != root.name
                       or lifecycle.get('kind') != kind):
         diagnostic.append('lifecycle.json: 실행 식별자 또는 schema가 올바르지 않습니다')
         lifecycle = {}
-    if summary and kind == 'run' and (type(summary.get('schema_version')) is not int
-                                     or summary['schema_version'] != 1
-                                     or summary.get('run_id') != root.name
-                                     or not isinstance(summary.get('groups'), list)
-                                     or type(summary.get('trials_used')) is not int
-                                     or summary['trials_used'] < 0):
+    if summary and kind == 'run' and not _valid_run_summary(summary, root.name):
         diagnostic.append('summary.json: 실행 식별자 또는 schema가 올바르지 않습니다')
+        summary = {}
+    if kind == 'session' and (summary or _regular(fd, 'summary.json')) and not _valid_session_summary(
+            summary, root.name):
+        diagnostic.append('summary.json: session 상태 또는 child 구조가 올바르지 않습니다')
         summary = {}
     status = summary.get('status')
     if not isinstance(status, str) or status not in _STATUSES or status == 'running':
         status = lifecycle.get('status', status)
-    if not isinstance(status, str) or status not in _STATUSES:
-        status = 'unknown'
+    if not isinstance(status, str) or status not in _STATUSES or status == 'running':
+        status = 'running' if status == 'running' else 'unknown'
         try:
             for line in _read(fd, 'events.jsonl').splitlines():
-                event = json.loads(line)
-                if isinstance(event, dict) and event.get('event') in {
-                        'interrupted', 'error', 'source_error', 'budget_exhausted'}:
+                if not line.strip():
+                    continue
+                try:
+                    event = json.loads(line)
+                except (ValueError, RecursionError):
+                    diagnostic.append('events.jsonl: 손상된 이벤트를 건너뛰었습니다')
+                    continue
+                if not isinstance(event, dict) or not isinstance(event.get('event'), str):
+                    diagnostic.append('events.jsonl: 올바르지 않은 이벤트 구조를 건너뛰었습니다')
+                    continue
+                if event['event'] in {'interrupted', 'error', 'source_error', 'budget_exhausted'}:
                     status = event['event']
         except FileNotFoundError:
             pass
@@ -233,15 +307,16 @@ def list_history(*, app_home: Path, project_root: Path | None = None,
                  run_bases=(), limit: int = 10) -> list[dict]:
     if type(limit) is not int or limit < 0:
         raise ConfigurationError('이력 limit은 0 이상의 정수여야 합니다')
-    bases = [(Path(app_home) / 'runs', 'run'), (Path(app_home) / 'sessions', 'session')]
+    bases = [(Path(app_home) / 'runs', 'auto'), (Path(app_home) / 'sessions', 'auto')]
     if project_root is not None:
-        bases.extend((Path(project_root) / 'runs' / name, 'run') for name in ('', 'dev-live'))
-    bases.extend((Path(base), 'run') for base in run_bases)
+        bases.extend((Path(project_root) / 'runs' / name, 'auto') for name in ('', 'dev-live'))
+        bases.append((Path(project_root) / 'sessions', 'auto'))
+    bases.extend((Path(base), 'auto') for base in run_bases)
     rows: dict[str, dict] = {}
     diagnostics: list[str] = []
     for base, kind in bases:
         for row in _scan_base(base, kind=kind, diagnostics=diagnostics):
-            if kind == 'session':
+            if row['kind'] == 'session':
                 children = _session_children(Path(row['run_dir']), row['run_id'], diagnostics)
                 row['child_runs'] = [child['run_dir'] for child in children]
                 for child in children:
