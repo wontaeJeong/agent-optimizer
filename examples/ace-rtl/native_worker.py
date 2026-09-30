@@ -5,9 +5,9 @@ import time
 from pathlib import Path
 
 from agent_optimizer.contracts import RunRequest
-from agent_optimizer.results import write_json
 
 from native_bridge import NativeCallError, cvdp, run_native
+from native_artifacts import finalize
 
 
 def main():
@@ -22,22 +22,13 @@ def main():
     try:
         run_native(request, row)
     except NativeCallError as exc:
-        sidecar = json.loads((request.logs / 'native-execution.json').read_text())
-        sidecar['status'] = exc.status
-        sidecar['native_wall_time_seconds'] = time.monotonic() - started
-        path = request.logs / 'native-requests.json'
-        sidecar['requests'] = json.loads(path.read_text()) if path.exists() else []
-        sidecar['usage_status'] = 'partial' if any(r['input_tokens'] is not None for r in sidecar['requests']) else 'unreported'
-        write_json(request.logs / 'native-execution.json', sidecar)
+        finalize(request.logs, status=exc.status, elapsed=time.monotonic() - started)
         return 2
     except Exception as exc:
         # Candidate/provider errors must not leak contents/keys via tracebacks.
-        sidecar = json.loads((request.logs / 'native-execution.json').read_text())
-        sidecar['status'] = 'infrastructure_error'
-        sidecar['error_type'] = type(exc).__name__
-        sidecar['native_wall_time_seconds'] = time.monotonic() - started
-        write_json(request.logs / 'native-execution.json', sidecar)
+        finalize(request.logs, status='infrastructure_error', error_type=type(exc).__name__, elapsed=time.monotonic() - started)
         return 2
+    finalize(request.logs)
     return 0
 
 

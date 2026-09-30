@@ -120,10 +120,32 @@ class NativeCVDPTests(unittest.TestCase):
                     (prefix / 'raw_result.json').write_text(json.dumps({row['id']: record}))
                     self.assertNotIn('AGENT_OPT_MODEL_API_KEY', env)
                     return ExecutionResult('completed', 0, .01, '', '')
-                with patch.object(native.official, 'run_process', side_effect=run_process), patch.object(native.official, 'cleanup_network'):
+                with patch.object(native.official, 'run_process', side_effect=run_process), patch.object(native.cleanup, 'cleanup_network', return_value={'status': 'completed', 'reason': None}):
                     result = native.NativeCVDPEvaluator({'repo': '/fixture/repo', 'python': '/fixture/python'}).evaluate(task, output, 2)
                 self.assertEqual(result.status, want)
                 self.assertTrue((Path(tmp) / 'native-owned-network.json').is_file())
+                self.assertEqual(json.loads((Path(tmp) / 'native-owned-network.json').read_text())['status'], 'completed')
+
+    def test_bounded_cleanup_removes_only_owned_ids_without_raw_stderr(self):
+        import time
+        import types
+        cleanup = load('native_cleanup')
+        network = 'agent-opt-cvdp-' + 'a' * 32
+        calls = []
+        def run(argv, **kwargs):
+            calls.append(argv)
+            self.assertLessEqual(kwargs['timeout'], 1)
+            return types.SimpleNamespace(returncode=0, stdout='b' * 12 if argv[1] == 'ps' else '', stderr='PRIVATE_SECRET')
+        with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as tmp:
+            with patch.object(cleanup.subprocess, 'run', side_effect=run):
+                result = cleanup.cleanup_network(network, Path(tmp), deadline=time.monotonic() + 1)
+            self.assertEqual(result['status'], 'completed')
+            self.assertEqual(calls, [['docker', 'ps', '-aq', '--filter', 'network=' + network],
+                                     ['docker', 'rm', '-f', 'b' * 12], ['docker', 'network', 'rm', network]])
+            self.assertNotIn('PRIVATE_SECRET', (Path(tmp) / 'cleanup.json').read_text())
+            with patch.object(cleanup.subprocess, 'run', side_effect=AssertionError('예산 종료 후 호출 금지')):
+                deferred = cleanup.cleanup_network(network, Path(tmp), deadline=time.monotonic() - 1)
+            self.assertEqual(deferred['status'], 'deferred')
 
 
 if __name__ == '__main__':

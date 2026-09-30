@@ -249,6 +249,117 @@ class NativeACETests(unittest.TestCase):
         self.assertEqual(agent.source.kind, 'local')
         self.assertEqual(agent.prompt_file, 'native/guidance.md')
 
+    def test_worker_adapter_preserves_usage_after_output_evaluator_and_api_errors(self):
+        from agent_optimizer.contracts import ExecutionResult
+        for mode in ['output', 'evaluator', 'api']:
+            with self.subTest(mode=mode):
+                self.root = Path(self.temp.name) / mode
+                request = self.request()
+                (request.task_dir / 'native-task.json').write_text(json.dumps(load('native_cvdp').public_row(self.row)))
+                adapter = load('native_adapter')
+                with patch.object(sys, 'path', [str(ROOT / 'examples/ace-rtl'), *sys.path]):
+                    worker = load('native_worker')
+                count = [0]
+                def completion(*args, **kwargs):
+                    count[0] += 1
+                    if mode == 'api' and count[0] > 1:
+                        raise RuntimeError('PRIVATE_SECRET auth')
+                    content = '```verilog\nmodule x; endmodule\n```' if mode == 'output' else 'module x; endmodule'
+                    return {'choices': [{'message': {'content': content}}], 'usage': {'completion_tokens': 9}}
+                def evaluate(*args):
+                    if mode == 'evaluator':
+                        raise RuntimeError('PRIVATE_SECRET evaluator')
+                    return Evaluation('failed', {'passed': 0})
+                def native(request, row):
+                    return self.bridge.run_native(request, row, evaluator=evaluate,
+                                                  settings=ModelSettings('http://localhost/v1/chat/completions', 'fixture', 'token'), completion=completion)
+                def run_worker(argv, cwd, logs, timeout, **kwargs):
+                    with patch.object(sys, 'argv', argv[1:]), patch.object(worker, 'run_native', side_effect=native), patch.object(worker, 'NativeCallError', self.bridge.NativeCallError):
+                        code = worker.main()
+                    return ExecutionResult('process_error', code, .01, '', '')
+                original = adapter.sibling
+                prep = original('native_prepare')
+                prep.readiness = lambda *args, **kwargs: {'ready': True, 'checks': []}
+                with patch.object(adapter, 'sibling', side_effect=lambda name: prep if name == 'native_prepare' else original(name)), patch.object(adapter, 'run_worker', side_effect=run_worker):
+                    result = adapter.ACENative({'dataset': str(DATA)}).run(request)
+                sidecar = json.loads((request.logs / 'native-execution.json').read_text())
+                self.assertEqual(result.status, 'infrastructure_error')
+                self.assertTrue(sidecar['requests'])
+                self.assertEqual(sidecar['requests'][0]['status'], 'completed')
+                self.assertIsNone(sidecar['requests'][0]['input_tokens'])
+                self.assertEqual(sidecar['requests'][0]['output_tokens'], 9)
+                self.assertEqual(sidecar['usage_status'], 'partial')
+                self.assertNotIn('PRIVATE_SECRET', json.dumps(sidecar))
+
+    def test_adapter_cleanup_has_one_total_deadline_and_skips_completed_networks(self):
+        from dataclasses import replace
+        from agent_optimizer.contracts import ExecutionResult
+        request = replace(self.request(), timeout_seconds=.4)
+        (request.task_dir / 'native-task.json').write_text(json.dumps(load('native_cvdp').public_row(self.row)))
+        adapter = load('native_adapter')
+        cleanup = load('native_cleanup')
+        markers = []
+        def run_worker(argv, cwd, logs, timeout, **kwargs):
+            for i in range(6):
+                marker = logs / 'native' / str(i) / 'native-owned-network.json'
+                marker.parent.mkdir(parents=True)
+                marker.write_text(json.dumps({'network': 'agent-opt-cvdp-' + f'{i:032x}', 'status': 'completed' if i < 3 else 'pending'}))
+                markers.append(marker)
+            return ExecutionResult('timeout', -9, .01, '', '')
+        calls = []
+        def stalled(argv, **kwargs):
+            calls.append(argv)
+            time.sleep(kwargs['timeout'])
+            raise subprocess.TimeoutExpired(argv, kwargs['timeout'])
+        original = adapter.sibling
+        prep = original('native_prepare')
+        prep.readiness = lambda *args, **kwargs: {'ready': True, 'checks': []}
+        def sibling(name):
+            return prep if name == 'native_prepare' else cleanup if name == 'native_cleanup' else original(name)
+        started = time.monotonic()
+        with patch.object(adapter, 'sibling', side_effect=sibling), patch.object(adapter, 'run_worker', side_effect=run_worker), patch.object(cleanup.subprocess, 'run', side_effect=stalled):
+            result = adapter.ACENative({'dataset': str(DATA)}).run(request)
+        self.assertEqual(result.status, 'timeout')
+        self.assertLess(time.monotonic() - started, .7)
+        self.assertEqual(len(calls), 1)
+        self.assertNotIn('agent-opt-cvdp-' + f'{0:032x}', json.dumps(calls))
+        sidecar = json.loads((request.logs / 'native-execution.json').read_text())
+        self.assertEqual(sidecar['cleanup']['status'], 'incomplete')
+        self.assertEqual(json.loads(markers[-1].read_text())['status'], 'deferred')
+
+    def test_readiness_failure_sidecar_keeps_checks_and_unknown_provenance_null(self):
+        adapter = load('native_adapter')
+        request = self.request()
+        lock = request.agent_dir / 'native/source-lock.json'
+        data = json.loads(lock.read_text())
+        data['revision'] = '0' * 40
+        lock.write_text(json.dumps(data))
+        result = adapter.ACENative({'python': '/missing/python'}).run(request)
+        self.assertEqual(result.status, 'infrastructure_error')
+        sidecar = json.loads((request.logs / 'native-execution.json').read_text())
+        self.assertIsNone(sidecar['source_revision'])
+        self.assertIsNone(sidecar['source_hash'])
+        self.assertIsNone(sidecar['task_id'])
+        self.assertEqual({c['id'] for c in sidecar['readiness_checks']}, {'native_source', 'native_python'})
+        self.assertEqual(sidecar['usage_status'], 'unreported')
+
+    def test_unsupported_preparation_has_sidecar_without_invented_requests(self):
+        row = next(r for r in self.rows if r['id'] == 'cvdp_copilot_64b66b_encoder_0022')
+        adapter = load('native_adapter')
+        request = self.request()
+        (request.task_dir / 'native-task.json').write_text(json.dumps(load('native_cvdp').public_row(row)))
+        original = adapter.sibling
+        prep = original('native_prepare')
+        prep.readiness = lambda *args, **kwargs: {'ready': True, 'checks': []}
+        with patch.object(adapter, 'sibling', side_effect=lambda name: prep if name == 'native_prepare' else original(name)):
+            result = adapter.ACENative({'dataset': str(DATA)}).run(request)
+        sidecar = json.loads((request.logs / 'native-execution.json').read_text())
+        self.assertEqual(result.status, 'unsupported')
+        self.assertEqual(sidecar['status'], 'unsupported')
+        self.assertIn('PNR', sidecar['diagnostic'])
+        self.assertEqual(sidecar['requests'], [])
+        self.assertEqual(sidecar['cleanup']['status'], 'not_started')
+
     def test_missing_result_and_infra_stop_inner_loop(self):
         request = self.request()
         def completion(*args, **kwargs):

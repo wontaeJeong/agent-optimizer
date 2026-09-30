@@ -3,6 +3,7 @@ import importlib.util
 import json
 import types
 import uuid
+import time
 from pathlib import Path
 
 from agent_optimizer.contracts import ConfigurationError, Evaluation
@@ -18,6 +19,7 @@ def sibling(name):
 
 official = sibling('evaluator')
 cvdp = sibling('native_cvdp')
+cleanup = sibling('native_cleanup')
 
 
 class NativeCVDPEvaluator(official.CVDPEvaluator):
@@ -29,6 +31,7 @@ class NativeCVDPEvaluator(official.CVDPEvaluator):
                 raise ConfigurationError(verdict['reason'])
 
     def evaluate(self, task, output_dir, timeout_seconds):
+        deadline = time.monotonic() + timeout_seconds
         verdict = cvdp.inspect_row(task.evaluation['row'])
         if not verdict['supported']:
             return Evaluation('unsupported', {'passed': None}, verdict['reason'])
@@ -42,13 +45,20 @@ class NativeCVDPEvaluator(official.CVDPEvaluator):
         # before launching so an outer SIGKILL can still clean its containers.
         identity = uuid.uuid4().hex
         network = 'agent-opt-cvdp-' + identity
-        write_json(output_dir.parent / 'native-owned-network.json', {'network': network})
+        marker = output_dir.parent / 'native-owned-network.json'
+        write_json(marker, {'network': network, 'status': 'pending'})
         previous = official.uuid
+        previous_cleanup = official.cleanup_network
+        def bounded_cleanup(network, logs):
+            result = cleanup.cleanup_network(network, logs, deadline=deadline)
+            write_json(marker, {'network': network, 'status': result['status'], 'cleanup_reason': result['reason']})
+        official.cleanup_network = bounded_cleanup
         official.uuid = types.SimpleNamespace(uuid4=lambda: types.SimpleNamespace(hex=identity))
         try:
-            result = super().evaluate(task, output_dir, timeout_seconds)
+            result = super().evaluate(task, output_dir, max(.001, timeout_seconds - min(1, timeout_seconds * .1)))
         finally:
             official.uuid = previous
+            official.cleanup_network = previous_cleanup
         if result.status not in {'passed', 'failed'}:
             return result
         artifact = result.artifacts.get('raw_result')

@@ -75,5 +75,12 @@ timeout·취소·예외에는 native process group과 관측한 descendant를 �
 `native-progress.json`·`native-requests.json`으로 중단 전 iteration/요청을 보존한다.
 raw 자료는 보고서 서버 공개 asset에 포함하면 안 된다.
 
+실패 종료에도 `native_artifacts.py`가 요청/진행 journal을 복구한다. input 또는 output token만
+있어도 partial이며 미제공 값은 null이다. 준비 차단도 sidecar를 남기고 검증하지 못한 provenance는
+null, 개별 readiness 진단은 `readiness_checks`로 기록한다.
+`native_cleanup.py`의 모든 정리 명령은 공통 deadline의 잔여 시간 이하(개별 최대 1초)로 제한된다.
+outer/inner 예산의 `min(1초, 10%)`를 정리에 예약하며 완료 marker는 재정리하지 않는다.
+미완료/예산 부족은 `cleanup`·owned marker에 `incomplete/deferred`로 남긴다.
+
 검증 범위·CID별 실제 row 판정·정확한 명령은
 `docs/verification/final-mvp-c-20261001.md`를 따른다. fixture 성공은 live 성능 증거가 아니다.

@@ -240,3 +240,34 @@ live 성공/197개 정답/논문 재현을 주장하지 않는다. 기존 coding
 기본 저장소 `main`·사용자 `.gitignore` 변경과 ZIP을 보존했다. 다른 워크트리·upstream·prepared 데이터는
 수정하지 않았다. C 소유 파일과 이 보고서만 한국어 로컬 커밋하며 push/PR은 사용자 지시로 하지 않는다.
 통합 소비자 등록·배포·실환경 준비/검증은 위 인계의 후속 작업이다.
+
+## 8. 수정 라운드 1 — 실패 증거·종료 시간 보완
+
+2026-10-01, `final-mvp-c-review-20261001.md`의 **I1·I2·M1·M2를 보완했다**.
+원래 §5의 93개 결과는 최초 구현 시점의 증거이며, 이번 라운드의 covering 검증은 아래와 같다.
+
+- 모든 worker 예외와 adapter 종료에 `native_artifacts.finalize`를 적용하여 실제 요청 journal을
+  최종 sidecar에 대체 병합한다. output 검증/evaluator/API 오류 후에도 완료 request·duration·응답 token을
+  보존하고 input/output 중 하나만 있으면 `partial`이다. 없는 사용량·비용은 null이며 prompt/private/키는 복제하지 않는다.
+- native 전용 `native_cleanup.py`가 기존 evaluator의 무제한 누적 cleanup을 대체한다.
+  adapter와 inner evaluator는 예산의 `min(1초, 10%)`를 정리에 예약한다. 모든 Docker 명령은
+  같은 deadline의 잔여 시간 이하(개별 최대 1초)로 제한되고, 완료 marker는 건너뛴다.
+  `ps`/wait도 outer deadline으로 제한한다. 미완료는 `incomplete/deferred`로 남기며
+  정리 실패를 정답/정리 성공으로 바꾸지 않는다. 동기 filesystem 기록과 OS scheduling의 소규모 지연은
+  테스트 허용 오차에 포함되며 iteration별 별도 15초 예산은 사라졌다.
+- 준비 시작부터 sidecar를 기록하고 readiness checks·안전한 diagnostic/error_type을 보존한다.
+  검증할 수 없는 source revision/hash/candidate hash/task ID는 null이다. 요청 미실행은 빈 requests·unreported,
+  cleanup 미시작은 `not_started`다. F/D/G 소비자는 nullable provenance와 additive cleanup/checks를 허용해야 한다.
+- F 배포·dependency fingerprint에 `native_artifacts.py`·`native_cleanup.py`를 추가해야 한다.
+
+실행 CWD는 동일 C 워크트리이며 정확한 명령:
+
+```bash
+HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-c/session-20261001/home PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests TMPDIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-c/session-20261001/tmp AGENT_OPT_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-c/session-20261001/home XDG_CACHE_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-c/session-20261001/cache /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m unittest test_native_ace test_native_cvdp -q
+HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-c/session-20261001/home PYTHONDONTWRITEBYTECODE=1 /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m ruff check . --no-cache
+```
+
+**28개/4.788초 OK, skip 없음, Ruff 통과; 두 명령 모두 종료 코드 0.**
+실제 worker main→adapter 예외 보존, output-only usage, 완료 network 재정리 금지,
+지연 Docker 모의의 전체 종료 상한, nullable readiness/unsupported sidecar를 검증했다.
+실모델·실 Docker 정리·실도구는 여전히 `not_run`이다. 소유 밖 수정·설치·push·하위 에이전트는 없다.
