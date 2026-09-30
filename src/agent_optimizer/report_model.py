@@ -95,7 +95,7 @@ def _qualified(key: str, identifier: str | None) -> str | None:
 def _relative_path(root: Path, relative: str) -> Path | None:
     try:
         return safe_path(root, relative)
-    except ConfigurationError:
+    except (ConfigurationError, OSError, ValueError):
         return None
 
 
@@ -244,7 +244,7 @@ def _native_execution(root: Path, event: dict) -> dict | None:
             return []
         accepted = []
         for path in values:
-            if (not isinstance(path, str) or not path or Path(path).is_absolute()
+            if (not isinstance(path, str) or not path or "\x00" in path or Path(path).is_absolute()
                     or "\\" in path or ":" in path or any(part in (".", "..") or part.startswith(".")
                                                           for part in path.split("/"))):
                 warnings.append("unsafe_path")
@@ -256,8 +256,12 @@ def _native_execution(root: Path, event: dict) -> dict | None:
                                                     or path == 'native-execution.json'):
                     path = prefix + path
                 target = _relative_path(root, path)
-                if (not path.startswith(prefix) or target is None
-                        or not (target.is_file() or target.is_dir())):
+                try:
+                    available = (path.startswith(prefix) and target is not None
+                                 and (target.is_file() or target.is_dir()))
+                except (OSError, ValueError):
+                    available = False
+                if not available:
                     warnings.append("evidence_unavailable")
                     continue
             if path not in accepted:
@@ -360,11 +364,14 @@ def _algorithm_trail(group, events):
     return trails
 
 
-def _metric_value(row, key: str, name: str):
-    if (not isinstance(row, dict) or row.get("split") != "validation"
-            or row.get("valid") is not True or row.get("partial", False)):
-        return None
-    if row.get("agent_id") != key[0] or row.get("harness_id") != key[1]:
+def _validation_eligible(row, key: tuple[str, str]) -> bool:
+    return (isinstance(row, dict) and row.get("split") == "validation"
+            and row.get("valid") is True and not row.get("partial", False)
+            and row.get("agent_id") == key[0] and row.get("harness_id") == key[1])
+
+
+def _metric_value(row, key: tuple[str, str], name: str):
+    if not _validation_eligible(row, key):
         return None
     metrics = row.get("metrics")
     value = metrics.get(name) if isinstance(metrics, dict) else None
@@ -573,7 +580,8 @@ def _visualization(group: dict, events: list[dict], evaluations: list[dict], obj
                 and row.get("agent_id") == group["agent_id"]
                 and row.get("harness_id") == group["harness_id"]}
     baseline = group.get("baseline") if isinstance(group.get("baseline"), dict) else {}
-    expected = [baseline, *(row for row in group.get("selected", [])
+    baseline_eligible = _validation_eligible(baseline, (group["agent_id"], group["harness_id"]))
+    expected = [*([baseline] if baseline_eligible else []), *(row for row in group.get("selected", [])
                             if isinstance(row, dict) and row.get("candidate_id") in selected)]
     validation_events = [event for event in events if event.get("event") == "candidate_evaluated"
                          and event.get("split") == "validation"]
@@ -585,7 +593,7 @@ def _visualization(group: dict, events: list[dict], evaluations: list[dict], obj
         for event in validation_events for row in expected if row.get("candidate_id") is not None)
     progress, leaders = [], {}
     baseline_vector = (_objective_vector(baseline.get("metrics"), objective)
-                       if baseline.get("valid") is True and not baseline.get("partial", False) else None)
+                       if baseline_eligible else None)
     for event in ([] if conflicting else validation_events):
         candidate_id = event.get("candidate_id")
         if not isinstance(candidate_id, str):
@@ -595,12 +603,12 @@ def _visualization(group: dict, events: list[dict], evaluations: list[dict], obj
         stage_id = event.get("stage_id")
         best_vector, best_metrics = leaders.get(stage_id, (
             baseline_vector, baseline.get("metrics") if baseline_vector is not None else None))
-        if candidate_id == baseline.get("candidate_id") and stage_id == "baseline":
+        if baseline_eligible and candidate_id == baseline.get("candidate_id") and stage_id == "baseline":
             best_vector, best_metrics = None, None
         if vector is None:
             improvement = "invalid"
         elif best_vector is None or vector > best_vector:
-            improvement = (("baseline" if candidate_id == baseline.get("candidate_id") else "first")
+            improvement = (("baseline" if baseline_eligible and candidate_id == baseline.get("candidate_id") else "first")
                            if best_vector is None else "improved")
             best_vector, best_metrics = vector, event["metrics"]
         else:
@@ -629,7 +637,7 @@ def _visualization(group: dict, events: list[dict], evaluations: list[dict], obj
 
     tasks = []
     specs = objective.get("metrics", []) if isinstance(objective, dict) else []
-    if (selected and baseline.get("valid") is True and
+    if (selected and baseline_eligible and
             any(metric.get("source") == "passed" and metric.get("aggregate", "mean") == "mean"
                 for metric in specs if isinstance(metric, dict))):
         winner = next(iter(selected))
@@ -710,7 +718,9 @@ def build_report(root: Path, summary: dict) -> dict:
         if event.get("event") != "trial_completed":
             continue
         normalized = (_native_execution(root, {**event, "native_execution": payload})
-                      if (event.get("agent_id"), event.get("harness_id")) in group_keys else None)
+                      if all(isinstance(event.get(name), str) and event[name]
+                             for name in ("agent_id", "harness_id", "trial_id"))
+                      and (event.get("agent_id"), event.get("harness_id")) in group_keys else None)
         code = "native_execution_invalid" if normalized is None else "native_execution_warning"
         if normalized is None or normalized["warnings"]:
             native_warnings.append({"code": code,

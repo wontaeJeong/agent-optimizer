@@ -160,3 +160,33 @@ for name,lang in (("after","ko"),("native","ko"),("english","en"),("empty","ko")
 - **C/F:** 실제 sidecar producer 연결 및 실제 native 실행은 `not_run`. P0 hook과 위 C payload 대응 테스트를 사용해 통합해야 한다. C의 실모델·평가 결과로 이 fixture를 대체해 주장하지 않는다.
 - **E/F:** HTML-only 공개 경계·제품 serve/TUI action은 D에서 구현/검증하지 않았다. 로컬 원본 링크와 static allowlist를 혼동하지 않는다.
 - **G/I:** 전체 unit의 기존 환경 오류 해결 및 최종 통합 수용검증은 별도다. D 검사에는 차단된 외부 API/GPU/시뮬레이터/다운로드가 필요하지 않았다.
+
+## 8. 수정 라운드 1 — 범위 한정 리뷰 반영
+
+확인일: 2026-10-01. 시작 HEAD `cb63f694ed9cea4dc2fdc3cef0c0ecaf0ffe32ce`. `docs/verification/final-mvp-d-review-20261001.md`를 읽고 I-1·I-2·M-1을 실행 재현한 뒤 D 소비/정규화 범위에서 수정했다. 시작 시 리뷰 문서만 미추적 상태였고, 사용자의 명시 요청에 따라 해당 문서도 이번 의도된 로컬 커밋에 포함한다.
+
+### 수정과 회귀 근거
+
+- **I-1:** 집합 조회 이전에 `agent_id`/`harness_id`/`trial_id` 문자열 여부를 검사한다. 배열/객체 identity의 native payload는 `native_execution_invalid` 경고로 제외하며 기존 outer 평가·선택·renderer를 보존한다. native 경로의 NUL은 `unsafe_path`로 거부하고, 경로 검증/조회에서 발생하는 예상 가능한 `ConfigurationError`·`OSError`·`ValueError`는 사용할 수 없는 근거로 처리한다. 파일 내용을 읽거나 native 시간/토큰/비용을 추정하지 않는다. 미수집 비용·출력 토큰은 null을 유지한다.
+- **I-2:** 공통 `_validation_eligible()`을 metric 비교와 visualization baseline에 사용한다. validation split·같은 Agent×Harness·valid=True·partial 아님을 모두 만족해야 최고점 초기값·baseline 표식·과제 비교에 사용한다. 부적격 baseline은 충돌 대조에서도 제외하여 같은 후보 ID의 실제 validation 기록까지 숨기지 않는다. baseline 수치 0.9가 train/test/다른 그룹이면 비교 baseline/Δ는 null이고, 실제 validation 0.3→0.5의 최고점도 0.3→0.5로 표시한다.
+- **M-1:** Markdown 알고리즘 표에 `pass_number`의 검토 회차 열을 추가했다. iteration 1의 같은 역할이라도 회차 1/2를 구분하고 미수집 회차는 null로 표시한다. HTML/JSON과 같은 normalized 기록을 사용한다.
+- 신규 covering test 6개: NUL(근거/생성 파일/attempt 근거), 배열·객체 outer identity, 파일 경로 접근 오류, 부적격 baseline의 곡선 억제 방지·최고점 혼입 방지, MD 검토 회차 1/2/null. identity 6종 및 baseline split/그룹/valid/partial 조합은 subtest로 검증했다.
+
+### 정확한 명령·결과
+
+CWD 및 공유 interpreter·전용 Home/cache/TMPDIR는 §5와 동일하다. 설치/sync·하위 에이전트·타 소유 수정·기본 저장소 수정·push 없음.
+
+```bash
+TMPDIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-d/tmp PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src AGENT_OPT_LANG=ko AGENT_OPT_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-d/home XDG_CACHE_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-d/cache /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m unittest discover -s tests -p test_final_report.py -v
+TMPDIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-d/tmp PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src AGENT_OPT_LANG=ko AGENT_OPT_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-d/home XDG_CACHE_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-d/cache /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m unittest discover -s tests -p '*report*.py' -v
+TMPDIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-d/tmp PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src AGENT_OPT_LANG=ko AGENT_OPT_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-d/home XDG_CACHE_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-d/cache /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m unittest discover -s tests -p test_results.py -v
+PYTHONDONTWRITEBYTECODE=1 /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m ruff check . --no-cache
+git diff --check
+```
+
+- 수정 전 첫 명령: **24개 / 0.196초 / FAILED(failures=8, errors=6)**. 실패/오류는 subtest 포함 건수다. NUL의 ValueError, 배열/객체 identity의 TypeError, 경로 PermissionError, 부적격 baseline의 곡선 억제, MD 회차 누락을 확인했다.
+- 추가 I-2 재현: `PYTHONPATH=src:tests`와 같은 TMPDIR에서 `python -m unittest test_final_report.FinalReportTests.test_ineligible_unobserved_baseline_does_not_supply_validation_best -v` 실행, **1개 / 0.008초 / FAILED(failures=4)**. 다른 split/그룹 baseline 0.9가 실제 validation 0.3→0.5의 최고점으로 혼입됨을 확인했다.
+- 각 항목 수정 후 해당 신규 테스트를 개별 실행해 I-1 **3개/0.047초 OK**, I-2 **2개/0.044초 OK**, M-1 **1개/0.013초 OK**를 확인했다.
+- 최종 전용 테스트: **25개 / 0.221초 / OK**. 전체 report 패턴: **104개 / 2.829초 / OK**(기존 79 + 전용 25). results: **16개 / 0.066초 / OK**. 고유 테스트 총 **120개**, 실패/skip 없음.
+- Ruff **All checks passed!**, `git diff --check` 종료 0/출력 없음. 제품 수정 이후 위 회귀를 실행했으며 문서 추가로 제품 코드를 바꾸지 않았다.
+- 이번 라운드는 정규화/표시 데이터 회귀로 검증했다. 브라우저 재캡처·native 실실행·C/F/E 통합·전체 저장소 unit는 새로 실행하지 않았다. 앞선 캡처·실환경 미검증 범위는 §6–7의 기록과 구분한다.

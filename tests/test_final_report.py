@@ -4,6 +4,7 @@ import unittest
 from html.parser import HTMLParser
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest.mock import patch
 
 from agent_optimizer.report_model import build_report
 from agent_optimizer.results import write_json, write_report_artifacts
@@ -318,6 +319,111 @@ class FinalReportTests(unittest.TestCase):
         parser = Links()
         parser.feed(page)
         self.assertIn(relative, parser.hrefs)
+
+    def test_native_nul_paths_warn_without_losing_outer_report_or_inventing_usage(self):
+        payload = native_payload()
+        payload["evidence_paths"] = ["native/bad\x00.json"]
+        payload["generated_files"] = ["rtl/bad\x00.v"]
+        payload["attempts"][0]["evidence_path"] = "native/attempt\x00.json"
+        self.events[-1]["native_execution"] = payload
+        report, page, markdown = self.artifacts()
+        row = report["native_execution"][0]
+        self.assertEqual(row["evidence_paths"], [])
+        self.assertEqual(row["generated_files"], [])
+        self.assertEqual(row["attempts"][0]["evidence_paths"], [])
+        self.assertIn("unsafe_path", row["warnings"])
+        self.assertIsNone(row["requests"][0]["cost_usd"])
+        self.assertIsNone(row["requests"][0]["output_tokens"])
+        self.assertEqual(report["counts"]["completed_evaluations"], 2)
+        for content in (page, markdown):
+            self.assertIn("outer-base", content)
+            self.assertIn("outer-chosen", content)
+
+    def test_native_unhashable_outer_identity_only_excludes_optional_payload(self):
+        for field in ("agent_id", "harness_id", "trial_id"):
+            for value in (["malformed"], {"malformed": "identity"}):
+                with self.subTest(field=field, value=value):
+                    self.summary, self.events = fixture(self.root)
+                    malformed = {**self.events[-1], field: value, "native_execution": native_payload()}
+                    self.events.append(malformed)
+                    report, page, markdown = self.artifacts()
+                    self.assertNotIn("native_execution", report)
+                    self.assertTrue(any(w["code"] == "native_execution_invalid"
+                                        for w in report["evidence"]["warnings"]))
+                    self.assertEqual([row["trial_id"] for row in report["groups"][0]["evaluations"][:2]],
+                                     ["outer-base", "outer-chosen"])
+                    for content in (page, markdown):
+                        self.assertIn("outer-chosen", content)
+
+    def test_native_filesystem_path_error_is_warning_not_report_failure(self):
+        self.events[-1]["native_execution"] = native_payload()
+        self.events[-1]["native_execution"]["evidence_paths"] = ["native/denied.json"]
+        from agent_optimizer.workspace import safe_path
+
+        def denied_native_path(root, relative):
+            if relative.endswith("native/denied.json"):
+                raise PermissionError("fixture 경로 접근 거부")
+            return safe_path(root, relative)
+
+        with patch("agent_optimizer.report_model.safe_path", side_effect=denied_native_path):
+            report, page, markdown = self.artifacts()
+        self.assertIn("evidence_unavailable", report["native_execution"][0]["warnings"])
+        self.assertEqual(report["counts"]["completed_evaluations"], 2)
+        self.assertIn("outer-chosen", page)
+        self.assertIn("outer-chosen", markdown)
+
+    def test_ineligible_baseline_never_seeds_or_suppresses_validation_progress(self):
+        for invalid in ({"split": "train"}, {"split": "test"}, {"split": None},
+                        {"agent_id": "foreign"}, {"harness_id": "foreign"},
+                        {"valid": False}, {"partial": True}):
+            with self.subTest(invalid=invalid):
+                self.summary, self.events = fixture(self.root)
+                baseline = self.summary["groups"][0]["baseline"]
+                baseline.update(invalid)
+                baseline["metrics"] = {"solve_rate": 0.9}
+                # Same candidate ID: an ineligible summary must not suppress real validation evidence.
+                self.events[0].update(stage_id="search", metrics={"solve_rate": 0.3})
+                self.events[1]["metrics"] = {"solve_rate": 0.5}
+                self.summary["groups"][0]["selected"][0]["metrics"] = {"solve_rate": 0.5}
+                report, page, _ = self.artifacts()
+                group = report["groups"][0]
+                self.assertIsNone(group["comparison"][0]["baseline"])
+                self.assertIsNone(group["comparison"][0]["delta"])
+                self.assertEqual([row["improvement"] for row in group["visualization"]["progress"]],
+                                 ["first", "improved"])
+                self.assertEqual([row["best_metrics"] for row in group["visualization"]["progress"]],
+                                 [{"solve_rate": 0.3}, {"solve_rate": 0.5}])
+                self.assertIn('id="progress-0"', page)
+
+    def test_markdown_algorithm_trail_keeps_review_pass_numbers_and_null(self):
+        self.events += [{"event": "optimizer_review_started", "agent_id": "agent", "harness_id": "harness",
+                         "stage_id": "search", "iteration": 1, "role": "moderator", "pass_number": number}
+                        for number in (1, 2, None)]
+        report, page, markdown = self.artifacts()
+        self.assertEqual([row["pass_number"] for row in report["groups"][0]["algorithm_trail"][0]["events"][-3:]],
+                         [1, 2, None])
+        self.assertIn("검토 회차", page)
+        self.assertIn("| 이벤트 | 반복 | 역할 | 검토 회차 | 후보 | 데이터 구분 | 상태 |", markdown)
+        for number in ("1", "2", "null"):
+            self.assertIn(f"| optimizer\\_review\\_started | 1 | moderator | {number} | null | null | null |", markdown)
+
+    def test_ineligible_unobserved_baseline_does_not_supply_validation_best(self):
+        for invalid in ({"split": "train"}, {"split": "test"},
+                        {"agent_id": "foreign"}, {"harness_id": "foreign"}):
+            with self.subTest(invalid=invalid):
+                self.summary, self.events = fixture(self.root)
+                baseline = self.summary["groups"][0]["baseline"]
+                baseline.update(invalid)
+                baseline["metrics"] = {"solve_rate": 0.9}
+                self.events[0].update(candidate_id="first-observed", stage_id="search",
+                                      metrics={"solve_rate": 0.3})
+                self.events[1]["metrics"] = {"solve_rate": 0.5}
+                self.summary["groups"][0]["selected"][0]["metrics"] = {"solve_rate": 0.5}
+                report = self.report()
+                group = report["groups"][0]
+                self.assertIsNone(group["comparison"][0]["baseline"])
+                self.assertEqual([row["best_metrics"] for row in group["visualization"]["progress"]],
+                                 [{"solve_rate": 0.3}, {"solve_rate": 0.5}])
 
 
 if __name__ == "__main__":

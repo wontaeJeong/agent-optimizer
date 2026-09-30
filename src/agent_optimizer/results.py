@@ -206,15 +206,15 @@ def write_report(root: Path, summary: dict, report: dict | None = None,
                 continue
             lines += ["", f"### {_cell(trail['stage_id'])} · {_cell(trail['optimizer'])}", "",
                       _table_row(phrase("이벤트", "Event"), phrase("반복", "Iteration"),
-                                 phrase("역할", "Role"), phrase("후보", "Candidate"),
+                                 phrase("역할", "Role"), phrase("검토 회차", "Review pass"), phrase("후보", "Candidate"),
                                  phrase("데이터 구분", "Split"), phrase("상태", "Status")),
-                      "|---|---|---|---|---|---|"]
+                      "|---|---|---|---|---|---|---|"]
             for event in trail["events"][:200]:
                 accepted = event.get("accepted")
                 state = (phrase("채택", "Accepted") if accepted is True else
                          phrase("미채택", "Not accepted") if accepted is False else event.get("status"))
                 lines.append(_table_row(event.get("event"), event.get("iteration"), event.get("role"),
-                                        event.get("candidate_id"), event.get("split"), state))
+                                        event.get("pass_number"), event.get("candidate_id"), event.get("split"), state))
             if len(trail["events"]) > 200:
                 lines.append(phrase("표시 상한 200건 · 전체 기록은 report.json", "Display limit: 200 · full records are in report.json"))
             if trail["frontier"]:
