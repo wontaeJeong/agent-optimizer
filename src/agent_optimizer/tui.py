@@ -16,6 +16,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.events import Resize
+from textual.message import Message
 from textual.widgets import Footer, Input, OptionList, RichLog, Static
 from textual.widgets.option_list import Option
 
@@ -31,12 +32,52 @@ from agent_optimizer.terminal_report import ProgressState, format_progress_event
 STEPS = ("Agent", "Harness", "Optimizer", "Dataset")
 
 
+def endpoint_contains_credentials(value: str) -> bool:
+    """Reject unambiguous credential syntax, including unfinished user:password input."""
+    if "?" in value or "#" in value:
+        return True
+    authority = value.split("://", 1)[-1].split("/", 1)[0]
+    if "@" in authority:
+        return True
+    if "://" not in value:
+        return False
+    if authority.startswith("["):
+        if "]" not in authority:
+            return False  # An unfinished IPv6 host is not a credential.
+        authority = authority.split("]", 1)[1]
+    _host, separator, port = authority.partition(":")
+    return bool(separator and port and not port.isdecimal())
+
+
+class ModelInput(Input):
+    """Filter secret URLs before reactive storage, rendering, or Changed messages."""
+
+    endpoint_mode = False
+    endpoint_rejected = False
+
+    class EndpointRejected(Message):
+        """Contains no rejected value, so message repr/logs cannot expose credentials."""
+
+    def validate_value(self, value: str) -> str:
+        if self.endpoint_mode:
+            if endpoint_contains_credentials(value):
+                self.endpoint_rejected = True
+                self.post_message(self.EndpointRejected())
+                return ""
+            if self.endpoint_rejected and value and "://" not in value:
+                return ""  # Discard the remainder of a rejected typing/paste operation.
+            if value:
+                self.endpoint_rejected = False
+        return value
+
+
 class ModelValues(dict):
     """Keep credentials in session memory without exposing them through repr."""
 
     def __repr__(self):
         return repr({name: "<설정됨>" if any(marker in name.upper() for marker in
-                    ("KEY", "TOKEN", "SECRET", "PASSWORD")) else value
+                    ("KEY", "TOKEN", "SECRET", "PASSWORD")) else
+                    display_endpoint(value) if name in {"AGENT_OPT_MODEL_BASE_URL", "AGENT_OPT_MODEL_ENDPOINT"} and value else value
                     for name, value in self.items()})
 
 
@@ -194,7 +235,7 @@ class OptimizerApp(App[int]):
             yield Static(id="run-state")
             yield RichLog(id="event-log", max_lines=300, min_width=1, wrap=True,
                           highlight=False, markup=False, auto_scroll=False)
-        yield Input(id="entry")
+        yield ModelInput(id="entry")
         yield Static(id="hint")
         yield Footer()
 
@@ -216,7 +257,9 @@ class OptimizerApp(App[int]):
             "Doctor": _tr("사전 검사", "Pre-flight"),
             "Model": _tr("모델 설정", "Model Setup"),
         }.get(page, _tr("선택지", "Options"))
-        entry = self.query_one("#entry", Input)
+        entry = self.query_one("#entry", ModelInput)
+        entry.endpoint_mode = page == "Model" and self.model_mode == "input" and self.model_field == "AGENT_OPT_MODEL_BASE_URL"
+        entry.endpoint_rejected = False
         review = self.query_one("#review", Static)
         self.query_one("#path", Static).update(self._breadcrumb())
         self.query_one("#home-status", Static).styles.display = "block" if page == "Home" else "none"
@@ -341,6 +384,8 @@ class OptimizerApp(App[int]):
                 entry.placeholder = f"{self._model_label(field)} ({_tr('입력 후 Enter', 'type and press Enter')})"
                 if field == "AGENT_OPT_MODEL_BASE_URL" and display_endpoint(current) != current:
                     current = ""
+                if field == "AGENT_OPT_MODEL_BASE_URL" and endpoint_contains_credentials(self.input_drafts.get(field, "")):
+                    self.input_drafts.pop(field, None)
                 entry.password = self._is_secret_field(field)
                 entry.value = self.input_drafts.get(field, "" if entry.password else current)
                 entry.styles.display = "block"
@@ -453,16 +498,27 @@ class OptimizerApp(App[int]):
                            for field in self._required_model_fields()}, "usage": self._model_usage()}
 
     def _model_value(self, field: str) -> tuple[str, str]:
+        selectors = self._model_selector_fields()
         if self.model_values.get(field):
-            return self.model_values[field], self.model_sources.get(field, "session")
-        value = os.environ.get(field, "")
+            value, source = self.model_values[field], self.model_sources.get(field, "session")
+        else:
+            value, source = os.environ.get(field, ""), "environment"
         if value:
-            return value, "environment"
+            if field in selectors and "/" not in value:
+                value = "compatible/" + value
+            return value, source
         if field == "AGENT_OPT_MODEL_ID":
-            selector = self.model_values.get("AGENT_OPT_MODEL", os.environ.get("AGENT_OPT_MODEL", ""))
-            if ("AGENT_OPT_MODEL" in self._required_model_fields() and selector.startswith("compatible/")
-                    and selector.removeprefix("compatible/")):
-                return selector.removeprefix("compatible/"), "derived"
+            models = set()
+            for selector_field in selectors:
+                selector = self.model_values.get(selector_field) or os.environ.get(selector_field, "")
+                if selector.startswith("compatible/") and selector.removeprefix("compatible/"):
+                    models.add(selector.removeprefix("compatible/"))
+                elif selector and "/" not in selector:
+                    models.add(selector)
+            if len(models) == 1:
+                return next(iter(models)), "derived"
+            if models:
+                return "", "missing"  # Conflicting profiles cannot supply one implicit API model.
             return DEFAULT_MODEL_ID, "default"
         return "", "missing"
 
@@ -868,7 +924,20 @@ class OptimizerApp(App[int]):
         # Endpoints remain plaintext; credentials are rejected rather than made executable.
         if event.input.has_focus and self.page in {"Existing", "Workspace", "Model"}:
             key = self.model_field if self.page == "Model" else self.page
-            self.input_drafts[key] = event.value
+            self._remember_input_draft(key, event.value)
+
+    def _remember_input_draft(self, field: str, value: str) -> None:
+        if field == "AGENT_OPT_MODEL_BASE_URL" and endpoint_contains_credentials(value):
+            self.input_drafts.pop(field, None)
+        else:
+            self.input_drafts[field] = value
+
+    def on_model_input_endpoint_rejected(self, event: ModelInput.EndpointRejected) -> None:
+        self.input_drafts.pop("AGENT_OPT_MODEL_BASE_URL", None)
+        if self.page == "Model" and self.model_mode == "input":
+            self._error(ConfigurationError(
+                "자격증명 포함 URL은 입력할 수 없어 삭제했습니다. API key는 별도 입력하세요. "
+                "정상 URL을 붙여넣거나 Esc 후 직접 입력을 다시 선택하세요."))
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         value = event.value.strip()
@@ -884,8 +953,6 @@ class OptimizerApp(App[int]):
                 return
             path = Path(value).expanduser()
             self.workspace = path.absolute() if path.is_absolute() else (self.root / path).absolute()
-            self.selections = {"Agent": "ace-rtl", "Harness": "ace-opencode",
-                               "Optimizer": "gepa", "Dataset": "cvdp"}
             self._open_model_setup("Workspace")
         elif self.page == "Model":
             if self.model_mode != "input":
@@ -1020,6 +1087,17 @@ class OptimizerApp(App[int]):
         # key throughout ordinary labels/URLs; diagnostics still use strict redaction.
         return "\n".join(rows)
 
+    def _model_selector_fields(self, spec: dict | None = None) -> list[str]:
+        """Use the selected profiles, including user-defined model_env names."""
+        if self.experiment:
+            spec = spec if spec is not None else load_experiment(self.experiment)
+            return list(dict.fromkeys(p.get("model_env", "AGENT_OPT_MODEL") for p in spec["_profiles"]
+                                      if p["adapter"] == "opencode" or
+                                      p["adapter"] == "ace_opencode" and spec.get("preset_selection")))
+        metadata = self.component_metadata.get(self.selections.get("Harness", ""), {})
+        return (["AGENT_OPT_MODEL"] if self.selections.get("Agent") == "ace-rtl" and
+                metadata.get("execution_mode") != "native" else [])
+
     def _required_model_fields(self) -> list[str]:
         values = {**os.environ, **self.model_values}
         if self.experiment:
@@ -1027,9 +1105,7 @@ class OptimizerApp(App[int]):
             profiles = spec["_profiles"]
             research = any(s["optimizer"] in {"gepa", "meta_harness", "ecdysis"}
                            for s in spec.get("stages", []))
-            selectors = [p.get("model_env", "AGENT_OPT_MODEL") for p in profiles
-                         if p["adapter"] == "opencode" or p["adapter"] == "ace_opencode"
-                         and spec.get("preset_selection")]
+            selectors = self._model_selector_fields(spec)
             api = research or any(p["adapter"] not in {"opencode", "ace_opencode"} and
                                   {"AGENT_OPT_MODEL_BASE_URL", "AGENT_OPT_MODEL_API_KEY"}.issubset(
                                       p.get("runtime", {}).get("env_passthrough", [])) or
@@ -1039,8 +1115,7 @@ class OptimizerApp(App[int]):
                                   for p in profiles)
         else:
             metadata = self.component_metadata.get(self.selections.get("Harness", ""), {})
-            selectors = ([] if metadata.get("execution_mode") == "native" else
-                         ["AGENT_OPT_MODEL"] if self.selections.get("Agent") == "ace-rtl" else [])
+            selectors = self._model_selector_fields()
             api = (metadata.get("requires_model_api", False) or
                    self.selections.get("Agent") == "ace-rtl" and self.selections.get("Optimizer") != "baseline")
         fields = list(dict.fromkeys(selectors))
@@ -1104,21 +1179,11 @@ class OptimizerApp(App[int]):
 
     def _execution_environment(self) -> dict[str, str]:
         required = self._required_model_fields()
-        values = {**os.environ, **{field: value for field, value in self.model_values.items()
-                                  if field in required}}
-        if "AGENT_OPT_MODEL_ID" in required:
-            values["AGENT_OPT_MODEL_ID"] = self._model_value("AGENT_OPT_MODEL_ID")[0]
-        if "AGENT_OPT_MODEL" in required:
-            selector = values.get("AGENT_OPT_MODEL", "")
-            if selector and "/" not in selector:
-                explicit = self.model_values.get("AGENT_OPT_MODEL_ID", os.environ.get("AGENT_OPT_MODEL_ID", ""))
-                if explicit and explicit != selector:
-                    raise ConfigurationError("AGENT_OPT_MODEL_ID와 AGENT_OPT_MODEL이 일치해야 합니다")
-                values["AGENT_OPT_MODEL_ID"] = selector
-                values["AGENT_OPT_MODEL"] = "compatible/" + selector
-            if values.get("AGENT_OPT_MODEL", "").startswith("compatible/") and (
-                    values["AGENT_OPT_MODEL"].split("/", 1)[1] != values.get("AGENT_OPT_MODEL_ID")):
-                raise ConfigurationError("ACE compatible 모델 선택자는 AGENT_OPT_MODEL_ID와 일치해야 합니다")
+        values = {**os.environ, **{field: self._model_value(field)[0] for field in required}}
+        for field in self._model_selector_fields():
+            selector = values.get(field, "")
+            if selector.startswith("compatible/") and selector.removeprefix("compatible/") != values.get("AGENT_OPT_MODEL_ID"):
+                raise ConfigurationError(f"{field}의 compatible 모델과 AGENT_OPT_MODEL_ID가 일치해야 합니다. 선택자 또는 API ID를 수정하세요.")
         return values
 
     def action_open_report(self, report: Path, status: str = "completed") -> None:
@@ -1453,9 +1518,9 @@ class OptimizerApp(App[int]):
             return
         entry = self.query_one("#entry", Input)
         if entry.has_focus and self.page in {"Existing", "Workspace"}:
-            self.input_drafts[self.page] = entry.value
+            self._remember_input_draft(self.page, entry.value)
         elif entry.has_focus and self.page == "Model" and self.model_mode == "input":
-            self.input_drafts[self.model_field] = entry.value
+            self._remember_input_draft(self.model_field, entry.value)
         if self.page == "Home":
             self.notify(_tr("시작 화면입니다. 종료하려면 q를 누르세요.", "At Home; press q to quit."))
         elif self.page in STEPS:

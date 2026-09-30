@@ -103,3 +103,49 @@ git diff --check
 ## 6. 완료 판정
 
 **DONE / concerns:** B 전용 테스트·Ruff·관련 모델/프리셋 회귀는 통과했다. 공유 옛 요구 테스트 한 개 실패와 F/G 연결 책임을 숨기지 않는다. 변경 전후 캡처와 새 API를 이 보고서에 기록하고 지정 소유 파일만 로컬 한국어 커밋한다. 기본 디렉터리의 사용자 `.gitignore` 변경 및 zip, 다른 작업 워크트리를 보존한다.
+
+## 7. 수정 라운드 1 — 중요 리뷰 finding 처리
+
+시작 기준: `520f4a7225eeb3e0a3ce7952f57e18fedee844d0`. `final-mvp-b-review-20261001.md` 전체를 읽고 B-01~B-05를 실제 Pilot로 재현했다. 리뷰 보고서는 의도된 인계 파일로 함께 커밋하며 원래 판정과 근거를 보존한다. 아래 결과는 최초 보고 이후의 새 증거이고, selector 유도 범위와 URL draft 처리의 앞선 설명은 이 절을 기준으로 읽는다.
+
+| finding | 수정 | 의미 있는 회귀 |
+|---|---|---|
+| B-01 · fixture 누락/중복 | fixture row append를 manifest 존재 분기 안으로 복구. 같은 ID는 하나의 row로 정리하며 연결된 enabled row를 우선한다. | examples 없는 실제 임시 workspace, solo만/team만 있는 workspace, 두 manifest가 같은 ID를 가리키는 경우 모두 새 최적화 → Agent가 정상 진입하고 ID가 유일함. |
+| B-02 · URL draft 비밀 노출 | `ModelInput.validate_value`가 Textual reactive 저장·render·Changed 메시지 생성 **이전**에 userinfo/query/fragment 및 비숫자 port 형태의 미완성 user:password를 빈 문자열로 바꾼다. 거부 메시지에는 원문을 넣지 않는다. draft 저장/뒤로/재진입에서도 검사하고 Endpoint의 dict repr는 안전한 표시값만 반환한다. | credential URL을 대입한 직후, Enter 전부터 value/render에 sentinel 없음. Esc·Custom 재진입·SVG·legacy draft repr에도 없음. 실제 키 입력에서 거부된 비밀의 나머지도 제거. 긴 정상 HTTPS 경로와 loopback IPv6/숫자 port는 plaintext이고 API key만 password. |
+| B-03 · bare selector 표시/실행 불일치 | `_model_value`의 유효값을 schema/Review/실행 환경이 함께 소비. bare `team-model`은 `compatible/team-model`, API ID 없음은 `team-model`/derived로 표시·실행한다. 원래 환경값은 덮어쓰지 않는다. | 기본 및 사용자 정의 bare selector에서 schema의 ID/selector/source와 `_execution_environment` 결과가 일치하며 Review를 통과. |
+| B-04 · 사용자 selector 충돌 미차단 | `_model_selector_fields(spec=None)`가 실제 선택한 profile의 `model_env` 목록을 구한다. 모든 compatible selector를 공통 API ID와 비교하고 오류에는 해당 field 이름만 안내한다. 서로 다른 profile에서 하나의 implicit API ID를 임의로 고르지 않는다. | `TEAM_AGENT_MODEL` 충돌로 Model 계속 및 Review의 준비 action 차단·busy=False·runs 미생성. 명시적 API ID 수정 후 계속 가능. 두 번째 profile의 다른 selector도 차단하고 환경값 보존. |
+| B-05 · Workspace 선택 덮어쓰기 | Workspace 확정은 경로만 변경하고 네 component 선택을 유지한다. | 설치형 분기에서 Baseline/Meta-Harness 각각 선택·Workspace 입력·Model·뒤로를 실제 Pilot로 검증. OpenRouter Baseline에 Optimizer API를 추가 요구하지 않음. |
+
+URL 거부 후에는 정상 URL을 통째로 붙여넣거나 Esc → 직접 입력으로 재설정할 수 있다. 거부된 typing/paste의 뒤따르는 문자열을 빈 입력에 다시 노출하지 않도록 유지한다. 숫자 port/IPv6 같은 정상 Endpoint 구문을 password로 전환하지 않으며, 일반 host/port 입력을 비밀이라는 이유로 무차별 마스킹하지 않는다. API key는 기존 별도 입력과 세션 메모리 계약을 유지한다.
+
+### 실제 검증 명령·결과
+
+CWD·공유 Python·임시 Home/cache/TMPDIR 정책은 §3과 같고 최종 명령은 모두 `env -i`로 실행했다. 제품 수정 전 RED는 **23개 / 18.547초 / failures=10, errors=4, skipped=1**이었다. manifest의 `UnboundLocalError`/`DuplicateID`, URL draft 원문, bare 모델값, 사용자 충돌, Workspace 덮어쓰기를 확인했다. 새 `test_tui_textual.py`의 부분 credential 키 입력도 수정 전 **1개 / 1.020초 / failure=1**을 확인했다.
+
+```bash
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src TMPDIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/tmp HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/home AGENT_OPT_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/home XDG_CACHE_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/cache B_TUI_CAPTURE=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/captures/round1-model.svg B_TUI_SECRET_CAPTURE=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/captures/round1-key.svg /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m unittest discover -s tests -p 'test_tui_*.py' -v
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src TMPDIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/tmp HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/home AGENT_OPT_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/home XDG_CACHE_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/cache /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m unittest discover -s tests -p test_textual_tui.py -v
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src TMPDIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/tmp HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/home AGENT_OPT_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/home XDG_CACHE_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/cache /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m unittest discover -s tests -p 'test_model*.py' -v
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src TMPDIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/tmp HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/home AGENT_OPT_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/home XDG_CACHE_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/cache /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m unittest discover -s tests -p test_preset_tui.py -v
+env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/home XDG_CACHE_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-b/cache /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python -m ruff check . --no-cache
+git diff --check
+```
+
+- `test_tui_choices` 9개 + `test_tui_models` 14개 + 신규 `test_tui_textual` 1개: **24개 / 24.170초 / OK**, 종료 코드 0, skip 없음.
+- 기존 공유 `test_textual_tui`: **37개 / 32.856초 / 36 통과·1 실패**, 종료 코드 1. 실패는 앞서 기록한 `test_custom_model_endpoint_input_masks_credentials_without_hiding_safe_urls`의 `password=True` 옛 요구(`:619`) 하나뿐이다. 이 라운드에도 공유 테스트 변경/skip 추가 없이 남겨 G/F에 전달한다.
+- 모델 회귀: **22개 / 14.840초 / OK**, 종료 코드 0. 로컬 mock HTTP 외 live 모델 호출 없음.
+- 프리셋 회귀: **45개 / 0.558초 / OK (skipped=32)**, 실행 13개 통과. 기존 skip 사유 유지.
+- Ruff **All checks passed!**, diff whitespace 검사 통과.
+- 비밀 없는 fixture의 새 캡처: 기존 전용 captures 루트의 `round1-model.svg`, `round1-key.svg`. credential URL의 Esc/재진입 화면은 저장 전에 `export_screenshot`에서 sentinel 부재를 검증했다.
+- 전체 unit/native 실모델/설치 wheel·실 TTY는 이번 수정 라운드에도 **not_run**이다. 검증 수준을 확장해 주장하지 않는다.
+
+### F 최소 연결 요구·소유권
+
+이번 **B-01~B-05 수정 자체에 F generation 변경은 필요하지 않았다**. `write_*`, `prepare_*`, worker/backend, registry/catalog/CLI 진입 및 다른 담당자의 파일은 수정하지 않았다. F의 기존 연결에서는 다음 작은 계약만 보존하면 된다.
+
+1. 표시/schema와 실행에는 같은 `_model_value(field)` 유효값을 사용하고, 실행 환경은 `_execution_environment()` 결과를 그대로 소비한다. 기본 `AGENT_OPT_MODEL` 하나를 다시 해석하거나 다른 profile의 `model_env`를 덮어쓰지 않는다. 반환 environment를 기록/직렬화하지 않는 비밀 계약은 그대로다.
+2. Workspace writer/prepare 입력은 `self.workspace`와 사용자가 고른 `self.selections['Optimizer']`이다. UI가 고른 Baseline/Meta-Harness를 GEPA로 다시 대체하지 않는다. 현재 기존 `prepare_work`의 인자 전달은 이 계약을 이미 소비하므로 B는 generation을 수정하지 않았다.
+3. `#entry`는 `Input` subclass `ModelInput`이다. 공통 UI 재구성 시 `endpoint_mode`는 Endpoint input에서만 켜고 재진입 때 거부 상태를 재설정하는 `_show` 계약을 유지한다. URL을 value로 직접 복구하기 전에 `endpoint_contains_credentials`/안전 표시 검사를 우회하지 않는다. 새 거부 설명은 G 공통 locale 취합 대상이다.
+4. §5의 native 역할 metadata, 보고서 서버 연결, 기존 worker의 전역 환경 임시 변경 및 공유 옛 정책 테스트 갱신은 이전과 같은 F/G 통합 범위다. 이번 URL/선택/모델 UI 결함을 그 인계사항으로 미루지 않았다.
+
+**라운드 1 판정:** 중요 finding 5건 수정·전용 Pilot 검증 완료. 공유 옛 정책 실패 한 건과 실환경 미검증 영역은 별도로 유지한다. 리뷰 원문에 새 리뷰 승인 판정을 덧씌우지 않으며 제품/증거 변경을 로컬 후속 커밋으로 기록한다.

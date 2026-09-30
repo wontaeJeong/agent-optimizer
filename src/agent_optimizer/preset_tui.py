@@ -64,7 +64,7 @@ def preset_options(root: Path, page: str, agent: str = "ace-rtl") -> list[Choice
     for path in (root / "examples/minimal/solo.toml", root / "examples/minimal/team.toml"):
         if path.is_file():
             registered_agent = load_agent(path)
-        agents.append(ChoiceRow(registered_agent.id, "component", registered_agent.id, _tr(
+            agents.append(ChoiceRow(registered_agent.id, "component", registered_agent.id, _tr(
                 "합성 예제용 Agent입니다.\n\nSource\n  local fixture\n\n"
                 "Used with\n  Fixture harness\n\nDataset\n  sample_text",
                 "Synthetic fixture Agent.\n\nSource\n  local fixture\n\n"
@@ -203,7 +203,13 @@ def preset_options(root: Path, page: str, agent: str = "ace-rtl") -> list[Choice
                                             "Fixture outputs are incompatible with official CVDP scoring"), False,
                            _tr("이번 조합과 호환 불가", "Not compatible")), own_dataset, existing_config]
               if fixture else dataset_options}
-    return pages[page]
+    # Repeated manifests/registry metadata must not create duplicate Textual Option IDs.
+    rows = {}
+    for row in pages[page]:
+        previous = rows.get(row.id)
+        if previous is None or not previous.enabled and row.enabled:
+            rows[row.id] = row
+    return list(rows.values())
 
 
 def write_sample_selection(root: Path, agent_id: str, optimizer: str, *, name: str | None = None,

@@ -2,10 +2,13 @@
 import os
 import json
 import unittest
+import tempfile
+import shutil
+from pathlib import Path
 from dataclasses import replace
 from unittest.mock import patch
 
-from textual.widgets import OptionList, Static
+from textual.widgets import Input, OptionList, Static
 
 from support import test_project
 from agent_optimizer.preset_tui import preset_options
@@ -31,6 +34,49 @@ class ChoiceTests(unittest.IsolatedAsyncioTestCase):
                 await pilot.press("escape", "down", "enter")
                 self.assertEqual(app.page, "Advanced")
                 self.assertFalse((self.root / "runs").exists())
+
+    async def test_missing_or_partial_fixture_manifests_keep_agent_menu_unique(self):
+        for manifests in ((), ("solo.toml",), ("team.toml",), ("solo.toml", "team.toml")):
+            with self.subTest(manifests=manifests), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                if manifests:
+                    (root / "examples/minimal").mkdir(parents=True)
+                    for name in manifests:
+                        shutil.copyfile(self.root / "examples/minimal" / name, root / "examples/minimal" / name)
+                    # Two manifests can refer to the same component ID.
+                    if len(manifests) == 2:
+                        shutil.copyfile(root / "examples/minimal/solo.toml", root / "examples/minimal/team.toml")
+                app = OptimizerApp(root)
+                async with app.run_test() as pilot:
+                    await pilot.press("enter")
+                    self.assertEqual(app.page, "Agent")
+                    ids = [row.id for row in app.rows]
+                    self.assertEqual(len(ids), len(set(ids)))
+                    self.assertEqual("rtl-solo" in ids, "solo.toml" in manifests)
+                    self.assertEqual("rtl-team" in ids, manifests == ("team.toml",))
+
+    async def test_installed_workspace_preserves_baseline_and_meta_selection(self):
+        for optimizer in ("baseline", "meta_harness"):
+            with self.subTest(optimizer=optimizer), patch("agent_optimizer.tui.is_source_checkout", return_value=False), \
+                    patch.dict(os.environ, {"AGENT_OPT_MODEL": "openrouter/fixture-model", "OPENROUTER_API_KEY": "fixture-key"}):
+                app = OptimizerApp(self.root)
+                async with app.run_test() as pilot:
+                    await pilot.press("enter", "enter", "enter")
+                    app.query_one(OptionList).highlighted = next(i for i, row in enumerate(app.rows) if row.id == optimizer)
+                    await pilot.press("enter", "enter")
+                    self.assertEqual(app.page, "Workspace")
+                    chosen = dict(app.selections)
+                    app.query_one(Input).value = "선택한 작업공간"
+                    await pilot.press("enter")
+                    self.assertEqual(app.selections, chosen)
+                    self.assertEqual(app.workspace, self.root / "선택한 작업공간")
+                    if optimizer == "baseline":
+                        self.assertEqual(app.model_fields, ["AGENT_OPT_MODEL", "OPENROUTER_API_KEY"])
+                    else:
+                        self.assertIn("AGENT_OPT_MODEL_BASE_URL", app.model_fields)
+                    await pilot.press("escape", "escape")
+                    self.assertEqual(app.page, "Dataset")
+                    self.assertEqual(app.selections, chosen)
 
     async def test_four_steps_disabled_back_and_parent_change_are_read_only(self):
         app = OptimizerApp(self.root)

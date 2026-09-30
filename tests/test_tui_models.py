@@ -8,6 +8,7 @@ from textual.widgets import Input, OptionList, Static
 
 from support import test_project
 from agent_optimizer.tui import OptimizerApp
+from agent_optimizer.contracts import ConfigurationError
 
 
 ENV = {"AGENT_OPT_LANG": "ko", "AGENT_OPT_MODEL": "compatible/fixture-model",
@@ -70,6 +71,101 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
                     self.assertNotIn("URL-SENTINEL", str(app.query_one("#details", Static).render()))
                     self.assertFalse(app.busy)
             self.assertFalse((self.root / "runs").exists())
+
+    async def test_credential_url_is_removed_before_render_escape_and_reentry(self):
+        app = OptimizerApp(self.root)
+        async with app.run_test() as pilot:
+            await pilot.press("enter", "enter", "enter", "enter", "enter")
+            await self.edit(app, pilot, "AGENT_OPT_MODEL_BASE_URL")
+            entry = app.query_one(Input)
+            for url in ("https://user:URL-SENTINEL@fixture.example/v1", "https://fixture.example/v1?token=URL-SENTINEL",
+                        "https://fixture.example/v1#URL-SENTINEL", "https://user:URL-SENTINEL"):
+                with self.subTest(url=url):
+                    entry.value = url
+                    # Synchronous rendering must never see the rejected value, even before Changed is dispatched.
+                    self.assertNotIn("URL-SENTINEL", str(entry.render()))
+                    self.assertNotIn("URL-SENTINEL", entry.value)
+                    await pilot.press("escape", "end", "enter")
+                    self.assertNotIn("URL-SENTINEL", repr(app.input_drafts))
+                    self.assertNotIn("URL-SENTINEL", entry.value)
+                    self.assertNotIn("URL-SENTINEL", app.export_screenshot())
+                    self.assertFalse(entry.password)
+            # A legacy draft inserted by a caller is safe in repr and must not rehydrate.
+            app.input_drafts["AGENT_OPT_MODEL_BASE_URL"] = "https://user:URL-SENTINEL@fixture.example/v1"
+            self.assertNotIn("URL-SENTINEL", repr(app.input_drafts))
+            await pilot.press("escape", "end", "enter")
+            self.assertNotIn("URL-SENTINEL", entry.value)
+            entry.value = "https://safe.example/v1"
+            await pilot.press("enter")
+            self.assertEqual(app._model_value("AGENT_OPT_MODEL_BASE_URL"), ("https://safe.example/v1", "session"))
+
+    async def test_bare_selector_display_schema_and_execution_share_effective_values(self):
+        os.environ["AGENT_OPT_MODEL"] = "team-model"
+        os.environ["AGENT_OPT_MODEL_ID"] = ""
+        app = OptimizerApp(self.root)
+        async with app.run_test() as pilot:
+            await pilot.press("enter", "enter", "enter", "enter", "enter", "end", "enter")
+            self.assertEqual(app.page, "Review")
+            fields = app.model_configuration()["fields"]
+            self.assertEqual(fields["AGENT_OPT_MODEL_ID"], {"value": "team-model", "configured": True, "source": "derived"})
+            self.assertEqual(fields["AGENT_OPT_MODEL"]["value"], "compatible/team-model")
+            self.assertEqual(app._execution_environment()["AGENT_OPT_MODEL_ID"], "team-model")
+            self.assertEqual(app._execution_environment()["AGENT_OPT_MODEL"], "compatible/team-model")
+            self.assertIn("team-model", app._review())
+            self.assertEqual(os.environ["AGENT_OPT_MODEL"], "team-model")
+
+    async def test_custom_and_multiple_profile_selectors_block_conflicts_before_prepare(self):
+        experiment = self.root / "examples/minimal/experiment.toml"
+        profile = self.root / "examples/minimal/harness.toml"
+        profile.write_text('id = "opencode"\nadapter = "opencode"\nmodel_env = "TEAM_AGENT_MODEL"\n'
+                           '[runtime]\nkind = "docker"\nimage = "fixture-image"\n'
+                           'env_passthrough = ["TEAM_AGENT_MODEL", "AGENT_OPT_MODEL_BASE_URL", "AGENT_OPT_MODEL_API_KEY"]\n')
+        os.environ["TEAM_AGENT_MODEL"] = "compatible/agent-model"
+        os.environ["AGENT_OPT_MODEL_ID"] = "optimizer-model"
+        app = OptimizerApp(self.root)
+        async with app.run_test() as pilot:
+            app._load_existing(experiment)
+            await pilot.press("enter", "end", "enter")
+            self.assertEqual(app.page, "Model")
+            self.assertIn("TEAM_AGENT_MODEL", str(app.query_one("#details", Static).render()))
+            app._show("Review")
+            await pilot.press("down", "enter")
+            self.assertFalse(app.busy)
+            self.assertEqual(app.page, "Model")
+            self.assertFalse((self.root / "runs").exists())
+            await self.edit(app, pilot, "AGENT_OPT_MODEL_ID")
+            app.query_one(Input).value = "agent-model"
+            await pilot.press("enter", "end", "enter")
+            self.assertEqual(app.page, "Review")
+            # A second profile cannot silently override the shared compatible API ID.
+            second = profile.with_name("second.toml")
+            second.write_text(profile.read_text().replace('id = "opencode"', 'id = "second"')
+                              .replace("TEAM_AGENT_MODEL", "SECOND_AGENT_MODEL"))
+            experiment.write_text(experiment.read_text().replace('harnesses = ["examples/minimal/harness.toml"]',
+                                  'harnesses = ["examples/minimal/harness.toml", "examples/minimal/second.toml"]'))
+            os.environ["SECOND_AGENT_MODEL"] = "compatible/different-model"
+            app._open_model_setup("Review")
+            await pilot.press("end", "enter")
+            self.assertEqual(app.page, "Model")
+            self.assertIn("SECOND_AGENT_MODEL", str(app.query_one("#details", Static).render()))
+            with self.assertRaises(ConfigurationError):
+                app._execution_environment()
+            self.assertEqual(os.environ["AGENT_OPT_MODEL_ID"], "optimizer-model")
+
+    async def test_custom_bare_selector_derives_id_and_records_real_source(self):
+        profile = self.root / "examples/minimal/harness.toml"
+        profile.write_text('id = "opencode"\nadapter = "opencode"\nmodel_env = "TEAM_AGENT_MODEL"\n'
+                           '[runtime]\nkind = "docker"\nimage = "fixture-image"\n')
+        os.environ["TEAM_AGENT_MODEL"] = "team-model"
+        os.environ["AGENT_OPT_MODEL_ID"] = ""
+        app = OptimizerApp(self.root)
+        async with app.run_test() as pilot:
+            app._load_existing(self.root / "examples/minimal/experiment.toml")
+            await pilot.press("enter", "end", "enter")
+            self.assertEqual(app.page, "Review")
+            self.assertEqual(app._model_value("AGENT_OPT_MODEL_ID"), ("team-model", "derived"))
+            self.assertEqual(app.model_configuration()["fields"]["TEAM_AGENT_MODEL"]["value"], "compatible/team-model")
+            self.assertEqual(app._execution_environment()["TEAM_AGENT_MODEL"], "compatible/team-model")
 
     async def test_environment_credentials_never_render_and_short_key_keeps_labels(self):
         os.environ["AGENT_OPT_MODEL_BASE_URL"] = "https://user:URL-SENTINEL@fixture.example/v1"
