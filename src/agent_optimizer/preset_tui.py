@@ -7,6 +7,7 @@ import os
 import shutil
 import sys
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
 from agent_optimizer.catalog import DATASETS
@@ -28,33 +29,51 @@ def _tr(korean: str, english: str) -> str:
     return english if current_language() == "en" else korean
 
 
-def preset_options(root: Path, page: str, agent: str = "ace-rtl") -> list[tuple]:
+@dataclass(frozen=True)
+class ChoiceRow:
+    """Stable component/action identity; tuple access preserves existing read-only consumers."""
+
+    id: str
+    kind: str
+    label: str
+    description: str
+    enabled: bool = True
+    reason: str = ""
+
+    def __getitem__(self, index):
+        return (self.label, self.description, self.enabled, self.reason)[index]
+
+    def __len__(self):
+        return 4
+
+
+def preset_options(root: Path, page: str, agent: str = "ace-rtl") -> list[ChoiceRow]:
     """프리셋의 호환성·준비 조건을 UI와 분리해 한 곳에서 제공한다."""
-    agents = [("ACE-RTL", _tr(
+    agents = [ChoiceRow("ace-rtl", "component", "ACE-RTL", _tr(
         "RTL 문제 해결에 사용하는 외부 ACE Agent입니다.\n\nSource\n  pinned Git revision\n\n"
         "Used with\n  OpenCode harness\n\nPreparation\n  Git source·CVDP 자산·Docker 준비가 필요할 수 있습니다",
         "External ACE Agent for RTL problem solving.\n\nSource\n  pinned Git revision\n\n"
         "Used with\n  OpenCode harness\n\nPreparation\n  Git source, CVDP assets and Docker may be required"), True,
-               _tr("자산 준비 필요", "Assets to prepare"))]
+               _tr("자산 준비 필요 · 구현됐으나 실환경 미검증", "Assets to prepare · live execution unverified"))]
     for path in sorted((root / "examples").glob("*/agent.toml")):
         registered_agent = load_agent(path)
-        agents.append((registered_agent.id, _tr(
+        agents.append(ChoiceRow(registered_agent.id, "component", registered_agent.id, _tr(
             "등록된 Agent입니다. 이번 preset과 연결된 실행 조합은 확인되지 않았습니다.",
             "Registered Agent; no execution combination is verified for this preset."), False,
                         _tr("이번 조합과 호환 불가", "Not compatible")))
     for path in (root / "examples/minimal/solo.toml", root / "examples/minimal/team.toml"):
         if path.is_file():
             registered_agent = load_agent(path)
-            agents.append((registered_agent.id, _tr(
+        agents.append(ChoiceRow(registered_agent.id, "component", registered_agent.id, _tr(
                 "합성 예제용 Agent입니다.\n\nSource\n  local fixture\n\n"
                 "Used with\n  Fixture harness\n\nDataset\n  sample_text",
                 "Synthetic fixture Agent.\n\nSource\n  local fixture\n\n"
                 "Used with\n  Fixture harness\n\nDataset\n  sample_text"), True,
                             _tr("구현됨", "Implemented")))
-    agents += [(_tr("내 Agent 연결하기", "Connect my Agent"),
+    agents += [ChoiceRow("advanced", "action", _tr("내 Agent 연결하기", "Connect my Agent"),
                 _tr("로컬/Git Agent와 editable을 입력하는 고급 설정", "Advanced local/Git Agent and editable configuration"), True,
                 _tr("입력/설정 필요", "Configuration needed")),
-               (_tr("기존 Agent 설정 선택", "Select existing Agent configuration"),
+               ChoiceRow("existing", "action", _tr("기존 Agent 설정 선택", "Select existing Agent configuration"),
                 _tr("기존 experiment.toml의 Agent·Harness·Optimizer·Dataset을 확인", "Use an existing experiment.toml configuration"), True,
                 _tr("입력/설정 필요", "Configuration needed"))]
     registry = Registry()
@@ -78,90 +97,95 @@ def preset_options(root: Path, page: str, agent: str = "ace-rtl") -> list[tuple]
                                   "Runs a baseline evaluation without edits.\n\nWhat it changes\n  nothing\n\n"
                                   "Requires\n  validation tasks\n\nEvaluation\n  baseline measurement"))):
         if name in registry.factories["optimizers"]:
-            optimizer_options.append(({"gepa": "GEPA", "meta_harness": "Meta-Harness",
+            optimizer_options.append(ChoiceRow(name, "component", {"gepa": "GEPA", "meta_harness": "Meta-Harness",
                                        "baseline": "Baseline"}[name], description, True,
                                       _tr("구현됨", "Implemented") if name == "baseline"
                                       else _tr("입력/설정 필요", "Configuration needed")))
     for name in sorted(registry.factories["optimizers"]):
         if name not in {"gepa", "meta_harness", "baseline"}:
-            optimizer_options.append((name, _tr("이번 ACE 프리셋의 수정 대상·실행 연결은 확인되지 않음; 고급 설정 사용", "No verified edit surface for this ACE preset; use advanced setup"), False,
+            optimizer_options.append(ChoiceRow(name, "component", name, _tr("이번 ACE 프리셋의 수정 대상·실행 연결은 확인되지 않음; 고급 설정 사용", "No verified edit surface for this ACE preset; use advanced setup"), False,
                                        _tr("이번 조합과 호환 불가", "Not compatible")))
     if is_source_checkout(root):
         for name in sorted(PROJECT_COMPONENTS["optimizers"]):
-            optimizer_options.append((name, _tr("프로젝트 등록 팀 Optimizer · 이번 프리셋의 옵션/수정 파일은 고급 설정에서 지정",
+            optimizer_options.append(ChoiceRow(name, "component", name, _tr("프로젝트 등록 팀 Optimizer · 이번 프리셋의 옵션/수정 파일은 고급 설정에서 지정",
                                                 "Project-registered team optimizer; configure its options/editable file in advanced setup"), False,
                                       _tr("입력/설정 필요", "Configuration needed")))
-    dataset_options = [("CVDP", _tr(
+    dataset_options = [ChoiceRow("cvdp", "component", "CVDP", _tr(
         "공식 RTL benchmark/evaluator를 사용합니다.\n\nTasks\n  train 1\n  validation 1\n\n"
         "Requires\n  준비된 CVDP assets",
         "Uses the official RTL benchmark and evaluator.\n\nTasks\n  train 1\n  validation 1\n\n"
         "Requires\n  prepared CVDP assets"), True,
                         _tr("자산 준비 필요", "Assets to prepare"))]
-    dataset_options.extend((name, _tr("ACE OpenCode 과제/평가기 호환성 미확인 · 기존 실험 사용",
+    dataset_options.extend(ChoiceRow(name, "component", name, _tr("ACE OpenCode 과제/평가기 호환성 미확인 · 기존 실험 사용",
                                       "ACE OpenCode task/evaluator compatibility not established; use existing experiment"), False,
                             _tr("이번 조합과 호환 불가", "Not compatible"))
                            for name in sorted(DATASETS) if name != "cvdp")
     if is_source_checkout(root):
-        dataset_options.extend((name, _tr("프로젝트 등록 데이터셋 · ACE 출력/평가기 호환성 미확인",
+        dataset_options.extend(ChoiceRow(name, "component", name, _tr("프로젝트 등록 데이터셋 · ACE 출력/평가기 호환성 미확인",
                                           "Project-registered dataset; ACE output/evaluator compatibility not verified"), False,
                                 _tr("이번 조합과 호환 불가", "Not compatible"))
                                for name in sorted(PROJECT_COMPONENTS["datasets"]) if name not in DATASETS)
-    ace_harness = [("OpenCode", _tr(
+    ace_harness = [ChoiceRow("ace-opencode", "component", "OpenCode", _tr(
         "선택한 ACE Agent를 OpenCode에서 실행합니다.\n\nRuntime\n  Docker\n\n"
         "Requires\n  OpenCode model selector\n  Docker",
         "Runs the selected ACE Agent through OpenCode.\n\nRuntime\n  Docker\n\n"
         "Requires\n  OpenCode-compatible model selector\n  Docker"), True,
                     _tr("자산 준비 필요", "Assets to prepare")),
-                   ("Claude Code", _tr("ACE 프로필 구현됨 · 선택형 조합은 기존 실험에서 지정",
+                    ChoiceRow("ace-claude-code", "component", "Claude Code", _tr("ACE 프로필 구현됨 · 선택형 조합은 기존 실험에서 지정",
                                        "ACE profile implemented · select it via existing experiment"), False,
                     _tr("이번 조합과 호환 불가", "Not compatible"))]
-    fixture_harness = [("Fixture", _tr(
+    fixture_harness = [ChoiceRow("fixture", "component", "Fixture", _tr(
                            "합성 fixture 과제만 실행합니다.\n\nRuntime\n  local fixture\n\n"
                            "Requires\n  no model or Docker",
                            "Runs synthetic fixture tasks only.\n\nRuntime\n  local fixture\n\n"
                            "Requires\n  no model or Docker"), True,
                         _tr("구현됨", "Implemented")),
-                       ("OpenCode", _tr("합성 과제용 OpenCode 프리셋 미검증 · 기존 실험 사용",
+                        ChoiceRow("ace-opencode", "component", "OpenCode", _tr("합성 과제용 OpenCode 프리셋 미검증 · 기존 실험 사용",
                                            "No verified OpenCode fixture preset; use existing experiment"), False,
                          _tr("이번 조합과 호환 불가", "Not compatible"))]
     if is_source_checkout(root):
         for name in sorted(PROJECT_COMPONENTS["harnesses"]):
-            row = (name, _tr("프로젝트 등록 팀 Harness · 전용 프로필/argv가 필요하면 고급 설정 사용",
+            row = ChoiceRow(name, "component", name, _tr("프로젝트 등록 팀 Harness · 전용 프로필/argv가 필요하면 고급 설정 사용",
                              "Project-registered team Harness; configure its profile/argv in advanced setup"), False,
                    _tr("입력/설정 필요", "Configuration needed"))
             ace_harness.append(row)
             fixture_harness.append(row)
-    own_harness = (_tr("내 Harness 연결하기", "Connect my Harness"),
+    own_harness = ChoiceRow("advanced", "action", _tr("내 Harness 연결하기", "Connect my Harness"),
                    _tr("argv 또는 등록된 파일 플러그인은 고급 설정 사용",
                        "Use advanced setup for argv or registered file plugins"), True,
                    _tr("입력/설정 필요", "Configuration needed"))
-    own_optimizer = (_tr("내 Optimizer 연결하기", "Connect my Optimizer"),
+    own_optimizer = ChoiceRow("advanced", "action", _tr("내 Optimizer 연결하기", "Connect my Optimizer"),
                      _tr("등록된 ID 또는 신뢰한 file.py:Symbol · 고급 설정에서 stage 옵션 검증",
                          "Registered ID or trusted file.py:Symbol · validate stage options in advanced setup"), True,
                      _tr("입력/설정 필요", "Configuration needed"))
-    own_dataset = (_tr("내 tasks.json 연결하기", "Connect my tasks.json"),
+    own_dataset = ChoiceRow("advanced", "action", _tr("내 tasks.json 연결하기", "Connect my tasks.json"),
                    _tr("로컬 공개 과제와 명시적 evaluator가 필요 · 채점기를 추측하지 않음",
                        "Local public tasks and explicit evaluator required; no inferred scoring"), True,
                    _tr("입력/설정 필요", "Configuration needed"))
-    existing_config = (_tr("기존 experiment.toml 선택", "Select existing experiment.toml"),
+    existing_config = ChoiceRow("existing", "action", _tr("기존 experiment.toml 선택", "Select existing experiment.toml"),
                        _tr("기존 파일의 네 선택과 호환성을 계획 검사로 확인",
                            "Validate all four selections in an existing file via plan checks"), True,
                        _tr("입력/설정 필요", "Configuration needed"))
-    fixture_optimizers = [("Baseline", _tr("변경 없는 합성 기준 측정", "Unchanged synthetic baseline"), True,
+    fixture_optimizers = [ChoiceRow("baseline", "component", "Baseline", _tr("변경 없는 합성 기준 측정", "Unchanged synthetic baseline"), True,
                            _tr("구현됨", "Implemented")),
-                          ("FileVariants", _tr("명시적 strategy.json 후보 · 모델 호출 없음",
+                           ChoiceRow("file_variants", "component", "FileVariants", _tr("명시적 strategy.json 후보 · 모델 호출 없음",
                                                "Explicit strategy.json candidate · no model call"), True,
                            _tr("구현됨", "Implemented"))]
-    fixture_optimizers.extend((name, _tr("이 합성 fixture의 수정/실행 계약 미연결 · 고급 설정 사용",
+    fixture_optimizers.extend(ChoiceRow(name, "component", name, _tr("이 합성 fixture의 수정/실행 계약 미연결 · 고급 설정 사용",
                                                "No verified edit/execution contract for this fixture; use advanced setup"), False,
                                _tr("이번 조합과 호환 불가", "Not compatible"))
                               for name in sorted(registry.factories["optimizers"])
                               if name not in {"baseline", "file_variants"})
     if is_source_checkout(root):
-        fixture_optimizers.extend((name, _tr("프로젝트 등록 팀 Optimizer · 고급 설정에서 옵션/평가기 확인",
+        fixture_optimizers.extend(ChoiceRow(name, "component", name, _tr("프로젝트 등록 팀 Optimizer · 고급 설정에서 옵션/평가기 확인",
                                                 "Project-registered team optimizer; check options/evaluator in advanced setup"), False,
                                    _tr("입력/설정 필요", "Configuration needed"))
                                   for name in sorted(PROJECT_COMPONENTS["optimizers"]))
+    if "gepa" in registry.factories["optimizers"]:
+        optimizer_options.append(ChoiceRow(
+            "gepa.merge", "planned", "GEPA merge · Planned",
+            "docs/FUTURE.md의 GEPA 병합 재활성화 계획입니다. 현재 merge=true는 거부됩니다.",
+            False, "미구현(Planned) · train/private 경계 회귀 후 검토 · GEPA merge=false 또는 기존 실험 사용"))
     optimizer_options.extend([own_optimizer, existing_config])
     fixture_optimizers.extend([own_optimizer, existing_config])
     dataset_options.extend([own_dataset, existing_config])
@@ -169,13 +193,13 @@ def preset_options(root: Path, page: str, agent: str = "ace-rtl") -> list[tuple]
     pages = {"Agent": agents,
              "Harness": [*(fixture_harness if fixture else ace_harness), own_harness, existing_config],
              "Optimizer": fixture_optimizers if fixture else optimizer_options,
-             "Dataset": [("sample_text", _tr(
+             "Dataset": [ChoiceRow("sample_text", "component", "sample_text", _tr(
                             "내장 합성 과제를 sample_eval로 채점합니다. 실제 RTL/LLM 점수가 아닙니다.\n\n"
                             "Tasks\n  synthetic train / validation / test\n\nRequires\n  없음",
                             "Scores built-in synthetic tasks with sample_eval; not RTL/LLM performance.\n\n"
                             "Tasks\n  synthetic train / validation / test\n\nRequires\n  none"), True,
                           _tr("구현됨", "Implemented")),
-                          ("CVDP", _tr("fixture 출력은 공식 CVDP 채점 형식과 호환되지 않음",
+                           ChoiceRow("cvdp", "component", "CVDP", _tr("fixture 출력은 공식 CVDP 채점 형식과 호환되지 않음",
                                             "Fixture outputs are incompatible with official CVDP scoring"), False,
                            _tr("이번 조합과 호환 불가", "Not compatible")), own_dataset, existing_config]
               if fixture else dataset_options}
