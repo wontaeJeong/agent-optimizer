@@ -187,7 +187,7 @@ def load_experiment(path: Path) -> dict:
     only_keys(data, {"schema_version", "name", "project_root", "config_root", "agents", "harnesses", "pairs", "benchmark",
                     "evaluator", "evaluation_runtime", "objective", "budget", "stages",
                     "repetitions", "seed", "final_test", "final_stages", "output_dir", "plugins",
-                    "plugin_dependencies", "evaluator_config", "candidate_seed_files",
+                    "plugin_dependencies", "evaluator_config", "candidate_seed_files", "candidate_seed_root",
                     "preset_selection"}, "experiment")
     if data.get("schema_version") != 1:
         raise ConfigurationError("Unsupported experiment schema_version")
@@ -204,6 +204,9 @@ def load_experiment(path: Path) -> dict:
         config_root = config_root.resolve()
     data["_root"] = root
     data["_config_root"] = config_root
+    if data.get('candidate_seed_root', 'project') not in ('project', 'config'):
+        raise ConfigurationError('candidate_seed_root는 project 또는 config여야 합니다')
+    data['_seed_root'] = config_root if data.get('candidate_seed_root') == 'config' else root
     data["_source"] = path.resolve()
     agents = [load_agent(safe_path(config_root, p)) for p in data["agents"]]
     if not agents or len({a.id for a in agents}) != len(agents):
@@ -213,7 +216,36 @@ def load_experiment(path: Path) -> dict:
     for filename in data["harnesses"]:
         profile = read_toml(safe_path(config_root, filename))
         only_keys(profile, {"id", "adapter", "command", "model_env", "agent", "runtime",
-                           "allow_local", "notes", "required_cli_version"}, "harness profile")
+                            "allow_local", "notes", "required_cli_version", "native", "compatibility"}, "harness profile")
+        for key in ('native', 'compatibility'):
+            if key in profile and not isinstance(profile[key], dict):
+                raise ConfigurationError(f'{key}는 객체여야 합니다')
+        if 'native' in profile:
+            if profile['adapter'] != 'ace_native':
+                raise ConfigurationError('native 설정에는 ace_native adapter가 필요합니다')
+            native = profile['native']
+            only_keys(native, {'python', 'dataset', 'max_iterations', 'llm_timeout', 'evaluator_timeout', 'evaluator'}, 'native')
+            for key in ('python', 'dataset'):
+                if key in native and (not isinstance(native[key], str) or not Path(native[key]).is_absolute() or '\0' in native[key]):
+                    raise ConfigurationError(f'native.{key}에는 절대경로가 필요합니다')
+            if type(native.get('max_iterations', 3)) is not int or not 1 <= native.get('max_iterations', 3) <= 30:
+                raise ConfigurationError('native.max_iterations는 1~30 정수여야 합니다')
+            for key in ('llm_timeout', 'evaluator_timeout'):
+                positive(native.get(key, 60), f'native.{key}')
+            evaluator = native.get('evaluator', {})
+            if not isinstance(evaluator, dict):
+                raise ConfigurationError('native.evaluator는 객체여야 합니다')
+            only_keys(evaluator, {'repo', 'python', 'sim_image', 'sim_image_id'}, 'native.evaluator')
+            if not all(isinstance(value, str) and value for value in evaluator.values()):
+                raise ConfigurationError('native.evaluator 값에는 비어 있지 않은 문자열이 필요합니다')
+        if 'compatibility' in profile:
+            compatibility = profile['compatibility']
+            only_keys(compatibility, {'agent_ids', 'dataset_ids', 'reviewed_cids', 'execution_mode', 'model_fields', 'roles', 'live_verification'}, 'compatibility')
+            for key in ('agent_ids', 'dataset_ids', 'reviewed_cids', 'model_fields', 'roles'):
+                if key in compatibility and (not isinstance(compatibility[key], list) or not all(isinstance(v, str) and v for v in compatibility[key])):
+                    raise ConfigurationError(f'compatibility.{key}에는 문자열 목록이 필요합니다')
+            if compatibility.get('execution_mode') not in (None, 'native', 'coding'):
+                raise ConfigurationError('compatibility.execution_mode 오류')
         required = profile.get("required_cli_version")
         if required is not None and (not isinstance(required, str) or not required.strip()):
             raise ConfigurationError("required_cli_version must be a nonempty string")

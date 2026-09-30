@@ -27,12 +27,32 @@ from agent_optimizer.terminal_report import PreparationStatus
 from agent_optimizer.terminal_style import style
 from agent_optimizer.locale import human
 from agent_optimizer.workspace import safe_path
+from agent_optimizer.app_paths import app_path, resolve_dataset_cache
 
 
 def component_inventory(project_root: Path) -> tuple[Registry, dict, dict]:
     registry = Registry()
     registry.load_project(project_root)
     return registry, PROJECT_COMPONENTS, PROJECT_DEPENDENCIES
+
+
+def recent_configurations(project_root: Path) -> list[Path]:
+    entries = []
+    for base in (app_path('experiments'), project_root / 'runs/configs'):
+        try:
+            safe_path(base, '.')
+            if not base.is_dir():
+                continue
+            for path in base.rglob('experiment.toml'):
+                try:
+                    safe_path(base, path.relative_to(base).as_posix())
+                    if path.is_file():
+                        entries.append(path)
+                except (ConfigurationError, OSError):
+                    continue
+        except (ConfigurationError, OSError):
+            continue
+    return sorted(set(entries), key=lambda path: path.stat().st_mtime_ns, reverse=True)[:10]
 
 
 def requires_command(adapter: type) -> bool:
@@ -53,8 +73,16 @@ def prepare_selection(project_root: Path, selection: str, *, evaluator: str | No
         custom_source = project_root / custom_source
     if selection in registry.factories["datasets"]:
         with PreparationStatus(selection, stream=progress_stream), contextlib.redirect_stdout(sys.stderr):
-            result = registry.resolve("datasets", selection)().prepare(
-                project_root / "external" / "datasets" / selection, offline=offline)
+            from agent_optimizer.registry import is_source_checkout
+            builtin_file = 'cvdp.py' if selection == 'cvdp' else 'verilog_eval.py'
+            loaded = registry.loaded.get(('datasets', selection), ())
+            first_party = bool(loaded) and Path(loaded[0]) == project_root / 'examples/benchmarks' / builtin_file
+            if selection in CATALOG_DATASETS and is_source_checkout(project_root) and first_party:
+                from agent_optimizer.integrations import prepare_catalog_dataset
+                result = prepare_catalog_dataset(project_root, selection, offline=offline, source_root=project_root)
+            else:
+                result = registry.resolve("datasets", selection)().prepare(
+                    resolve_dataset_cache(selection), offline=offline)
         evaluator_id = result["evaluator"]
         if not isinstance(evaluator_id, str) or ":" in evaluator_id:
             raise ConfigurationError("Registered dataset provider must return a registered evaluator ID")
@@ -74,8 +102,7 @@ def prepare_selection(project_root: Path, selection: str, *, evaluator: str | No
             registry.resolve("evaluators", evaluator)
             result_name = evaluator
         with PreparationStatus(custom_source.name, stream=progress_stream):
-            result = CustomDataset(custom_source, evaluator=result_name).prepare(
-                project_root / "external" / "datasets" / "custom", offline=offline)
+            result = CustomDataset(custom_source, evaluator=result_name).prepare(offline=offline)
     else:
         raise ConfigurationError(f"Unknown dataset {selection!r}; use datasets list or a local tasks.json")
     return result, plugins, dependencies
@@ -185,7 +212,6 @@ def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dat
     source_kind = "git" if "revision" in harness else "local"
     if source_kind == "local" and (not isinstance(agent, Path) or not (agent / prompt_file).is_file()):
         raise ConfigurationError(f"Agent prompt file missing: {prompt_file}")
-    root_prefix = config_root.relative_to(project_root).as_posix()
     groups = len([t for t in document["tasks"] if t["split"] == "validation"])
     tests = len([t for t in document["tasks"] if t["split"] == "test"])
     reserved = groups + sum(s["max_trials"] for s in stages) + 2 * tests
@@ -193,7 +219,8 @@ def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dat
         raise ConfigurationError(f"max_trials must reserve at least {reserved} baseline/stage/test trials")
     positive(wall_time, "max_wall_time_seconds")
     positive(trial_timeout, "trial_timeout_seconds")
-    config_root.mkdir(parents=True)
+    safe_path(config_root.absolute(), ".")
+    config_root.mkdir(parents=True, exist_ok=False)
     try:
         write_json(config_root / "tasks.json", document)
         agent_lines = ["schema_version = 2", f"id = {_literal(agent_id or name)}",
@@ -203,7 +230,10 @@ def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dat
         if source_kind == "local":
             agent_lines.append(f"path = {_literal(str(agent.absolute()))}")
         else:
-            agent_lines += [f"url = {_literal(str(agent))}",
+            locator = str(agent)
+            if '://' not in locator and not re.fullmatch(r'(?:[\w.-]+@)?[\w.-]+:[^\s]+', locator):
+                locator = str((project_root / locator).resolve())
+            agent_lines += [f"url = {_literal(locator)}",
                             f"revision = {_literal(harness['revision'])}"]
         (config_root / "agent.toml").write_text("\n".join(agent_lines) + "\n", encoding="utf-8")
         harness_lines = [f"id = {_literal(harness.get('id', 'user-command'))}",
@@ -213,14 +243,15 @@ def write_experiment(config_root: Path, *, agent: Path | str, harness: dict, dat
         harness_lines += ["allow_local = true", "", "[runtime]", 'kind = "local"']
         (config_root / "harness.toml").write_text("\n".join(harness_lines) + "\n", encoding="utf-8")
         lines = ["schema_version = 1", f"name = {_literal(name)}",
-                 f"project_root = {_literal(os.path.relpath(project_root, config_root))}",
-                 f"agents = {_literal([root_prefix + '/agent.toml'])}",
-                 f"harnesses = {_literal([root_prefix + '/harness.toml'])}",
-                 f"benchmark = {_literal(root_prefix + '/tasks.json')}",
+                  f"project_root = {_literal(str(project_root.absolute()))}",
+                  'config_root = "."',
+                  'agents = ["agent.toml"]',
+                  'harnesses = ["harness.toml"]',
+                  'benchmark = "tasks.json"',
                  f"evaluator = {_literal(dataset['evaluator'])}",
                  f"final_test = {_literal(bool(tests))}",
                  f"final_stages = {_literal([s['id'] for s in stages] or ['baseline'])}",
-                 'output_dir = "runs"', ""]
+                  ""]
         lines += _section("budget", {"max_trials": max_trials if max_trials is not None else max(80, reserved),
                                      "max_wall_time_seconds": wall_time,
                                      "trial_timeout_seconds": trial_timeout})
@@ -387,11 +418,11 @@ def wizard_arguments(project_root: Path, *, execute: bool = True) -> list[str]:
     else:
         calls = "Agent 실행 명령에 따라 외부 도구/모델 호출 가능; 설정 생성만으로는 호출하지 않음"
     print(f"  {human('모델·도구 호출')}: {human(calls)}", file=sys.stderr)
-    config_dir = project_root / "runs" / "configs" / name
+    config_dir = app_path('experiments') / name
     print(f"  {human('설정 위치')}: {config_dir / ('session.json' if len(selected_datasets) > 1 else 'experiment.toml')}",
           file=sys.stderr)
-    print(f"  {human('예상 보고서')}: " + str(project_root / "runs" /
-          ("sessions/<session-id>/index.html" if len(selected_datasets) > 1 else "<run-id>/report.html")),
+    print(f"  {human('예상 보고서')}: " + str(app_path('sessions' if len(selected_datasets) > 1 else 'runs') /
+          ("<session-id>/index.html" if len(selected_datasets) > 1 else "<run-id>/report.html")),
           file=sys.stderr)
     question = ("데이터셋을 준비하고 실행할까요? [y/N]" if execute else
                 "데이터셋을 준비하고 설정을 만들까요? [y/N]")

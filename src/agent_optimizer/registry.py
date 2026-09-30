@@ -23,8 +23,10 @@ PROJECT_COMPONENTS: dict[str, dict[str, str]] = {
                  "sample_text": "experiments/sample-team/provider.py:Provider"},
     "evaluators": {"cvdp": "examples/ace-rtl/evaluator.py:CVDPEvaluator",
                    "verilog_eval": "examples/benchmarks/verilog_evaluator.py:VerilogEvaluator",
-                   "sample_eval": "examples/minimal/evaluator.py:TextFixtureEvaluator"},
-    "harnesses": {"sample_command": "experiments/sample-team/harness.py:Harness"},
+                    "sample_eval": "examples/minimal/evaluator.py:TextFixtureEvaluator",
+                    "cvdp_native": "examples/ace-rtl/native_evaluator.py:NativeCVDPEvaluator"},
+    "harnesses": {"sample_command": "experiments/sample-team/harness.py:Harness",
+                  "ace_native": "examples/ace-rtl/native_adapter.py:ACENative"},
     "optimizers": {"sample_baseline": "experiments/sample-team/optimizer.py:Optimizer"},
 }
 
@@ -35,6 +37,14 @@ PROJECT_DEPENDENCIES: dict[str, list[str]] = {
     "evaluators/cvdp": ["examples/ace-rtl/environment/network_driver.py"],
     "evaluators/verilog_eval": ["examples/benchmarks/verilog_eval.py"],
 }
+
+NATIVE_DEPENDENCIES = [f'examples/ace-rtl/{name}' for name in (
+    'native_worker.py', 'native_bridge.py', 'native_cvdp.py', 'native_evaluator.py',
+    'native_prepare.py', 'native_artifacts.py', 'native_cleanup.py', 'evaluator.py',
+    'source-native.toml', 'harness-native.toml',
+    'native/guidance.md', 'native/orchestration.py', 'environment/network_driver.py')]
+PROJECT_DEPENDENCIES['harnesses/ace_native'] = NATIVE_DEPENDENCIES
+PROJECT_DEPENDENCIES['evaluators/cvdp_native'] = NATIVE_DEPENDENCIES
 
 
 def is_source_checkout(root: Path) -> bool:

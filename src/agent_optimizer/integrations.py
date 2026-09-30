@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import importlib.util
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -17,6 +18,29 @@ from agent_optimizer.contracts import ConfigurationError, UnavailableError
 from agent_optimizer.datasets import acquire_pinned_git
 from agent_optimizer.results import write_json
 from agent_optimizer.workspace import safe_path
+
+
+def launch_existing(spec: dict, registry, *, output: Path | None = None) -> int | None:
+    if spec.get('preset_selection'):
+        from agent_optimizer.preset_tui import verify_ace_selection
+        verify_ace_selection(spec)
+        return None
+    registry.load_project(spec['_root'])
+    registry.load_plugins(spec['_root'], {'harnesses': spec.get('plugins', {}).get('harnesses', {})})
+    launchers = [getattr(registry.resolve('harnesses', profile['adapter']), 'launch_existing', None)
+                 for profile in spec['_profiles']]
+    if any(launcher is not None for launcher in launchers):
+        if output is not None:
+            raise ConfigurationError('전용 실행 프로필은 --output을 지원하지 않습니다')
+        if len(spec['_profiles']) != 1 or len(spec['_agents']) != 1:
+            raise ConfigurationError('전용 실행 프로필은 단일 Agent·하네스 실험에서만 사용할 수 있습니다')
+        previous = Path.cwd()
+        try:
+            os.chdir(spec['_root'])
+            return launchers[0](spec)
+        finally:
+            os.chdir(previous)
+    return None
 
 
 ACE_DIRECTORIES = ("examples/ace-rtl", "examples/rtl-debugger", "examples/benchmarks",
@@ -64,6 +88,39 @@ def selected_files(source: Path, integration_id: str) -> list[Path]:
     if not files:
         raise ConfigurationError(f"선택한 연동 파일이 없습니다: {integration_id}")
     return files
+
+
+def stage_local_integration(source: Path, integration_id: str) -> Path:
+    """선택한 source checkout의 trusted helper를 Home 자산으로 복사; 원본은 불변."""
+    files = selected_files(source, integration_id)
+    hashes = {file.relative_to(source).as_posix(): hashlib.sha256(file.read_bytes()).hexdigest() for file in files}
+    identity = hashlib.sha256(json.dumps(hashes, sort_keys=True).encode()).hexdigest()[:16]
+    workspace = app_path('assets') / f'{integration_id}-{identity}'
+    safe_path(workspace, '.')
+    for file in files:
+        relative = file.relative_to(source).as_posix()
+        destination = safe_path(workspace, relative)
+        if destination.exists() and (not destination.is_file() or hashlib.sha256(destination.read_bytes()).hexdigest() != hashes[relative]):
+            raise ConfigurationError(f'준비 자산과 선택 소스가 충돌합니다: {relative}')
+    workspace.mkdir(parents=True, exist_ok=True)
+    for file in files:
+        destination = safe_path(workspace, file.relative_to(source).as_posix())
+        if not destination.exists():
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            with destination.open('xb') as stream:
+                stream.write(file.read_bytes())
+    return workspace
+
+
+def verify_local_helpers(source: Path, workspace: Path, integration_id: str) -> None:
+    if source.resolve() == workspace.resolve():
+        return
+    for file in selected_files(source, integration_id):
+        if file.suffix != '.py':
+            continue
+        copied = safe_path(workspace, file.relative_to(source).as_posix())
+        if not copied.is_file() or copied.read_bytes() != file.read_bytes():
+            raise ConfigurationError('준비된 실행 helper가 원본 프로젝트의 검증된 helper와 다릅니다')
 
 
 def acquire_integration(workspace: Path, integration_id: str, *, offline: bool = False,
@@ -235,6 +292,26 @@ def prepare_pointer(path: Path, *, offline: bool = False) -> dict:
 def prepare_experiment(path: Path, *, offline: bool = False) -> dict:
     """Prepare an explicit ACE selection or the unchanged installed pointer."""
     raw = read_toml(path)
+    if 'integration' not in raw:
+        from agent_optimizer.config import load_experiment, selected_pairs
+        spec = load_experiment(path)
+        if any(profile['adapter'] == 'ace_native' for profile in spec['_profiles']):
+            from agent_optimizer.native_selection import preparation, verify_native_selection
+            verify_native_selection(spec)
+            checks = []
+            for agent, profile in selected_pairs(spec):
+                if profile['adapter'] == 'ace_native':
+                    native = profile.get('native', {})
+                    checks.append(preparation(spec['_root']).readiness(agent.source.path, native.get('python', '')))
+            if not all(check['ready'] for check in checks):
+                raise UnavailableError('native 고정 소스·Python 3.12/yaml/pydantic_settings 준비가 필요합니다; offline 상태를 자동 설치로 보완하지 않습니다')
+            from agent_optimizer.registry import Registry
+            registry = Registry()
+            registry.load_project(spec['_root'])
+            registry.load_plugins(spec['_root'], spec.get('plugins', {}))
+            from agent_optimizer.runner import evaluator_settings
+            registry.resolve('evaluators', spec['evaluator'])(evaluator_settings(spec)).validate_benchmark(spec['_tasks'], spec['_benchmark_metadata'])
+            return {'experiment': path.resolve(), 'profile': 'ace-native', 'ready': True, 'live': 'not_run', 'checks': checks}
     if "preset_selection" not in raw:
         return prepare_pointer(path, offline=offline)
     from agent_optimizer.config import load_experiment
@@ -259,13 +336,17 @@ def publish_marker(workspace: Path, integration_id: str, obtained: dict) -> None
 
 
 def prepare_catalog_dataset(workspace: Path, selection: str, *, offline: bool = False,
-                            cache_dir: Path | None = None) -> dict:
+                             cache_dir: Path | None = None, source_root: Path | None = None) -> dict:
     from agent_optimizer.registry import Registry
 
     if selection not in {"cvdp", "verilog-spec", "verilog-completion"}:
         raise ConfigurationError(f"지원하지 않는 데이터셋: {selection}")
     workspace = workspace.resolve()
-    obtained = acquire_integration(workspace, selection, offline=offline)
+    if source_root is not None:
+        workspace = stage_local_integration(source_root, selection)
+        obtained = None
+    else:
+        obtained = acquire_integration(workspace, selection, offline=offline)
     plugins, dependencies = integration_plugins(selection)
     registry = Registry()
     from agent_optimizer.registry import plugin_files
@@ -280,5 +361,6 @@ def prepare_catalog_dataset(workspace: Path, selection: str, *, offline: bool = 
     checks = provider.doctor(cache)
     if not checks or any(row.get("status") != "ok" for row in checks):
         raise UnavailableError(f"데이터셋 준비 진단 실패: {selection}")
-    publish_marker(workspace, selection, obtained)
+    if obtained is not None:
+        publish_marker(workspace, selection, obtained)
     return {**result, "dataset_provider": selection}

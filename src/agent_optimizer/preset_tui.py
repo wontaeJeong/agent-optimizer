@@ -5,6 +5,7 @@ import importlib.util
 import math
 import os
 import shutil
+import shlex
 import sys
 import uuid
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from agent_optimizer.locale import current_language
 from agent_optimizer.registry import PROJECT_COMPONENTS, Registry, is_source_checkout
 from agent_optimizer.setup_wizard import _literal, _section, prepare_selection, write_experiment
 from agent_optimizer.workspace import safe_path
+from agent_optimizer.app_paths import app_path
 
 
 ACE_GUIDANCE = "skills/ace-rtl/references/role-guidance.md"
@@ -51,9 +53,9 @@ def preset_options(root: Path, page: str, agent: str = "ace-rtl") -> list[Choice
     """프리셋의 호환성·준비 조건을 UI와 분리해 한 곳에서 제공한다."""
     agents = [ChoiceRow("ace-rtl", "component", "ACE-RTL", _tr(
         "RTL 문제 해결에 사용하는 외부 ACE Agent입니다.\n\nSource\n  pinned Git revision\n\n"
-        "Used with\n  OpenCode harness\n\nPreparation\n  Git source·CVDP 자산·Docker 준비가 필요할 수 있습니다",
+        "Used with\n  Python native 또는 명시 legacy skill harness\n\nPreparation\n  고정 source·CVDP·선택 평가 환경이 필요합니다",
         "External ACE Agent for RTL problem solving.\n\nSource\n  pinned Git revision\n\n"
-        "Used with\n  OpenCode harness\n\nPreparation\n  Git source, CVDP assets and Docker may be required"), True,
+        "Used with\n  Python native or explicit legacy skill harness\n\nPreparation\n  Pinned source, CVDP and selected evaluation assets required"), True,
                _tr("자산 준비 필요 · 구현됐으나 실환경 미검증", "Assets to prepare · live execution unverified"))]
     for path in sorted((root / "examples").glob("*/agent.toml")):
         registered_agent = load_agent(path)
@@ -125,7 +127,9 @@ def preset_options(root: Path, page: str, agent: str = "ace-rtl") -> list[Choice
                                           "Project-registered dataset; ACE output/evaluator compatibility not verified"), False,
                                 _tr("이번 조합과 호환 불가", "Not compatible"))
                                for name in sorted(PROJECT_COMPONENTS["datasets"]) if name not in DATASETS)
-    ace_harness = [ChoiceRow("ace-opencode", "component", "OpenCode", _tr(
+    ace_harness = [ChoiceRow('ace-native', 'component', 'Python native',
+                    '고정 Python run_attempt·세 역할 API·trusted CVDP 평가. 명시 CID/row/split과 로컬 고정 자산 선택 필요.\nGEPA: native/guidance.md\nMeta-Harness: native/orchestration.py\ncid007 PNR·상용 helper 제외; 실환경 not_run', True, '자산 준비 필요 · 실환경 미검증'),
+                    ChoiceRow("ace-opencode", "component", "OpenCode (legacy skill)", _tr(
         "선택한 ACE Agent를 OpenCode에서 실행합니다.\n\nRuntime\n  Docker\n\n"
         "Requires\n  OpenCode model selector\n  Docker",
         "Runs the selected ACE Agent through OpenCode.\n\nRuntime\n  Docker\n\n"
@@ -229,8 +233,7 @@ def write_sample_selection(root: Path, agent_id: str, optimizer: str, *, name: s
         stages = [{"id": "file-variants", "optimizer": "file_variants", "max_trials": 1,
                    "config": {"variants": [{"name": "repair", "files": {
                        "configs/strategy.json": '{"repair": true}\n'}}]}}]
-    return write_experiment(root / "runs/configs" / (identifier(name) if name else
-                                                   "fixture-" + uuid.uuid4().hex[:12]),
+    return write_experiment(app_path('experiments') / ((identifier(name) if name else 'fixture') + '-' + uuid.uuid4().hex[:12]),
                             agent=agent, harness={"adapter": "fixture", "id": "fixture"},
                             dataset=dataset, stages=stages, plugins=plugins, dependencies=dependencies,
                              name=name or f"{agent_id}-{optimizer.replace('_', '-')}-sample-text",
@@ -278,13 +281,15 @@ def ace_stage_config(optimizer: str, options: dict | None = None) -> dict:
 
 def write_ace_selection(root: Path, optimizer: str, *, name: str | None = None,
                         options: dict | None = None, max_trials: int | None = None,
-                        wall_time: float | None = None, trial_timeout: float | None = None) -> Path:
+                        wall_time: float | None = None, trial_timeout: float | None = None,
+                        asset_root: Path | None = None) -> Path:
     """고정 ACE 프리셋을 보존한 채 준비된 공개 두 과제의 독립 실험을 생성한다."""
     stage_config = ace_stage_config(optimizer, options)
     root = root.resolve()
     original = root / "examples/ace-rtl/experiment.toml"
     template = read_toml(original)
-    benchmark = root / template["benchmark"]
+    assets = asset_root or root
+    benchmark = assets / template["benchmark"]
     if not benchmark.is_file():
         raise ConfigurationError("ACE 공개 tasks.json 준비가 필요합니다")
     tasks, _ = load_tasks(benchmark)
@@ -304,21 +309,27 @@ def write_ace_selection(root: Path, optimizer: str, *, name: str | None = None,
     if (type(timeout) not in {int, float} or not math.isfinite(timeout) or timeout <= 0 or
             type(wall) not in {int, float} or not math.isfinite(wall) or wall <= 0):
         raise ConfigurationError("ACE 실행 시간 예산은 유한한 양수여야 합니다")
-    folder = root / "runs" / "configs" / (identifier(name) if name else "ace-" + uuid.uuid4().hex[:12])
-    if (root / "runs").is_symlink() or (root / "runs/configs").is_symlink():
-        raise ConfigurationError("실험 설정 디렉터리는 symlink일 수 없습니다")
+    folder = app_path('experiments') / ((identifier(name) if name else 'ace') + '-' + uuid.uuid4().hex[:12])
+    safe_path(folder, '.')
     if folder.exists() or folder.is_symlink():
         raise ConfigurationError(f"Generated configuration already exists: {folder}")
     folder.mkdir(parents=True, exist_ok=False)
     try:
-        prefix = folder.relative_to(root).as_posix()
         source = read_toml(root / template["agents"][0])
-        agent_path = template["agents"][0]
+        agent_path = 'agent.toml'
+        resolved_source = load_agent(root / template['agents'][0]).source
+        if resolved_source.kind == 'local':
+            source['source']['path'] = str(resolved_source.path)
+        elif resolved_source.url and '://' not in resolved_source.url and not resolved_source.url.startswith('git@'):
+            source['source']['url'] = str((root / Path(template['agents'][0]).parent / resolved_source.url).resolve())
+        agent_lines = ['schema_version = 2', *[f'{key} = {_literal(value)}' for key, value in source.items() if key not in {'source', 'schema_version'}], '', *_section('source', source['source'])]
+        (folder / 'agent.toml').write_text('\n'.join(agent_lines), encoding='utf-8')
+        shutil.copyfile(root / template['harnesses'][0], folder / 'harness.toml')
+        shutil.copyfile(benchmark, folder / 'tasks.json')
         seeds = {}
         if optimizer == "meta_harness":
             script = Path(__file__).with_name("ace_scaffold.py")
             shutil.copyfile(script, folder / "ace_scaffold.py")
-            agent_path = prefix + "/agent.toml"
             editable = [*source["editable"], ACE_SCAFFOLD]
             build = ["python3", "-c", SCAFFOLD_CALL, f"agent/{ACE_SCAFFOLD}", "task"]
             agent_lines = ["schema_version = 2", f"id = {_literal(source['id'])}",
@@ -328,16 +339,16 @@ def write_ace_selection(root: Path, optimizer: str, *, name: str | None = None,
                            f"editable = {_literal(editable)}", f"build = {_literal(build)}", ""]
             agent_lines += _section("source", source["source"])
             (folder / "agent.toml").write_text("\n".join(agent_lines), encoding="utf-8")
-            seeds[ACE_SCAFFOLD] = prefix + "/ace_scaffold.py"
+            seeds[ACE_SCAFFOLD] = 'ace_scaffold.py'
         experiment_name = name or "ace-rtl-opencode-" + optimizer.replace("_", "-")
         lines = ["schema_version = 1", f"name = {_literal(experiment_name)}",
-                 f"project_root = {_literal(os.path.relpath(root, folder))}",
+                 f"project_root = {_literal(str(root))}", 'config_root = "."',
+                 'candidate_seed_root = "config"',
                  f"agents = {_literal([agent_path])}",
-                 f"harnesses = {_literal(template['harnesses'])}",
-                 f"benchmark = {_literal(template['benchmark'])}",
+                 'harnesses = ["harness.toml"]', 'benchmark = "tasks.json"',
                  'evaluator = "cvdp"', "final_test = false",
                  f"final_stages = {_literal(['baseline'] if optimizer == 'baseline' else [optimizer])}",
-                 'output_dir = "runs"', ""]
+                 ""]
         if seeds:
             lines += _section("candidate_seed_files", seeds)
         lines += _section("preset_selection", {"agent": "ace-rtl", "harness": "ace-opencode",
@@ -345,8 +356,8 @@ def write_ace_selection(root: Path, optimizer: str, *, name: str | None = None,
         lines += _section("plugins.harnesses", template["plugins"]["harnesses"])
         lines += _section("budget", {"max_trials": maximum, "max_wall_time_seconds": wall,
                                       "trial_timeout_seconds": timeout})
-        lines += _section("evaluator_config", {"repo": str(root / "external/cvdp_benchmark"),
-                                                "python": str(root / "external/cvdp-venv/bin/python")})
+        lines += _section("evaluator_config", {"repo": str(assets / "external/cvdp_benchmark"),
+                                                "python": str(assets / "external/cvdp-venv/bin/python")})
         lines += ["[objective]", 'mode = "lexicographic"', "keep = 1", "",
                   "[[objective.metrics]]", 'name = "solve_rate"', 'source = "passed"',
                   'direction = "maximize"', 'aggregate = "mean"', ""]
@@ -389,13 +400,18 @@ def verify_ace_selection(spec: dict) -> None:
         expected_stage = ({} if optimizer == "baseline" else
                            {"id": optimizer, "optimizer": optimizer, "inputs": ["baseline"],
                             "max_trials": allowance, "config": expected_config})
-        expected_seed = ({ACE_SCAFFOLD: spec["_source"].parent.relative_to(root).as_posix()
-                          + "/ace_scaffold.py"} if optimizer == "meta_harness" else {})
+        external = spec.get('_config_root', root) != root
+        assets = Path(spec.get('evaluator_config', {}).get('repo', str(root / 'external/cvdp_benchmark'))).parent.parent if external else root
+        from agent_optimizer.integrations import verify_local_helpers
+        verify_local_helpers(root, assets, 'ace-rtl')
+        expected_seed = ({ACE_SCAFFOLD: ('ace_scaffold.py' if external else
+                          spec['_source'].parent.relative_to(root).as_posix() + '/ace_scaffold.py')}
+                         if optimizer == 'meta_harness' else {})
         valid = (
             choice == {"agent": "ace-rtl", "harness": "ace-opencode",
                        "optimizer": optimizer, "dataset": "cvdp"}
             and optimizer in {"gepa", "meta_harness", "baseline"}
-            and spec["_source"].is_relative_to(root / "runs/configs")
+            and (external or spec["_source"].is_relative_to(root / "runs/configs"))
             and source.source.kind == "git"
             and source.source.revision == "fead921f18bb57345b5a41ef93ba625be208e99c"
             and profile.get("adapter") == "ace_opencode"
@@ -411,13 +427,14 @@ def verify_ace_selection(spec: dict) -> None:
             and agent.supported_harnesses == source.supported_harnesses
             and agent.editable == expected_editable and agent.build == expected_build
             and spec["_profiles"][0] == profile
-            and spec["agents"] == [template["agents"][0] if optimizer != "meta_harness"
-                                   else spec["_source"].parent.relative_to(root).as_posix() + "/agent.toml"]
-            and spec["harnesses"] == template["harnesses"]
-            and spec["benchmark"] == template["benchmark"] and spec["evaluator"] == "cvdp"
+            and spec['agents'] == (['agent.toml'] if external else [template['agents'][0] if optimizer != 'meta_harness' else spec['_source'].parent.relative_to(root).as_posix() + '/agent.toml'])
+            and spec['harnesses'] == (['harness.toml'] if external else template['harnesses'])
+            and spec['benchmark'] == ('tasks.json' if external else template['benchmark']) and spec['evaluator'] == 'cvdp'
+            and (not external or safe_path(spec['_config_root'], spec['benchmark']).read_bytes()
+                 == safe_path(assets, template['benchmark']).read_bytes())
             and spec.get("candidate_seed_files", {}) == expected_seed
             and (optimizer != "meta_harness" or
-                 safe_path(root, expected_seed[ACE_SCAFFOLD]).read_bytes()
+                  safe_path(spec.get('_seed_root', root), expected_seed[ACE_SCAFFOLD]).read_bytes()
                  == Path(__file__).with_name("ace_scaffold.py").read_bytes())
             and spec["plugins"] == {"harnesses": template["plugins"]["harnesses"]}
             and type(spec["budget"]["max_trials"]) is int
@@ -433,10 +450,10 @@ def verify_ace_selection(spec: dict) -> None:
             and spec.get("stages", []) == ([] if optimizer == "baseline" else [expected_stage])
             and spec["objective"] == {"mode": "lexicographic", "keep": 1, "metrics": [
                 {"name": "solve_rate", "source": "passed", "direction": "maximize", "aggregate": "mean"}]}
-            and spec.get("output_dir") == "runs" and spec.get("repetitions", 1) == 1
+            and (spec.get('output_dir') is None if external else spec.get('output_dir') == 'runs') and spec.get("repetitions", 1) == 1
             and "pairs" not in spec and "plugin_dependencies" not in spec
-            and spec.get("evaluator_config") == {"repo": str(root / "external/cvdp_benchmark"),
-                                                  "python": str(root / "external/cvdp-venv/bin/python")}
+            and spec.get("evaluator_config") == {"repo": str(assets / "external/cvdp_benchmark"),
+                                                  "python": str(assets / "external/cvdp-venv/bin/python")}
         )
     except (ConfigurationError, OSError, ValueError, TypeError, KeyError, IndexError, AttributeError):
         valid = False
@@ -454,20 +471,24 @@ def _lifecycle(root: Path):
     return module
 
 
-def prepare_ace_selection(root: Path, *, offline: bool = False) -> None:
+def prepare_ace_selection(root: Path, *, offline: bool = False) -> Path:
     """확인 후 검증된 고정 연동 자산만 준비한다."""
     from agent_optimizer.registry import is_source_checkout
     if is_source_checkout(root):
-        _lifecycle(root).prepare(root, offline=offline)
+        from agent_optimizer.integrations import stage_local_integration
+        workspace = stage_local_integration(root, 'ace-rtl')
+        _lifecycle(workspace).prepare(workspace, offline=offline)
+        return workspace
     else:
         from agent_optimizer.integrations import prepare_pointer, write_pending_experiment
         pointer = root / "experiment.toml"
         if not pointer.exists():
             pointer = write_pending_experiment(root, "ace-rtl")
         prepare_pointer(pointer, offline=offline)
+        return root
 
 
-def execute_ace_selection(experiment: Path, *, on_event=None) -> tuple[Path, dict]:
+def execute_ace_selection(experiment: Path, *, on_event=None, output: Path | None = None) -> tuple[Path, dict]:
     """선택된 TOML을 검증·고정 평가 lock·runner에 연결한다."""
     from agent_optimizer.model_input import session_environment
     from agent_optimizer.models import ModelSettings
@@ -497,7 +518,8 @@ def execute_ace_selection(experiment: Path, *, on_event=None) -> tuple[Path, dic
         opencode_config = "/opt/agent-optimizer/opencode.json"
     else:
         raise ConfigurationError("ACE OpenCode 모델은 compatible/모델 또는 openrouter/모델을 선택하세요")
-    inspection = _lifecycle(root).inspect(root)
+    assets = Path(spec['evaluator_config']['repo']).parent.parent
+    inspection = _lifecycle(assets).inspect(assets)
     if not inspection["ready"]:
         failures = [f"{item['id']}: {render_diagnostic(item)}" for item in inspection["checks"]
                     if item["area"] == "evaluation" and item["status"] != "ok"]
@@ -515,20 +537,20 @@ def execute_ace_selection(experiment: Path, *, on_event=None) -> tuple[Path, dic
         for profile in spec["_profiles"]:
             if profile.get("runtime", {}).get("kind") == "docker":
                 profile["runtime"]["image"] = inspection["lock"]["images"]["agent"]["id"]
-        run_dir, summary = run_experiment(spec, Registry(), on_event=on_event)
+        run_dir, summary = run_experiment(spec, Registry(), output=output, on_event=on_event)
     return run_dir, summary
 
 
-def run_ace_selection(experiment: Path) -> int:
+def run_ace_selection(experiment: Path, *, output: Path | None = None) -> int:
     """비대화형 CLI의 기존 출력·종료 코드 유지."""
     from agent_optimizer.cli import next_command, show
     from agent_optimizer.terminal_report import ProgressDisplay
 
     with ProgressDisplay() as progress:
         progress.configure_budget(load_experiment(experiment)["budget"]["max_trials"])
-        run_dir, summary = execute_ace_selection(experiment, on_event=progress)
+        run_dir, summary = execute_ace_selection(experiment, on_event=progress, output=output)
     show({"run_dir": run_dir, "status": summary["status"], "trials_used": summary["trials_used"],
           "report_html": run_dir / "report.html"})
     print(f"결과 HTML: {run_dir / 'report.html'}", file=sys.stderr)
-    next_command(f"agent-opt report {run_dir}")
+    next_command(f"agent-opt report {shlex.quote(str(run_dir))}")
     return 0 if summary["status"] == "completed" else 3

@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import os
+import json
+import shlex
 import contextlib
 import math
 import threading
@@ -112,6 +114,9 @@ def display_endpoint(value: str) -> str:
 
 
 def _name(page: str) -> str:
+    if page in {'Native', 'NativeRows', 'NativeSplit', 'SessionHistory'}:
+        return {'Native': 'Native CID·row 선택', 'NativeRows': 'Native row 선택',
+                'NativeSplit': '선택 row의 split 지정', 'SessionHistory': '세션 개별 실행'}[page]
     return {"Home": _tr("시작", "Home"), "Review": _tr("실행 전 확인", "Review"),
             "History": _tr("이전 실행", "Run History"),
             "Existing": _tr("기존 실험", "Existing Experiment"),
@@ -195,12 +200,21 @@ class OptimizerApp(App[int]):
         self.input_drafts = ModelValues()
         self.experiment: Path | None = None
         self.workspace = self.root
-        self.history: list[tuple[str, str, int, Path]] = []
+        self.history: list[dict] = []
+        self._report_lock = threading.Lock()
+        self._report_handle = None
+        self._report_path = None
+        self._report_epoch = 0
+        self._report_closing = False
+        self.native_values = {}
+        self.native_field = 'cids'
         self.return_page = "Home"
         self.workspace_back = "Home"
         self.model_values: dict[str, str] = ModelValues()
         self.model_presets: dict[str, dict[str, str]] = {}
         self.component_metadata: dict[str, dict] = {}
+        from agent_optimizer.catalog import describe_choice
+        self.component_metadata['ace-native'] = describe_choice('harness', 'ace-native', self.root)
         self.model_sources: dict[str, str] = {}
         self.model_fields: list[str] = []
         self.model_index = 0
@@ -304,8 +318,8 @@ class OptimizerApp(App[int]):
         elif page in STEPS:
             self.rows = preset_options(self.root, page, self.selections.get("Agent", "ace-rtl"))
         elif page == "Existing":
-            from agent_optimizer.cli import _recent_configurations
-            recent = _recent_configurations(self.root)
+            from agent_optimizer.setup_wizard import recent_configurations
+            recent = recent_configurations(self.root)
             self.rows = [ChoiceRow(str(path), "configuration", str(path), _tr("최근 생성된 설정 · 선택하면 실행 전 확인으로 이동",
                                           "Recent generated configuration · review before running"), True)
                          for path in recent]
@@ -316,16 +330,57 @@ class OptimizerApp(App[int]):
             entry.value = self.input_drafts.get("Existing", "")
             entry.styles.display = "block"
         elif page == "History":
-            from agent_optimizer.cli import recent_runs
-            self.history = recent_runs(self.root)
-            self.rows = [ChoiceRow(name, "report", f"{name} · {status} · HTML 보고서 보기",
-                          f"{_tr('생성', 'Created')}: {name[:15]} UTC\n"
-                          f"{_tr('상태', 'Status')}: {status}\n"
-                          f"{_tr('시도', 'Trials')}: {trials}\n"
-                          f"{_tr('보고서', 'Report')}: {report}\n"
-                          + _tr("Enter: HTML 보고서 보기 (열람 직전 다시 검증)",
-                                "Enter: view HTML report (verify before viewing)"), True)
-                         for name, status, trials, report in self.history]
+            from agent_optimizer.app_paths import resolve_app_home, resolve_run_base
+            from agent_optimizer.history import list_history
+            bases = []
+            if self.experiment is not None:
+                try:
+                    bases.append(resolve_run_base(load_experiment(self.experiment)))
+                except (ConfigurationError, OSError, ValueError, KeyError, TypeError):
+                    pass
+            if self.run_result and self.run_result.get('run_dir'):
+                bases.append(Path(self.run_result['run_dir']).parent)
+            self.history = list_history(app_home=resolve_app_home(), project_root=self.root, run_bases=bases)
+            self.rows = [ChoiceRow(row['run_id'], 'session' if row['kind'] == 'session' else 'report',
+                         f"{row['run_id']} · {row['status']} · " + ('개별 결과 선택' if row['kind'] == 'session' else 'HTML 보고서 보기' if row['report_path'] else '진단/경로 보기'),
+                         f"생성: {row['created_at']}\n상태: {row['status']}\n시도: {row['trials_used']}\n실제 경로: {row['run_dir']}\n보고서: {row['report_path']}\n" +
+                         (row['diagnostic'] or 'Enter: HTML 보고서 보기 (열람 직전 재검증)') +
+                         (f"\n재생성: agent-opt report {shlex.quote(row['run_dir'])} --html" if not row['report_path'] else ''), True)
+                         for row in self.history]
+        elif page == 'SessionHistory':
+            self.rows = [ChoiceRow(row['run_id'], 'report', f"{row['run_id']} · {row['status']}",
+                         f"실제 경로: {row['run_dir']}\n{row['diagnostic'] or 'Enter: HTML 보고서 보기'}") for row in self.session_history]
+        elif page == 'Native':
+            fields = {'cids': 'CID(쉼표 구분): cid002/cid004/cid007/cid016',
+                      'rows': 'row ID → split JSON: {"ROW_A":"train","ROW_B":"validation"}',
+                      'dataset': '고정 원본 CVDP JSONL 절대경로(trusted)',
+                      'source': '준비된 native source 절대경로(upstream과 배타)',
+                      'upstream': '고정 로컬 upstream 절대경로(source와 배타)',
+                      'python': 'native Python 3.12 경로(미입력: 현재 interpreter)',
+                      'evaluator': '공식 evaluator repo/python/sim_image/sim_image_id JSON'}
+            self.rows = [ChoiceRow(field, 'native.field', label,
+                         f"{label}\n현재: {self.native_values.get(field, '미설정')}\nCID007: PNR·상용 helper row는 선택 후 검증에서 명시 거부됩니다.") for field, label in fields.items()]
+            self.rows.append(ChoiceRow('rows.pick', 'action', '고정 데이터의 row 목록에서 선택',
+                            'CID와 dataset 경로 입력 후 과제 ID·target·지원 상태를 확인하고 split을 직접 선택합니다.'))
+            self.rows.append(ChoiceRow('native.continue', 'action', '모델 설정으로 계속', '선택을 검증합니다. 준비·다운로드·모델 호출 없음.'))
+            entry.placeholder = fields[self.native_field]
+            value = self.native_values.get(self.native_field, '')
+            entry.value = (','.join(value) if self.native_field == 'cids' else json.dumps(value, ensure_ascii=False) if isinstance(value, dict) else str(value))
+            entry.styles.display = 'block'
+        elif page == 'NativeRows':
+            selected = self.native_values.get('rows', {})
+            self.rows = [ChoiceRow(row['id'], 'native.row',
+                         f"{row['id']} · {row['cid']} · {selected.get(row['id'], '미선택')}",
+                         f"target: {', '.join(row['targets'])}\n도구: {', '.join(row['tools'])}\n" +
+                         (row['reason'] or 'row 형태 검토만 완료; 실환경 not_run. Enter로 split을 명시하세요.'),
+                         row['supported'], row['reason']) for row in self.native_rows_catalog]
+            self.rows.append(ChoiceRow('native.back', 'action', 'Native 설정으로 돌아가기', '선택한 row·split을 보존합니다.'))
+        elif page == 'NativeSplit':
+            self.rows = [ChoiceRow(split, 'native.split', split, {
+                'train': 'Optimizer 이력·변이 근거에 사용할 공개 과제',
+                'validation': '수치 비교·후보 선택; private 평가 자료는 공개하지 않음',
+                'test': '선택 고정 후 최종 평가에만 사용',
+                'remove': '이 row 선택을 제거'}[split]) for split in ('train', 'validation', 'test', 'remove')]
         elif page == "Review":
             self.rows = [ChoiceRow("model.edit", "action", _tr("모델 설정 수정", "Edit Model Settings"),
                           _tr("현재 환경 값을 확인하거나 이번 세션에서 모델 값을 바꿉니다.",
@@ -620,7 +675,8 @@ class OptimizerApp(App[int]):
             self.query_one("#details", Static).update(self._doctor_detail(index))
             return
         if index is None or not 0 <= index < len(self.rows):
-            self.query_one("#details", Static).update(_tr("표시할 항목이 없습니다.", "No items to show."))
+            diagnostics = getattr(self.history, 'diagnostics', []) if self.page == 'History' else []
+            self.query_one("#details", Static).update(_tr("표시할 항목이 없습니다.", "No items to show.") + '\n' + '\n'.join(diagnostics))
             return
         row = self.rows[index]
         self.query_one("#details-panel").scroll_home(animate=False)
@@ -802,7 +858,9 @@ class OptimizerApp(App[int]):
             self.selections[self.page] = value
             next_page = "Model" if self.page == "Dataset" else STEPS[STEPS.index(self.page) + 1]
             self.return_page = "Dataset"
-            if next_page == "Model" and value == "cvdp" and not is_source_checkout(self.root):
+            if next_page == 'Model' and self.selections.get('Harness') == 'ace-native':
+                next_page = 'Native'
+            elif next_page == "Model" and value == "cvdp" and not is_source_checkout(self.root):
                 next_page = "Workspace"
                 self.workspace_back = "Dataset"
             if next_page == "Model":
@@ -815,8 +873,58 @@ class OptimizerApp(App[int]):
             else:
                 self._load_existing(Path(row.id))
         elif self.page == "History":
-            history = next(item for item in self.history if item[0] == row.id)
-            self.action_open_report(history[3], history[1])
+            history = next(item for item in self.history if item['run_id'] == row.id)
+            if history['kind'] == 'session':
+                from agent_optimizer.history import list_history
+                from agent_optimizer.app_paths import resolve_app_home
+                rows = list_history(app_home=resolve_app_home(), run_bases=(Path(history['run_dir']).parent,), limit=10000)
+                self.session_history = [item for item in rows if item['run_dir'] in history['child_runs']]
+                self._show('SessionHistory')
+            elif history['report_path']:
+                self.action_open_report(Path(history['report_path']), history['status'], row=history)
+            else:
+                self._detail(index)
+        elif self.page == 'SessionHistory':
+            history = next(item for item in self.session_history if item['run_id'] == row.id)
+            if history['report_path']:
+                self.action_open_report(Path(history['report_path']), history['status'], row=history)
+        elif self.page == 'Native':
+            if action == 'rows.pick':
+                try:
+                    from agent_optimizer.native_selection import available_rows
+                    if not self.native_values.get('dataset'):
+                        raise ConfigurationError('고정 dataset 경로를 먼저 입력하세요')
+                    self.native_rows_catalog = available_rows(self.workspace, self.native_values['dataset'], self.native_values.get('cids', []))
+                    self._show('NativeRows')
+                except (ConfigurationError, OSError, ValueError) as exc:
+                    self._error(exc)
+            elif action == 'native.continue':
+                try:
+                    from agent_optimizer.native_selection import validate_selection, inspect_selection
+                    validate_selection(self.native_values.get('cids', []), self.native_values.get('rows', {}), self.selections['Optimizer'])
+                    if not self.native_values.get('dataset') or bool(self.native_values.get('source')) == bool(self.native_values.get('upstream')):
+                        raise ConfigurationError('고정 dataset와 source/upstream 중 하나를 명시하세요')
+                    self.native_rows = inspect_selection(self.workspace, self.native_values['cids'], self.native_values['rows'], self.native_values['dataset'])
+                    self._open_model_setup('Native')
+                except (ConfigurationError, OSError, ValueError, TypeError) as exc:
+                    self._error(exc)
+            else:
+                self.native_field = action
+                self._show('Native')
+                self.query_one(Input).focus()
+        elif self.page == 'NativeRows':
+            if action == 'native.back':
+                self._show('Native')
+            else:
+                self.native_row_id = action
+                self._show('NativeSplit')
+        elif self.page == 'NativeSplit':
+            chosen = self.native_values.setdefault('rows', {})
+            if action == 'remove':
+                chosen.pop(self.native_row_id, None)
+            else:
+                chosen[self.native_row_id] = action
+            self._show('NativeRows')
         elif self.page == "Review":
             if action == "model.edit":
                 self._open_model_setup("Review")
@@ -894,7 +1002,7 @@ class OptimizerApp(App[int]):
             except ConfigurationError as exc:
                 self._error(exc)
                 return
-            if self.model_return_page in {"Dataset", "Workspace"}:
+            if self.model_return_page in {"Dataset", "Workspace", 'Native'}:
                 self.return_page = "Model"
             self._show("Review")
             return
@@ -941,7 +1049,21 @@ class OptimizerApp(App[int]):
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         value = event.value.strip()
-        if self.page == "Existing":
+        if self.page == 'Native':
+            try:
+                field = self.native_field
+                parsed = [v.strip() for v in value.split(',') if v.strip()] if field == 'cids' else json.loads(value) if field in {'rows', 'evaluator'} and value else value
+                if field == 'rows' and (not isinstance(parsed, dict) or not all(isinstance(split, str) and split in {'train', 'validation', 'test'} for split in parsed.values())):
+                    raise ConfigurationError('row ID → train/validation/test JSON 객체가 필요합니다')
+                if field == 'evaluator' and (not isinstance(parsed, dict) or set(parsed) - {'repo', 'python', 'sim_image', 'sim_image_id'}):
+                    raise ConfigurationError('native evaluator에는 repo/python/sim_image/sim_image_id만 허용합니다')
+                if field not in {'cids', 'rows', 'evaluator'} and value and not Path(value).is_absolute():
+                    raise ConfigurationError('native 자산 경로는 절대경로로 입력하세요')
+                self.native_values[field] = parsed
+                self._show('Native')
+            except (ValueError, ConfigurationError):
+                self._error(ConfigurationError('native 선택 형식이 잘못됐습니다. 경로·CID·row JSON을 확인하세요.'))
+        elif self.page == "Existing":
             if not value:
                 self._error(ConfigurationError(_tr("실험 설정 경로를 입력하세요", "Enter a configuration path")))
                 return
@@ -1035,9 +1157,10 @@ class OptimizerApp(App[int]):
                 optimizer = ", ".join(s["optimizer"] for s in spec.get("stages", [])) or "baseline"
                 dataset = spec.get("benchmark")
                 editable = ", ".join(
-                    str(stage.get("config", {}).get("file")) for stage in spec["stages"]
+                    str(stage.get("config", {}).get("file")) for stage in spec.get('stages', [])
                     if stage.get("config", {}).get("file")) or _tr("변경 없음", "No changes")
-                report = str(spec["_root"] / spec.get("output_dir", "runs") / "<run-id>/report.html")
+                from agent_optimizer.app_paths import resolve_run_base
+                report = str(resolve_run_base(spec) / '<run-id>/report.html')
             except (ConfigurationError, OSError, KeyError, TypeError) as exc:
                 return self._redact_secrets(str(exc))
             selection = [f"  Agent       {agent}", f"  Harness     {harness}",
@@ -1065,8 +1188,22 @@ class OptimizerApp(App[int]):
                            "cvdp · train 1 / validation 1 · final_test=false") if ace else
                        _tr("sample_eval · 합성 train / validation / test",
                            "sample_eval · synthetic train / validation / test"))
-            report = "runs/<run-id>/report.html"
+            from agent_optimizer.app_paths import app_path
+            report = str(app_path('runs') / '<run-id>/report.html')
             selection.append(f"  {_tr('평가 방식', 'Evaluation')}  {dataset}")
+            if self.selections.get('Harness') == 'ace-native':
+                from agent_optimizer.native_selection import native_trial_budget
+                budget = {'max_trials': native_trial_budget(optimizer, self.native_values.get('rows', {})),
+                          'trial_timeout_seconds': 600, 'max_wall_time_seconds': 3600}
+                selection += [f"  CID         {', '.join(self.native_values.get('cids', []))}",
+                              f"  rows        {len(self.native_values.get('rows', {}))} · {self.native_values.get('rows', {})}"]
+                selection.extend(f"  target      {row['id']}: {', '.join(row['targets'])}" for row in getattr(self, 'native_rows', []))
+                selection.extend(f"  {field:<11} {self.native_values.get(field, '현재 interpreter' if field == 'python' else '미설정')}"
+                                 for field in ('source', 'upstream', 'dataset', 'python', 'evaluator'))
+                preparation = ['  명시 로컬 고정 native 소스 export·CVDP hash/row 지원 검증; 설치/다운로드 없음',
+                               '  평가 자산 미준비 시 doctor에서 차단; 별도 준비 필요']
+                from agent_optimizer.app_paths import app_path
+                selection.append(f"  설정 저장   {app_path('experiments')}/native-<id>/experiment.toml")
 
         rows = [f"{_tr('선택', 'Selection')}", "────────"]
         rows.extend(selection)
@@ -1106,7 +1243,7 @@ class OptimizerApp(App[int]):
             research = any(s["optimizer"] in {"gepa", "meta_harness", "ecdysis"}
                            for s in spec.get("stages", []))
             selectors = self._model_selector_fields(spec)
-            api = research or any(p["adapter"] not in {"opencode", "ace_opencode"} and
+            api = research or any(p['adapter'] == 'ace_native' or p["adapter"] not in {"opencode", "ace_opencode"} and
                                   {"AGENT_OPT_MODEL_BASE_URL", "AGENT_OPT_MODEL_API_KEY"}.issubset(
                                       p.get("runtime", {}).get("env_passthrough", [])) or
                                   p["adapter"] == "ace_opencode" and not spec.get("preset_selection") and
@@ -1186,17 +1323,60 @@ class OptimizerApp(App[int]):
                 raise ConfigurationError(f"{field}의 compatible 모델과 AGENT_OPT_MODEL_ID가 일치해야 합니다. 선택자 또는 API ID를 수정하세요.")
         return values
 
-    def action_open_report(self, report: Path, status: str = "completed") -> None:
-        """F hook: validate first; the integration owner may then start/open a server."""
-        from agent_optimizer.cli import verified_run_report
+    def action_open_report(self, report: Path, status: str = 'completed', *, row=None) -> None:
+        self._report_epoch += 1
+        self.report_work(report, row, self._report_epoch)
 
+    @work(thread=True, group='report', exclusive=False)
+    def report_work(self, report, row, epoch) -> None:
+        from agent_optimizer.report_view import report_row, start_view, open_browser, view_status
+        from agent_optimizer.history import verified_report
+        handle = None
         try:
-            verified = verified_run_report(self.root, report, status)
-            self.query_one("#details", Static).update(f"HTML 보고서 보기\n{verified}")
-            if self.page == "Result":
-                self.query_one("#review", Static).update(self._result_text() + f"\nHTML 보고서 보기: {verified}")
-        except ConfigurationError as exc:
-            self._error(exc)
+            row = row or report_row(report.parent, project_root=self.root)
+            path = verified_report(row)
+            with self._report_lock:
+                if self._report_closing or epoch != self._report_epoch:
+                    return
+                if self._report_handle is not None:
+                    self._report_handle.close()
+                    self._report_handle = None
+                if self._report_handle is None:
+                    self._report_handle = start_view(row)
+                    self._report_path = path
+                handle = self._report_handle
+            if not self._report_closing and epoch == self._report_epoch:
+                self.call_from_thread(self._report_started,
+                    f'HTML 보고서: {handle.url}\n브라우저: 열기 요청 중\nlocalhost는 실행 머신입니다. SSH에서는 포트포워딩이 필요합니다.')
+            if self._report_closing or epoch != self._report_epoch:
+                return
+            opened = open_browser(handle.url)
+            if not self._report_closing and epoch == self._report_epoch:
+                self.call_from_thread(self._report_started, view_status(handle.url, opened))
+        except Exception as exc:
+            with self._report_lock:
+                if epoch == self._report_epoch and self._report_handle is not None:
+                    self._report_handle.close()
+                    self._report_handle = None
+            if not self._report_closing:
+                self.call_from_thread(self._error, exc)
+
+    def _report_started(self, text):
+        self.set_home_status(text)
+        self.query_one('#details', Static).update(text)
+        if self.page == 'Result':
+            self.query_one('#review', Static).update(self._result_text() + '\n' + text)
+
+    async def on_unmount(self):
+        import asyncio
+        self._report_closing = True
+        self._report_epoch += 1
+        def close():
+            with self._report_lock:
+                if self._report_handle is not None:
+                    self._report_handle.close()
+                    self._report_handle = None
+        await asyncio.to_thread(close)
 
     def set_home_status(self, text: str) -> None:
         """F hook for the active Home/report server status; no resource is created."""
@@ -1219,6 +1399,8 @@ class OptimizerApp(App[int]):
 
         try:
             values = self._execution_environment()
+            from agent_optimizer.app_paths import app_path
+            app_path('experiments')
             with session_environment(values):
                 if self.experiment is not None:
                     experiment = self.experiment
@@ -1226,12 +1408,17 @@ class OptimizerApp(App[int]):
                         self._preparation_line,
                         _tr("기존 experiment 선택 · 자산 자동 준비 안 함",
                             "Existing experiment selected · no automatic asset preparation"))
+                elif self.selections.get('Harness') == 'ace-native':
+                    from agent_optimizer.native_selection import write_native_selection
+                    experiment = write_native_selection(self.workspace, self.selections['Optimizer'], **{
+                        key: Path(value) if key in {'dataset', 'source', 'upstream', 'python'} else value
+                        for key, value in self.native_values.items() if value})
                 elif self.selections["Agent"] == "ace-rtl":
                     capture = _ProgressCapture(self)
                     with contextlib.redirect_stdout(capture), contextlib.redirect_stderr(capture):
-                        prepare_ace_selection(self.workspace)
+                        assets = prepare_ace_selection(self.workspace)
                     capture.flush()
-                    experiment = write_ace_selection(self.workspace, self.selections["Optimizer"])
+                    experiment = write_ace_selection(self.workspace, self.selections["Optimizer"], asset_root=assets)
                 else:
                     capture = _ProgressCapture(self)
                     with contextlib.redirect_stdout(capture), contextlib.redirect_stderr(capture):
@@ -1429,7 +1616,7 @@ class OptimizerApp(App[int]):
 
     @work(thread=True, exclusive=True)
     def execute(self) -> None:
-        from agent_optimizer.cli import _launch_existing
+        from agent_optimizer.integrations import launch_existing
         from agent_optimizer.model_input import session_environment
         from agent_optimizer.preset_tui import execute_ace_selection
         from agent_optimizer.registry import Registry
@@ -1442,7 +1629,7 @@ class OptimizerApp(App[int]):
                 spec = load_experiment(self.experiment)
                 def on_event(event):
                     self.call_from_thread(self._handle_run_event, event)
-                launched = _launch_existing(spec, Registry())
+                launched = launch_existing(spec, Registry())
                 if launched is not None:
                     self.outcome = 0 if launched == 0 else 3
                     result = {"status": "completed" if launched == 0 else "failed",
@@ -1547,6 +1734,14 @@ class OptimizerApp(App[int]):
             self._show("Home")
         elif self.page == "Workspace":
             self._show(self.workspace_back)
+        elif self.page == 'Native':
+            self._show('Dataset')
+        elif self.page == 'NativeRows':
+            self._show('Native')
+        elif self.page == 'NativeSplit':
+            self._show('NativeRows')
+        elif self.page == 'SessionHistory':
+            self._show('History')
         else:
             self._show("Home")
 
