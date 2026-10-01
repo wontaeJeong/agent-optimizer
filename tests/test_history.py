@@ -235,7 +235,8 @@ class HistoryTests(unittest.TestCase):
                 'agent_optimizer.session.multiprocessing.get_context', side_effect=OSError('fixture')):
             with self.assertRaises(OSError):
                 run_session([], session, jobs=1, progress=progress)
-        self.assertEqual(list_history(app_home=self.home)[0]['status'], 'error')
+        self.assertEqual(next(row for row in list_history(app_home=self.home)
+                              if row['run_id'] == session.name)['status'], 'error')
 
     def test_session_callback_failure_cleans_workers_and_records_error(self):
         from agent_optimizer.session import run_session
@@ -249,7 +250,8 @@ class HistoryTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 run_session([{'dataset': 'fixture', 'experiment': str(root / 'examples/minimal/experiment.toml')}],
                             session, jobs=1, progress=progress)
-        self.assertEqual(list_history(app_home=self.home)[0]['status'], 'error')
+        self.assertEqual(next(row for row in list_history(app_home=self.home)
+                              if row['run_id'] == session.name)['status'], 'error')
         self.assertEqual({child.pid for child in multiprocessing.active_children()}, existing)
 
     def test_structurally_invalid_summary_cannot_claim_success(self):

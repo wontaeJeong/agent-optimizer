@@ -15,9 +15,26 @@ agent-opt = "agent_optimizer.entrypoint:main"
 
 [project.optional-dependencies]
 dev = ["build==1.2.2.post1", "ruff==0.11.13"]
+native = ["PyYAML==6.0.2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.data-files]
+"share/agent-optimizer/examples/ace-rtl" = [
+  "examples/ace-rtl/native_adapter.py", "examples/ace-rtl/native_worker.py",
+  "examples/ace-rtl/native_bridge.py", "examples/ace-rtl/native_cvdp.py",
+  "examples/ace-rtl/native_evaluator.py", "examples/ace-rtl/native_prepare.py",
+  "examples/ace-rtl/native_selection.py", "examples/ace-rtl/native_artifacts.py",
+  "examples/ace-rtl/native_cleanup.py", "examples/ace-rtl/evaluator.py",
+  "examples/ace-rtl/source-native.toml", "examples/ace-rtl/harness-native.toml",
+]
+"share/agent-optimizer/examples/ace-rtl/native" = [
+  "examples/ace-rtl/native/guidance.md", "examples/ace-rtl/native/orchestration.py",
+]
+"share/agent-optimizer/examples/ace-rtl/environment" = [
+  "examples/ace-rtl/environment/network_driver.py",
+]
 
 [tool.ruff]
 target-version = "py311"

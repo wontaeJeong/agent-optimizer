@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from textual.widgets import Input, OptionList
 
-from support import test_project
+from support import test_project, legacy_model_page
 from agent_optimizer.tui import OptimizerApp
 
 
@@ -20,7 +20,7 @@ class TextualInputRegressionTests(unittest.IsolatedAsyncioTestCase):
                                     "AGENT_OPT_MODEL_API_KEY": "fixture-key"}, clear=True):
             app = OptimizerApp(root)
             async with app.run_test() as pilot:
-                await pilot.press("enter", "enter", "enter", "enter", "enter")
+                await legacy_model_page(app, pilot)
                 app.query_one(OptionList).highlighted = app.model_fields.index("AGENT_OPT_MODEL_BASE_URL")
                 await pilot.press("enter", "end", "enter")
                 entry = app.query_one(Input)

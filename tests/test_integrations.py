@@ -210,10 +210,10 @@ class OptionalIntegrationTests(unittest.TestCase):
             revision = "a" * 40
 
             def selected_cache(target, url, commit, *, offline=False):
-                self.assertEqual(target, root / "cache/agent-optimizer/integrations" / revision)
+                self.assertEqual(target, root / "home/cache/integrations" / revision)
                 raise UnavailableError("cache path observed")
 
-            with patch.dict(os.environ, {"XDG_CACHE_HOME": str(root / "cache")}), \
+            with patch.dict(os.environ, {"AGENT_OPT_HOME": str(root / "home"), "XDG_CACHE_HOME": str(root / "cache")}), \
                     patch("agent_optimizer.integrations.acquire_pinned_git", side_effect=selected_cache):
                 with self.assertRaisesRegex(UnavailableError, "cache path observed"):
                     acquire_integration(workspace, "ace-rtl", source_url=str(root / "repo"),

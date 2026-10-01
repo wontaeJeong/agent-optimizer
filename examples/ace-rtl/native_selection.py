@@ -20,6 +20,63 @@ from agent_optimizer.workspace import safe_path
 CIDS = {'cid002', 'cid004', 'cid007', 'cid016'}
 
 
+def diagnose_selection(spec, *, retry, prepare):
+    """Static native checks reuse the product's structured check/probe contract."""
+    from agent_optimizer.readiness import Runner, check
+    from agent_optimizer import diagnostics
+    profile = spec['_profiles'][0]
+    native = profile.get('native', {})
+    checks = []
+    try:
+        verify_native_selection(spec, profile, prepare=prepare)
+        checks.append(check('native.selection', 'native', True, '고정 CID/row·private 평가·활성 surface 계약을 확인했습니다', ''))
+    except (ConfigurationError, OSError, ValueError, KeyError, TypeError) as exc:
+        checks.append(check('native.selection', 'native', False, 'native 선택 계약을 확인할 수 없습니다',
+                            '고정 dataset·선택 CID/row·split·candidate/active target을 복원하세요',
+                            cause=diagnostics.summarize_exception(exc), retry=retry))
+    for agent in spec['_agents']:
+        source = agent.source.path if agent.source and agent.source.kind == 'local' else Path('/missing-native-source')
+        for row in prepare.readiness(source, native.get('python', sys.executable))['checks']:
+            checks.append(check(row['id'], 'native', row['ready'], 'native pin/asset/interpreter·의존성 정적 검사',
+                                '고정 upstream 자산과 Python 3.12·yaml/pydantic_settings 환경을 준비하세요',
+                                cause=row.get('reason'), retry=retry))
+    runner = Runner(spec['_root'], 'native')
+    runner.add('native.ps', bool(shutil.which('ps')), 'native child cleanup에 필요한 ps 확인',
+               'ps 실행 파일을 준비하세요', cause='ps 실행 파일 없음', retry=retry)
+    evaluator = native.get('evaluator', spec.get('evaluator_config', {}))
+    repo = Path(evaluator.get('repo', '/missing-native-evaluator'))
+    python = Path(evaluator.get('python', '/missing-native-python'))
+    present = (repo / 'run_benchmark.py').is_file()
+    runner.add('native.evaluator.assets', present, '공식 CVDP evaluator 자산 확인',
+               '고정 CVDP checkout과 평가 driver를 준비하세요', cause='run_benchmark.py 누락', retry=retry)
+    if present:
+        outcome = runner.run(['git', '-C', str(repo), 'rev-parse', 'HEAD'])
+        runner.add('native.evaluator.pin', outcome.succeeded and outcome.stdout.strip() == '8e894cf74414ab1eaea1e2b4e80a02f123df07b6',
+                   '공식 CVDP 고정 pin 확인', '검토된 CVDP commit을 복원하세요',
+                   cause='CVDP 고정 commit 불일치' if outcome.succeeded else diagnostics.summarize_failure(outcome), retry=retry)
+    runner.add('native.evaluator.python', python.is_file(), 'CVDP driver interpreter 확인',
+               'CVDP Python 3.12 driver의 절대경로를 지정하세요', cause='driver interpreter 없음', retry=retry)
+    runner.probe('native.evaluator.dependencies', [str(python), '-I', '-B', '-c',
+                 'import sys; import yaml, requests, pydantic, openai, dotenv, psutil, nltk, tabulate, numpy, colorama, ruamel.yaml, tiktoken; assert sys.version_info[:2] == (3, 12); print("ok")'],
+                 'CVDP driver Python 3.12·필수 의존성 확인', '고정 driver lock으로 별도 평가 환경을 준비하세요',
+                 requires=('native.evaluator.python',), expected='ok', retry=retry)
+    runner.add('native.docker', bool(shutil.which('docker')), 'OSS simulator runtime 확인',
+               'Docker 실행 파일과 로컬 OSS 평가 이미지를 준비하세요', cause='Docker 실행 파일 없음', retry=retry)
+    image, identity = evaluator.get('sim_image'), evaluator.get('sim_image_id')
+    runner.add('native.simulator.lock', bool(image and identity), 'OSS_SIM 이미지 identity 선언 확인',
+               '검증한 sim_image와 sim_image_id를 지정하세요', cause='OSS_SIM image/identity 미지정', retry=retry)
+    if runner.ok('native.docker') and runner.ok('native.simulator.lock'):
+        outcome = runner.run(['docker', 'image', 'inspect', image])
+        try:
+            matched = outcome.succeeded and json.loads(outcome.stdout)[0]['Id'] == identity
+        except (ValueError, KeyError, TypeError, IndexError):
+            matched = False
+        runner.add('native.simulator.identity', matched, '로컬 OSS_SIM 이미지 identity 확인',
+                   '준비한 평가 image identity를 복원하세요. offline miss는 다운로드로 대체하지 않습니다',
+                   cause=None if matched else diagnostics.summarize_failure(outcome) if not outcome.succeeded else '로컬 image identity 불일치', retry=retry)
+    return checks + runner.checks
+
+
 def validate_profile(profile):
     from agent_optimizer.config import only_keys
     native = profile.get('native', {})

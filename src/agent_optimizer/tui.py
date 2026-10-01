@@ -115,8 +115,9 @@ def display_endpoint(value: str) -> str:
 
 def _name(page: str) -> str:
     if page in {'Native', 'NativeRows', 'NativeSplit', 'SessionHistory'}:
-        return {'Native': 'Native CID·row 선택', 'NativeRows': 'Native row 선택',
-                'NativeSplit': '선택 row의 split 지정', 'SessionHistory': '세션 개별 실행'}[page]
+        from agent_optimizer.locale import t
+        return t({'Native': 'Native CID·row 선택', 'NativeRows': 'Native row 선택',
+                  'NativeSplit': '선택 row의 split 지정', 'SessionHistory': '세션 개별 실행'}[page])
     return {"Home": _tr("시작", "Home"), "Review": _tr("실행 전 확인", "Review"),
             "History": _tr("이전 실행", "Run History"),
             "Existing": _tr("기존 실험", "Existing Experiment"),
@@ -351,6 +352,7 @@ class OptimizerApp(App[int]):
             self.rows = [ChoiceRow(row['run_id'], 'report', f"{row['run_id']} · {row['status']}",
                          f"실제 경로: {row['run_dir']}\n{row['diagnostic'] or 'Enter: HTML 보고서 보기'}") for row in self.session_history]
         elif page == 'Native':
+            from agent_optimizer.locale import t
             fields = {'cids': 'CID(쉼표 구분): cid002/cid004/cid007/cid016',
                       'rows': 'row ID → split JSON: {"ROW_A":"train","ROW_B":"validation"}',
                       'dataset': '고정 원본 CVDP JSONL 절대경로(trusted)',
@@ -358,29 +360,31 @@ class OptimizerApp(App[int]):
                       'upstream': '고정 로컬 upstream 절대경로(source와 배타)',
                       'python': 'native Python 3.12 경로(미입력: 현재 interpreter)',
                       'evaluator': '공식 evaluator repo/python/sim_image/sim_image_id JSON'}
-            self.rows = [ChoiceRow(field, 'native.field', label,
-                         f"{label}\n현재: {self.native_values.get(field, '미설정')}\nCID007: PNR·상용 helper row는 선택 후 검증에서 명시 거부됩니다.") for field, label in fields.items()]
-            self.rows.append(ChoiceRow('rows.pick', 'action', '고정 데이터의 row 목록에서 선택',
-                            'CID와 dataset 경로 입력 후 과제 ID·target·지원 상태를 확인하고 split을 직접 선택합니다.'))
-            self.rows.append(ChoiceRow('native.continue', 'action', '모델 설정으로 계속', '선택을 검증합니다. 준비·다운로드·모델 호출 없음.'))
-            entry.placeholder = fields[self.native_field]
+            self.rows = [ChoiceRow(field, 'native.field', t(label),
+                          f"{t(label)}\n{t('현재')}: {self.native_values.get(field, t('미설정'))}\n{t('CID007: PNR·상용 helper row는 선택 후 검증에서 명시 거부됩니다.')}") for field, label in fields.items()]
+            self.rows.append(ChoiceRow('rows.pick', 'action', t('고정 데이터의 row 목록에서 선택'),
+                             t('CID와 dataset 경로 입력 후 과제 ID·target·지원 상태를 확인하고 split을 직접 선택합니다.')))
+            self.rows.append(ChoiceRow('native.continue', 'action', t('모델 설정으로 계속'), t('선택을 검증합니다. 준비·다운로드·모델 호출 없음.')))
+            entry.placeholder = t(fields[self.native_field])
             value = self.native_values.get(self.native_field, '')
             entry.value = (','.join(value) if self.native_field == 'cids' else json.dumps(value, ensure_ascii=False) if isinstance(value, dict) else str(value))
             entry.styles.display = 'block'
         elif page == 'NativeRows':
+            from agent_optimizer.locale import t
             selected = self.native_values.get('rows', {})
             self.rows = [ChoiceRow(row['id'], 'native.row',
-                         f"{row['id']} · {row['cid']} · {selected.get(row['id'], '미선택')}",
-                         f"target: {', '.join(row['targets'])}\n도구: {', '.join(row['tools'])}\n" +
-                         (row['reason'] or 'row 형태 검토만 완료; 실환경 not_run. Enter로 split을 명시하세요.'),
+                          f"{row['id']} · {row['cid']} · {selected.get(row['id'], t('미선택'))}",
+                          f"target: {', '.join(row['targets'])}\n{t('도구')}: {', '.join(row['tools'])}\n" +
+                          (row['reason'] or t('row 형태 검토만 완료; 실환경 not_run. Enter로 split을 명시하세요.')),
                          row['supported'], row['reason']) for row in self.native_rows_catalog]
-            self.rows.append(ChoiceRow('native.back', 'action', 'Native 설정으로 돌아가기', '선택한 row·split을 보존합니다.'))
+            self.rows.append(ChoiceRow('native.back', 'action', t('Native 설정으로 돌아가기'), t('선택한 row·split을 보존합니다.')))
         elif page == 'NativeSplit':
-            self.rows = [ChoiceRow(split, 'native.split', split, {
+            from agent_optimizer.locale import t
+            self.rows = [ChoiceRow(split, 'native.split', split, t({
                 'train': 'Optimizer 이력·변이 근거에 사용할 공개 과제',
                 'validation': '수치 비교·후보 선택; private 평가 자료는 공개하지 않음',
                 'test': '선택 고정 후 최종 평가에만 사용',
-                'remove': '이 row 선택을 제거'}[split]) for split in ('train', 'validation', 'test', 'remove')]
+                'remove': '이 row 선택을 제거'}[split])) for split in ('train', 'validation', 'test', 'remove')]
         elif page == "Review":
             self.rows = [ChoiceRow("model.edit", "action", _tr("모델 설정 수정", "Edit Model Settings"),
                           _tr("현재 환경 값을 확인하거나 이번 세션에서 모델 값을 바꿉니다.",
@@ -557,7 +561,8 @@ class OptimizerApp(App[int]):
         if self.model_values.get(field):
             value, source = self.model_values[field], self.model_sources.get(field, "session")
         else:
-            value, source = os.environ.get(field, ""), "environment"
+            from agent_optimizer.model_input import environment_snapshot
+            value, source = environment_snapshot().get(field, ""), "environment"
         if value:
             if field in selectors and "/" not in value:
                 value = "compatible/" + value
@@ -565,7 +570,8 @@ class OptimizerApp(App[int]):
         if field == "AGENT_OPT_MODEL_ID":
             models = set()
             for selector_field in selectors:
-                selector = self.model_values.get(selector_field) or os.environ.get(selector_field, "")
+                from agent_optimizer.model_input import environment_snapshot
+                selector = self.model_values.get(selector_field) or environment_snapshot().get(selector_field, "")
                 if selector.startswith("compatible/") and selector.removeprefix("compatible/"):
                     models.add(selector.removeprefix("compatible/"))
                 elif selector and "/" not in selector:
@@ -606,7 +612,8 @@ class OptimizerApp(App[int]):
 
     def _model_choice_rows(self, field: str) -> list[ChoiceRow]:
         rows = []
-        environment_value = os.environ.get(field, "")
+        from agent_optimizer.model_input import environment_snapshot
+        environment_value = environment_snapshot().get(field, "")
         if environment_value:
             shown = self._shown_model_value(field, environment_value)
             rows.append(ChoiceRow("environment", "model.choice", _tr("현재 환경", "Current environment") + f" · {shown}",
@@ -668,6 +675,9 @@ class OptimizerApp(App[int]):
         return ""
 
     def _detail(self, index: int | None) -> None:
+        # Highlight messages already queued during teardown may outlive their widgets.
+        if not self.query('#details-panel').nodes or not self.query('#details').nodes:
+            return
         if self.page == "Preparing":
             self.query_one("#details", Static).update(self._preparation_view())
             return
@@ -785,7 +795,8 @@ class OptimizerApp(App[int]):
 
     def _redact_secrets(self, text: object) -> str:
         rendered = str(text)
-        sources = [*os.environ.items(), *self.model_values.items()]
+        from agent_optimizer.model_input import environment_snapshot
+        sources = [*environment_snapshot().items(), *self.model_values.items()]
         secrets = {value for name, value in sources if value and self._is_secret_field(name)}
         for name, value in sources:
             if not value or name not in {"AGENT_OPT_MODEL_BASE_URL", "AGENT_OPT_MODEL_ENDPOINT"}:
@@ -1251,7 +1262,8 @@ class OptimizerApp(App[int]):
                 metadata.get("execution_mode") != "native" else [])
 
     def _required_model_fields(self) -> list[str]:
-        values = {**os.environ, **self.model_values}
+        from agent_optimizer.model_input import environment_snapshot
+        values = {**environment_snapshot(), **self.model_values}
         if self.experiment:
             spec = load_experiment(self.experiment)
             profiles = spec["_profiles"]
@@ -1331,7 +1343,8 @@ class OptimizerApp(App[int]):
 
     def _execution_environment(self) -> dict[str, str]:
         required = self._required_model_fields()
-        values = {**os.environ, **{field: self._model_value(field)[0] for field in required}}
+        from agent_optimizer.model_input import environment_snapshot
+        values = {**environment_snapshot(), **{field: self._model_value(field)[0] for field in required}}
         for field in self._model_selector_fields():
             selector = values.get(field, "")
             if selector.startswith("compatible/") and selector.removeprefix("compatible/") != values.get("AGENT_OPT_MODEL_ID"):

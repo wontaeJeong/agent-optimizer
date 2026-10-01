@@ -64,8 +64,10 @@ class Provider:
                 self.assertEqual({row["id"] for row in missing["checks"] if row["status"] == "error"},
                                  {"dataset.fixture"})
                 self.assertEqual(before, {str(p): p.read_bytes() for p in project.rglob("*") if p.is_file()})
-                (project / "external/datasets/team_fixture").mkdir(parents=True)
-                (project / "external/datasets/team_fixture/prepared.txt").write_text("ready")
+                from agent_optimizer.app_paths import resolve_dataset_cache
+                cache = resolve_dataset_cache('team_fixture')
+                cache.mkdir(parents=True)
+                (cache / "prepared.txt").write_text("ready")
                 before = {str(p): p.read_bytes() for p in project.rglob("*") if p.is_file()}
                 ready = collect_dataset(project, "team_fixture", Registry())
                 self.assertTrue(ready["ready"], ready)

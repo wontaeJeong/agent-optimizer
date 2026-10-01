@@ -6,6 +6,7 @@ import json
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -84,7 +85,7 @@ class TerminalLanguageTests(unittest.TestCase):
         for args, expected in ((["--help"], "Optimization experiments for multiple Agents"),
                                (["init", "--help"], "Create an experiment")):
             with self.subTest(args=args):
-                result = subprocess.run([str(ROOT / ".venv/bin/agent-opt"), *args], cwd=ROOT,
+                result = subprocess.run([sys.executable, "-m", "agent_optimizer", *args], cwd=ROOT,
                                         env=env, capture_output=True, text=True, timeout=10)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(expected, result.stdout)
@@ -94,7 +95,7 @@ class TerminalLanguageTests(unittest.TestCase):
                     self.assertIn("Start in the repository: make setup-core", result.stdout)
 
     def test_english_command_harness_option_help(self):
-        result = subprocess.run([str(ROOT / ".venv/bin/agent-opt"), "init", "--help"], cwd=ROOT,
+        result = subprocess.run([sys.executable, "-m", "agent_optimizer", "init", "--help"], cwd=ROOT,
                                 env=dict(os.environ, AGENT_OPT_LANG="en", COLUMNS="40"), capture_output=True,
                                 text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -105,7 +106,7 @@ class TerminalLanguageTests(unittest.TestCase):
         self.assertNotIn("명령 하네스의 Agent argv", result.stdout)
 
     def test_english_session_help_explains_parallel_dataset_workers(self):
-        result = subprocess.run([str(ROOT / ".venv/bin/agent-opt"), "run-session", "--help"], cwd=ROOT,
+        result = subprocess.run([sys.executable, "-m", "agent_optimizer", "run-session", "--help"], cwd=ROOT,
                                 env=dict(os.environ, AGENT_OPT_LANG="en", COLUMNS="160"),
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -115,14 +116,14 @@ class TerminalLanguageTests(unittest.TestCase):
         self.assertNotIn("병렬 실행", plain)
 
     def test_english_init_missing_agent_error(self):
-        result = subprocess.run([str(ROOT / ".venv/bin/agent-opt"), "init", "--dataset", "sample_text", "--yes"],
+        result = subprocess.run([sys.executable, "-m", "agent_optimizer", "init", "--dataset", "sample_text", "--yes"],
                                 cwd=ROOT, env=dict(os.environ, AGENT_OPT_LANG="en"),
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 2)
         self.assertIn("Specify --agent and --editable", result.stderr)
 
     def test_invalid_python_language_fails_without_traceback(self):
-        result = subprocess.run([str(ROOT / ".venv/bin/agent-opt"), "--help"], cwd=ROOT,
+        result = subprocess.run([sys.executable, "-m", "agent_optimizer", "--help"], cwd=ROOT,
                                 env=dict(os.environ, AGENT_OPT_LANG="ja"), capture_output=True,
                                 text=True, timeout=10)
         self.assertEqual(result.returncode, 2)
@@ -130,7 +131,7 @@ class TerminalLanguageTests(unittest.TestCase):
         self.assertNotIn("Traceback", result.stderr)
 
     def test_english_developer_python_help(self):
-        result = subprocess.run([str(ROOT / ".venv/bin/python"), "scripts/dev.py", "--help"],
+        result = subprocess.run([sys.executable, "scripts/dev.py", "--help"],
                                 cwd=ROOT, env=dict(os.environ, AGENT_OPT_LANG="en", COLUMNS="120"),
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -140,7 +141,7 @@ class TerminalLanguageTests(unittest.TestCase):
         self.assertNotIn("개발 명령:", result.stdout)
 
     def test_english_developer_setup_option_help(self):
-        result = subprocess.run([str(ROOT / ".venv/bin/python"), "scripts/dev.py", "setup", "--help"],
+        result = subprocess.run([sys.executable, "scripts/dev.py", "setup", "--help"],
                                 cwd=ROOT, env=dict(os.environ, AGENT_OPT_LANG="en", COLUMNS="120"),
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -151,7 +152,7 @@ class TerminalLanguageTests(unittest.TestCase):
         for language, expected in (("ko", "TUI에는 입력과 출력 모두 TTY가 필요합니다"),
                                    ("en", "TUI requires a TTY for both input and output")):
             with self.subTest(language=language):
-                result = subprocess.run([str(ROOT / ".venv/bin/agent-opt"), "tui"], cwd=ROOT,
+                result = subprocess.run([sys.executable, "-m", "agent_optimizer", "tui"], cwd=ROOT,
                                         env=dict(os.environ, AGENT_OPT_LANG=language),
                                         capture_output=True, text=True, timeout=10)
                 self.assertEqual(result.returncode, 2)
@@ -206,7 +207,7 @@ class TerminalLanguageTests(unittest.TestCase):
         for language, expected in (("ko", "데이터셋을 --dataset으로 직접 선택하세요"),
                                    ("en", "Select a dataset explicitly with --dataset")):
             with self.subTest(language=language):
-                result = subprocess.run([str(ROOT / ".venv/bin/agent-opt"), "init", "--yes"],
+                result = subprocess.run([sys.executable, "-m", "agent_optimizer", "init", "--yes"],
                                         cwd=ROOT, env=dict(os.environ, AGENT_OPT_LANG=language),
                                         capture_output=True, text=True, timeout=10)
                 self.assertEqual(result.returncode, 2)
@@ -218,11 +219,11 @@ class TerminalLanguageTests(unittest.TestCase):
                                    ("en", "Experiment file is missing or invalid")):
             with self.subTest(language=language):
                 environment = dict(os.environ, AGENT_OPT_LANG=language)
-                result = subprocess.run([str(ROOT / ".venv/bin/agent-opt"), "doctor", "--plan", str(plan)],
+                result = subprocess.run([sys.executable, "-m", "agent_optimizer", "doctor", "--plan", str(plan)],
                                         cwd=ROOT, env=environment, capture_output=True, text=True, timeout=10)
                 self.assertEqual(result.returncode, 2)
                 self.assertIn(expected, result.stdout)
-                machine = subprocess.run([str(ROOT / ".venv/bin/agent-opt"), "doctor", "--plan", str(plan), "--json"],
+                machine = subprocess.run([sys.executable, "-m", "agent_optimizer", "doctor", "--plan", str(plan), "--json"],
                                          cwd=ROOT, env=environment, capture_output=True, text=True, timeout=10)
                 self.assertEqual(machine.returncode, 2)
                 machine_message = json.loads(machine.stdout)["checks"][0]["message"]

@@ -55,7 +55,7 @@ class PresetConfigurationTests(unittest.TestCase):
                          str(self.root.resolve() / "external/cvdp_benchmark"))
         self.assertEqual(meta["evaluator_config"]["python"],
                          str(self.root.resolve() / "external/cvdp-venv/bin/python"))
-        self.assertEqual((self.root / meta["candidate_seed_files"][scaffold]).is_file(), True)
+        self.assertEqual((meta["_seed_root"] / meta["candidate_seed_files"][scaffold]).is_file(), True)
         self.assertNotEqual(meta["_source"], gepa["_source"])
 
     def test_missing_ace_tasks_do_not_trigger_preparation(self):
@@ -101,7 +101,7 @@ class PresetConfigurationTests(unittest.TestCase):
         changed["objective"]["metrics"][0]["source"] = "task_wall_time_seconds"
         with self.assertRaisesRegex(ConfigurationError, "선택형 설정"):
             _launch_existing(changed, Registry())
-        (self.root / spec["candidate_seed_files"][ACE_SCAFFOLD]).write_text("def prepare_task(task_dir): pass\n")
+        (spec["_seed_root"] / spec["candidate_seed_files"][ACE_SCAFFOLD]).write_text("def prepare_task(task_dir): pass\n")
         with self.assertRaisesRegex(ConfigurationError, "선택형 설정"):
             _launch_existing(spec, Registry())
 
@@ -130,7 +130,8 @@ class PresetConfigurationTests(unittest.TestCase):
             with self.subTest(selector=selector):
                 seen = []
 
-                def run(spec, registry, *, on_event):
+                def run(spec, registry, *, on_event, output=None):
+                    self.assertIsNone(output)
                     seen.append((os.environ.get("OPENCODE_CONFIG"),
                                  spec["_profiles"][0]["runtime"]["image"]))
                     return self.root / "runs/example", {"status": "completed", "trials_used": 0}
@@ -197,7 +198,7 @@ class PresetConfigurationTests(unittest.TestCase):
         target = write_ace_selection(self.root, "meta_harness")
         with patch("agent_optimizer.preset_tui.run_ace_selection", return_value=3) as run:
             self.assertEqual(main(["run", str(target)]), 3)
-        run.assert_called_once_with(target)
+        run.assert_called_once_with(target.resolve(), output=None)
 
     @unittest.skip("키 입력 테스트는 test_textual_tui.py의 Pilot 흐름으로 대체")
     def test_existing_tui_rerun_uses_selected_lifecycle(self):
@@ -222,7 +223,7 @@ class PresetConfigurationTests(unittest.TestCase):
         from agent_optimizer.preset_tui import write_ace_selection, ACE_SCAFFOLD
         target = write_ace_selection(self.root, "meta_harness")
         spec = load_experiment(target)
-        (self.root / spec["candidate_seed_files"][ACE_SCAFFOLD]).unlink()
+        (spec["_seed_root"] / spec["candidate_seed_files"][ACE_SCAFFOLD]).unlink()
         report = collect_plan(target, Registry())
         self.assertIn("candidate.seed", {row["id"] for row in report["checks"]
                                         if row["status"] != "ok"})

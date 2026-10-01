@@ -6,7 +6,7 @@ from pathlib import Path
 
 from textual.widgets import Input, OptionList, Static
 
-from support import test_project
+from support import test_project, legacy_model_page, choose_row
 from agent_optimizer.tui import OptimizerApp
 from agent_optimizer.contracts import ConfigurationError
 
@@ -34,7 +34,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
     async def test_endpoint_stays_plaintext_custom_draft_back_and_q_is_input(self):
         app = OptimizerApp(self.root)
         async with app.run_test(size=(50, 24)) as pilot:
-            await pilot.press("enter", "enter", "enter", "enter", "enter")
+            await legacy_model_page(app, pilot)
             await self.edit(app, pilot, "AGENT_OPT_MODEL_BASE_URL")
             entry = app.query_one(Input)
             self.assertFalse(entry.password)
@@ -54,7 +54,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
     async def test_bad_urls_block_before_state_or_preparation_and_hide_credentials(self):
         app = OptimizerApp(self.root)
         async with app.run_test() as pilot:
-            await pilot.press("enter", "enter", "enter", "enter", "enter")
+            await legacy_model_page(app, pilot)
             await self.edit(app, pilot, "AGENT_OPT_MODEL_BASE_URL")
             entry = app.query_one(Input)
             for url in ("https://user:URL-SENTINEL@fixture.example/v1", "https://fixture.example/v1?k=URL-SENTINEL",
@@ -75,7 +75,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
     async def test_credential_url_is_removed_before_render_escape_and_reentry(self):
         app = OptimizerApp(self.root)
         async with app.run_test() as pilot:
-            await pilot.press("enter", "enter", "enter", "enter", "enter")
+            await legacy_model_page(app, pilot)
             await self.edit(app, pilot, "AGENT_OPT_MODEL_BASE_URL")
             entry = app.query_one(Input)
             for url in ("https://user:URL-SENTINEL@fixture.example/v1", "https://fixture.example/v1?token=URL-SENTINEL",
@@ -104,7 +104,8 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
         os.environ["AGENT_OPT_MODEL_ID"] = ""
         app = OptimizerApp(self.root)
         async with app.run_test() as pilot:
-            await pilot.press("enter", "enter", "enter", "enter", "enter", "end", "enter")
+            await legacy_model_page(app, pilot)
+            await pilot.press("end", "enter")
             self.assertEqual(app.page, "Review")
             fields = app.model_configuration()["fields"]
             self.assertEqual(fields["AGENT_OPT_MODEL_ID"], {"value": "team-model", "configured": True, "source": "derived"})
@@ -172,7 +173,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
         os.environ["AGENT_OPT_MODEL_API_KEY"] = "a"
         app = OptimizerApp(self.root)
         async with app.run_test() as pilot:
-            await pilot.press("enter", "enter", "enter", "enter", "enter")
+            await legacy_model_page(app, pilot)
             text = "\n".join(row[0] for row in app.rows) + app._review()
             self.assertNotIn("URL-SENTINEL", text)
             self.assertIn("자격증명 포함 URL", text)
@@ -185,7 +186,8 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
         os.environ["AGENT_OPT_MODEL_ID"] = "other-model"
         app = OptimizerApp(self.root)
         async with app.run_test() as pilot:
-            await pilot.press("enter", "enter", "enter", "enter", "enter", "end", "enter")
+            await legacy_model_page(app, pilot)
+            await pilot.press("end", "enter")
             self.assertEqual(app.page, "Model")
             self.assertIn("일치", str(app.query_one("#details", Static).render()))
             self.assertEqual(os.environ["AGENT_OPT_MODEL_ID"], "other-model")
@@ -198,7 +200,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
     async def test_environment_choice_restores_value_and_source_after_custom(self):
         app = OptimizerApp(self.root)
         async with app.run_test() as pilot:
-            await pilot.press("enter", "enter", "enter", "enter", "enter")
+            await legacy_model_page(app, pilot)
             await self.edit(app, pilot, "AGENT_OPT_MODEL_BASE_URL")
             app.query_one(Input).value = "https://custom.example/v1"
             await pilot.press("enter")
@@ -211,7 +213,8 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
         os.environ["AGENT_OPT_MODEL_ID"] = ""
         app = OptimizerApp(self.root)
         async with app.run_test() as pilot:
-            await pilot.press("enter", "enter", "enter", "enter", "enter", "end", "enter")
+            await legacy_model_page(app, pilot)
+            await pilot.press("end", "enter")
             self.assertEqual(app.page, "Review")
             self.assertEqual(app._execution_environment()["AGENT_OPT_MODEL_ID"], "fixture-model")
             self.assertEqual(os.environ["AGENT_OPT_MODEL_ID"], "")
@@ -224,7 +227,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
                                       "AGENT_OPT_MODEL_API_KEY": "NEVER-PRESET-KEY"}}
         self.assertNotIn("NEVER-PRESET-KEY", repr(app.model_presets))
         async with app.run_test() as pilot:
-            await pilot.press("enter", "enter", "enter", "enter", "enter")
+            await legacy_model_page(app, pilot)
             app.query_one(OptionList).highlighted = app.model_fields.index("AGENT_OPT_MODEL_BASE_URL")
             await pilot.press("enter")
             self.assertTrue(any("팀 설정" in row[0] for row in app.rows))
@@ -261,10 +264,9 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
     async def test_fixture_needs_no_optimizer_api_even_with_conflicting_environment(self):
         app = OptimizerApp(self.root)
         async with app.run_test() as pilot:
-            await pilot.press("enter")
-            app.query_one(OptionList).highlighted = next(
-                i for i, row in enumerate(app.rows) if row[0] == "rtl-solo")
-            await pilot.press("enter", "enter", "enter", "enter", "enter")
+            for identifier in ("new", "rtl-solo", "fixture", "baseline", "sample_text"):
+                await choose_row(app, pilot, identifier)
+            await pilot.press("end", "enter")
             self.assertEqual(app.page, "Review")
             self.assertEqual(app._required_model_fields(), [])
             app.model_values["AGENT_OPT_MODEL_API_KEY"] = "unnecessary-session-key"
@@ -274,7 +276,7 @@ class ModelTests(unittest.IsolatedAsyncioTestCase):
     async def test_secret_absent_from_svg_and_safe_endpoint_visible(self):
         app = OptimizerApp(self.root)
         async with app.run_test(size=(80, 28)) as pilot:
-            await pilot.press("enter", "enter", "enter", "enter", "enter")
+            await legacy_model_page(app, pilot)
             svg = app.export_screenshot()
             self.assertNotIn(ENV["AGENT_OPT_MODEL_API_KEY"], svg)
             self.assertIn("fixture.example", svg)

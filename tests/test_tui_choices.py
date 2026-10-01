@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 from textual.widgets import Input, OptionList, Static
 
-from support import test_project
+from support import test_project, choose_row
 from agent_optimizer.preset_tui import preset_options
 from agent_optimizer.tui import OptimizerApp
 
@@ -61,7 +61,8 @@ class ChoiceTests(unittest.IsolatedAsyncioTestCase):
                     patch.dict(os.environ, {"AGENT_OPT_MODEL": "openrouter/fixture-model", "OPENROUTER_API_KEY": "fixture-key"}):
                 app = OptimizerApp(self.root)
                 async with app.run_test() as pilot:
-                    await pilot.press("enter", "enter", "enter")
+                    for identifier in ('new', 'ace-rtl', 'ace-opencode'):
+                        await choose_row(app, pilot, identifier)
                     app.query_one(OptionList).highlighted = next(i for i, row in enumerate(app.rows) if row.id == optimizer)
                     await pilot.press("enter", "enter")
                     self.assertEqual(app.page, "Workspace")
@@ -143,7 +144,10 @@ class ChoiceTests(unittest.IsolatedAsyncioTestCase):
         app = OptimizerApp(self.root)
         app.component_metadata = {"ace-opencode": {"edit_surfaces": {"meta_harness": "selected/profile.py"}}}
         async with app.run_test() as pilot:
-            await pilot.press("enter", "enter", "enter", "down")
+            for identifier in ('new', 'ace-rtl', 'ace-opencode'):
+                await choose_row(app, pilot, identifier)
+            app.query_one(OptionList).highlighted = next(i for i, row in enumerate(app.rows) if row.id == 'meta_harness')
+            await pilot.pause()
             detail = str(app.query_one("#details", Static).render())
             self.assertIn("selected/profile.py", detail)
             await pilot.press("enter", "enter")

@@ -17,10 +17,12 @@ def resolve_native_project(root: Path) -> Path:
     from importlib.metadata import PackageNotFoundError, distribution
     try:
         installed = distribution('agent-optimizer')
+        declared = {Path(installed.locate_file(file)).resolve() for file in installed.files or ()}
         for file in installed.files or ():
             if str(file).replace('\\', '/').endswith('share/agent-optimizer/examples/ace-rtl/native_prepare.py'):
                 origin = Path(installed.locate_file(file)).resolve().parents[2]
-                if all(safe_path(origin, name).is_file() for name in [*NATIVE_DEPENDENCIES, 'examples/ace-rtl/native_adapter.py']):
+                if all(safe_path(origin, name).is_file() and safe_path(origin, name).resolve() in declared
+                       for name in [*NATIVE_DEPENDENCIES, 'examples/ace-rtl/native_adapter.py']):
                     return origin
     except PackageNotFoundError:
         pass
@@ -73,6 +75,11 @@ def available_rows(root, dataset, cids):
 def verify_native_selection(spec, profile=None):
     policy, prepare = selection_policy(spec['_root'])
     return policy.verify_native_selection(spec, profile, prepare=prepare)
+
+
+def diagnose_native_selection(spec, *, retry):
+    policy, prepare = selection_policy(spec['_root'])
+    return policy.diagnose_selection(spec, retry=retry, prepare=prepare)
 
 
 def native_trial_budget(optimizer, rows, options=None, *, root=None):

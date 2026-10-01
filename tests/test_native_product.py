@@ -108,6 +108,52 @@ class NativeProductTests(unittest.TestCase):
         self.assertEqual((self.source / 'native/orchestration.py').read_bytes(), source)
         self.assertFalse((self.base / 'home/runs').exists())
 
+    def test_static_native_doctor_checks_agent_api_for_baseline_without_opencode_or_network(self):
+        from agent_optimizer.readiness import collect_plan
+        config = write_native_selection(ROOT, 'baseline', cids=['cid002'], rows=self.rows,
+                                        dataset=self.data, source=self.source, evaluator=self.evaluator)
+        before = {p: p.read_bytes() for p in self.base.rglob('*') if p.is_file()}
+        with patch.dict(os.environ, {'AGENT_OPT_MODEL_BASE_URL': '', 'AGENT_OPT_MODEL_API_KEY': '', 'AGENT_OPT_MODEL_ID': ''}), \
+             patch('agent_optimizer.models.probe_model', side_effect=AssertionError('model call')), \
+             patch.object(self.prep, 'probe_python', return_value={'ready': False, 'reason': 'yaml 누락'}):
+            report = collect_plan(config, Registry())
+        rows = {row['id']: row for row in report['checks']}
+        self.assertEqual(rows['harness.registration']['status'], 'ok')
+        self.assertEqual(rows['evaluator.registration']['status'], 'ok')
+        self.assertEqual(rows['native_python']['status'], 'error')
+        self.assertEqual(rows['model.configuration']['status'], 'error')
+        self.assertIn('Agent', rows['model.configuration']['remedy'])
+        self.assertNotIn('OpenCode', rows['model.configuration']['remedy'])
+        self.assertNotIn('integration.assets', rows)
+        self.assertEqual(before, {p: p.read_bytes() for p in self.base.rglob('*') if p.is_file()})
+
+    def test_static_native_doctor_private_mismatch_blocks_without_rewriting_or_leaking(self):
+        from agent_optimizer.readiness import collect_plan
+        config = write_native_selection(ROOT, 'baseline', cids=['cid002'], rows=self.rows,
+                                        dataset=self.data, source=self.source, evaluator=self.evaluator)
+        benchmark = config.parent / 'tasks.json'
+        document = json.loads(benchmark.read_text())
+        document['tasks'][0]['evaluation']['row']['harness']['files']['private.py'] = 'G-PRIVATE-KEY-SENTINEL'
+        benchmark.write_text(json.dumps(document))
+        original = benchmark.read_bytes()
+        report = collect_plan(config, Registry())
+        self.assertEqual(next(row for row in report['checks'] if row['id'] == 'native.selection')['status'], 'error')
+        self.assertNotIn('G-PRIVATE-KEY-SENTINEL', json.dumps(report))
+        self.assertEqual(benchmark.read_bytes(), original)
+
+    def test_static_native_doctor_invalid_ca_never_probes_or_echoes_private_key(self):
+        from agent_optimizer.readiness import collect_plan
+        config = write_native_selection(ROOT, 'baseline', cids=['cid002'], rows=self.rows,
+                                        dataset=self.data, source=self.source, evaluator=self.evaluator)
+        ca = self.base / 'bad-ca.pem'
+        ca.write_text('-----BEGIN PRIVATE KEY-----\nG-CA-SECRET\n-----END PRIVATE KEY-----')
+        with patch.dict(os.environ, {'AGENT_OPT_CA_BUNDLE': str(ca)}), \
+             patch('agent_optimizer.models.probe_model', side_effect=AssertionError('network')):
+            report = collect_plan(config, Registry())
+        self.assertEqual(next(row for row in report['checks'] if row['id'] == 'model.transport')['status'], 'error')
+        self.assertNotIn('G-CA-SECRET', json.dumps(report))
+        self.assertFalse((self.base / 'home/runs').exists())
+
     def test_installed_native_assets_are_consumed_from_declared_distribution_origin(self):
         from types import SimpleNamespace
         from agent_optimizer.registry import NATIVE_DEPENDENCIES
@@ -118,7 +164,9 @@ class NativeProductTests(unittest.TestCase):
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / name, target)
         metadata_file = Path('share/agent-optimizer/examples/ace-rtl/native_prepare.py')
-        installed = SimpleNamespace(files=[metadata_file], locate_file=lambda file: prefix / file)
+        installed = SimpleNamespace(files=[Path('share/agent-optimizer') / name
+                                           for name in {*NATIVE_DEPENDENCIES, 'examples/ace-rtl/native_adapter.py'}],
+                                    locate_file=lambda file: prefix / file)
         with patch('agent_optimizer.native_selection.is_source_checkout', return_value=False), patch('importlib.metadata.distribution', return_value=installed):
             config = write_native_selection(self.base / 'foreign-cwd', 'baseline', cids=['cid002'], rows=self.rows,
                                             dataset=self.data, source=self.source, evaluator=self.evaluator)
@@ -128,6 +176,12 @@ class NativeProductTests(unittest.TestCase):
         registry = Registry()
         registry.load_plugins(origin, spec['plugins'])
         self.assertEqual(registry.resolve('harnesses', 'ace_native').__name__, 'ACENative')
+
+        from agent_optimizer.native_selection import resolve_native_project
+        installed.files = [metadata_file]
+        with patch('agent_optimizer.native_selection.is_source_checkout', return_value=False), patch('importlib.metadata.distribution', return_value=installed):
+            with self.assertRaisesRegex(Exception, 'native 연동 파일'):
+                resolve_native_project(self.base / 'foreign-cwd')
 
     def test_modified_private_native_evaluation_rejected_before_run_creation(self):
         config = write_native_selection(ROOT, 'baseline', cids=['cid002'], rows=self.rows,

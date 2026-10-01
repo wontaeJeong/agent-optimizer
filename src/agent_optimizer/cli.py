@@ -46,10 +46,12 @@ def next_command(command: str) -> None:
     print(f"{human('다음')}: {command}", file=sys.stderr)
 
 
-def serve_report(run_dir: Path, *, port: int = 0, no_open: bool = False) -> int:
+def serve_report(run_dir: Path, *, port: int = 0, no_open: bool = False, html: bool = False) -> int:
     import time
     from agent_optimizer.report_view import open_browser, report_row, start_view, view_status
-    handle = start_view(report_row(run_dir), port=port)
+    retry = shlex.join(['agent-opt', 'report', str(run_dir), *(['--html'] if html else []),
+                        '--serve', *(['--no-open'] if no_open else []), '--port', str(port)])
+    handle = start_view(report_row(run_dir), port=port, retry=retry)
     try:
         print(f'HTML 보고서: {handle.url}', file=sys.stderr, flush=True)
         opened = False if no_open else open_browser(handle.url)
@@ -564,6 +566,12 @@ def _dispatch(args):
             multiple = len(args.dataset) > 1
             config_name = name + '-' + uuid.uuid4().hex[:12]
             with contextlib.ExitStack() as rollback:
+                if multiple:
+                    configuration_root = app_path('experiments') / config_name
+                    from agent_optimizer.workspace import safe_path
+                    safe_path(configuration_root, '.')
+                    configuration_root.mkdir(parents=True, exist_ok=False)
+                    rollback.callback(shutil.rmtree, configuration_root)
                 for index, dataset_name in enumerate(args.dataset):
                     data, plugins, dependencies = prepare_selection(
                         root, dataset_name, evaluator=args.evaluator, offline=args.offline)
@@ -765,7 +773,7 @@ def _dispatch(args):
                                                override=os.environ.get("AGENT_OPT_LANG") or None)
                     target = write_report_artifacts(args.run_dir, data, language=language)
                 if getattr(args, 'serve', False):
-                    return serve_report(args.run_dir, port=args.port or 0, no_open=args.no_open)
+                    return serve_report(args.run_dir, port=args.port or 0, no_open=args.no_open, html=True)
                 show({"html": target, "status": data["status"]})
                 print(f"{human('결과 HTML')}: {target}", file=sys.stderr)
                 return 0

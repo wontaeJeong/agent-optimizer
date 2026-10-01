@@ -38,5 +38,6 @@
 - D: 완료. cb63f69..7021723, 리뷰 중요 2건·경미 1건 수정 후 재리뷰 승인.
 - E: 완료. 4c54c05, 독립 리뷰 중요 finding 없음. 리뷰 문서는 E worktree에 보존.
 - 통합: ff0d6dc까지 충돌 없이 cherry-pick 완료. 각 작업 보고서에 검증 명령·결과 기록.
-- F: 제품 연결·관련 175개 검증 완료. 전체 suite의 환경/공유 assertion 실패와 native readiness·wheel 자산은 G 인계. 상세는 final-mvp-f-20261001.md.
-- G/H/I: 대기.
+- F: 완료. be41046까지 독립 리뷰 수정 승인·최종 계약 인계 완료. native 정책은 examples 소유 thin hook이며 관련 211개 검증은 final-mvp-f-20261001.md §6~§8에 기록.
+- G: 통합·검증 진행. 전체 환경/공유 assertion 원인 수정, native 진단·wheel·locale·serialized 세션 경계를 취합. 실제 결과와 H 인계는 final-mvp-g-20261001.md.
+- H/I: 대기.

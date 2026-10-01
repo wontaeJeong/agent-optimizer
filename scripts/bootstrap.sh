@@ -44,6 +44,7 @@ help() {
         'smoke/live: --platform; live: --iterations 1..20' \
         'menu: 대화형 번호 메뉴(TTY 필요). 준비 후 사용자 CLI 도움말은 .venv/bin/agent-opt --help로 확인하세요.' \
         'test/lint/demo는 설치나 Docker 실행 없이 기존 .venv를 사용합니다.' \
+        '기존 외부 코어 환경은 AGENT_OPT_CORE_PYTHON=/절대/venv/bin/python으로 명시합니다. setup의 설치 대상은 바꾸지 않습니다.' \
         'make doctor ARGS="--json" (ARGS에는 인용된 옵션을 쓰고 셸 연산은 넣지 않습니다).' \
         '상세 옵션: python3 scripts/dev.py --help 또는 python3 scripts/dev.py <명령> --help.'
 }
@@ -561,7 +562,11 @@ compatible_python() {
 }
 
 if [ "$command" != setup ]; then
-    if compatible_python "$ROOT/.venv/bin/python"; then
+    if [ -n "${AGENT_OPT_CORE_PYTHON:-}" ]; then
+        case "$AGENT_OPT_CORE_PYTHON" in /*) ;; *) fail 'AGENT_OPT_CORE_PYTHON에는 기존 interpreter 절대경로가 필요합니다' ;; esac
+        compatible_python "$AGENT_OPT_CORE_PYTHON" || fail 'AGENT_OPT_CORE_PYTHON interpreter를 사용할 수 없습니다'
+        python="$AGENT_OPT_CORE_PYTHON"
+    elif compatible_python "$ROOT/.venv/bin/python"; then
         python="$ROOT/.venv/bin/python"
     elif command -v python3 >/dev/null 2>&1 && compatible_python python3; then
         python=python3
