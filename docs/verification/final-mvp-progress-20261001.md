@@ -43,3 +43,12 @@
 - H: 완료. 51b905d까지 독립 리뷰/fix 승인 인계를 소비했다. 실제 help·fixture·History/HTTP·계약·lint·Starlight build/link·캡처 및 prepare/doctor 책임 정정은 final-mvp-h-20261001.md의 최신 append가 정본이다. native live not_run.
 - I: 완료. 17d3501에서 일반 prepare 오분기·native source.subdir 및 make 테스트 환경 격리를 보완했다. 실제 make test 1157개 중 실행 1077 통과·기존 skip 80, lint/demo·새 wheel install·source/wheel CLI/PTY·TUI·실제 HTTP/종료·local/Git command·사이트 build/link 검증. R01~R30 완료 29·부분 1(R16)·차단 0, native live not_run. exact 명령·경로·미검증·최종 문서 커밋 관계는 [I 보고서](final-mvp-i-20261001.md)에 기록한다. 하위 에이전트·push/PR 없음.
 - 최종 whole-branch 리뷰/fix: cb7fbdf 대상 [독립 리뷰](final-mvp-final-review-20261001.md)는 Critical 0·Important 0·Minor 2. 단일 후속 wave에서 M1 필수 name 사용법을 실제 실행하고 M2 plan startup/main/callback import를 기존 no-bytecode 보호에 연결했다. no-`-B`/no-env actual disk regression·이전 값 복구·scope 밖 실제 pyc negative control, source-free wheel module/console smoke·covering 53개·실제 make 1160개 중 실행 1080 통과·기존 skip 80·lint를 완료했다. 최신 증거는 [I §8](final-mvp-i-20261001.md). R14 사용자 호출 증거 보완·R16 live 부분 유지, 하위 에이전트·push/PR 없음. 새 독립 재리뷰 승인을 대신 주장하지 않는다.
+- 최종 독립 재리뷰: e42a06f의 단일 수정 wave에서 M1·M2 모두 해소, 새 Critical/Important/Minor 0건으로 승인받았다. 총괄은 같은 코드에서 아래 명령을 직접 실행해 `Ran 1160 tests in 173.140s`, `OK (skipped=80)` 및 lint 통과를 확인했다. 원본 로그는 `/Users/wt.jeong/.local/share/opencode/tool-output/tool_0f57b7670001aAPlZ0RZyL602t`다. 기본 디렉터리는 main이며 사용자 변경·다른 worktree를 보존했고 통합 worktree는 clean이었다. 자동 push 금지에 따라 브랜치·worktree를 로컬 보존한다.
+
+```bash
+env -i PATH=/Users/wt.jeong/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-i/home AGENT_OPT_HOME=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-i/controller-final-home TMPDIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-i/tmp PYTHONDONTWRITEBYTECODE=1 AGENT_OPT_CORE_PYTHON=/Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python UV_OFFLINE=1 UV_PYTHON_DOWNLOADS=never make test
+env AGENT_OPT_CORE_PYTHON=/Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python PYTHONDONTWRITEBYTECODE=1 make lint
+git diff --check origin/main...HEAD
+git status --short --branch
+git worktree list
+```
