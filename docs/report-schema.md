@@ -29,3 +29,15 @@
 | `reserved_completed_gap` | `summary.trials_used`와 읽힌 완료 이벤트 수가 다릅니다. 예산 예약 뒤 중단되었을 수도 있으므로 **이 차이만으로 기록 유실로 단정하지 않습니다.** |
 
 과거 실행에 `trial_count`나 예산 기록이 없으면 비교 기준 자체를 만들지 않고 `unknown`/`null`로 둡니다. 미수집 metric·비용·토큰은 0이 아닌 `null`입니다. 일부 평가에서만 기록된 하네스 토큰·비용은 전체 합계로 표시하지 않습니다. `report.md`/`report.html`은 같은 v3 모델의 경고와 선택·건수를 보여주며, 원문과 후보 변경은 원본 파일로 연결합니다. 기존 v2 `report.json`에 새 필드는 없으므로 신호가 없다는 사실을 '완전함'으로 해석하면 안 됩니다.
+
+## 알고리즘·optional native 근거
+
+JSON/MD/HTML은 같은 normalized model을 사용합니다. `algorithm_trail`은 실제 stage/iteration/role/pass_number/accepted/status/split 이벤트와 기록된 frontier를 소비하며 baseline/file_variants나 unknown 알고리즘에 가짜 반복을 만들지 않습니다. stage 진행 곡선은 각 baseline에서 독립 시작하며 유효한 같은 그룹 validation만 비교합니다. `frozen_selection.json`과 원본 summary/events는 보고서 재생성으로 바뀌지 않습니다.
+
+유효 payload가 있을 때만 optional `native_execution`을 표시합니다. attempt/iteration·역할별 유일 request·generated target/hash·안전 evidence path metadata를 outer trial에 연결하고 private/prompt/RTL 본문은 가져오지 않습니다. 실제 source/candidate/task identity와 일치하지 않거나 손상된 sidecar는 native만 제외하며 outer 평가/선택은 유지합니다. native wall time·요청 duration·inner 횟수/time과 outer trusted 평가 계측은 별도입니다. 현재 native usage는 partial/unreported, 없는 값은 null이며 비용/전체 토큰을 추정하지 않습니다.
+
+추가 warning은 `native_execution_invalid`, `native_execution_warning`, `nonfinite_values` 등입니다. 비유한 파생 숫자는 null·경고로 정규화하고 원본은 보존합니다. 상세 HTML/MD 이벤트 표는 200건 상한이지만 전체 normalized 이벤트는 report.json에 남습니다. native evidence는 경로 metadata이지 href/공개 asset이 아닙니다. [D 근거](verification/final-mvp-d-20261001.md), [F producer](verification/final-mvp-f-20261001.md)를 따릅니다.
+
+## loopback 제공·History
+
+`agent-opt report RUN --serve --no-open --port 0`은 저장된 HTML을, `--html --serve`는 명시 재생성 후 새 서버 handle을 사용합니다. 고정 127.0.0.1·선택 report.html 또는 index.html **한 파일만** 허용합니다. JSON/MD/summary/events/log/source/candidate/private/session child route는 404이며 child는 별도 선택합니다. 포트 충돌은 code/errno와 retry를 제공하고 자동 fallback하지 않습니다. browser 실패는 URL/SSH 안내를 남기며 run status를 바꾸지 않습니다. Ctrl+C는 종료 130·자원 정리입니다. `--json/--csv` serve 충돌·serve 없는 port/no-open은 부작용 전에 종료 2입니다. History 조회는 report 없음·실패/중단도 보존하며 열람 action 전에 원래 row/inode와 서버 FD를 재검증합니다.

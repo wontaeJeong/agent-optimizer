@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" viewBox="0 0 760 450">
+  <title id="title">outer Optimizer와 inner native ACE loop</title>
+  <desc id="desc">outer는 baseline과 독립 stage의 train 탐색, validation 선택 고정, 선택 후 test를 소유한다. trial 안의 attempt 하나에서 Generator와 trusted inner 평가 및 Reflector/Coordinator가 반복한다. 모델은 공개 입력과 binary 상태만 받는다. 정상 종료 뒤 outer evaluator가 다시 채점한다.</desc>
+  <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#245d73"/></marker><style>.box{fill:#fff;stroke:#31566b;stroke-width:2}.label{font:600 17px system-ui,sans-serif;fill:#142b3b}.small{font:14px system-ui,sans-serif;fill:#263b49}.edge{fill:none;stroke:#245d73;stroke-width:2;marker-end:url(#arrow)}</style></defs>
+  <rect width="760" height="450" rx="12" fill="#f5f8fb"/>
+  <text class="label" x="24" y="33">outer: Agent Optimizer</text><text class="small" x="24" y="60">baseline → 독립 stage train → validation 선택 고정 → 설정한 test → report</text>
+  <rect x="20" y="83" width="720" height="262" rx="10" fill="#e1f4fa" stroke="#31566b"/>
+  <text class="label" x="35" y="113">outer trial 안: attempt 1개 / 원본 run_attempt의 inner iteration</text>
+  <rect class="box" x="38" y="147" width="162" height="74" rx="8"/><text class="label" x="73" y="176">Generator</text><text class="small" x="54" y="201">공개 입력·guidance</text>
+  <rect class="box" x="260" y="147" width="200" height="74" rx="8"/><text class="label" x="275" y="176">trusted inner 평가</text><text class="small" x="280" y="201">private 원문은 내부만</text>
+  <rect class="box" x="520" y="147" width="200" height="74" rx="8"/><text class="label" x="532" y="176">Reflector/Coordinator</text><text class="small" x="550" y="201">binary 상태·집계만</text>
+  <path class="edge" d="M200 184H260"/><path class="edge" d="M460 184H520"/><path class="edge" d="M620 221V254H119V221"/>
+  <text class="small" x="243" y="247">실패 시 다음 iteration / 원본 정책의 fresh-start</text>
+  <text class="small" x="38" y="294">GEPA: native/guidance.md · Meta: native/orchestration.py:guidance</text>
+  <text class="small" x="38" y="324">upstream / bridge / evaluator / source-lock은 editable 밖 · OS sandbox 아님</text>
+  <path class="edge" d="M360 345V368"/>
+  <rect class="box" x="210" y="369" width="300" height="57" rx="8"/><text class="label" x="233" y="393">outer trusted evaluator 재평가</text><text class="small" x="247" y="415">inner pass ≠ 최종 성적</text>
+  <rect class="box" x="546" y="369" width="174" height="57" rx="8"/><text class="small" x="562" y="393">private 평가 자료</text><text class="small" x="561" y="415">evaluator에만 전달</text><path class="edge" d="M546 397H510"/>
+</svg>

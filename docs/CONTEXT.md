@@ -55,7 +55,13 @@
 1. 실제 외부 Agent의 소스 접근·실행/평가법·editable·Harness/sub-agent 구조.
 2. 실제 모델/Agent 조합의 반복 실험 및 세 자체 구현과 각 논문 방법·예제의 차이 검증.
 3. 비교할 모델·예산·지표 우선순위·family 분리 데이터·전체 사용량 수집.
-4. 향후 native ACE 대표 프로필과 원본 평가 루프/외부 evaluator의 책임 분담.
+4. 구현된 native ACE 프로필의 실환경 반복 검증·추가 CID/row 범위. inner loop와 outer trusted 재평가는 분리됐으며 원본 전체 CLI/논문 재현을 뜻하지 않는다.
+
+## 2026-10-01 최종 구현 선택
+
+App Home은 기본 `~/.agent-optimizer`이며 절대 `AGENT_OPT_HOME`만 허용한다. 생성 설정·원본 project_root provenance를 분리하고 explicit output/legacy 의미·자동 migration 없음 원칙을 유지한다. TUI는 Home-first·명시 native CID/row/split·평문 Endpoint/ID와 secret key·읽기 전용 History·loopback HTML-only report를 제공한다.
+
+ACE 첫 선택은 Python native이며 기존 OpenCode/Claude coding 프로필은 독립 선택이다. native는 고정 로컬 source/data와 별도 3.12/native extra·trusted 평가 환경을 요구한다. GEPA/Meta는 실제 native guidance/orchestration을 수정하고 inner binary feedback만 모델에 전달한다. 원본/private/evaluator는 editable 밖이다. [G §7](verification/final-mvp-g-20261001.md)은 코어/fixture/Pilot/실제 wheel 근거이며 native live는 not_run이다. 위 2026-09-22 스킬 선택은 당시 결정으로 보존한다.
 
 현재 기능은 [status](status.md), 후속 순서는 [NEXT_STEPS](NEXT_STEPS.md), 보류 기능/복원 위치는
 [FUTURE](FUTURE.md), 외부 사실/고정 출처는 [SOURCES](SOURCES.md)다.

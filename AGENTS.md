@@ -29,7 +29,7 @@
 - 미지원/미구현 기능은 명시적으로 실패시킨다. baseline이나 합성 평가로 자동 대체하지 않는다.
 - 미수집 지표는 None. partial 사용량을 전체 사용량으로 이름 붙이지 않는다.
 - 데이터셋은 사용자가 명시적으로 고른다(자동 추천하지 않는다). 선택한 CVDP/Verilog-Eval은 고정 버전으로
-  자동 준비하고, 사용자 데이터는 분리된 채점기 계약을 요구한다. 여러 데이터셋 결과를 같은 점수로 직접 순위화하지 않는다.
+  선택 준비 경로로 준비한다. native ACE는 사용자가 고른 고정 로컬 source/data·CID/row/split과 별도 Python 3.12/native extra·평가 환경이 필요하며 prepare offline missing env는 명시 실패다. 사용자 데이터는 분리된 채점기 계약을 요구한다. 여러 데이터셋 결과를 같은 점수로 직접 순위화하지 않는다.
 - 실행은 argv 배열과 shell=False. 자격증명은 환경/credential store에만 둔다.
 - 상용 EDA 도구의 실행 어댑터·설치·라이선스 설정을 추가하지 않는다.
 - 개발 로컬 설정 .claude/.codex/.vscode 등은 Git 제외. 공유 AGENTS.md/CLAUDE.md는 커밋 가능.
@@ -57,6 +57,7 @@ make lint
 첫 준비는 `make setup-core`(uv·Python·고정 의존성 설치, 합성 데모 생성), 읽기 전용 코어 진단은 `make doctor-core`.
 기존 `.venv` 검사인 `make lint`·`make test`·`make demo`를 사용한다. 옵션 없는 `make setup`·`make doctor`는
 ACE 전체 전용이며 `make smoke`도 실제 ACE 평가 자산을 요구한다. `make live`와 `doctor --model`은 실제 모델을 호출한다.
+이 개발 ACE 전체 경로는 legacy coding이며 native 전체 준비가 아니다. 새 native 계약은 `examples/ace-rtl/NATIVE.md`를 따른다. 기본 App Home/절대 override·explicit output 부모·원본 provenance/legacy 보존·자동 migration 없음은 `docs/architecture.md`가 정본이다. 기존 코어 환경 실행만 필요하면 `AGENT_OPT_CORE_PYTHON=/절대/기존-venv/bin/python`을 명시한다.
 `make ARGS`는 인용된 옵션 값을 안전하게 분리하지만 셸 메타문자 실행은 거부한다.
 필요하면 `sh scripts/bootstrap.sh <명령> [옵션]`으로 직접 전달한다. 명령별 범위·복구는 `docs/development.md`를 따른다.
 패키징/ACE 환경 변경의 추가 검사는 `CONTRIBUTING.md`를 따른다.

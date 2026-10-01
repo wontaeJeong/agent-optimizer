@@ -1,18 +1,10 @@
 # Agent Optimizer — Agent 개발자를 위한 CLI/TUI
 
-서로 다른 Agent의 소스·실행 방법·평가기·수정 허용 범위를 연결해 **후보 생성 → 평가 → 선택 → 보고**를 반복하는 범용 Python CLI·대화형 TUI입니다. 실제 대상 Agent는 별도 저장소의 고정 Git commit 또는 로컬 소스로 연결합니다. ACE-RTL은 선택적 데모 대상이며 제품 코어가 아닙니다. 새 Agent에는 실행 하네스와 평가기 연결이 필요합니다.
-
-## 어디서 시작할까요?
-
-| 경로 | 준비와 얻는 결과 |
-|---|---|
-| [코어 합성 체험](#개발환경-빠른-시작) · [첫 실행 가이드](https://wontaejeong.github.io/agent-optimizer/getting-started/first-run/) | 모델·Docker 없이 7-trial fixture로 CLI·보고서 연결 확인. 실제 RTL 개선 근거는 아닙니다. |
-| [ACE 프리셋 TUI/CLI](https://wontaejeong.github.io/agent-optimizer/getting-started/presets/) | 고정 ACE/OpenCode/CVDP 자산·Docker와 Agent/Optimizer 모델 준비 후 GEPA **또는** Meta-Harness를 독립 실행. 한정된 [실환경 근거](docs/verification.md#2026-09-28-선택형-gepameta-harness-실모델공식-cvdp-후속-검증)를 확인하세요. |
-| [내 Agent 연결](#내-agent-연결하기) · [실험 구성 가이드](https://wontaejeong.github.io/agent-optimizer/guides/experiment/) | 로컬/고정 Git 소스, Harness, editable, 데이터셋과 별도 평가기를 직접 지정합니다. |
+로컬 또는 고정 Git commit의 Agent 소스에 실행 Harness·데이터셋·별도 Evaluator·Optimizer를 연결하여 **후보 생성 → 평가 → 선택 → 보고**를 반복하는 범용 Python 도구입니다. 원본과 평가 기준을 보존하며 ACE-RTL은 `examples/`의 선택적 연동입니다.
 
 ## 개발환경 빠른 시작
 
-**Mac 또는 Linux, Git, Python 3.11+**에서 저장소 루트 기준으로 실행합니다. `make setup-core`는 uv가 없으면 로컬에 준비하고 Python 3.12·고정 개발 의존성을 `.venv`에 설치한 뒤 코어 진단과 최소 데모를 실행합니다. 첫 준비에는 다운로드가 필요할 수 있지만 **최소 데모 실행에는 모델 키·Docker가 필요 없습니다.** 네트워크/CA 설정은 [개발환경 가이드](docs/development.md)와 [네트워크 안내](docs/network.md)를 참고하세요.
+저장소 루트에서 Mac/Linux·Git·Python 3.11+로 시작합니다. `make setup-core`는 uv와 신규 Python 3.12·고정 개발 의존성을 `.venv`에 준비하고 합성 데모도 한 번 실행합니다. 첫 설치에 다운로드가 필요할 수 있으나 **fixture 실행은 모델·Docker가 필요 없습니다.** make가 없으면 `sh scripts/bootstrap.sh setup --core`를 사용하세요.
 
 ```bash
 make setup-core
@@ -21,116 +13,36 @@ make doctor-core
 .venv/bin/agent-opt run examples/minimal/experiment.toml
 ```
 
-`make setup-core`만으로도 데모 보고서 하나가 생성됩니다. 마지막 `run`은 새 실행을 한 번 더 만들어 결과 확인 과정을 따라가기 위한 명령입니다. `doctor --plan`의 `"scope": "plan", "ready": true`는 **정적 계획 검사** 결과이지 외부 모델·평가기의 성공 보장은 아닙니다. `run`은 완료 시 `"status": "completed", "trials_used": 7`, `run_dir`, `report_html`을 출력합니다. `runs/`는 Git에서 제외되며 실행마다 `<run-id>`가 달라집니다.
+마지막 명령은 새 실행을 만듭니다. 예상값은 `status=completed`, `trials_used=7`, `synthetic=true`입니다. 두 합성 Agent·`fixture`·`file_variants`의 배선 검사이며 실제 모델/RTL 개선이 아닙니다. 이 **기존 TOML은 명시 `output_dir="runs"`**여서 프로젝트 `runs/<run-id>`에 저장합니다. 후속 명령에는 JSON이 출력한 `run_dir`·`report_html`을 사용하세요.
 
-`make`가 없다면 `sh scripts/bootstrap.sh setup --core`로 준비할 수 있습니다. 기본 CLI는 `.venv/bin/agent-opt --help`, 대화형 시작은 TTY에서 `.venv/bin/agent-opt tui`입니다. `make help`는 설치 없이 개발 명령을 보여줍니다.
-
-### ACE 프리셋: TUI 또는 CLI
-
-TTY에서 `.venv/bin/agent-opt tui`를 실행하면 먼저 **New Optimization / Existing Experiment / Run History / Advanced Setup / Quit** Home이 표시됩니다. `New Optimization`에서 **Agent → Harness → Optimizer → Dataset → Model Setup → Review → Preparing → Doctor → Running → Result** 순서로 진행합니다. ACE 예시는 **ACE-RTL → OpenCode → GEPA 또는 Meta-Harness → CVDP**를 wizard에서 직접 선택합니다. `↑/↓`와 `Enter`로 이동·확정하고 `Esc`는 직전 단계로 돌아갑니다. 준비 뒤 `Continue to Doctor`를 선택하고, Doctor가 실패하면 실행은 차단됩니다. Doctor 통과 후에도 `Run Optimization`을 선택해야 시작합니다. 실제 준비는 고정 자산 다운로드/Docker 빌드를, model connectivity probe는 설정한 API에 실제 요청을 할 수 있습니다. 상세 조작·활성 수정 파일·예산은 [프리셋 실행 가이드](https://wontaejeong.github.io/agent-optimizer/getting-started/presets/)에 있습니다.
+## TUI 또는 CLI로 선택하기
 
 ```bash
+.venv/bin/agent-opt --help
+.venv/bin/agent-opt tui
 .venv/bin/agent-opt catalog list --kind harness
-.venv/bin/agent-opt catalog show optimizer gepa
-.venv/bin/agent-opt init --name ace-gepa-demo --agent-preset ace-rtl --harness-profile ace-opencode --optimizer gepa --dataset cvdp --yes
-.venv/bin/agent-opt prepare runs/configs/ace-gepa-demo/experiment.toml
-.venv/bin/agent-opt doctor --plan runs/configs/ace-gepa-demo/experiment.toml --json
-.venv/bin/agent-opt plan runs/configs/ace-gepa-demo/experiment.toml
-.venv/bin/agent-opt run runs/configs/ace-gepa-demo/experiment.toml
+.venv/bin/agent-opt catalog show optimizer gepa --json
 ```
 
-`catalog`는 준비·모델 호출 없는 설명 조회입니다. `init --yes`는 **CVDP 데이터·고정 ACE 소스·driver·Docker 이미지 준비**(다운로드/빌드 가능)를 승인하고 `prepare`는 같은 자산을 검사·재사용합니다. `doctor --plan`과 `plan`은 정적 검사이며 `run`은 모델/공식 평가를 실제 호출할 수 있습니다. 각 `init` JSON의 `experiment`를 후속 경로로 사용하세요(동일 이름의 설정은 덮어쓰지 않음). Meta-Harness는 **다른 이름**과 `--optimizer meta_harness`로 별도 생성·실행합니다. `run` JSON의 `run_dir`에서 `agent-opt report <run_dir> --html`로 보고서를 재생성할 수 있습니다. Optimizer API(`AGENT_OPT_MODEL_BASE_URL`, `AGENT_OPT_MODEL_API_KEY`, 선택적 `AGENT_OPT_MODEL_ID`)와 OpenCode 선택자(`AGENT_OPT_MODEL`)는 별도이며 키는 설정 파일에 저장하지 않습니다.
+무인자 `agent-opt`는 정상 TTY에서 TUI를 열고 pipe/CI/dumb 터미널에서는 help와 종료 2를 반환합니다. Home의 **새 최적화 / 기존 실험 / 실행 이력 / 고급 설정 / 종료**에서 선택합니다. 새 흐름은 **Agent → Harness → Optimizer → Dataset → (native CID·row·split) → Model → Review → Preparing → Doctor → Running → Result/History**입니다. `↑/↓`, `Enter`, `Esc`를 사용하며 highlight는 조회만 합니다. 준비 완료 후 Doctor로, 진단 통과 후 실행으로 각각 명시적으로 계속해야 합니다.
 
-개발 명령의 **옵션 없는 `make setup`·`make doctor`는 ACE 전체 범위**입니다. 코어 준비·진단은 위 `-core` 명령을 쓰세요. 선택 데이터셋, ACE 전체 준비, 실제 모델 검사와 일상 검사의 준비 조건·부작용·복구 방법은 [개발 명령 기준](docs/development.md), 변경 유형별 검사는 [CONTRIBUTING.md](CONTRIBUTING.md)에 있습니다. 개발 명령 `doctor`와 사용자용 `.venv/bin/agent-opt doctor --plan ...`은 검사 범위가 다릅니다.
+Planned는 미구현·비활성, 미준비는 자산/환경 부족, 비호환은 선택 불가, 미검증은 실환경 성공 근거 부재입니다. **Endpoint와 Model ID는 평문, API key만 숨김 입력**입니다. 현재 환경·세션·기본값·명시 제공 named preset·Custom을 구분하며 preset은 URL/ID만 저장합니다. 자격증명 포함 URL은 거부하고 키는 세션/환경에만 둡니다. `.env` 자동 로딩은 없습니다. 상세는 [프리셋 가이드](https://wontaeJeong.github.io/agent-optimizer/getting-started/presets/)를 확인하세요.
 
-### 결과 확인
+`catalog`는 읽기 전용 설명 조회, `init --yes`·`prepare`는 선택 자산 준비, `doctor --plan`·`plan`은 정적 검사, `run`은 실제 외부 실행이 가능한 명령입니다. `doctor --plan CONFIG --model`만 명시 모델 API probe를 추가하며 성공해도 전체 Agent/평가 성공은 아닙니다. 기계용 stdout JSON과 진행 stderr를 구분하세요. 별도 `serve` 명령은 없고 **`report --serve`**를 사용합니다.
 
-위 `run` 출력의 **`report_html`을 브라우저에서 열면** 별도 서버 없이 볼 수 있습니다. `make setup-core`의 자동 데모 결과는 출력 중 `run_dir`의 `report.html`에 있습니다. 결과를 터미널에서 다시 읽으려면 그 `run_dir`을 아래 `runs/<run-id>` 자리에 넣으세요.
+## 실제 ACE native 데모 조건
 
-```bash
-.venv/bin/agent-opt report "runs/<run-id>"
-# 저장된 실행 자료로 HTML·Markdown·보고서 JSON을 다시 만들 때만:
-.venv/bin/agent-opt report "runs/<run-id>" --html
-```
+ACE-RTL의 첫 Harness는 **Python native**입니다. CLI 선택은 `--harness-profile ace_native`(별칭 `ace-native`), Agent ID `ace-rtl-native`, adapter `ace_native`, profile `ace-native`, evaluator `cvdp_native`입니다. 고정 **로컬** ACE checkout/export·HF JSONL, 별도 Python **3.12 + native extra(PyYAML)**, 고정 CVDP driver/repo·검토한 OSS simulator image tag/identity·Docker·`ps`, Agent API URL/ID/key가 필요합니다. Baseline도 native Agent API를 요구하며 Optimizer API 필요 여부는 별도입니다.
 
-| 파일 | 실제 내용과 용도 |
-|---|---|
-| `report.html` | 실행 시 자동 생성되는 독립형 화면. 그룹별 기준/선택 검증 점수, 추이·과제·최종 테스트·실패·후보 변경·재현 정보를 확인합니다. |
-| `report.md` | 같은 보고서 모델의 텍스트 표. 그룹 비교·최적화 단계·사용량·재현 정보를 파일로 읽거나 공유할 때 사용합니다. |
-| `summary.json` | 실행 원본 요약: 상태, 그룹별 기준/선택/최종 테스트, 예약된 `trials_used` 등. 위 `agent-opt report RUN`의 출력입니다. |
-| `report.json` | 원본 요약·이벤트에서 파생한 **보고서 스키마 v3**. 그룹·비교·평가·근거 완전성/불일치를 기록하며 선택 근거인 원본을 대체하지 않습니다. [버전과 필드 의미](docs/report-schema.md) |
+사용자가 `cid002/cid004/cid007/cid016`과 **실제 row ID→train/validation/test**를 고릅니다. 자동 추천·전체 CVDP 지원·자동 held-out 분할은 없습니다. CID007은 40개 중 13개만 정적 eligible이며 PNR/상용 helper 27개를 제외합니다. native `init`/`prepare`는 사용자가 고른 고정 로컬 소스·데이터를 검증/준비하는 경로입니다. **`prepare --offline`은 누락 interpreter/driver/image/모델 환경을 설치하거나 online으로 보완하지 않고 명시 오류로 끝납니다.**
 
-`report.md`와 `report.json`은 같은 실행 폴더에서 텍스트 편집기로 열고, `summary.json`은 위 `agent-opt report` 출력으로도 확인합니다. 같은 폴더의 `manifest.json`(설정·출처), `events.jsonl`(실행 이벤트), 그룹별 `candidates/*/changes.diff`(후보 변경)도 확인할 수 있습니다. 이벤트 파일이 없거나 손상·건수 차이가 있으면 세 보고서에 경고를 표시합니다. 예약 예산과 완료 평가의 차이만으로 기록 유실을 단정하지 않습니다. 미수집 비용/토큰은 `null`이며 하네스가 보고한 일부 사용량을 전체 사용량으로 해석하지 않습니다. `--html`은 저장된 결과를 재생성하며 평가를 다시 실행하지 않습니다. 언어 기본값은 한국어이고 `AGENT_OPT_LANG=en`으로 실행·보고서 재생성 시 영어를 선택할 수 있습니다.
+[native 실행 가이드](examples/ace-rtl/NATIVE.md)에 준비 → doctor → 작은 smoke → 선택 CID → 결과의 복사 가능한 명령과 지원표가 있습니다. GEPA는 `native/guidance.md`, Meta-Harness는 실제 import되는 `native/orchestration.py:guidance`를 수정합니다. outer Optimizer trial과 inner ACE attempt/iteration·trusted 최종 평가를 구분합니다. native live는 현재 **`not_run`**입니다.
 
-### 재현 가능한 최소 실행 화면
-
-`examples/minimal/experiment.toml`을 **모델·Docker 없이** 실행한 결과입니다. 로컬 합성 텍스트 과제, `fixture` 하네스, `file_variants`의 설정 변경을 이용하며 실제 RTL/LLM 성능을 측정하지 않습니다. 2026-09-27 Mac ARM64, Python 3.12.12에서 `make setup-core`로 생성한 `report.html`을 한국어·브라우저 1200px 화면에서 캡처했습니다. 실행 시간과 run ID는 환경마다 달라집니다.
-
-| 그룹 (`Agent/Harness`) | 기준 검증 `solve_rate` | 선택 검증 `solve_rate` | 최종 테스트 (기준 → 선택) |
-|---|---:|---:|---:|
-| `rtl-solo/fixture` | 0.0 | 1.0 | 0.0 → 1.0 |
-| `rtl-team/fixture` | 1.0 | 1.0 | 1.0 → 1.0 |
-
-**총 7 trial**(solo 4, team 3); 위 수치는 해당 fixture에 의도적으로 구성된 연결 확인 결과입니다. 재현 시 `summary.json`의 `synthetic: true`, `groups`의 `baseline`·`selected`·`final_test`와 `report.md`의 그룹 비교를 대조하세요.
-
-![합성 최소 실행에서 생성된 HTML 보고서: 그룹별 지표와 최적화 추이](website/src/assets/report-minimal-current.png)
-
-## 지원 범위
-
-| 구분 | 현재 구현 / 사용 조건 |
-|---|---|
-| 인터페이스 | `agent-opt` CLI·TTY TUI, `catalog` → `init` → 선택형 `prepare` → `doctor --plan` → `plan` → `run` → `report`; 데이터셋은 사용자가 직접 선택. |
-| 소스·실행 | 로컬/고정 commit Git 스냅샷, 복수 Agent × Harness 기본 전체 곱 또는 실험별 `[[pairs]]` 선택. `command`, `opencode`, `claude_code` 등록; `fixture`는 합성 데모용. `codex`, `openagent`는 미구현 예약 ID. |
-| 최적화 | `baseline`, `file_variants`(모델 없이 실행), 자체 구현 `gepa`, `meta_harness`, `ecdysis`(모델 설정·적합한 파일/과제 필요). GEPA의 후보 병합은 현재 명시적으로 실패; upstream 논문 재현을 뜻하지 않습니다. |
-| 데이터·평가 | 합성 `sample_text`, 선택형 고정 CVDP·Verilog-Eval(`verilog-spec`, `verilog-completion`), 또는 사용자 `tasks.json` + 명시적 evaluator. 후자의 채점기를 자동 추측하지 않습니다. |
-| 실행 환경 | 코어 fixture: Mac/Linux, Python 3.11+, Git, 모델·Docker 불필요. 선택형 ACE/CVDP·Verilog-Eval의 공식/도구 평가에는 별도 준비와 Docker 필요. 실제 통합·플랫폼별 검증 범위는 [현재 상태](docs/status.md)와 [검증 기록](docs/verification.md) 참고. |
-
-`claude_code`는 구현·등록되어 있지만 별도 Claude Code CLI, 인증 및 프로필이 필요합니다. 실제 도구/모델·평가 성공은 명시적 실환경 실행으로 구분합니다. ACE 데모는 **OpenCode 스킬 프로필 + 외부 공식 CVDP 평가**이며 native ACE 실행과 다릅니다. 지원하지 않는 연결은 자동으로 baseline/합성 점수로 대체하지 않습니다.
-
-### 전체 구성
-
-```mermaid
-flowchart LR
-    U["사용자: CLI / TUI"] --> C["설정·계획 진단<br/>cli.py / config.py / readiness.py"]
-    C --> R["중앙 등록·계약<br/>registry.py / contracts.py"]
-    C --> D["명시적 데이터셋·평가기<br/>datasets.py / examples / experiments"]
-    C --> S["원본 확보·후보 스냅샷<br/>sources.py / workspace.py"]
-    R --> X["실험 실행·예산·선택<br/>runner.py"]
-    D --> X
-    S --> X
-    X --> H["Agent 실행<br/>harnesses: command / fixture / opencode / claude_code"]
-    X --> O["독립 탐색<br/>optimizers: baseline / file_variants / GEPA / Meta-Harness / Ecdysis"]
-    H --> E["분리된 평가기<br/>공개 과제 / private 평가"]
-    E --> X
-    O --> X
-    X --> P["실행 기록·보고<br/>results.py / report_model.py / html_report.py"]
-    P --> A["summary.json / report.json<br/>report.md / report.html / events.jsonl"]
-```
-
-`examples/`에는 데모와 도메인 연동, `experiments/<team>/`에는 팀 파일 플러그인을 둡니다. 구성요소는 공통 [`contracts.py`](src/agent_optimizer/contracts.py)를 사용하며 [`registry.py`](src/agent_optimizer/registry.py)에 ID → 구현 파일을 등록합니다. 원본/평가 자료 분리와 상세 구조는 [구조 문서](docs/architecture.md)에 있습니다.
-
-### 한 실험의 최적화 흐름
-
-```mermaid
-flowchart TD
-    A["설정 로드 · 명시적 데이터셋/평가기 선택"] --> B["원본 확인 · editable 범위 스냅샷"]
-    B --> C["Agent × Harness별 기준 후보<br/>validation 평가"]
-    C --> D["각 Optimizer stage를 기준 후보에서 독립 시작"]
-    D --> E["기준 후보·자기 stage의 train 이력으로 후보 수정·평가<br/>공통 baseline cache"]
-    E --> F["각 stage의 validation 수치로 winner 선정"]
-    F --> G["선택 대상 stage의 winner 비교<br/>기본: 모든 stage · lexicographic keep=1"]
-    G --> H["선택 고정"]
-    H --> I{"final_test?"}
-    I -->|예| J["기준 후보와 고정 선택 후보의 test 평가"]
-    I -->|아니요| K["요약·이벤트·보고서 저장"]
-    J --> K
-```
-
-train 자료만 후보 수정 근거로 사용하고, test는 선택을 고정한 뒤에만 실행합니다. 여러 데이터셋을 선택하면 `run-session`이 **데이터셋마다 독립 실험/보고서**를 만들며 기본 최대 2개 프로세스를 병렬 실행합니다(`--jobs N`으로 조절). 서로 다른 채점기 점수를 하나로 순위화하지 않습니다.
+기존 **OpenCode/Claude Code coding 프로필**은 별도 선택입니다. `ace-opencode`의 GEPA `role-guidance.md`/Meta `agent_opt_scaffold.py:prepare_task`는 native 표면이 아닙니다. `init --profile ace-rtl --workspace PATH`와 옵션 없는 `make setup/doctor`, `make smoke/live`는 **기존 ACE 전체 coding 경로**입니다. 코어/native 전체 준비로 재해석하지 마세요. [legacy 안내](examples/ace-rtl/README.md)와 [과거 실제 OpenCode 기록](docs/verification.md#2026-09-28-선택형-gepameta-harness-실모델공식-cvdp-후속-검증)은 native 성공 증거가 아닙니다.
 
 ## 내 Agent 연결하기
 
-준비된 코어 환경에서 `.venv/bin/agent-opt datasets list`와 `.venv/bin/agent-opt plugins`로 선택지를 확인합니다. 아래 예제는 저장소에 포함된 로컬 Agent/과제/평가기로 **비대화형 새 설정을 만드는 검증된 경로**입니다. `init`은 같은 이름의 설정을 덮어쓰지 않으므로 재시도할 때 `--name`을 바꾸세요.
+코어 준비 후 저장소 루트에서 아래 합성 2-trial 설정을 만들 수 있습니다.
 
 ```bash
 .venv/bin/agent-opt init --name my-fixture \
@@ -140,22 +52,54 @@ train 자료만 후보 수정 근거로 사용하고, test는 선택을 고정�
   --dataset examples/minimal/tasks.json \
   --evaluator examples/minimal/evaluator.py:TextFixtureEvaluator \
   --optimizer baseline --yes
-.venv/bin/agent-opt doctor --plan runs/configs/my-fixture/experiment.toml --json
-.venv/bin/agent-opt run runs/configs/my-fixture/experiment.toml
+# init JSON의 experiment 절대경로를 그대로 복사:
+CONFIG='/실제/init/출력/experiment.toml'
+.venv/bin/agent-opt doctor --plan "$CONFIG" --json
+.venv/bin/agent-opt plan "$CONFIG"
+.venv/bin/agent-opt run "$CONFIG"
 ```
 
-실제 Agent는 `--agent <로컬 경로>` 또는 `--agent <Git URL> --revision <전체 commit>`을 연결하고 실행/평가 방식과 `--editable`을 지정합니다. `--command`는 `command` 하네스 전용 argv 문자열이며 셸 확장·파이프는 실행하지 않습니다. 비대화형 `init`에는 `--dataset`, `--optimizer`, `--yes`가 필요합니다. TTY에서는 `.venv/bin/agent-opt init`으로 새 설정만 만들거나 `.venv/bin/agent-opt tui`의 Home에서 작업을 선택할 수 있습니다. `Existing Experiment`는 `runs/configs/`의 최근 설정 또는 직접 입력 경로를 Review로 열며 자산을 자동 다운로드/빌드하지 않습니다. `Advanced Setup`은 기존 설정 및 맞춤 `agent-opt init` 경로를 안내합니다.
+`CONFIG`는 설명용 값이며 실제 `init` 출력으로 바꿉니다. 새 설정은 **App Home/experiments/<이름>-<uuid12>/experiment.toml**이며 같은 이름도 독립 생성합니다. 고정 `runs/configs/<name>` 경로를 추측하지 마세요. 실제 Agent는 `--agent LOCAL` 또는 `--agent GIT_URL --revision FULL_SHA`를 연결하고 editable·Harness·데이터·평가기를 직접 지정합니다. `--command`는 argv 인용만 분리하며 셸 확장/파이프를 실행하지 않습니다. [실험 구성](https://wontaeJeong.github.io/agent-optimizer/guides/experiment/)을 참고하세요.
 
-### 프리셋 선택과 기존 ACE 예제의 차이
+### App Home과 프로젝트
 
-TUI의 Review는 후보 수정 대상, model과 값 출처, budget, 준비/외부 호출, 보고서 경로를 보여줍니다. GEPA는 후보 `role-guidance.md`를 OpenCode prompt에, Meta-Harness는 후보 `agent_opt_scaffold.py`를 공개 과제 선행 실행에 사용합니다. 기본은 각 3회 반복·최대 9 trial/5760초·`final_test=false`입니다. [2026-09-28 기존 실환경 기록](docs/verification.md#2026-09-28-선택형-gepameta-harness-실모델공식-cvdp-후속-검증)은 **각각 별도 1회 반복·실제 4/최대 5 trial**의 공식 CVDP raw 평가와 validation 동점에 따른 baseline 선택입니다. 기본 예산 실행이나 성능 향상 입증이 아닙니다. 설치형 wheel의 고정 예제 commit은 이 기록의 GPT-5 plugin 후속 변경을 자동 반영하지 않습니다.
+기본 **`~/.agent-optimizer`**, `AGENT_OPT_HOME`은 `~` 확장 후 **절대경로만** 허용합니다(없거나 빈 값이면 기본). 상대값·unsafe 경로/권한을 조용히 fallback하지 않습니다.
 
-`init --profile ace-rtl --workspace PATH`는 기존 고정 `simple_feedback` 예제이며 TUI의 선택형 ACE 설정과 다릅니다. TUI의 합성 `rtl-solo`/`rtl-team → Fixture → Baseline`/`FileVariants → sample_text`도 ACE 실평가와 다릅니다. 단계별 준비·Doctor·실행 결과 해석은 [프리셋 가이드](https://wontaejeong.github.io/agent-optimizer/getting-started/presets/)를 참고하세요.
+```text
+~/.agent-optimizer/
+  experiments/  # 생성 설정·Agent/Harness/tasks 선언
+  runs/         # 새 설정의 기본 run 부모 → UTC run-id
+  sessions/     # 복수 dataset 독립 run-session 부모
+  assets/       # 선택 연동 helper·고정 native export
+  cache/        # datasets 및 integrations의 검증 캐시
+  logs/         # 앱 로그 경계(항상 생성되는 폴더는 아님)
+```
 
-복수 Agent/하네스 프로필에서 일부 조합만 실행하려면 실험 TOML에 `[[pairs]]`를 명시하세요. `agent`는 Agent ID, `harness`는 **프로필 ID**입니다. 생략하면 전체 곱을 실행하며, 명시하면 선택한 쌍만 `plan`·`doctor --plan` 예산·`run`에 반영됩니다. [설정 예와 제약](docs/adding-components.md#harness)을 참고하세요. CLI 옵션과 TUI wizard 질문은 그대로이며 TUI의 기존 실험 경로로 열 수 있습니다.
+프로젝트는 개발 소스/플러그인의 기준, Home은 실행 저장소입니다. 새 설정의 `project_root`는 원본 절대 provenance, `config_root="."`는 설정 파일 부모입니다. agents/harnesses/benchmark는 config_root, 원본 플러그인은 project_root, local source는 Agent manifest 기준을 보존합니다. **output 우선순위: CLI `--output` > 명시 TOML `output_dir` > Home/runs**. 모두 run-id를 담는 **부모**이며 상대 CLI output은 호출 CWD, 상대 TOML output은 project_root 기준입니다. session explicit output도 부모 의미입니다. 옛 프로젝트 runs/sessions·명시 output 이력은 선택한 경계에서 조회하며 XDG/cache/실행 자료를 **자동 migration·이동·삭제하지 않습니다**.
 
-모델 Optimizer에는 환경/credential store에 `AGENT_OPT_MODEL_BASE_URL`, `AGENT_OPT_MODEL_API_KEY`를 두고 필요하면 `AGENT_OPT_MODEL_ID`를 지정합니다. 앱은 `.env`를 자동 로딩하거나 키를 실험 설정에 저장하지 않습니다. OpenCode용 `AGENT_OPT_MODEL` 선택자는 이 API 설정과 별개입니다. 실제 모델/데이터 준비는 [ACE-RTL 예제](examples/ace-rtl/README.md), [사용자·팀 개발자 가이드](https://wontaeJeong.github.io/agent-optimizer/), [현재 구현 상태](docs/status.md)를 확인하세요.
+## History와 보고서 보기
 
-팀 구현을 시작한다면 위 [개발환경 빠른 시작](#개발환경-빠른-시작) → [담당 템플릿](experiments/README.md) → [확장 계약](docs/adding-components.md) 순서로 진행합니다. 개발 명령·테스트는 [CONTRIBUTING.md](CONTRIBUTING.md), 미구현·제약은 [FUTURE.md](docs/FUTURE.md), 외부 연동 출처는 [SOURCES.md](docs/SOURCES.md)를 참고하세요.
+TUI 실행 이력은 성공·실패·중단·보고서 없음·session과 실제 child를 읽기 전용으로 보여줍니다. HTML 없음은 실행 없음이 아닙니다. 종료 근거 없는 running은 `stale`, 불충분한 기록은 `unknown`; 선택한 기존 실험의 explicit output 부모도 조회합니다.
 
-가이드 사이트는 `website/`의 한국어 원고를 Astro + Starlight로 빌드합니다. **Node.js 22.12+** 환경에서 `website/`의 `npm ci` → `npm run dev`로 로컬 미리보기를 열고 `npm run build`로 배포 전 링크·앵커를 검사합니다. 앱 실행 환경과 별개입니다.
+```bash
+RUN='/실제/run/출력/run_dir'
+.venv/bin/agent-opt report "$RUN" --json
+.venv/bin/agent-opt report "$RUN" --html
+.venv/bin/agent-opt report "$RUN" --serve --no-open --port 0
+```
+
+`report.html`, `report.md`, `report.json` v3는 **같은 normalized model**을 사용합니다. `summary.json`·events·manifest·후보 diff·`frozen_selection.json`은 원본 근거입니다. 기록된 validation만 비교하며 stage별 algorithm trail·inner/native 요청과 outer 평가·최종 test를 분리합니다. 미수집은 null, partial은 전체 사용량이 아니며 누락/손상/불일치는 evidence warning으로 표시합니다. `--html`은 저장된 결과로 재생성할 뿐 재평가/재선택하지 않습니다.
+
+`--serve`는 **127.0.0.1의 선택 HTML 한 파일만** 공개합니다. JSON/MD/로그/후보/private와 session child 링크는 allowlist 밖입니다. child 보고서는 별도로 선택하세요. `--html --serve`는 재생성 후 열람, `--no-open`은 자동 브라우저 생략, `--port 0`은 자동 포트, Ctrl+C는 130입니다. 명시 포트 충돌은 오류와 retry를 제공하고 브라우저 실패는 URL을 남기며 run 성적을 바꾸지 않습니다. SSH에서는 서버가 살아 있는 동안 표시 포트로 포워딩하세요. `--json/--csv`와 serve 충돌은 종료 2입니다.
+
+![합성 최소 실행의 HTML 보고서(과거 캡처, 실제 native 성능 근거 아님)](website/src/assets/report-minimal-current.png)
+
+## 개발 문서와 검증 범위
+
+**README 빠른 시작 → [담당 템플릿](experiments/README.md) → [확장 계약](docs/adding-components.md)·[contracts.py](src/agent_optimizer/contracts.py)** 순서로 진행합니다. 팀 구현은 `experiments/<team>/`, ID→파일 등록은 `registry.py`입니다. 여러 Agent/Harness·독립 stage는 baseline에서 시작하고 수정 근거는 stage-local train, 선택은 validation, test는 선택 고정 이후입니다. 연구 이름의 자체 구현은 upstream/논문 재현이 아닙니다. Planned/미지원은 명시 실패하며 합성 fallback하지 않습니다.
+
+- [구조/세 경계 도식](docs/architecture.md), [현재 상태](docs/status.md), [다음 작업](docs/NEXT_STEPS.md), [보류](docs/FUTURE.md)
+- [개발 명령·offline/CA/proxy](docs/development.md), [기여/검증](CONTRIBUTING.md), [고정 출처](docs/SOURCES.md), [날짜별 증거](docs/verification.md)
+- [G 최종 §7](docs/verification/final-mvp-g-20261001.md#7-수정-라운드-1--독립-리뷰-r1r4-대응): 전체 1155개 중 실행 1075개 통과·기존 skip 80개, lint·실제 source-free wheel build/install/합성/HTTP smoke 통과. **native 실모델·실 Docker/EDA·Ubuntu native loop는 not_run**입니다.
+
+기존 코어 검사에는 `make test/lint/demo`를 사용합니다. 다른 격리 checkout에서 기존 환경 실행만 필요하면 `AGENT_OPT_CORE_PYTHON=/절대/기존-venv/bin/python make lint`처럼 지정합니다. 사이트는 기존 Astro Starlight를 유지합니다. Node.js 22.12+로 `website/`에서 `npm ci`, `npm run dev`, `npm run build`, `npm run check:links`(실제 script는 build)를 실행하세요. `/agent-optimizer` base path이며 앱 환경과 별개입니다.

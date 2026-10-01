@@ -37,7 +37,7 @@ make doctor-core
 
 ## 선택: 내 손으로 2-trial 설정 만들기
 
-위 7-trial 데모와 **다른 실행**입니다. 코어 준비 후 저장소 루트에서 아래 명령을 실행합니다. 예제 Agent·과제·평가기와 `baseline`만 사용하며 Docker·모델이 필요하지 않습니다. `init`은 같은 이름의 설정을 덮어쓰지 않으므로 재시도할 때 `--name` 및 뒤의 설정 경로를 함께 바꾸세요.
+위 7-trial 데모와 **다른 실행**입니다. 코어 준비 후 저장소 루트에서 아래 명령을 실행합니다. 예제 Agent·과제·평가기와 `baseline`만 사용하며 Docker·모델이 필요하지 않습니다. 같은 이름도 독립 UUID 설정을 생성하므로 **init JSON의 experiment**를 정본으로 사용하세요.
 
 ```bash
 .venv/bin/agent-opt init --name guide-fixture \
@@ -47,14 +47,18 @@ make doctor-core
   --dataset examples/minimal/tasks.json \
   --evaluator examples/minimal/evaluator.py:TextFixtureEvaluator \
   --optimizer baseline --yes
-.venv/bin/agent-opt doctor --plan runs/configs/guide-fixture/experiment.toml --json
-.venv/bin/agent-opt run runs/configs/guide-fixture/experiment.toml
+# 아래 설명용 값은 init JSON의 experiment 절대경로로 교체:
+CONFIG='/실제/Home/experiments/guide-fixture-UUID/experiment.toml'
+.venv/bin/agent-opt doctor --plan "$CONFIG" --json
+.venv/bin/agent-opt run "$CONFIG"
 ```
 
 `doctor --plan`의 `"scope": "plan"`, `"ready": true`와 `run`의 `"trials_used": 2`를 확인하세요. JSON의 **`report_html`**을 열면 위 **7-trial 캡처와 내용이 다른** 이 실행의 보고서를 볼 수 있습니다. 계획 진단은 정적 검사이며 실제 Agent 실행 성공과 별개입니다. 자신의 Agent를 연결하려면 [실험 구성](/agent-optimizer/guides/experiment/)으로 이동하세요.
 
 ## 다음 경로: ACE 프리셋 또는 내 Agent
 
-Docker·고정 자산과 별도의 Agent/Optimizer 모델을 준비했다면 [ACE 프리셋 TUI/CLI 가이드](/agent-optimizer/getting-started/presets/)로 이동하세요. TUI Home의 `New Optimization`에서 `ACE-RTL → OpenCode → GEPA 또는 Meta-Harness → CVDP`를 고르고 Model Setup/Review/Preparing을 거쳐 `Continue to Doctor`를 선택한 뒤 진단 통과 후 실행합니다. 고정 `simple_feedback` ACE 예제는 `agent-opt init --profile ace-rtl --workspace PATH`로 선택합니다. 모델·Docker 없이 선택 화면을 둘러볼 수도 있지만 ACE의 실제 실행에는 준비가 필요합니다.
+새 ACE-RTL 첫 Harness는 Python native입니다. [native 조건/명령·legacy 구분](/agent-optimizer/getting-started/presets/)에서 고정 로컬 source/data·별도 3.12/native extra·CID/row/split·평가/API 조건을 확인하세요. Model/Review/Preparing 뒤 Doctor와 실행으로 각각 명시 계속합니다. native live는 not_run입니다. `init --profile ace-rtl --workspace PATH`는 기존 coding simple_feedback이며 별도입니다.
+
+기본 App Home은 `~/.agent-optimizer`, `AGENT_OPT_HOME`은 절대 override만 허용합니다. 새 init 설정은 Home/experiments UUID, output은 CLI > 명시 TOML > Home/runs의 **부모**입니다. 위 기존 minimal TOML은 명시 output_dir="runs"여서 프로젝트에 저장합니다. migration은 없습니다. [Home 도식](/agent-optimizer/concepts/overview/#프로젝트와-app-home), [History/report](/agent-optimizer/getting-started/results/#history와-loopback-html-열람)에서 확인하세요.
 
 자신의 소스·Harness·데이터셋·별도 평가기를 연결하려면 [실험 구성](/agent-optimizer/guides/experiment/)으로 이동하세요. 위 7-trial 캡처와 2-trial 직접 생성은 모두 합성 경로입니다.

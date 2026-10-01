@@ -1,5 +1,25 @@
 # 구조와 실행 흐름
 
+## CLI/TUI·trusted 평가 경계
+
+![CLI/TUI에서 설정·readiness·runner, 공개 Agent/Harness, trusted evaluator와 report까지](../website/src/assets/diagram-product-flow.svg)
+
+private harness/golden/로그 원문은 trusted 평가에만 전달한다. 모델 수정 근거는 train이며 validation 수치 선택·frozen selection 이후 test와 구분한다. `doctor --plan`은 읽기 전용, `--model`은 명시 API probe다.
+
+## 프로젝트와 App Home
+
+![프로젝트 소스와 App Home, explicit output 부모 우선순위와 legacy 보존](../website/src/assets/diagram-app-home.svg)
+
+기본 `~/.agent-optimizer`, 비어 있지 않은 `AGENT_OPT_HOME`은 expanduser 후 절대경로만 허용한다. `experiments/runs/sessions/assets/cache/logs`는 필요할 때만 생성한다. 생성 설정은 `experiments/<이름>-<uuid12>/experiment.toml`, 원본 project_root 절대 provenance와 `config_root="."`를 보존한다. agents/harnesses/benchmark는 config_root, plugin은 project_root, local source는 Agent manifest 기준이다. output은 CLI explicit > 명시 TOML > Home/runs의 **부모**이고 상대 CLI는 CWD·상대 TOML은 project_root 기준이다. explicit session output도 부모다. 기존 config_root 없는 실험은 project_root 기준을 유지하고 자동 migration은 없다.
+
+History는 Home와 명시 project의 legacy runs/dev-live/sessions 및 선택한 output 부모만 조회한다. 실패/중단/report 없음도 표시하고 terminal 근거 없는 running은 stale, 불충분한 기록은 unknown이다. 임의 디스크 탐색·모델/평가/서버 호출은 없다. 열람 시 원래 row/inode와 서버 FD를 재검증하며 HTML 하나만 공개한다.
+
+## native outer/inner
+
+![outer Agent Optimizer와 inner ACE attempt/iteration·trusted 최종 재평가](../website/src/assets/diagram-native-loop.svg)
+
+native 정책·row eligibility·active surface는 `examples/ace-rtl/native_selection.py`, 코어 `native_selection.py`는 출처/인자 전달 thin hook이다. native GEPA는 `native/guidance.md`, Meta는 `native/orchestration.py:guidance`를 실제 소비한다. 정상 inner 종료 후 outer evaluator가 다시 채점하며 둘의 설정·time/count를 구분한다. 상세 조건·CID 지원은 [NATIVE](../examples/ace-rtl/NATIVE.md)다. 실환경 native loop는 not_run이다.
+
 데이터셋 명시적 선택·준비 → source snapshot → baseline validation → **각 Optimizer를 baseline에서 독립 실행**
 → stage별 validation winner → 기본적으로 모든 stage winner 비교 → 선택 고정 → 선택적 test → HTML/JSON 보고서.
 Optimizer의 `evaluate/evaluate_batch/history`는 train 전용이며 `evaluate_validation`은 후보별
@@ -15,7 +35,8 @@ private 자료를 제외한 validation 수치만 반환한다. baseline train �
 | `sources.py`, `workspace.py` | 원본 보존, editable 스냅샷·hash·diff·계보·산출물 경계 |
 | `process.py`, `models.py` | argv 프로세스/timeout, 모델 요청 전체 deadline worker |
 | `objectives.py`, `results.py`, `report_model.py`, `html_report.py` | lexicographic keep=1·mean/sum 집계, v1 기록의 보고서 정규화·Markdown/독립 HTML/CSV 출력 |
-| `setup_wizard.py`, `session.py`, `terminal_report.py`, `cli.py` | 사용자 dataset 선택·팀 컴포넌트 탐색·설정 생성·복수 데이터셋 독립 프로세스 실행·TUI/CLI 진행 화면 |
+| `setup_wizard.py`, `session.py`, `terminal_report.py`, `cli.py`, `tui.py` | 사용자 dataset 선택·팀 컴포넌트 탐색·설정 생성·복수 데이터셋 독립 프로세스 실행·TUI/CLI 진행 화면 |
+| `app_paths.py`, `history.py`, `report_view.py`, `report_server.py` | Home/output resolver·읽기 전용 이력·브라우저/서버 수명·loopback HTML-only 제공 |
 
 `[[pairs]]`가 없으면 Agent 우선 순서의 전체 곱이며 모든 Agent가 모든 프로필의 adapter를 지원해야 한다.
 명시하면 `agent`는 Agent ID, `harness`는 프로필 ID로 선택한 쌍만 선언 순서대로 실행한다.

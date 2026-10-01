@@ -1,36 +1,17 @@
 # 현재 구현·검증 상태
 
-**2026-09-28 CLI 선택형 경로:** `catalog list/show`는 등록 항목의 설명을 읽기 전용으로
-조회하고, `init --agent-preset ace-rtl --harness-profile ace-opencode --optimizer gepa|meta_harness
---dataset cvdp --yes`는 독립된 run-owned 설정을 생성합니다. `tui` 첫 화면도 네 항목을 순서대로
-선택하고 같은 설정 생성 함수를 사용합니다. `init --yes`는 선택 데이터셋과 ACE 고정 자산을 준비하고
-`prepare EXPERIMENT`는 준비된 자산을 검증·재사용합니다. GEPA의 후보 role-guidance는
-기존 ACE adapter의 prompt에, Meta-Harness의 후보 `.py`는 각 trial의 공개 과제
-`build`에 연결합니다. 새 설정은 원래 고정 simple_feedback 실험을 대체하지 않습니다.
-코어/합성·설치형·Docker/모델/공식 평가의 새 검증 수준은 [날짜별 기록](verification.md)을
-따르며 준비 여부만으로 점수나 개선을 주장하지 않습니다.
+## 2026-10-01 최종 MVP(현재 정본)
 
-**2026-09-27 확장:** 코어 setup/doctor → 명시적 데이터셋·ACE 프로필 선택/준비 → CLI/TUI 최적화 → HTML 보고서.
-팀 개발의 API-free fixture → 파일 플러그인 경로도 유지한다.
-시작은 [README](../README.md#개발환경-빠른-시작)와 [역할별 템플릿](../experiments/README.md).
-번호 메뉴는 제공하며 1/2는 core, 7은 선택적 ACE 전체 준비, 8은 일반 Agent TUI다.
-옵션 없는 setup/doctor의 전체 ACE 경로와 `--dataset ID`의 선택 데이터셋 경로는 별개다.
-`agent-opt tui`는 기존 실험, 새 실험, ACE-RTL + CVDP 예제의 별도 선택·준비·실행을 지원한다.
-5번 선택형 새 최적화는 ACE-RTL/OpenCode/GEPA·Meta-Harness/CVDP 및 합성 Agent/Fixture/Baseline·FileVariants/sample_text를 각각 명시적으로 선택한다. 초점 이동은 읽기 전용이며 마지막 확인 이후에만 자산을 준비한다.
-1번 기존 실험은 `runs/configs/`의 최근 생성 설정 최대 5개를 번호로 선택하거나 직접 경로를 입력한다.
-4번 이전 실행 보기는 현재 작업공간의 `runs/<run-id>`와 `runs/dev-live/<run-id>`에서 요약과
-HTML이 있는 실행을 run ID의 UTC 생성 시각순 최근 10개까지 읽기 전용으로 나열하고,
-선택한 보고서의 절대경로만 표시한다.
-symlink·손상된 요약은 제외하며 보고서를 생성하거나 브라우저를 열지 않는다.
-`agent-opt init`은 TTY에서 새 설정만 만들 수 있다. 복수 데이터셋 session은 독립 프로세스로
-기본 2개를 병렬 실행하며 `--jobs`로 동시 실행 수를 제한한다. 단일 실험 내부 병렬화·resume·native ACE는 [보류](FUTURE.md)다.
-고정 `examples/ace-rtl/experiment.toml`을 TUI/`agent-opt run`에서 선택하면 예제 어댑터가
-기존 `live` 준비·실행에 위임한다. 이는 OpenCode 스킬 프로필 + 공식 CVDP 평가이며 native ACE는 아니다.
-wheel 단독 설치에서 로컬 Agent·사용자 데이터셋/명시적 evaluator 실험과
-`init --profile ace-rtl` → `prepare` → `doctor --plan` → `run`을 소스 저장소 없이
-선택할 수 있다. CVDP·Verilog-Eval도 선택 시에만 고정 출처의 코드를 가져온다.
-준비 완료 marker와 자산 해시가 없으면 실행하지 않는다. 개발 checkout의 full ACE
-`setup`/`smoke`/`live`는 같은 예제 lifecycle을 재사용한다.
+**A~G 독립 리뷰 수정 승인 후 통합됐다.** [G 최종 §7](verification/final-mvp-g-20261001.md)은 전체 **1155개 중 실행 1075 통과·기존 skip 80**, Ruff·실제 wheel build/install/source-free 합성 CLI·native helper/진단·HTTP 검증이다. **native 실모델·실 CVDP Docker/EDA/cleanup·Ubuntu x86_64 native loop는 not_run**이며 fixture/배포 성공과 구분한다.
+
+- [README fixture](../README.md#개발환경-빠른-시작) → TUI/CLI → [native 조건](../examples/ace-rtl/NATIVE.md) 또는 내 Agent → History/report → [팀 템플릿](../experiments/README.md) 순서다.
+- TUI는 Home → 네 구성요소 → native CID/row/split → Model → Review → Preparing → Doctor → 명시 Running → Result/History다. Planned disabled·미준비·비호환·미검증을 구분한다. Endpoint/ID는 평문·key만 숨김, 환경/세션/명시 preset/Custom 출처를 표시한다.
+- 기본 `~/.agent-optimizer`, `AGENT_OPT_HOME`은 절대 override만. 설정은 `experiments/<이름>-<uuid12>/experiment.toml`, 원본 project_root provenance·config_root 분리. output은 CLI > 명시 TOML > Home/runs의 **부모**, session은 Home/sessions 기본. legacy project/explicit output 조회 유지·자동 migration 없음.
+- History는 성공/실패/중단/report 없음/session child를 조회한다. 조회는 읽기 전용이고 열람 action은 재검증 후 loopback HTML-only 서버와 URL/브라우저를 연결한다. `report --serve --no-open --port 0`, `--html --serve`를 제공하고 종료/교체 때 정리한다. 별도 serve 명령은 없다.
+- native는 사용자 선택 고정 **로컬 source/data**·CID·row→split을 준비한다. 별도 3.12/native extra(PyYAML)·고정 driver·Docker/image identity·Agent API가 필요하고 `prepare --offline` missing env는 명시 실패다. CID002 94/94, CID004 55/55, CID007 40/13, CID016 35/35는 **정적 eligible**이지 정답 수가 아니다. GEPA guidance·Meta orchestration은 실제 native 표면이다.
+- legacy OpenCode/Claude Code·고정 simple_feedback·개발 full setup/smoke/live는 별도다. 기존 `make setup`을 native 전체 준비로 표현하지 않는다. old first-party pin을 자동 갱신하지 않았으며 현재 native wheel 자산은 distribution metadata로 검증한다.
+
+복수 dataset session은 독립 프로세스로 기본 최대 2개를 실행하며 `--jobs`로 제한한다. 단일 실험 내부 병렬화·resume는 [보류](FUTURE.md)다. 고정 `examples/ace-rtl/experiment.toml`은 기존 coding live에 위임하는 legacy 실험이다. 과거 경로/화면과 실행 명령은 [날짜별 기록](verification.md)에 보존하고 현재 안내는 위 최종 정본을 따른다.
 
 ## 현재 기능
 
@@ -57,6 +38,8 @@ wheel 단독 설치에서 로컬 Agent·사용자 데이터셋/명시적 evaluat
 
 ## ACE-RTL 실행 프로필
 
+native 현재 계약은 [NATIVE](../examples/ace-rtl/NATIVE.md)다. 아래 cid003·스킬 설명과 날짜별 실환경 근거는 **legacy coding 범위**다. inner ACE pass는 outer trusted 재평가의 최종 점수가 아니며 과거 OpenCode 성공은 새 native 성공이 아니다.
+
 기본 `simple_feedback` 예제는 `source.toml` → runner가 SKILL.md 읽기 → `adapter.py:ACEOpenCode` 제한 지침 추가
 → OpenCode 호출 → 종료 후 외부 CVDP 평가다. `simple_feedback`이 바꾼 role-guidance.md는 prompt에 포함한다.
 native `ace_agent_runner.py`/`ace_cvdp_native_runner.py`의 자체 역할·반복·평가 루프 실행과 동일하지 않다.
@@ -77,7 +60,7 @@ native `ace_agent_runner.py`/`ace_cvdp_native_runner.py`의 자체 역할·반�
 - OpenCode root 이벤트의 harness_reported 사용량은 partial이며 전체 Agent 사용량은 null이다.
   작은 RTL evaluator도 합성만으로 정화하지 않으며 입력 제한·private 검사 완료가 필요하다.
 
-## 검증 수준
+## 날짜별 검증 수준(당시 증거 보존)
 
 - **2026-09-28 Verilog-Eval Mac 실도구 smoke:** `verilog-spec`·`verilog-completion` 각각 고정 156개 목록의 `Prob001_zero` **reference 1건**이 Docker Icarus v12에서 `passed=1.0`, 고정 오답은 `status=failed`/`passed=0.0`/`reason=mismatch`였다. 요약 `scope=smoke`, `expected=attempted=1`이며 실제 목록의 나머지 문제는 채점하지 않았다. 명령/이미지·로그 경계는 [실행 근거](verification.md#2026-09-28-verilog-eval-mac-두-모드-실도구-smoke)와 [예제 안내](../examples/benchmarks/README.md). **Ubuntu 전체 312건은 병합 후 수동 CI 실행 전까지 미검증**이다.
 - **2026-09-28 후속 실환경 검사:** 고정 소스·driver·이미지를 준비한 Mac ARM64에서 호스트 모델 도구 호출과 Docker OpenCode 도구 호출, 공식 CVDP smoke 정답/오답이 통과했다. GEPA·Meta-Harness **각 1 iteration, 실제 4/최대 5 trial**에서 후보 파일 변경·실제 Harness 입력/실행·공식 raw 채점(각 test 1건 `result=0`)이 연결됐다. 두 validation은 baseline/후보가 1.0 동점이어서 baseline을 선택했고 최종 test는 없다. **성능 향상·기본 3회 반복·설치형 wheel의 해당 모델 연동** 검증은 아니다. [별도 실환경 근거](verification.md#2026-09-28-선택형-gepameta-harness-실모델공식-cvdp-후속-검증).

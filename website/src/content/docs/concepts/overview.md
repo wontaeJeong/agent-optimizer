@@ -7,6 +7,10 @@ Agent Optimizer는 **Agent를 실행하고, 결과를 채점하고, 허용된 �
 
 ## 전체 구조
 
+![CLI/TUI에서 config/readiness·runner·공개 Agent/Harness·trusted 평가와 report까지의 경계](../../../assets/diagram-product-flow.svg)
+
+CLI/TUI는 같은 설정·readiness·runner를 사용합니다. private 평가 자료는 trusted evaluator로만 전달하며 모델 수정 근거는 train입니다. 서버가 공개하는 것은 선택 HTML 한 파일뿐입니다.
+
 ![원본 Agent에서 스냅샷, Harness 실행, 별도 Evaluator 채점, Trial 기록과 보고서, Optimizer 후보 제안까지의 관계](../../../assets/diagram-architecture.svg)
 
 작은 화면에서는 **그림 안을 좌우로 밀어** 전체 흐름을 읽으세요. 그림 바로 아래에 같은 관계를 글로 설명합니다.
@@ -32,3 +36,19 @@ Agent Optimizer는 **Agent를 실행하고, 결과를 채점하고, 허용된 �
 ![팀 코드가 공통 계약과 명시 등록을 통해 Runner에 연결되고 공개 Agent 입력과 채점 공간은 분리되는 경계](../../../assets/diagram-boundaries.svg)
 
 팀 구현은 `experiments/<team>/`에서 관리하고 중앙 `registry.py`에 ID를 등록합니다. Runner가 공통 계약을 통해 컴포넌트를 호출하므로 알고리즘끼리 직접 연결하지 않습니다. 로컬 팀 플러그인에는 자동 OS 격리가 없으므로 신뢰한 코드를 연결합니다. [컴포넌트 연결](/agent-optimizer/developer/components/)에서 실제 파일과 메서드를 확인하세요.
+
+## 프로젝트와 App Home
+
+![프로젝트 원본/provenance와 App Home의 설정·실행·자산·cache, explicit output 부모 우선순위](../../../assets/diagram-app-home.svg)
+
+프로젝트는 개발 소스·팀 plugin의 기준이고 기본 **`~/.agent-optimizer`**는 실행 저장소입니다. `AGENT_OPT_HOME`은 expanduser 후 절대경로만, 없거나 빈 값은 기본입니다. unsafe 경로/권한은 fallback하지 않습니다. `experiments/runs/sessions/assets/cache/logs`는 필요할 때 생성합니다.
+
+생성 설정은 **experiments/이름-uuid12/experiment.toml**이며 init JSON `experiment`를 사용합니다. project_root는 원본 절대 provenance, config_root="."는 설정 파일 부모입니다. agents/harnesses/benchmark는 config_root, plugin은 project_root, local source는 Agent manifest 기준을 보존합니다. config_root 없는 기존 실험은 project_root 기준입니다.
+
+output은 **CLI --output > 명시 TOML output_dir > Home/runs**의 run-id **부모**입니다. 상대 CLI는 호출 CWD, 상대 TOML은 project_root 기준이고 explicit session output도 부모입니다. 기존 minimal TOML의 runs 명시값은 Home으로 바뀌지 않습니다. legacy runs/dev-live/sessions와 명시 output은 선택된 경계에서 History로 읽고 옛 XDG/cache/결과를 **자동 migration·이동·삭제하지 않습니다**.
+
+## outer와 inner native ACE
+
+![outer Optimizer trial 안의 inner native attempt/iteration, private은 평가기에만 전달](../../../assets/diagram-native-loop.svg)
+
+outer는 독립 stage·train 탐색·validation 선택 고정·test를 소유합니다. 각 native trial의 attempt 하나에서 원본 run_attempt가 Generator·inner 평가·Reflector/Coordinator·iteration/fresh-start를 소유합니다. binary 상태만 모델로 되돌리고 private 원문은 전달하지 않습니다. 정상 종료 뒤 outer trusted evaluator가 다시 채점하므로 inner pass는 최종 성적이 아닙니다. native 실제 표면/별도 evaluator 설정·지원 CID와 not_run 조건은 [프리셋 가이드](/agent-optimizer/getting-started/presets/)에 있습니다.

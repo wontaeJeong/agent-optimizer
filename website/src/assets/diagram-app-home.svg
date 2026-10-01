@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" viewBox="0 0 760 370">
+  <title id="title">프로젝트 소스와 App Home 실행 저장소</title>
+  <desc id="desc">프로젝트는 원본 소스와 플러그인의 provenance 기준이다. App Home은 experiments runs sessions assets cache logs를 저장한다. CLI output, 명시 TOML output, Home 순으로 부모 경로를 정하며 기존 자료는 자동 migration하지 않는다.</desc>
+  <defs><marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0 0 L8 4 L0 8Z" fill="#245d73"/></marker><style>.box{fill:#fff;stroke:#31566b;stroke-width:2}.label{font:600 17px system-ui,sans-serif;fill:#142b3b}.small{font:14px system-ui,sans-serif;fill:#263b49}.edge{fill:none;stroke:#245d73;stroke-width:2;marker-end:url(#arrow)}</style></defs>
+  <rect width="760" height="370" rx="12" fill="#f5f8fb"/>
+  <rect class="box" x="25" y="30" width="245" height="225" rx="10"/><text class="label" x="44" y="62">project source</text><text class="small" x="44" y="97">src/ · examples/ · experiments/</text><text class="small" x="44" y="129">원본 Agent·팀 plugin 기준</text><text class="small" x="44" y="161">project_root 절대 provenance</text><text class="small" x="44" y="194">후보는 snapshot · 원본 보존</text><text class="small" x="44" y="230">legacy runs/sessions 별도 조회</text>
+  <path class="edge" d="M270 83H385"/><text class="small" x="280" y="70">명시 참조</text>
+  <rect class="box" x="385" y="30" width="350" height="225" rx="10"/><text class="label" x="405" y="62">App Home: ~/.agent-optimizer</text><text class="small" x="405" y="94">AGENT_OPT_HOME: 절대 override만</text><text class="small" x="405" y="128">experiments/이름-UUID/experiment.toml</text><text class="small" x="405" y="158">config_root = 설정 파일 부모</text><text class="small" x="405" y="190">runs/ · sessions/ · assets/</text><text class="small" x="405" y="222">cache/ · logs/ (필요한 쓰기 때 생성)</text>
+  <text class="label" x="25" y="298">output 부모: CLI --output &gt; 명시 TOML output_dir &gt; Home/runs</text><text class="small" x="25" y="330">상대 CLI: 호출 CWD · 상대 TOML: project_root · 부모 아래 고유 UTC run-id</text><text class="small" x="25" y="356">옛 cache/실행 자료 자동 이동·삭제·migration 없음 · History 조회는 읽기 전용</text>
+</svg>

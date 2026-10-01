@@ -39,5 +39,6 @@
 - E: 완료. 4c54c05, 독립 리뷰 중요 finding 없음. 리뷰 문서는 E worktree에 보존.
 - 통합: ff0d6dc까지 충돌 없이 cherry-pick 완료. 각 작업 보고서에 검증 명령·결과 기록.
 - F: 완료. be41046까지 독립 리뷰 수정 승인·최종 계약 인계 완료. native 정책은 examples 소유 thin hook이며 관련 211개 검증은 final-mvp-f-20261001.md §6~§8에 기록.
-- G: 통합·검증 진행. 전체 환경/공유 assertion 원인 수정, native 진단·wheel·locale·serialized 세션 경계를 취합. 실제 결과와 H 인계는 final-mvp-g-20261001.md.
-- H/I: 대기.
+- G: 완료. 28b5367까지 독립 리뷰 수정·재리뷰 승인. 전체 1155개 중 실행 1075개 통과·기존 skip 80개, lint·실제 wheel build/install smoke 통과. native live는 not_run. 최종 근거는 final-mvp-g-20261001.md §7.
+- H: 구현·검증 완료. 실제 help 11개·fixture 7/2 trial·History/HTML-only HTTP·계약 31개·lint·Starlight build/link·360px/desktop 캡처 통과. native live not_run·조건과 I 여정은 final-mvp-h-20261001.md. H 독립 재리뷰 승인 자체는 별도 판정.
+- I: 대기. H 문서/사이트 결과·live 조건·사용자 여정 체크리스트 소비 예정.

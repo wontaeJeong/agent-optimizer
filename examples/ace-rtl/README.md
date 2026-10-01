@@ -4,17 +4,23 @@
 source.toml이 고정 commit을 지정하고 실행 시 후보 스냅샷을 만듭니다.
 setup은 별도로 `external/ACE-RTL`에 원본을 확보해 확인할 수 있게 합니다. 두 경로 모두 Git 제외입니다.
 
-## 실행 프로필의 의미
+## 최종 선택: native와 legacy
 
-현재 연결은 **OpenCode에서 ACE-RTL 스킬을 읽고 공개 RTL 과제를 수행하는 프로필**입니다.
+**새 ACE-RTL 기본 Harness는 Python native**다. [NATIVE.md](NATIVE.md)의 명시 로컬 고정 소스/데이터·CID/row/split·별도 Python 3.12/native extra·평가 환경과 API 조건을 확인한다. native live는 `not_run`이며 과거 OpenCode 성공과 구별한다.
+
+아래는 **기존 OpenCode/Claude Code coding 프로필**의 준비·평가·과거 증거다. `source.toml/harness.toml/experiment.toml`, `ace-opencode`, `init --profile ace-rtl --workspace PATH`, 개발 `setup/doctor/smoke/live`는 이 경로에 속하며 native 전체 준비가 아니다. 새 선택형 설정은 Home/experiments UUID에 생성되므로 JSON `experiment`를 정본으로 사용한다. 기존 명시 output과 source provenance는 유지하며 자동 migration은 없다.
+
+## legacy 실행 프로필의 의미
+
+아래 coding 연결은 **OpenCode에서 ACE-RTL 스킬을 읽고 공개 RTL 과제를 수행하는 프로필**입니다.
 ACE의 native runner / 자체 반복 루프 / 역할별 모델 호출과 동일하지 않습니다.
-원본 전체 러너를 평가하려면 [upstream 실행 안내](https://github.com/NVlabs/ACE-RTL/blob/fead921f18bb57345b5a41ef93ba625be208e99c/README.md)를 따르고 별도 Harness 프로필을 연결하세요.
+이 저장소의 native 경로는 [NATIVE.md](NATIVE.md)를 따릅니다. [upstream 전체 CLI](https://github.com/NVlabs/ACE-RTL/blob/fead921f18bb57345b5a41ef93ba625be208e99c/README.md)와 동일하다고 표현하지 않습니다.
 이 예제의 adapter.py에서 원본 스킬의 데이터셋 다운로드/자체 평가 지시를 외부 평가 방식에 맞게 제한합니다.
-이번 반복 최적화 데모는 이 스킬 프로필을 사용합니다. 원본 ACE 전체 알고리즘 최적화라는 주장은 하지 않습니다.
+아래 기존 반복 최적화 데모는 이 스킬 프로필을 사용합니다. 원본 ACE 전체 알고리즘 최적화라는 주장은 하지 않습니다.
 역할 Python 파일의 실행 여부, 주장 가능한 최적화 범위, native baseline 연결 조건은
 [상태 문서](../../docs/status.md#ace-rtl-실행-프로필), 고정 출처는 [SOURCES.md](../../docs/SOURCES.md)를 확인하세요.
 
-## 준비
+## legacy 준비
 
 앱 사용자는 `agent-opt tui`의 Home에서 **New Optimization**을 고른 뒤
 `ACE-RTL → OpenCode → GEPA 또는 Meta-Harness → CVDP`를 선택합니다. Model Setup은 현재

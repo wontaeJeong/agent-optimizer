@@ -1,5 +1,9 @@
 # 검증 기록
 
+## 2026-10-01 최종 MVP 통합·문서 근거
+
+A~G 승인·수정 결과는 [progress](verification/final-mvp-progress-20261001.md)와 각 담당 보고서에 보존한다. [G 최종 §7](verification/final-mvp-g-20261001.md)은 전체 1155개 중 실행 1075 통과·기존 skip 80개, Ruff·실제 wheel build/install/source-free 합성 CLI/native helper·진단/HTTP 근거다. **native 실모델·실 CVDP Docker/EDA/cleanup·Ubuntu native loop는 not_run**이다. [H 문서/사이트 명령·캡처·I 인계](verification/final-mvp-h-20261001.md)를 별도로 기록한다. 아래 날짜별 OpenCode/Claude/evaluator-only 성공은 당시 범위이며 native 성공으로 재표현하지 않는다.
+
 ## 2026-09-29 Home-first Textual TUI UX
 
 - 기준: `origin/main`의 `c6a4bd4`에서 `feat/tui-ux-completion` worktree를 만들었다. Mac ARM64 / Python 3.12.12 / Textual 7.5.0에서 변경 전 `make setup-core`와 `make lint`가 통과했고, `make test`는 **885개 중 806 통과·79 skip·실패 0**이었다. setup-core 데모는 synthetic 7-trial 실행이며 외부 모델/공식 평가 근거가 아니다.

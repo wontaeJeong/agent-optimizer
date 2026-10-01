@@ -1,33 +1,35 @@
 ---
 title: ACE 프리셋 TUI/CLI
-description: ACE-RTL·OpenCode·GEPA 또는 Meta-Harness·CVDP를 선택하고 준비, 실행, 공식 평가 근거를 확인합니다.
+description: Python native와 legacy coding 프로필을 구분하고 명시 CID·row·split, 준비 조건과 결과 근거를 확인합니다.
 ---
 
-**이 경로는 실제 모델·공식 CVDP 평가를 사용할 수 있는 선택형 데모입니다.** 모델·Docker 없이 CLI/보고서를 먼저 확인하려면 [7-trial 합성 첫 실행](/agent-optimizer/getting-started/first-run/)부터 시작하세요. 명령은 코어 설치를 마친 **소스 저장소 루트**에서 실행합니다.
+**ACE-RTL의 새 기본 Harness는 Python native입니다. native live는 현재 `not_run`입니다.** 모델·Docker 없는 [fixture 첫 실행](/agent-optimizer/getting-started/first-run/) 뒤 조건을 갖춘 경우에만 진행하세요. 코어와 native 환경, 공식 평가 driver는 별개입니다.
 
 ## 무엇을 선택하나요?
 
-좁은 화면에서는 표 안을 좌우로 밀어 나머지 열을 읽으세요.
-
-| TUI 선택 | CLI 값 | 역할과 실제 수정 대상 |
+| 선택 | native | legacy coding |
 |---|---|---|
-| Agent: ACE-RTL | `--agent-preset ace-rtl` | 고정 Git 소스의 ACE **스킬 프로필**. native ACE runner가 아닙니다. |
-| Harness: OpenCode | `--harness-profile ace-opencode` | `ace_opencode` adapter가 후보를 공개 과제에 실행합니다. |
-| Optimizer: GEPA **또는** Meta-Harness | `--optimizer gepa` **또는** `--optimizer meta_harness` | GEPA는 후보 `skills/ace-rtl/references/role-guidance.md` 내용을 OpenCode prompt에 넣습니다. Meta-Harness는 후보 `skills/ace-rtl/scripts/agent_opt_scaffold.py`의 `prepare_task`를 공개 과제 선행 단계에서 실행합니다. 각각 **별도 설정·실행**입니다. |
-| Dataset: CVDP | `--dataset cvdp` | 고정 공개 train 1·validation 1, 별도 공식 `cvdp` evaluator; `final_test=false`입니다. |
+| CLI profile | `--harness-profile ace_native`(별칭 `ace-native`) | `--harness-profile ace-opencode`, 별도 Claude Code 프로필 |
+| Agent / adapter / profile | `ace-rtl-native` / `ace_native` / `ace-native` | 고정 ACE 스킬 / `ace_opencode` / `ace-opencode` |
+| Dataset / Evaluator | 명시 CID·row→split, `cvdp_native` | reviewed cid003 데모 과제, `cvdp` |
+| GEPA 실제 표면 | `native/guidance.md` | `skills/ace-rtl/references/role-guidance.md` → coding prompt |
+| Meta 실제 표면 | `native/orchestration.py:guidance` 실제 import | `agent_opt_scaffold.py:prepare_task` → 공개 과제 선행 build |
 
-두 Optimizer는 연구 이름을 쓴 **자체 구현**이며 upstream 방법이나 native ACE의 완전 재현이 아닙니다. 다른 Agent·Harness·Dataset이 카탈로그에 보여도 이 네 선택과 임의로 호환되지는 않습니다.
+GEPA와 Meta-Harness는 연구 이름을 쓴 **자체 구현**이며 upstream/논문 완전 재현이 아닙니다. 각 독립 설정은 baseline에서 시작하고 자기 stage의 train만 수정 근거로 사용합니다. validation은 후보 선택 수치만, test는 선택 고정 이후입니다.
 
 ## 준비와 모델 역할
 
-Mac 또는 Linux에서 Git, Python 3.11+, uv, Docker Engine/Compose(맥은 공유 가능한 Docker Desktop 작업공간), 첫 준비에 필요한 네트워크와 고정 ACE/CVDP 소스·driver·이미지 준비가 필요합니다. `make setup-core`로 `.venv`를 만든 뒤 아래 경로를 따라가세요. 다운로드/빌드·실행 비용과 시간은 환경에 따라 다릅니다. 프록시·CA 및 Docker 준비는 [개발 명령 기준](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/development.md)과 [네트워크 안내](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/network.md)를 확인하세요.
+사용자가 고른 고정 **로컬 ACE checkout/export·HF JSONL**과 명시 row/split이 필요합니다. native Python은 **별도 3.12 + native extra(`PyYAML==6.0.2`)·pydantic_settings**, CVDP driver도 별도 3.12 고정 lock입니다. Docker/Compose·`ps`·검토한 OSS simulator tag/로컬 image ID와 모델 API를 준비하세요. `make setup-core`는 코어/합성만, 옵션 없는 `make setup/doctor`·`make smoke/live`는 기존 legacy ACE 전체 경로입니다. native 전체 installer가 아닙니다.
 
-| 역할 | 환경 설정 | 확인할 것 |
+native `init`/`prepare`는 명시 고정 로컬 source/data를 검증·준비합니다. **`prepare --offline`은 누락 interpreter/driver/image/모델 환경을 자동 설치하거나 online으로 보완하지 않고 명시 오류로 끝납니다.** source/data/driver pin은 문서 정리로 갱신하지 않습니다. 준비 경로·고정 값은 [NATIVE 가이드](https://github.com/wontaeJeong/agent-optimizer/blob/main/examples/ace-rtl/NATIVE.md), CA/proxy·offline 복구는 [개발 명령](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/development.md)을 확인하세요.
+
+| 역할 | 필요한 값 | 의미 |
 |---|---|---|
-| OpenCode **Agent** 모델 | `AGENT_OPT_MODEL` | `openrouter/<모델>`에는 `OPENROUTER_API_KEY`가 필요합니다. `compatible/<모델>`은 모델 API URL·키가 필요하고 현재 고정 OpenCode 이미지의 plugin에서는 `<모델>`이 `AGENT_OPT_MODEL_ID`와 일치해야 합니다. TUI에 `deepseek-flash`처럼 접두어 없는 ID를 입력하면 compatible 모델로 연결하며, ID가 다르면 변경 여부를 확인합니다. |
-| **Optimizer** 모델 | `AGENT_OPT_MODEL_BASE_URL`, `AGENT_OPT_MODEL_API_KEY`, 필요하면 `AGENT_OPT_MODEL_ID` | 모델 API의 기본 URL(`/chat/completions` 제외), 인증과 ID를 설정합니다. Agent 모델 선택자와 별개입니다. |
+| native Generator/Reflector/Coordinator | `AGENT_OPT_MODEL_BASE_URL`, `AGENT_OPT_MODEL_ID`, `AGENT_OPT_MODEL_API_KEY` | 동일 transport/API. Baseline에도 Agent 모델 필요. `AGENT_OPT_MODEL`·NVIDIA key는 native 필수 아님 |
+| 연구 Optimizer | 위 API 설정 | Agent 요청과 Optimizer 요청/사용량을 별도로 기록. Baseline은 Optimizer API를 추가 요구하지 않음 |
+| legacy OpenCode Agent | `AGENT_OPT_MODEL` 및 provider 인증 | compatible selector/ID는 일치해야 함. native와 별도 |
 
-키는 환경 또는 credential store에만 두세요. `.env`를 자동 로딩하거나 설정 파일에 키를 저장하지 않습니다. OpenRouter Agent와 Optimizer 모델은 서로 달라도 됩니다. `catalog` 조회나 `doctor --plan` 성공은 모델 인증·도구 호출이나 공식 채점 성공을 확인하지 않습니다.
+**Endpoint/Model ID는 평문, API key만 password 입력**입니다. 환경·세션·기본·명시 제공 named preset·Custom을 구별합니다. preset은 URL/ID만 보존하고 key를 넣지 않습니다. userinfo/query/fragment 포함 Endpoint는 입력 시 거부하며 key는 세션/환경에만 유지합니다. `.env` 자동 로딩·TOML/argv/보고서에 키 저장은 없습니다.
 
 ## TTY에서 네 항목 고르기
 
@@ -35,42 +37,65 @@ Mac 또는 Linux에서 Git, Python 3.11+, uv, Docker Engine/Compose(맥은 공�
 .venv/bin/agent-opt tui
 ```
 
-Home에서 **New Optimization**을 고른 뒤 Agent **ACE-RTL** → Harness **OpenCode** → Optimizer **GEPA** 또는 **Meta-Harness** → Dataset **CVDP** 순서로 선택합니다. 이후 Model Setup → Review → Preparing → Doctor → Running → Result로 진행하며 `↑/↓`로 이동, `Enter`로 확정, `Esc`로 직전 단계로 돌아갑니다. 선택 불가능한 조합에는 이유와 대안이 표시됩니다. `Existing Experiment`와 `Advanced Setup`은 Home의 별도 경로입니다.
+정상 TTY에서는 무인자 `agent-opt`도 TUI를 열고 pipe/CI/dumb 터미널은 help/종료 2입니다. Home의 **새 최적화 / 기존 실험 / 실행 이력 / 고급 설정 / 종료**에서 새 최적화를 선택합니다. **Agent ACE-RTL → Harness Python native → Optimizer → Dataset CVDP → Native 경로/CID → row 목록 → split → Model → Review → Preparing → Doctor → Running → Result/History**입니다. row 목록은 public target/도구·지원/제외 이유를 표시하며 추천하지 않습니다.
 
-Review에서 수정 파일, 모델 값/source, 평가·자산 준비, 외부 호출, 최대 trial budget과 보고서 위치를 확인합니다. 실행을 고르면 Preparing에서 기존 준비 출력을 보고 완료 후 `Continue to Doctor`를 선택합니다. Doctor의 readiness 및 필요한 경우 실제 model connectivity probe 결과를 확인합니다. Doctor가 실패하거나 blocked면 run하지 않으며, 통과 뒤에도 `Run Optimization`을 명시적으로 선택해야 합니다. 준비된 설정은 `runs/configs/<생성-ID>/experiment.toml`에 보관되고, model input은 TUI 세션에만 유지됩니다.
+`↑/↓`·`Enter`로 선택, `Esc`로 돌아갑니다. highlight는 읽기 전용입니다. Planned는 미구현 disabled, 미준비는 자산/환경 부족, 비호환은 선택 불가, 미검증은 실환경 근거 부재입니다. 상위 선택이나 native row/source/split 변경 시 이전 생성 설정·진단을 무효화하고 새 선택으로 재생성합니다. 모델 값은 세션에 유지합니다.
 
-## 자동화용 CLI: GEPA 한 번 구성하기
+Review는 **실제 train/validation/test 수·final_test·active file·모델 출처·예약 budget·준비/외부 호출·output**을 보여줍니다. Preparing 완료 후 Doctor로, Doctor 통과 후 실행으로 각각 명시적으로 계속합니다. doctor 실패/blocked면 실행하지 않습니다. 준비/정적 진단/API probe 성공은 전체 Agent/공식 평가 성공이 아닙니다.
 
-다음은 **위 환경과 모델 인증을 준비한 뒤** 실행하는 GEPA 예시입니다. `init --yes`는 고정 CVDP 데이터·ACE 소스·driver·Docker 이미지 다운로드/빌드를 **승인**하고, 뒤의 `prepare`는 해당 자산을 다시 검사·재사용합니다. 둘 다 무해한 조회 명령이 아닙니다. 같은 이름의 설정은 덮어쓰지 않으므로 재시도 시 이름과 경로를 함께 바꾸세요.
+## 자동화용 CLI: 작은 native smoke
+
+아래 `/absolute/...`·image 값은 설명용이며 준비한 값으로 바꿉니다. 명령은 저장소 루트의 준비된 코어 CLI 기준입니다. `--native-source`는 준비된 export를 지정할 때 `--native-upstream` 대신 사용합니다.
 
 ```bash
-.venv/bin/agent-opt catalog list --kind agent
 .venv/bin/agent-opt catalog list --kind harness
-.venv/bin/agent-opt catalog list --kind optimizer
-.venv/bin/agent-opt catalog list --kind dataset
-.venv/bin/agent-opt catalog show optimizer gepa
-.venv/bin/agent-opt init --name ace-gepa-guide --agent-preset ace-rtl \
-  --harness-profile ace-opencode --optimizer gepa --dataset cvdp --yes
-.venv/bin/agent-opt prepare runs/configs/ace-gepa-guide/experiment.toml
-.venv/bin/agent-opt doctor --plan runs/configs/ace-gepa-guide/experiment.toml --json
-.venv/bin/agent-opt plan runs/configs/ace-gepa-guide/experiment.toml
-.venv/bin/agent-opt run runs/configs/ace-gepa-guide/experiment.toml
+.venv/bin/agent-opt catalog show optimizer gepa --json
+.venv/bin/agent-opt init --name native-smoke --agent-preset ace-rtl \
+  --harness-profile ace_native --dataset cvdp --optimizer baseline \
+  --cid cid002 --rows '{"cvdp_copilot_64b66b_decoder_0001":"validation"}' \
+  --native-upstream /absolute/pinned-ACE \
+  --native-dataset /absolute/pinned-data.jsonl \
+  --native-python /absolute/native-venv/bin/python \
+  --native-evaluator '{"repo":"/absolute/pinned-cvdp","python":"/absolute/driver/bin/python","sim_image":"local-reviewed-tag","sim_image_id":"sha256:reviewed-identity"}' \
+  --yes
+# init JSON의 experiment 절대경로로 교체:
+CONFIG='/absolute/Home/experiments/실제-UUID/experiment.toml'
+.venv/bin/agent-opt prepare "$CONFIG" --offline
+.venv/bin/agent-opt doctor --plan "$CONFIG" --json
+.venv/bin/agent-opt plan "$CONFIG"
+# 모델 연결만 명시 검사할 때(실제 API 호출):
+.venv/bin/agent-opt doctor --plan "$CONFIG" --model --json
+# 위 조건을 갖춘 경우 작은 baseline smoke(실제 모델·평가):
+.venv/bin/agent-opt run "$CONFIG"
 ```
 
-`init` JSON의 **`experiment`**를 이후 명령의 경로로 사용합니다. `catalog list/show`는 설명·`ready`·`reason` 조회일 뿐 모델/도구 검사나 준비가 아닙니다. `doctor --plan`과 `plan`도 정적 검사입니다. `run`에서만 모델과 외부 공식 평가가 실제 호출될 수 있고, 준비되지 않은 자산을 자동 설치하지 않습니다. 환경이 부족하면 준비 조건을 확인하고 `prepare` 후 `doctor --plan`을 다시 수행하세요. 모델 자체의 연결 확인에는 별도의 실제 호출 진단(`sh scripts/bootstrap.sh doctor --model`)이 필요하며 비용이 들 수 있습니다.
+`catalog`는 설명 조회, `plan/doctor --plan`은 읽기 전용 검사입니다. stdout JSON과 progress stderr를 구별합니다. 별도 `serve` 명령은 없습니다. 한 row smoke 뒤 새 독립 init에서 `--optimizer gepa` 또는 `meta_harness`와 실제 **CID/row→train/validation/test**를 선택합니다. native rows는 `max_tasks`로 몰래 재샘플링하지 않으며 split/family를 자동 생성하지 않습니다. 생성 경로는 Home/experiments UUID이며 init JSON `experiment`가 정본입니다.
 
-**Meta-Harness**는 위 `init` 명령에서 `--name ace-meta-guide --optimizer meta_harness`로 바꾸고 후속 `runs/configs/ace-meta-guide/experiment.toml`을 사용하세요. GEPA 설정에서 Optimizer만 바꿔 재사용하지 않습니다. Meta는 생성된 설정 옆의 seed `ace_scaffold.py`에서 후보 `.py`를 만들고, 후보 복사본을 공개 과제의 build 선행 단계에 실행합니다. 두 경로의 기본 설정은 각각 **3 iteration, 최대 9 trial·5760초, trial당 600초**이며 예약 상한이지 실측이나 개선 보장이 아닙니다.
+## CID 지원과 private 경계
+
+고정 HF no-commercial JSONL의 선택 CID **224개 중 197 eligible·27 제외**입니다. **정적 지원 판정이지 실도구 정답률이 아닙니다.**
+
+| CID | 전체/eligible | 실제 검토 범위 / 제외 |
+|---|---:|---|
+| cid002 | 94/94 | 90 single·2 two-file·2 three-file RTL, Icarus/cocotb/pytest |
+| cid004 | 55/55 | 54 single·1 two-file 공개 RTL 수정, Icarus/cocotb/pytest |
+| cid007 | 40/13 | 13 sanity/lint binary: Icarus + Verilator --lint-only + pytest 두 서비스 모두 result=0. 25 PNR/합성 자산 + lint-only 2 상용 helper 제외; 우선 사유 PNR 17·상용 10(8 중복) |
+| cid016 | 35/35 | 공개 증상/기존 single RTL bug fix, Icarus/cocotb/pytest |
+
+상용 helper 비호출을 입증하지 않아 제외하며 PNR objective를 binary 기능 성공으로 대체하지 않습니다. 전체 CVDP 지원이 아닙니다. [C 원문 지원표](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/verification/final-mvp-c-20261001.md#cid-판정표)를 따릅니다.
+
+![outer Optimizer trial과 inner native attempt·iteration, trusted evaluator 재평가](../../../assets/diagram-native-loop.svg)
+
+outer trial 하나에 attempt 하나, 고정 원본 `run_attempt`가 inner generation/평가·반성·coordinator/iteration/fresh-start를 소유합니다. private harness/golden/로그 원문은 모델에 전달하지 않고 binary 상태/집계만 bridge로 전달합니다. 정상 종료 후 **outer trusted evaluator가 다시 판정**하며 inner pass는 최종 점수가 아닙니다. inner `profile.native.evaluator`와 outer evaluator 설정은 별도 진단합니다. local Python 후보는 신뢰한 plugin이지 OS sandbox가 아닙니다.
+
+## legacy coding을 선택할 때
+
+`--harness-profile ace-opencode`는 기존 OpenCode 스킬, Claude Code 프로필은 외부 Claude CLI/인증을 사용합니다. `init --profile ace-rtl --workspace PATH`는 고정 simple_feedback의 별도 경로입니다. legacy init의 `--yes`/prepare는 선택 고정 자산 다운로드·Docker 빌드가 가능합니다. native 로컬 준비와 섞지 마세요.
+
+[2026-09-28 OpenCode 기록](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/verification.md#2026-09-28-선택형-gepameta-harness-실모델공식-cvdp-후속-검증)은 Mac ARM64 source checkout에서 GEPA/Meta 각각 **1 iteration·실제 4/상한 5 trial**, 공식 raw 각 4건·validation 동점 baseline 선택·final_test 없음입니다. **native 성공·일반 성능 향상·기본 3회/9 trial 검증이 아닙니다.** legacy first-party pin은 자동 갱신하지 않았고 신규 native 파일 포함을 주장하지 않습니다. 현재 native wheel은 distribution metadata의 자산을 사용하며 누락 old wheel은 명시 실패합니다.
 
 ## 결과와 검증 범위
 
-`run` JSON의 `run_dir`와 `report_html`을 확인하세요. `report_html`을 브라우저에서 열고, 저장된 결과만 다시 생성하려면 **출력된 실제 `run_dir`**로 아래처럼 실행합니다.
+`run` JSON의 실제 run_dir/report_html을 사용합니다. [결과/History](/agent-optimizer/getting-started/results/)에서 normalized JSON/MD/HTML·algorithm trail·frozen selection·partial/null usage·evidence warning을 확인하세요. 서버는 HTML만 제공하며 raw native/private 파일은 공개하지 않습니다.
 
-```bash
-.venv/bin/agent-opt report "runs/<run-id>" --html
-```
-
-`summary.json`의 `synthetic`, `status`, `trials_used`(성공 수가 아닌 예약 평가 횟수), 그룹별 baseline/selected와 `final_test`를 읽으세요. `events.jsonl`·`candidates/*/changes.diff`는 후보 파일 변경과 선택 근거이며, 실제 후보 사용과 공식 채점은 해당 trial의 입력/선행 실행 근거와 **존재하는 경우에만** `cvdp_evaluation/work/raw_result.json`으로 확인합니다. `report.html`/`report.md`/`report.json`은 실행 기록에서 만든 파생물입니다. [결과 읽기](/agent-optimizer/getting-started/results/)의 화면은 **합성 7-trial 캡처**로, ACE 실환경 보고서 이미지가 아닙니다.
-
-[2026-09-28 날짜별 검증 기록](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/verification.md#2026-09-28-선택형-gepameta-harness-실모델공식-cvdp-후속-검증)은 준비된 **Mac ARM64 source checkout**에서 GEPA와 Meta-Harness를 **각각 별도 1 iteration, 실제 4/최대 5 trial**로 실행한 결과입니다. 후보 `role-guidance.md`의 prompt 반영, 후보 `.py`의 선행 실행 및 두 실행의 공식 CVDP raw 결과(각 4건에서 `result=0`, `passed=1.0`)가 확인됐습니다. 두 validation은 baseline과 후보가 동점이어서 **baseline 선택**, `final_test=[]`입니다. 기본 3회/9 trial 실행, 일반 성능 향상, 전체 CVDP 검증은 아닙니다. 설치형 wheel은 고정 first-party commit을 사용하므로 이 기록의 GPT-5 OpenCode plugin 후속 수정이 자동 반영되지 않습니다. 기록의 Git 제외 `runs/`는 공개 다운로드 파일이 아닙니다.
-
-`init --profile ace-rtl --workspace PATH`는 고정 `simple_feedback` ACE 예제이며 TUI Home의 `New Optimization`에서 네 항목을 고르는 선택형 GEPA/Meta 흐름과 수정 대상·설정 경로가 다릅니다. 내 Agent/팀 구현은 [실험 구성](/agent-optimizer/guides/experiment/)과 [컴포넌트 연결](/agent-optimizer/developer/components/)을 참고하세요.
+[G 최종 §7](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/verification/final-mvp-g-20261001.md)은 전체 **1155개 중 실행 1075 통과·skip 80**, Ruff·실제 source-free wheel build/install/합성 CLI/native helper/정적 진단·HTTP 검증입니다. **native API·원본 Agent/실 EDA/cleanup·Ubuntu loop는 not_run**입니다. 한정 fixture·배포 성공을 native 성능으로 쓰지 않습니다.

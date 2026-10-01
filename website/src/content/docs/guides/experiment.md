@@ -15,7 +15,7 @@ Agent는 수정할 **원본 소스**, Harness는 후보를 실행할 **프로필
 
 | 설정 경로 | 입력과 결과 |
 |---|---|
-| 선택형 프리셋 | `--agent-preset ace-rtl --harness-profile ace-opencode --dataset cvdp`에 `--optimizer gepa` **또는** `--optimizer meta_harness` 하나를 지정: 검증된 **단일 조합**, 고정 수정 파일·평가기·설정 경로 사용 |
+| 선택형 프리셋 | native는 `--agent-preset ace-rtl --harness-profile ace_native --dataset cvdp`와 명시 CID/rows·고정 로컬 준비 경로. legacy는 ace-opencode. Optimizer 하나를 명시하며 실제 표면/평가 조건을 따로 확인 |
 | 내 Agent | `--agent <로컬 경로 또는 Git URL>` + Git일 때 `--revision <전체 commit>` + `--editable`, `--command`(command 하네스) 또는 별도 Harness 선언, `--dataset`·필요 시 `--evaluator`: 호환성/실행 가능성은 직접 확인 |
 
 `--agent`와 `--agent-preset`, 일반 `--harness`와 `--harness-profile`은 서로 배타적입니다. 기존 `--profile ace-rtl --workspace PATH`는 고정 `simple_feedback` 예제의 pointer 경로로 선택형 프리셋과 섞지 않습니다. 팀용 Harness **adapter** ID와 실행 **profile** ID는 다릅니다. `catalog`에 보이는 `model-rtl-agent`/`model-rtl-command`는 소스 checkout의 별도 연구 예제이며 ACE 프리셋과 같은 준비·호환성 보장은 아닙니다.
@@ -55,10 +55,13 @@ Agent는 수정할 **원본 소스**, Harness는 후보를 실행할 **프로필
 
 ```bash
 .venv/bin/agent-opt datasets list
-.venv/bin/agent-opt doctor --plan runs/configs/guide-fixture/experiment.toml --json
-.venv/bin/agent-opt run runs/configs/guide-fixture/experiment.toml
+# init JSON의 experiment 절대경로를 CONFIG로 복사한 뒤:
+.venv/bin/agent-opt doctor --plan "$CONFIG" --json
+.venv/bin/agent-opt run "$CONFIG"
 ```
 
 **예상 결과:** `doctor --plan`은 선언과 선택 자산을 읽기 전용으로 점검하고 JSON에 `"scope": "plan"`과 준비 여부를 표시합니다. 이는 실제 모델 호출·채점 성공과 별개입니다. `run`의 `run_dir`에서 [결과 읽기](/agent-optimizer/getting-started/results/) 순서로 보고서를 확인하세요. 새 데이터셋은 선택 자산의 준비 상태를 따로 확인합니다. 시간과 횟수는 `init`의 `--max-wall-time-seconds`, `--max-trials`, `--trial-timeout-seconds`로 지정합니다.
 
 TTY에서는 `.venv/bin/agent-opt init`으로 설정만 만들거나 `.venv/bin/agent-opt tui`의 Home에서 `New Optimization`, `Existing Experiment`, `Run History`, `Advanced Setup`, `Quit`을 선택할 수 있습니다. 새 실험은 네 프리셋 wizard 뒤에 Model Setup, Review, Preparing, Doctor, Running, Result를 표시합니다. 팀 구현을 추가하려면 [컴포넌트 연결](/agent-optimizer/developer/components/)로 이동하세요.
+
+새 설정 경로는 [App Home UUID](/agent-optimizer/concepts/overview/#프로젝트와-app-home)입니다. `--project-root`는 원본 plugin/provenance 기준이며 임의 CWD로 출처를 가장하지 않습니다. output은 CLI > 명시 TOML > Home/runs의 **부모**, 자동 migration은 없습니다. Endpoint/ID는 평문·key만 숨김이며 API probe는 `doctor --plan "$CONFIG" --model`을 명시할 때만 실제 호출합니다. native는 [명시 로컬 source/data·별도 3.12/native extra·CID/row/split](/agent-optimizer/getting-started/presets/) 조건을 확인하고 실제 native live는 not_run으로 구별합니다.
