@@ -40,5 +40,5 @@
 - 통합: ff0d6dc까지 충돌 없이 cherry-pick 완료. 각 작업 보고서에 검증 명령·결과 기록.
 - F: 완료. be41046까지 독립 리뷰 수정 승인·최종 계약 인계 완료. native 정책은 examples 소유 thin hook이며 관련 211개 검증은 final-mvp-f-20261001.md §6~§8에 기록.
 - G: 완료. 28b5367까지 독립 리뷰 수정·재리뷰 승인. 전체 1155개 중 실행 1075개 통과·기존 skip 80개, lint·실제 wheel build/install smoke 통과. native live는 not_run. 최종 근거는 final-mvp-g-20261001.md §7.
-- H: 구현·검증 완료. 실제 help 11개·fixture 7/2 trial·History/HTML-only HTTP·계약 31개·lint·Starlight build/link·360px/desktop 캡처 통과. native live not_run·조건과 I 여정은 final-mvp-h-20261001.md. H 독립 재리뷰 승인 자체는 별도 판정.
-- I: 대기. H 문서/사이트 결과·live 조건·사용자 여정 체크리스트 소비 예정.
+- H: 완료. 51b905d까지 독립 리뷰/fix 승인 인계를 소비했다. 실제 help·fixture·History/HTTP·계약·lint·Starlight build/link·캡처 및 prepare/doctor 책임 정정은 final-mvp-h-20261001.md의 최신 append가 정본이다. native live not_run.
+- I: 완료. 17d3501에서 일반 prepare 오분기·native source.subdir 및 make 테스트 환경 격리를 보완했다. 실제 make test 1157개 중 실행 1077 통과·기존 skip 80, lint/demo·새 wheel install·source/wheel CLI/PTY·TUI·실제 HTTP/종료·local/Git command·사이트 build/link 검증. R01~R30 완료 29·부분 1(R16)·차단 0, native live not_run. exact 명령·경로·미검증·최종 문서 커밋 관계는 [I 보고서](final-mvp-i-20261001.md)에 기록한다. 하위 에이전트·push/PR 없음.

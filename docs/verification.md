@@ -1,5 +1,9 @@
 # 검증 기록
 
+## 2026-10-01 I 최종 수용검증·실제 결함 수정
+
+[I 보고서](verification/final-mvp-i-20261001.md)에 exact 명령·절대 config/run/report 경로·skip 목록 근거·R01~R30 판정을 기록했다. 실제 `make test` **1157개 중 실행 1077 통과·기존 skip 80**, `make lint`·격리 checkout의 실제 `make demo`(합성 7 trial)·새 wheel 환경의 build/install·source/wheel fresh Home CLI/PTy·TUI·실제 HTTP/종료·custom local/Git command·사이트 build/link가 통과했다. 일반 prepare의 ACE pointer 오분기·native source.subdir 무시를 수정하고 make 환경 상속 테스트 격리를 보완했다. **완료 29·부분 1(R16)·차단 0**이며 native 실모델/실 EDA/live는 `not_run`이다. 과거 날짜별 성공을 native 근거로 바꾸지 않는다.
+
 ## 2026-10-01 최종 MVP 통합·문서 근거
 
 A~G 승인·수정 결과는 [progress](verification/final-mvp-progress-20261001.md)와 각 담당 보고서에 보존한다. [G 최종 §7](verification/final-mvp-g-20261001.md)은 전체 1155개 중 실행 1075 통과·기존 skip 80개, Ruff·실제 wheel build/install/source-free 합성 CLI/native helper·진단/HTTP 근거다. **native 실모델·실 CVDP Docker/EDA/cleanup·Ubuntu native loop는 not_run**이다. [H 문서/사이트 명령·캡처·I 인계](verification/final-mvp-h-20261001.md)를 별도로 기록한다. 아래 날짜별 OpenCode/Claude/evaluator-only 성공은 당시 범위이며 native 성공으로 재표현하지 않는다.
