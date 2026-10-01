@@ -151,3 +151,63 @@ agent-opt report /absolute/RUN --html --serve --no-open --port 0
 ## 6. 최종 검토·잔여 검증
 
 요청/소유 경계·diff·실패 traceback·native producer/renderer 경로·HTML-only allowlist·private/키 redaction·pin·rollback·같은 프로세스 환경 복구·source-free provenance를 직접 검토했다. 하위 에이전트 리뷰는 수행하지 않았다. G는 실제 unit/Pilot/subprocess/HTTP/합성 runner/wheel 증거를 제공하며, live/EDA/Ubuntu 및 임의 plugin thread의 완전 환경 격리는 별도 검증이다. 설치형 old first-party pin에 native가 있다고 주장하거나 자동 갱신하지 않는다. 지정 intended files를 한국어 로컬 커밋으로 인계하고 워크트리를 보존한다.
+
+## 7. 수정 라운드 1 — 독립 리뷰 R1~R4 대응
+
+확인일: 2026-10-01. 시작 HEAD `474c9303bb73d262393d1898eee232bde217a166`. `final-mvp-g-review-20261001.md` 전체를 먼저 읽고 Important 3건·Minor 1건을 코드/실제 소비 계약과 대조했다. 리뷰 원문은 판정을 덧씌우지 않고 이번 의도된 로컬 커밋에 포함한다. 앞 절의 검증은 당시 증거이며 아래가 이번 수정의 최종 결과다.
+
+### 실제 수정
+
+- **R1:** 예제 진단이 공통 `selected_pairs(spec)`의 **실제 native pair**를 순회한다. 첫 profile/전체 Agent 조합 추측을 없앴다. native dataset/private 검증은 선택 profile별, source/engine은 해당 pair의 Agent source·`subdir`로 해석한 실제 snapshot 원본 root 및 그 profile의 interpreter를 사용한다. 다중 native pair의 check ID는 `native.selection:<agent>/<profile>`, `native_source:<agent>/<profile>` 등으로 구분하고, 단일 native pair는 기존 ID를 보존한다. 기존 5-key row와 고유 ID를 유지한다. 한 profile의 잘못된 설정은 그 profile의 오류이며 다른 pair의 진단을 지우지 않는다.
+- **R2:** inner는 실제 native bridge처럼 `profile.native.evaluator`를 소비하고, 누락 시 outer를 대신 쓰지 않는다. CVDP의 실제 constructor를 사용해 환경값·상대경로·venv Python symlink 의미를 동일하게 해석한다. 실제 CVDP outer는 코어의 `evaluator_settings(spec)`를 별도로 검사하고 `native.outer.evaluator.*`/`native.outer.simulator.*`로 기록한다. 두 설정의 일치를 강제하지 않으며 별도 repo/Python/tag/pin/identity를 허용·검증한다. 다른 종류의 outer는 기존 generic 등록 파일/runtime 진단 계약을 유지한다. 같은 argv의 **읽기 전용 probe 결과만** 현재 doctor 호출 안에서 재사용하고, expected image identity 판정은 각 설정에서 독립적으로 수행한다.
+- **R3:** raw subprocess/exception용 기존 `redact_text`는 유지한다. 사람이 읽는 guidance에서는 공개 모델 ID/CA 경로와 실제 credential env 값·명시 secret assignment/URL/Bearer를 구분한다. 짧은 키는 토큰 경계로 처리하여 `Cause` 등의 문자열 내부 문자를 무차별 치환하지 않는다. `Cause/Fix/Retry/Stage` 같은 구조 라벨은 값 처리 후 조합한다. retry는 argv를 파싱하여 제품 command/flag와 사용자 값을 구별하고, 공개 모델명과 겹치는 `--model`/정상 경로·공백 인용·report flags를 보존한다. 사용자 인수에 실제 credential이 있어 치환이 필요하면 **실행 불가능한 `[redacted]` 경로를 명령처럼 출력하지 않고**, 자격증명을 분리해야 해서 명령을 표시할 수 없다고 명시한다. 기존 credential URL·private key 보호를 해제하지 않았다.
+- **R4:** dataset/plan doctor의 snapshot 경계를 project와 sibling App Home/cache로 복원했다. 경계 부재, 전체 디렉터리/파일의 mode·inode·mtime·파일 바이트를 before/after 비교하고, 미준비 cache에서 Home 생성 없음·양쪽 pyc 없음도 확인한다. 실제 제품 쓰기가 발견된 것은 아니며 보호 assertion의 누락을 수정했다.
+
+### covering과 RED→GREEN
+
+신규 `tests/test_g_review.py` **14개**와 기존 `test_datasets`의 read-only 검사를 보완했다. native fixture는 실제 public/평가 descriptor·고정 source-lock·파일 해시를 대조하며 실모델/실 CVDP 성공을 의미하지 않는다. 모델 probe·외부 URL 요청·mkdir는 금지 fixture로 감시하고, Git/import/image inspect의 subprocess 결과만 외부 경계에서 모의한다. fixture 전체의 디렉터리/파일/mtime/바이트 snapshot도 같은 before/after여야 한다.
+
+- 첫 covering 8개 RED: **5 failure / 3 error / 0.236초**. legacy-first의 잘못된 source 조합/중복 ID, 추가 native pair ID 누락, outer check 누락, `--[redacted]`와 가짜 redacted 경로, `C[redacted]use`를 재현했다.
+- R1/R2 수정 직후 해당 5개: **5개/0.244초 OK**. R3/R4까지 반영한 최초 9개: **9개/0.328초 OK**.
+- 이후 covering 추가: 기본 2×2 pair matrix와 profile 역순, inner empty 설정의 실제 환경 default, 실제 doctor schema error의 `--model` retry, 잘못된 inner 설정의 다른 profile 격리, 같은 image probe의 서로 다른 inner/outer identity 판정. invalid inner object는 수정 전 **1개/0.033초 AttributeError RED**였으며 타입을 명시 오류로 기록해 다른 진단을 유지하도록 수정했다.
+- 최종 source 소비 경로 검토에서 `subdir`을 실제 snapshot과 같은 root로 해석하는 covering을 추가했다. 원래 source.path만 읽던 코드는 **1개/0.103초 failure=1**로 올바른 nested native source를 오류로 오진했다. `safe_path(source.path, source.subdir)`로 수정하고 unsafe source 경계의 오류 ID도 native_source로 구분했다.
+- cache negative control은 실제 기존 testcase의 collector 반환 경계에 Home 생성·cache 파일 변경·빈 cache 디렉터리 생성·plan doctor의 cache 파일 변경을 각각 주입했다. **네 경우 모두 복원한 read-only assertion에서 실패를 탐지했다.** 테스트를 pass로 숨기거나 product에 시험용 동작을 추가하지 않았다. 최초 직접 script 실행은 CWD가 PYTHONPATH에 없어 `examples` import가 실패했으며 아래처럼 `.:src:tests`로 복구했다.
+
+### 정확한 최종 명령·결과
+
+CWD는 지정 통합 워크트리이며 `G`/`PY`는 §4의 같은 절대경로다. 공유 `.venv`는 실행만 사용하고, fixture/Home/cache는 G 임시 경계 안에서 고유 경로를 사용했다.
+
+```bash
+env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests HOME="$G/home" TMPDIR="$G/tmp" "$PY" -m unittest test_g_review test_g_integration test_native_product test_datasets -v > "$G/review-round1-covering-final2.log" 2>&1
+env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=.:src:tests HOME="$G/home" TMPDIR="$G/tmp" "$PY" "$G/cache_snapshot_probe.py"
+env -i PATH=/Users/wt.jeong/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests AGENT_OPT_LANG=ko HOME="$G/home" AGENT_OPT_HOME="$G/review-round1-home" TMPDIR="$G/tmp" UV_OFFLINE=1 UV_PYTHON_DOWNLOADS=never "$PY" -m unittest discover -s tests -v > "$G/review-round1-unit-final.log" 2>&1
+env AGENT_OPT_CORE_PYTHON="$PY" PYTHONDONTWRITEBYTECODE=1 make lint
+git diff --check
+```
+
+결과:
+
+- covering **59개/6.332초 OK**, 종료 0, skip 없음. subdir 추가 전은 58개/6.106초 OK, 직전 invalid/shared-image 추가 전은 56개/6.222초 OK였다.
+- negative control 출력은 `home-create`, `cache-write`, `cache-empty-dir`, `plan-cache-write` 모두 `읽기 전용 assertion이 변조를 탐지함`, script 종료 0이다. 각 nested testcase의 예상 실패 1건을 확인한 결과이며 실제 정상 doctor 실패로 계산하지 않는다.
+- 전체 **`Ran 1155 tests in 171.684s`, `OK (skipped=80)`**, 종료 0. 실행 1075개 통과, failure/error 0. 이전 1141개에 신규 covering 14개가 추가됐으며 기존 skip/테스트 삭제/xfail/전역 검증 우회 없음. subdir 보완 전 전체도 1154개/171.280초 OK였으며 두 결과를 구분한다.
+- Ruff **`All checks passed!`**, diff whitespace 검사 종료 0. contracts/models/network/고정 출처·lock·dependency 변경 없음.
+
+### 실제 wheel 관련 재검증
+
+native 예제와 코어 diagnostics 소비가 배포 대상이므로 기존 G 격리 build-env/wheel-env에서 실제 wheel을 다시 빌드·offline 재설치했다. 공유 코어 환경은 install/sync하지 않았다.
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 "$G/build-env/bin/python" -m build --wheel --no-isolation --outdir "$G/dist" > "$G/review-round1-build-final.log" 2>&1
+env UV_CACHE_DIR="$G/uv-cache" UV_PYTHON_DOWNLOADS=never uv pip install --offline --reinstall-package agent-optimizer --no-deps --python "$G/wheel-env/bin/python" "$G/dist/agent_optimizer-0.3.0-py3-none-any.whl"
+env PYTHONDONTWRITEBYTECODE=1 "$PY" "$G/package_smoke.py"
+```
+
+build/install/smoke 모두 종료 0. 기존 source-free CLI init→plan→doctor→synthetic baseline **2 trial**→report→HTTP 200/private 404→SIGINT 130·누락 배포 자산 명시 실패/복구를 유지했다. 이번 smoke에는 **설치 wheel의 실제 native helper**로 생성한 작은 fixture의 두 profile, 둘째 dataset 누락, 첫 inner repo 존재·별도 outer repo 누락, doctor의 파일/디렉터리/mtime 무변경 및 정상 model retry 보존을 추가했다. 출력:
+
+```text
+wheel CLI init→plan→doctor→합성 run→report→HTTP 200/private 404: 2
+wheel native 복수 profile·독립 outer 누락·read-only·정상 retry 보존: OK
+자산 누락 명시 실패·서버 종료 130·비밀 파일 배포 제외: OK
+```
+
+fixture의 source/data hash는 명시 시험 자료이며 원본 native Agent 실행·실모델·실 EDA 검증이 아니다. 원래 SOURCE/first-party pin·자산 hierarchy와 distribution metadata provenance는 그대로다. 기본 저장소 main·기존 사용자 변경, 다른 워크트리를 보존했고 push/PR/하위 에이전트/live는 수행하지 않았다. R1~R4 수정과 covering 완료를 보고하며 **독립 재리뷰 승인 자체는 별도 판정**이다.

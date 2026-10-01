@@ -41,6 +41,18 @@ class DatasetTests(unittest.TestCase):
     def test_dataset_doctor_uses_team_provider_read_only_and_reports_missing_cache(self):
         temporary, project = test_project()
         self.addCleanup(temporary.cleanup)
+        home = Path(os.environ['AGENT_OPT_HOME'])
+        def snapshot():
+            state = {}
+            for boundary in (project, home):
+                if not boundary.exists():
+                    state[str(boundary)] = None
+                    continue
+                for path in (boundary, *boundary.rglob('*')):
+                    info = path.lstat()
+                    state[str(path)] = (info.st_mode, info.st_ino, info.st_mtime_ns,
+                                        path.read_bytes() if path.is_file() else None)
+            return state
         provider = project / "experiments/sample-team/diagnostic.py"
         provider.write_text('''from pathlib import Path
 class Provider:
@@ -55,7 +67,8 @@ class Provider:
                  "remedy": "" if ok else "Run agent-opt datasets prepare team_fixture"}]
 ''')
         with patch.dict(PROJECT_COMPONENTS["datasets"], {"team_fixture": "experiments/sample-team/diagnostic.py:Provider"}):
-            before = {str(p): p.read_bytes() for p in project.rglob("*") if p.is_file()}
+            before = snapshot()
+            self.assertFalse(home.exists())
             with patch("agent_optimizer.runner.preflight", side_effect=AssertionError("preflight")), \
                     patch("agent_optimizer.datasets.acquire_pinned_git", side_effect=AssertionError("download")), \
                     patch("examples.benchmarks.verilog_eval.prepare_runtime", side_effect=AssertionError("build")):
@@ -63,16 +76,17 @@ class Provider:
                 self.assertFalse(missing["ready"])
                 self.assertEqual({row["id"] for row in missing["checks"] if row["status"] == "error"},
                                  {"dataset.fixture"})
-                self.assertEqual(before, {str(p): p.read_bytes() for p in project.rglob("*") if p.is_file()})
+                self.assertEqual(before, snapshot())
+                self.assertFalse(home.exists())
                 from agent_optimizer.app_paths import resolve_dataset_cache
                 cache = resolve_dataset_cache('team_fixture')
                 cache.mkdir(parents=True)
                 (cache / "prepared.txt").write_text("ready")
-                before = {str(p): p.read_bytes() for p in project.rglob("*") if p.is_file()}
+                before = snapshot()
                 ready = collect_dataset(project, "team_fixture", Registry())
                 self.assertTrue(ready["ready"], ready)
-                self.assertEqual(before, {str(p): p.read_bytes() for p in project.rglob("*") if p.is_file()})
-                self.assertFalse(list(project.rglob("*.pyc")))
+                self.assertEqual(before, snapshot())
+                self.assertFalse(list(project.rglob("*.pyc")) + list(home.rglob("*.pyc")))
 
                 benchmark = project / "examples/minimal/tasks.json"
                 benchmark.write_text(json.dumps({**json.loads(benchmark.read_text()),
@@ -80,13 +94,13 @@ class Provider:
                 experiment = project / "examples/minimal/experiment.toml"
                 experiment.write_text(experiment.read_text().replace('evaluator = "text_fixture"',
                                                                  'evaluator = "sample_eval"'))
-                before = {str(p): p.read_bytes() for p in project.rglob("*") if p.is_file()}
+                before = snapshot()
                 with patch("agent_optimizer.runner.preflight", side_effect=AssertionError("preflight")), \
                         patch("agent_optimizer.datasets.acquire_pinned_git", side_effect=AssertionError("download")):
                     plan = collect_plan(experiment, Registry())
                 self.assertTrue(plan["ready"], plan)
                 self.assertIn("dataset.fixture", {row["id"] for row in plan["checks"]})
-                self.assertEqual(before, {str(p): p.read_bytes() for p in project.rglob("*") if p.is_file()})
+                self.assertEqual(before, snapshot())
 
     def test_unregistered_dataset_is_structured_failure(self):
         temporary, project = test_project()

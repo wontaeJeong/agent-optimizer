@@ -52,7 +52,7 @@ def start_view(row: dict, *, port: int = 0, retry: str | None = None):
     try:
         return start_report_server(verified_report(row), port=port)
     except ReportServerError as exc:
-        from agent_optimizer.diagnostics import redact_text
+        from agent_optimizer.diagnostics import redact_guidance, safe_retry
         fixes = {
             'missing_report': 'agent-opt report RUN --html로 명시 생성하세요',
             'unsafe_report': '승인된 일반 report.html/index.html 파일을 다시 선택하세요',
@@ -63,9 +63,9 @@ def start_view(row: dict, *, port: int = 0, retry: str | None = None):
             'start_failed': '소켓·파일 자원을 확인한 뒤 재시도하세요',
         }
         retry = retry or f"agent-opt report {shlex.quote(row['run_dir'])} --serve --port {port}"
-        raise ReportServerError(exc.code, redact_text(
-            f"보고서 서버 시작 실패\nStage: report.serve\nCause: {exc}\n"
-            f"Blocked by: {exc.code}\nFix: {fixes.get(exc.code, '저장 보고서와 loopback 설정을 확인하세요')}\nRetry: {retry}"),
+        raise ReportServerError(exc.code,
+            f"보고서 서버 시작 실패\nStage: report.serve\nCause: {redact_guidance(str(exc))}\n"
+            f"Blocked by: {exc.code}\nFix: {redact_guidance(fixes.get(exc.code, '저장 보고서와 loopback 설정을 확인하세요'))}\nRetry: {safe_retry(retry)}",
             error_number=exc.errno) from None
 
 

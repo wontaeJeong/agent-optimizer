@@ -20,60 +20,109 @@ from agent_optimizer.workspace import safe_path
 CIDS = {'cid002', 'cid004', 'cid007', 'cid016'}
 
 
-def diagnose_selection(spec, *, retry, prepare):
-    """Static native checks reuse the product's structured check/probe contract."""
-    from agent_optimizer.readiness import Runner, check
+def _evaluator_checks(config, *, runner, prefix, suffix, retry, evaluator_class, outcomes):
+    """Use the same effective CVDP settings as execution; cache only read-only probes."""
     from agent_optimizer import diagnostics
-    profile = spec['_profiles'][0]
-    native = profile.get('native', {})
-    checks = []
+    def name(value):
+        return prefix + '.' + value + suffix
+    def run(argv):
+        key = tuple(argv)
+        if key not in outcomes:
+            outcomes[key] = runner.run(argv)
+        return outcomes[key]
     try:
-        verify_native_selection(spec, profile, prepare=prepare)
-        checks.append(check('native.selection', 'native', True, '고정 CID/row·private 평가·활성 surface 계약을 확인했습니다', ''))
-    except (ConfigurationError, OSError, ValueError, KeyError, TypeError) as exc:
-        checks.append(check('native.selection', 'native', False, 'native 선택 계약을 확인할 수 없습니다',
-                            '고정 dataset·선택 CID/row·split·candidate/active target을 복원하세요',
-                            cause=diagnostics.summarize_exception(exc), retry=retry))
-    for agent in spec['_agents']:
-        source = agent.source.path if agent.source and agent.source.kind == 'local' else Path('/missing-native-source')
-        for row in prepare.readiness(source, native.get('python', sys.executable))['checks']:
-            checks.append(check(row['id'], 'native', row['ready'], 'native pin/asset/interpreter·의존성 정적 검사',
-                                '고정 upstream 자산과 Python 3.12·yaml/pydantic_settings 환경을 준비하세요',
-                                cause=row.get('reason'), retry=retry))
-    runner = Runner(spec['_root'], 'native')
-    runner.add('native.ps', bool(shutil.which('ps')), 'native child cleanup에 필요한 ps 확인',
-               'ps 실행 파일을 준비하세요', cause='ps 실행 파일 없음', retry=retry)
-    evaluator = native.get('evaluator', spec.get('evaluator_config', {}))
-    repo = Path(evaluator.get('repo', '/missing-native-evaluator'))
-    python = Path(evaluator.get('python', '/missing-native-python'))
+        if not isinstance(config, dict):
+            raise ConfigurationError('평가기 설정은 객체여야 합니다')
+        evaluator = evaluator_class(config)
+    except (ConfigurationError, OSError, ValueError, TypeError) as exc:
+        runner.add(name('evaluator.settings'), False, '평가기 실행 설정을 해석할 수 없습니다',
+                   '선택한 평가기의 repo/python/image 설정을 수정하세요',
+                   cause=diagnostics.summarize_exception(exc), retry=retry)
+        return
+    repo, python = evaluator.repo, evaluator.python
     present = (repo / 'run_benchmark.py').is_file()
-    runner.add('native.evaluator.assets', present, '공식 CVDP evaluator 자산 확인',
+    runner.add(name('evaluator.assets'), present, '공식 CVDP evaluator 자산 확인',
                '고정 CVDP checkout과 평가 driver를 준비하세요', cause='run_benchmark.py 누락', retry=retry)
     if present:
-        outcome = runner.run(['git', '-C', str(repo), 'rev-parse', 'HEAD'])
-        runner.add('native.evaluator.pin', outcome.succeeded and outcome.stdout.strip() == '8e894cf74414ab1eaea1e2b4e80a02f123df07b6',
+        outcome = run(['git', '-C', str(repo), 'rev-parse', 'HEAD'])
+        runner.add(name('evaluator.pin'), outcome.succeeded and outcome.stdout.strip() == '8e894cf74414ab1eaea1e2b4e80a02f123df07b6',
                    '공식 CVDP 고정 pin 확인', '검토된 CVDP commit을 복원하세요',
                    cause='CVDP 고정 commit 불일치' if outcome.succeeded else diagnostics.summarize_failure(outcome), retry=retry)
-    runner.add('native.evaluator.python', python.is_file(), 'CVDP driver interpreter 확인',
+    runner.add(name('evaluator.python'), python.is_file(), 'CVDP driver interpreter 확인',
                'CVDP Python 3.12 driver의 절대경로를 지정하세요', cause='driver interpreter 없음', retry=retry)
-    runner.probe('native.evaluator.dependencies', [str(python), '-I', '-B', '-c',
-                 'import sys; import yaml, requests, pydantic, openai, dotenv, psutil, nltk, tabulate, numpy, colorama, ruamel.yaml, tiktoken; assert sys.version_info[:2] == (3, 12); print("ok")'],
-                 'CVDP driver Python 3.12·필수 의존성 확인', '고정 driver lock으로 별도 평가 환경을 준비하세요',
-                 requires=('native.evaluator.python',), expected='ok', retry=retry)
-    runner.add('native.docker', bool(shutil.which('docker')), 'OSS simulator runtime 확인',
-               'Docker 실행 파일과 로컬 OSS 평가 이미지를 준비하세요', cause='Docker 실행 파일 없음', retry=retry)
-    image, identity = evaluator.get('sim_image'), evaluator.get('sim_image_id')
-    runner.add('native.simulator.lock', bool(image and identity), 'OSS_SIM 이미지 identity 선언 확인',
+    imports_ok, imports_cause = False, None
+    if runner.ok(name('evaluator.python')):
+        outcome = run([str(python), '-I', '-B', '-c',
+                       'import sys; import yaml, requests, pydantic, openai, dotenv, psutil, nltk, tabulate, numpy, colorama, ruamel.yaml, tiktoken; assert sys.version_info[:2] == (3, 12); print("ok")'])
+        imports_ok = outcome.succeeded and outcome.stdout.strip() == 'ok'
+        imports_cause = diagnostics.summarize_failure(outcome) if not outcome.succeeded else 'driver Python 출력 불일치'
+    runner.add(name('evaluator.dependencies'), imports_ok, 'CVDP driver Python 3.12·필수 의존성 확인',
+               '고정 driver lock으로 별도 평가 환경을 준비하세요', cause=imports_cause,
+               requires=(name('evaluator.python'),), retry=retry)
+    image, identity = evaluator.sim_image, evaluator.sim_image_id
+    runner.add(name('simulator.lock'), bool(image and identity), 'OSS_SIM 이미지 identity 선언 확인',
                '검증한 sim_image와 sim_image_id를 지정하세요', cause='OSS_SIM image/identity 미지정', retry=retry)
-    if runner.ok('native.docker') and runner.ok('native.simulator.lock'):
-        outcome = runner.run(['docker', 'image', 'inspect', image])
+    matched, image_cause = False, None
+    if runner.ok('native.docker') and runner.ok(name('simulator.lock')):
+        outcome = run(['docker', 'image', 'inspect', image])
         try:
             matched = outcome.succeeded and json.loads(outcome.stdout)[0]['Id'] == identity
         except (ValueError, KeyError, TypeError, IndexError):
             matched = False
-        runner.add('native.simulator.identity', matched, '로컬 OSS_SIM 이미지 identity 확인',
-                   '준비한 평가 image identity를 복원하세요. offline miss는 다운로드로 대체하지 않습니다',
-                   cause=None if matched else diagnostics.summarize_failure(outcome) if not outcome.succeeded else '로컬 image identity 불일치', retry=retry)
+        image_cause = diagnostics.summarize_failure(outcome) if not outcome.succeeded else '로컬 image identity 불일치'
+    runner.add(name('simulator.identity'), matched, '로컬 OSS_SIM 이미지 identity 확인',
+               '준비한 평가 image identity를 복원하세요. offline miss는 다운로드로 대체하지 않습니다',
+               cause=image_cause, requires=('native.docker', name('simulator.lock')), retry=retry)
+
+
+def diagnose_selection(spec, *, retry, prepare):
+    """Inspect each selected native pair, inner evaluator and actual outer evaluator."""
+    from agent_optimizer.readiness import Runner, check
+    from agent_optimizer.config import selected_pairs
+    from agent_optimizer.runner import evaluator_settings
+    from agent_optimizer import diagnostics
+    pairs = [(agent, profile) for agent, profile in selected_pairs(spec) if profile['adapter'] == 'ace_native']
+    if not pairs:
+        return []
+    runner = Runner(spec['_root'], 'native')
+    runner.add('native.ps', bool(shutil.which('ps')), 'native child cleanup에 필요한 ps 확인',
+               'ps 실행 파일을 준비하세요', cause='ps 실행 파일 없음', retry=retry)
+    runner.add('native.docker', bool(shutil.which('docker')), 'OSS simulator runtime 확인',
+               'Docker 실행 파일과 로컬 OSS 평가 이미지를 준비하세요', cause='Docker 실행 파일 없음', retry=retry)
+    checks, selection_checks, outcomes = [], {}, {}
+    evaluator_class = prepare.sibling('native_evaluator').NativeCVDPEvaluator
+    for agent, profile in pairs:
+        suffix = ':' + agent.id + '/' + profile['id'] if len(pairs) > 1 else ''
+        context = f"Agent={agent.id}, Harness={profile['id']}"
+        native = profile.get('native', {})
+        if profile['id'] not in selection_checks:
+            try:
+                verify_native_selection(spec, profile, prepare=prepare)
+                selection_checks[profile['id']] = None
+            except (ConfigurationError, OSError, ValueError, KeyError, TypeError) as exc:
+                selection_checks[profile['id']] = diagnostics.summarize_exception(exc)
+        cause = selection_checks[profile['id']]
+        checks.append(check('native.selection' + suffix, 'native', cause is None,
+                            '고정 CID/row·private 평가·활성 surface 계약 검사 · ' + context,
+                            '고정 dataset·선택 CID/row·split·candidate/active target을 복원하세요',
+                            cause=cause, retry=retry))
+        source = None
+        try:
+            source = safe_path(agent.source.path, agent.source.subdir) if agent.source and agent.source.kind == 'local' else Path('/missing-native-source')
+            source_checks = prepare.readiness(source, native.get('python', sys.executable))['checks']
+        except (ConfigurationError, OSError, ValueError, TypeError) as exc:
+            source_checks = [{'id': 'native_source' if source is None else 'native_python', 'ready': False, 'reason': diagnostics.summarize_exception(exc)}]
+        for row in source_checks:
+            checks.append(check(row['id'] + suffix, 'native', row['ready'],
+                                'native pin/asset/interpreter·의존성 정적 검사 · ' + context,
+                                '고정 upstream 자산과 Python 3.12·yaml/pydantic_settings 환경을 준비하세요',
+                                cause=row.get('reason'), retry=retry))
+        _evaluator_checks(native.get('evaluator', {}), runner=runner, prefix='native', suffix=suffix,
+                          retry=retry, evaluator_class=evaluator_class, outcomes=outcomes)
+    if spec['evaluator'] in {'cvdp', 'cvdp_native'}:
+        _evaluator_checks(evaluator_settings(spec), runner=runner, prefix='native.outer', suffix='',
+                          retry=retry, evaluator_class=evaluator_class, outcomes=outcomes)
+    # Other outer evaluators retain their own generic registered-file/runtime checks.
     return checks + runner.checks
 
 

@@ -37,14 +37,16 @@ class Runner:
     def add(self, name, ok, message, remedy, *, requires=(), cause=None, retry=None):
         failed = [dependency for dependency in requires if not self.ok(dependency)]
         status = "blocked" if failed else "ok" if ok else "error"
+        message = diagnostics.redact_guidance(message, self.environment)
         if failed:
             message = f"{message}\nBlocked by: {', '.join(failed)}"
         elif status == "error" and cause:
-            message = f"{message}\nCause: {cause}"
+            message = f"{message}\nCause: {diagnostics.redact_guidance(cause, self.environment)}"
         fix = ("Resolve " + ", ".join(failed) + " first. " + remedy
                if failed else "" if status == "ok" else remedy)
+        fix = diagnostics.redact_guidance(fix, self.environment)
         if status != "ok" and retry:
-            fix += f"\nRetry: {retry}"
+            fix += f"\nRetry: {diagnostics.safe_retry(retry, self.environment)}"
         self.checks.append({"id": name, "area": self.area, "status": status,
                             "message": message, "remedy": fix})
         return status == "ok"
@@ -120,13 +122,14 @@ def _command_label(argv: Sequence[str]) -> str:
 
 def check(identifier: str, area: str, ok: bool, message: str, remedy: str, *,
           cause: str | None = None, retry: str | None = None) -> dict:
+    message = diagnostics.redact_guidance(message)
     if not ok and cause:
-        message = f"{message}\nCause: {cause}"
-    fix = "" if ok else remedy
+        message = f"{message}\nCause: {diagnostics.redact_guidance(cause)}"
+    fix = "" if ok else diagnostics.redact_guidance(remedy)
     if not ok and retry:
-        fix += f"\nRetry: {retry}"
+        fix += f"\nRetry: {diagnostics.safe_retry(retry)}"
     return {"id": identifier, "area": area, "status": "ok" if ok else "error",
-            "message": diagnostics.redact_text(message), "remedy": diagnostics.redact_text(fix)}
+            "message": message, "remedy": fix}
 
 
 def sanitize_provider_row(row: dict) -> dict:
@@ -364,7 +367,7 @@ def _ace_asset_check(spec: dict) -> dict:
         except (ConfigurationError, OSError, ValueError) as exc:
             return check("integration.assets", "integration", False,
                          "Pinned ACE integration has not been prepared",
-                         retry, cause=diagnostics.summarize_exception(exc), retry=retry)
+                         "고정 ACE 연동 자산을 명시 준비하세요", cause=diagnostics.summarize_exception(exc), retry=retry)
     cause = None
     try:
         lock = json.loads((root / "external/environment-lock.json").read_text())
@@ -389,7 +392,7 @@ def _ace_asset_check(spec: dict) -> dict:
             ConfigurationError, UnavailableError) as exc:
         return check("integration.assets", "integration", False,
                      "Pinned ACE lock or Docker images are unavailable",
-                     retry, cause=cause or diagnostics.summarize_exception(exc), retry=retry)
+                     "고정 ACE lock·로컬 이미지를 준비하세요", cause=cause or diagnostics.summarize_exception(exc), retry=retry)
     return check("integration.assets", "integration", True,
                  "Pinned ACE lock and Docker image identities are available", "")
 
@@ -438,7 +441,7 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
                                          "status": "blocked",
                                          "message": "선택한 연동의 준비가 필요합니다\nCause: "
                                                     + diagnostics.summarize_exception(exc),
-                                          "remedy": '고정 연동을 명시 준비하세요\nRetry: ' + shlex.join(['agent-opt', 'prepare', str(path)])}])
+                                          "remedy": '고정 연동을 명시 준비하세요\nRetry: ' + diagnostics.safe_retry(shlex.join(['agent-opt', 'prepare', str(path)]))}])
             except (ConfigurationError, OSError, ValueError, TypeError) as exc:
                 return _report("plan", [check("integration.pin", "integration", False,
                                                "선택형 연동의 ID·pin을 검증할 수 없습니다",
