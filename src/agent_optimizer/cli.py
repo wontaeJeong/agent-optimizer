@@ -182,7 +182,7 @@ def catalog_show(kind: str, identifier: str, project_root: Path | None = None,
 
 @app.command("prepare")
 def prepare_command(experiment: Path, offline: bool = False) -> int:
-    """선택한 ACE/CVDP 고정 자산 준비·재사용(다운로드·Docker 빌드 가능)."""
+    """일반 실험 preflight 확인 또는 ACE/CVDP 자산 준비·재사용(다운로드·Docker 빌드 가능)."""
     return _invoke("prepare", experiment=experiment, offline=offline)
 
 
@@ -357,7 +357,7 @@ def _dispatch(args):
             show(registry.describe())
         elif args.command == "prepare":
             from agent_optimizer.integrations import prepare_experiment
-            print(human("ACE 준비: 고정 소스·데이터·driver 및 Docker 이미지 준비/재사용"), file=sys.stderr)
+            print(human("선택한 실험 준비 확인 · 실제 실행 아님"), file=sys.stderr)
             show(prepare_experiment(args.experiment, offline=args.offline))
         elif args.command == "datasets":
             root = args.project_root.absolute()

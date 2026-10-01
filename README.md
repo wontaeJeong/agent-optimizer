@@ -56,12 +56,13 @@ ACE-RTL의 첫 Harness는 **Python native**입니다. CLI 선택은 `--harness-p
   --optimizer baseline --yes
 # init JSON의 experiment 절대경로를 그대로 복사:
 CONFIG='/실제/init/출력/experiment.toml'
+.venv/bin/agent-opt prepare "$CONFIG" --offline
 .venv/bin/agent-opt doctor --plan "$CONFIG" --json
 .venv/bin/agent-opt plan "$CONFIG"
 .venv/bin/agent-opt run "$CONFIG"
 ```
 
-`CONFIG`는 설명용 값이며 실제 `init` 출력으로 바꿉니다. 새 설정은 **App Home/experiments/<이름>-<uuid12>/experiment.toml**이며 같은 이름도 독립 생성합니다. 고정 `runs/configs/<name>` 경로를 추측하지 마세요. 실제 Agent는 `--agent LOCAL` 또는 `--agent GIT_URL --revision FULL_SHA`를 연결하고 editable·Harness·데이터·평가기를 직접 지정합니다. `--command`는 argv 인용만 분리하며 셸 확장/파이프를 실행하지 않습니다. [실험 구성](https://wontaeJeong.github.io/agent-optimizer/guides/experiment/)을 참고하세요.
+`CONFIG`는 설명용 값이며 실제 `init` 출력으로 바꿉니다. 일반 실험의 `prepare`는 이미 준비된 설정·등록·평가 자료를 기존 preflight로 확인하며 `scope=preflight`, `live=not_run`입니다. 설치·모델 호출·Agent 실행을 하지 않고 전체 환경 준비를 보장하지 않습니다. 새 설정은 **App Home/experiments/<이름>-<uuid12>/experiment.toml**이며 같은 이름도 독립 생성합니다. 고정 `runs/configs/<name>` 경로를 추측하지 마세요. 실제 Agent는 `--agent LOCAL` 또는 `--agent GIT_URL --revision FULL_SHA`를 연결하고 editable·Harness·데이터·평가기를 직접 지정합니다. `--command`는 argv 인용만 분리하며 셸 확장/파이프를 실행하지 않습니다. [실험 구성](https://wontaeJeong.github.io/agent-optimizer/guides/experiment/)을 참고하세요.
 
 ### App Home과 프로젝트
 

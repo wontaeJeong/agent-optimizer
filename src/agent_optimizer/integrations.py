@@ -290,7 +290,7 @@ def prepare_pointer(path: Path, *, offline: bool = False) -> dict:
 
 
 def prepare_experiment(path: Path, *, offline: bool = False) -> dict:
-    """Prepare an explicit ACE selection or the unchanged installed pointer."""
+    """Prepare ACE assets or validate an already materialized generic experiment."""
     raw = read_toml(path)
     if 'integration' not in raw:
         from agent_optimizer.config import load_experiment, selected_pairs
@@ -302,7 +302,8 @@ def prepare_experiment(path: Path, *, offline: bool = False) -> dict:
             for agent, profile in selected_pairs(spec):
                 if profile['adapter'] == 'ace_native':
                     native = profile.get('native', {})
-                    checks.append(preparation(spec['_root']).readiness(agent.source.path, native.get('python', '')))
+                    source = safe_path(agent.source.path, agent.source.subdir)
+                    checks.append(preparation(spec['_root']).readiness(source, native.get('python', '')))
             if not all(check['ready'] for check in checks):
                 raise UnavailableError('native 고정 소스·Python 3.12/yaml/pydantic_settings 준비가 필요합니다; offline 상태를 자동 설치로 보완하지 않습니다')
             from agent_optimizer.registry import Registry
@@ -312,6 +313,12 @@ def prepare_experiment(path: Path, *, offline: bool = False) -> dict:
             from agent_optimizer.runner import evaluator_settings
             registry.resolve('evaluators', spec['evaluator'])(evaluator_settings(spec)).validate_benchmark(spec['_tasks'], spec['_benchmark_metadata'])
             return {'experiment': path.resolve(), 'profile': 'ace-native', 'ready': True, 'live': 'not_run', 'checks': checks}
+        if 'preset_selection' not in raw:
+            from agent_optimizer.registry import Registry
+            from agent_optimizer.runner import preflight
+            preflight(spec, Registry())
+            return {'experiment': path.resolve(), 'scope': 'preflight', 'ready': True,
+                    'live': 'not_run'}
     if "preset_selection" not in raw:
         return prepare_pointer(path, offline=offline)
     from agent_optimizer.config import load_experiment

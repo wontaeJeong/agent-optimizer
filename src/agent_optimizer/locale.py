@@ -110,6 +110,11 @@ MESSAGES = {
     "명시적으로 선택할 Optimizer ID(필수, 반복 가능; 예: baseline)": (
         "명시적으로 선택할 Optimizer ID(필수, 반복 가능; 예: baseline)",
         "Select a registered Optimizer ID (required, repeatable; e.g. baseline)"),
+    "선택한 실험 준비 확인 · 실제 실행 아님": (
+        "선택한 실험 준비 확인 · 실제 실행 아님", "Prepare the selected experiment · not an execution"),
+    "일반 실험 preflight 확인 또는 ACE/CVDP 자산 준비·재사용(다운로드·Docker 빌드 가능).": (
+        "일반 실험 preflight 확인 또는 ACE/CVDP 자산 준비·재사용(다운로드·Docker 빌드 가능).",
+        "Check generic experiment preflight or prepare/reuse ACE/CVDP assets (may download/build Docker images)."),
     "ACE 준비: 고정 소스·데이터·driver 및 Docker 이미지 준비/재사용": (
         "ACE 준비: 고정 소스·데이터·driver 및 Docker 이미지 준비/재사용",
         "Preparing or reusing pinned ACE sources, data, driver and Docker images"),

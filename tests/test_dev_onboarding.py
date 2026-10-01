@@ -716,6 +716,9 @@ class DeveloperCommandsTests(unittest.TestCase):
         self.output = io.StringIO()
         self.addCleanup(patch.stopall)
         patch.dict(os.environ, {}).start()
+        # Default-project fixtures must not consume make's external interpreter.
+        # Explicit override behavior is covered separately in test_g_integration.
+        os.environ.pop("AGENT_OPT_CORE_PYTHON", None)
         patch.object(self.dev.os, "chdir").start()
 
     def main(self, args):
