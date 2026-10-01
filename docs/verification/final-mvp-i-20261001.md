@@ -1,6 +1,6 @@
 # I — 최종 통합 수용검증·실제 결함 수정
 
-확인일: 2026-10-01. **DONE / concerns: 완료 29·부분 1·차단 0. 전체 1157개 중 실행 1077 통과·기존 skip 80, 실패/오류 0. native 실모델·EDA live는 `not_run`이다.** ‘완료’는 아래 요구별 명시된 fixture/계약/실제 제품 실행 범위이며, 모든 실제 Agent의 성능 검증을 뜻하지 않는다. R16은 실행 배선·고정 upstream fixture를 검증했지만 실제 native 데모의 모델/공식 EDA 실행 근거가 없어 부분이다.
+확인일: 2026-10-01. **DONE / concerns: 완료 29·부분 1·차단 0. 초기 I는 1157개 중 실행 1077 통과·기존 skip 80, 최종 리뷰 수정 wave는 §8의 1160개 중 실행 1080 통과·기존 skip 80, 실패/오류 0. native 실모델·EDA live는 `not_run`이다.** ‘완료’는 아래 요구별 명시된 fixture/계약/실제 제품 실행 범위이며, 모든 실제 Agent의 성능 검증을 뜻하지 않는다. R16은 실행 배선·고정 upstream fixture를 검증했지만 실제 native 데모의 모델/공식 EDA 실행 근거가 없어 부분이다.
 
 ## 1. 기준·소유 경계·SHA
 
@@ -132,7 +132,7 @@ env -i PATH=/opt/homebrew/bin:/usr/bin:/bin HOME="$I/home" npm run check:links >
 | R11 | 원본 프로젝트와 실행 저장소 분리·source provenance | 완료 | `config.py`, `sources.py`, writer; `$I/artifacts.json`, local/Git command 외부 CWD, `test_product_package`·`test_app_paths` |
 | R12 | run/session 이력 저장·조회 일치 | 완료 | `history.py`, `session.py`; actual success ID/report 관계, `test_history`·`test_run_lifecycle`·spawn session/error/interrupted/reportless |
 | R13 | 기존 경로 호환·자동 migration 금지 | 완료 | 원래 TOML로 실제 make demo 7 trial/명시 runs, legacy/custom mixed History·output 우선순위·원본 불변 tests |
-| R14 | CLI JSON·exit·prepare/doctor/plan 부작용 계약 유지 | 완료 | actual source/wheel `commands.json`·snapshot·decoder·exit 0/2/130/stderr, 신규 일반 prepare preflight와 native subdir 회귀 |
+| R14 | CLI JSON·exit·prepare/doctor/plan 부작용 계약 유지 | 완료 | actual source/wheel `commands.json`·snapshot·decoder·exit 0/2/130/stderr, 일반 prepare/native subdir 회귀. §8 `test_plan_readonly`·actual source-free wheel module/console은 `-B`/환경 flag 없는 plugin cache 무생성과 값 복구를 추가 검증 |
 | R15 | setup/doctor 원인·로그·Fix·Retry | 완료 | `test_diagnostics`·`test_dev_doctor`·`test_g_review`, actual native doctor 2/원인별 checks·port conflict retry; 성공 fallback 없음 |
 | R16 | 기본 실제 데모 Python native ACE + CVDP | **부분** | native-first registry/profile·실제 pinned upstream run_attempt fixture·정적 init/doctor/prepare 완료. **실모델/공식 Docker·EDA native 데모는 not_run**; 격리 API/image/native Python 조건 부족·live 미승인 |
 | R17 | 기존 OpenCode/Claude Code 프로필 별도 보존 | 완료 | `test_ace_demo`·`test_claude_code`·`test_preset_cli/tui`, actual catalog/native와 legacy ID 구분. 이번 coding live는 not_run |
@@ -156,7 +156,7 @@ env -i PATH=/opt/homebrew/bin:/usr/bin:/bin HOME="$I/home" npm run check:links >
 
 ```bash
 # source에서 실제 검증한 API-free 선택(환경의 Home은 절대경로):
-agent-opt init --agent-preset rtl-solo --harness-profile fixture --optimizer baseline --dataset sample_text --yes
+agent-opt init --name my-fixture --agent-preset rtl-solo --harness-profile fixture --optimizer baseline --dataset sample_text --yes
 # 위 JSON의 실제 experiment 경로:
 agent-opt prepare CONFIG --offline
 agent-opt doctor --plan CONFIG --json
@@ -170,3 +170,69 @@ agent-opt report RUN --serve --no-open --port 0
 source의 위 fixture 선택·writer는 actual Pilot/회귀에서 실행됐고, source-free wheel은 별도 custom local/Git/Existing 경로를 실제 실행했다. 설치 wheel이 모든 source-only sample preset을 자동 제공한다고 확대하지 않는다. 무인자 TTY는 Home TUI, nonTTY는 명시 CLI를 쓴다. Home의 UUID 설정 경로·run ID는 출력값을 사용하고 고정 이름을 추측하지 않는다. 일반 prepare `ready=true`는 preflight만, native prepare는 source/interpreter·outer benchmark의 제한된 검사만, 전체 정적 진단은 doctor이며 실제 API는 명시 --model이다.
 
 남은 concerns: native 실모델/공식 Docker·EDA 및 Docker cleanup·Ubuntu x86_64/SSH/OS browser는 not_run; CID007의 27 제외 row는 지원 대상으로 바뀌지 않음; 동일 사용자 trusted plugin의 논리적 private 경계는 OS sandbox가 아님; partial 사용량은 전체 토큰/비용이 아님; 연구 이름의 자체 구현과 fixture 개선은 논문 재현/일반 성능 증거가 아님; 기존 사이트 경고는 비차단 잔여다. 하위 reviewer를 새로 만들지 않고 실제 diff/계약/실행 근거로 자체 검토했다. 작업 worktree를 보존하고 사용자 지시대로 로컬 커밋만 남긴다.
+
+## 8. 전체 브랜치 최종 리뷰 M1/M2 — 단일 수정 wave
+
+2026-10-01, 기준 **`cb7fbdfb305f5e5b70326643329b58ec601d1d6c`**. [최종 리뷰 원문](final-mvp-final-review-20261001.md) 전체를 읽고 **Critical 0 / Important 0 / Minor 2**의 같은 두 finding을 수정했다. 리뷰 원문은 변경하지 않고 이번 의도된 로컬 커밋에 포함한다. 앞선 §1~§7은 최초 I 근거이며, 기존 `-B`/`PYTHONDONTWRITEBYTECODE=1` snapshot은 그 조건의 무변경만 입증한다. **사용자 기본 invocation의 plan 보호는 아래 새 실제 디스크 검증을 근거로 읽는다.** 독립 재리뷰를 새로 수행했다는 선언이 아니다.
+
+### M1 — 필수 name·정확한 사용법 실행
+
+§7의 API-free preset 명령에 필수 `--name my-fixture`를 추가했다. 제품의 name 계약은 바꾸지 않았다. 임시 source checkout에서 **수정된 문서의 literal을 직접 추출**하여 다음 argv를 실제 실행했다. name 없는 이전 argv도 negative control로 호출해 exit 2/stdout 빈 값/`--name` 오류·Home 무생성을 확인했다. 기존 TUI writer 증거를 이 CLI argv의 증거로 대신 쓰지 않는다.
+
+```bash
+agent-opt init --name my-fixture --agent-preset rtl-solo --harness-profile fixture --optimizer baseline --dataset sample_text --yes
+agent-opt prepare CONFIG --offline
+agent-opt plan CONFIG
+agent-opt doctor --plan CONFIG --json
+agent-opt run CONFIG
+agent-opt report RUN --json
+```
+
+모두 exit 0·단일 JSON, **completed/2 trial/synthetic=true**. CONFIG/RUN은 위 init/run JSON의 실제 절대경로로 넘겼다. source의 실제 subprocess prefix는 **`$PY -m agent_optimizer`**, **`-B`와 `PYTHONDONTWRITEBYTECODE` 없음**이다. 임시 source/examples/experiments만 사용하고 개인 Home·모델/API/다운로드/EDA를 호출하지 않았다.
+
+### M2 — 실제 import 경계·기존 보호 재사용·복구
+
+- `cli.main`의 기존 doctor/catalog no-bytecode 보호 명령 집합에 plan을 추가했다. `finally`의 이전 값 복구는 그대로다. `plan_command`에서도 doctor collector가 쓰는 **기존 `readiness._no_bytecode()`**를 재사용하여 Typer callback을 직접 호출하는 경우까지 `_invoke`→`load_experiment`→`preflight`→file plugin import를 보호한다.
+- `__init__.py`·`entrypoint.py`의 기존 doctor startup import 보호에도 plan을 추가하여 사용자 module/console entry의 후속 core/의존성 import에 같은 정책을 적용했다. 일반 run·plugin 로딩 정책·모델/평가 동작은 바꾸지 않았다.
+- **실제 디스크 RED:** `tests/test_plan_readonly.py`가 I 전용 temp에 소스만 있는 writable 프로젝트와 core copy를 만들고, cache가 없는 실제 file evaluator/등록 plugin을 호출한다. child 환경에는 `PYTHONDONTWRITEBYTECODE`가 없고 argv에 `-B`도 없으며 `SourceFileLoader`를 mock하지 않는다. module plan은 정상 JSON을 내면서 실제 프로젝트 `__pycache__/*.pyc`/mtime를 바꿔 실패했다. 격리 정리 후 RED는 **3개/1.070초, failures=3**(`plan-red-isolated.log`). 최초 4 failure의 추가 1건은 false/true subtest가 같은 cache를 공유하던 fixture 문제였으며 case별 프로젝트로 분리했다.
+- main/startup 수정 후 정상 사용자 module 호출은 통과했으나 callback 직접 호출의 false 상태에서 bytecode 생성 **1 failure RED**가 남았다(`plan-callback-red.log`, 3개/0.820초). 위 기존 context를 callback에 연결하여 실제 import 구간까지 수정했다. assertion/skip/기대값을 약화하지 않았다.
+- **최종 3개 covering의 의미:** 기본 module plan에서 project의 mode/inode/mtime/모든 파일 바이트·Home 미생성 확인; direct main/callback × 이전 False/True 각각에서 실제 plugin 성공 및 ValueError import 실패 후 원래 값 복구/pycache 없음 확인; guard 밖 일반 import는 **실제로 .pyc 생성**하여 전체 Python 쓰기를 숨긴 테스트가 아님을 확인한다.
+- `sys.dont_write_bytecode`는 **프로세스 전역** 속성이다. 기존 helper의 중첩/성공/예외 복구를 유지하고 새 전역 실행 관리·worker lock·스케줄러를 추가하지 않았다. 같은 프로세스의 다른 thread import가 이 플래그를 관측할 수 있으며 임의 동시 library invocation의 OS 격리를 보장하지 않는다. **trusted plugin의 임의 파일 write를 막는 OS sandbox가 아니다.** 기존 모델 세션 직렬화·독립 session spawn 및 private 논리 경계도 그대로다.
+
+### exact 명령·최종 검증
+
+아래 변수는 실제 절대경로 약기다. CWD는 기존 지정 worktree다. W는 I 아래의 새 전용 wave 경계이며 최초 I 로그/환경/산출물을 덮어쓰지 않았다.
+
+```bash
+W=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-i/final-review-wave
+G=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-g
+PY=/Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python
+
+env -i PATH=/usr/bin:/bin HOME="$W/home" AGENT_OPT_HOME="$W/covering-app" TMPDIR="$W/tmp" PYTHONDONTWRITEBYTECODE=1 PYTHONPATH=src:tests "$PY" -m unittest test_plan_readonly test_final_acceptance test_datasets test_cli_entry test_g_integration test_g_review -v > "$W/covering.log" 2>&1
+env -i PATH=/Users/wt.jeong/.local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin HOME="$W/home" AGENT_OPT_HOME="$W/test-app" TMPDIR="$W/tmp" PYTHONDONTWRITEBYTECODE=1 AGENT_OPT_CORE_PYTHON="$PY" UV_OFFLINE=1 UV_PYTHON_DOWNLOADS=never make test > "$W/make-test.log" 2>&1
+env -i PATH=/usr/bin:/bin HOME="$W/home" AGENT_OPT_HOME="$W/lint-app" TMPDIR="$W/tmp" PYTHONDONTWRITEBYTECODE=1 AGENT_OPT_CORE_PYTHON="$PY" make lint
+
+env -i PATH=/usr/bin:/bin HOME="$W/home" TMPDIR="$W/tmp" PYTHONDONTWRITEBYTECODE=1 "$G/build-env/bin/python" -m build --wheel --no-isolation --outdir "$W/dist" > "$W/build.log" 2>&1
+env UV_CACHE_DIR="$G/uv-cache" UV_PYTHON_DOWNLOADS=never uv venv --offline --python "$PY" "$W/wheel-env"
+env UV_CACHE_DIR="$G/uv-cache" UV_PYTHON_DOWNLOADS=never uv pip install --offline --python "$W/wheel-env/bin/python" --requirements "$G/wheel-requirements.txt" "$W/dist/agent_optimizer-0.3.0-py3-none-any.whl"
+env -i PATH=/usr/bin:/bin "$PY" "$W/wave_smoke.py" > "$W/smoke.log" 2>&1
+```
+
+모두 실제 실행 후 exit 0. **covering 53개/3.551초 OK·skip 0**, 최종 **`Ran 1160 tests in 173.262s`, `OK (skipped=80)`**, 실행 **1080 통과·failure/error 0**, Ruff **All checks passed!**. 신규 3개가 포함되고 이전 80 skip의 종류·이유는 유지했다. 부모 unittest/make는 공유 환경 보호를 위해 기존 no-bytecode 환경으로 실행하되, **새 test의 사용자 child와 wave smoke는 그 환경/`-B`를 상속하지 않는 별도 environment**다. 따라서 M2 보호 증거를 부모 설정으로 가리지 않는다.
+
+실제 wheel은 G의 준비 build interpreter/cache/requirements만 읽기·실행 재사용하고 W의 **새 wheel-env에 core/native 20개를 offline 설치**했다. source-free 다른 CWD에서 실제 설치 import 경로를 확인하고 **`wheel-env/bin/python -m agent_optimizer plan CONFIG`와 `wheel-env/bin/agent-opt plan CONFIG`**를 각각 `-B`/환경 bytecode flag 없이 수행했다. 원본 custom evaluator의 pycache를 비운 뒤 project/App Home의 mode/inode/mtime/바이트 불변 및 cache 없음, 단일 JSON/exit 0를 확인했다. 이어 실제 fixture run도 completed/2 trial이며, 별도 일반 import negative control은 실제 `scorer.cpython-312.pyc`를 생성했다. 공유 `.venv` install/sync·원격 fetch·모델/EDA·하위 에이전트·push/PR은 없다. 이번 wave에서 사이트·browser/HTTP·make demo를 새로 재실행했다고 주장하지 않는다; 코드 영향 covering·전체 make·lint·실제 wheel은 위 새 결과다.
+
+### exact artifacts·상태 연결
+
+`$W/commands.json`은 모든 source/wheel subprocess의 **실제 argv/CWD/env/exit/stdout/stderr 절대경로**, `$W/wave-00.stdout` 이후 번호별 자료는 해당 명령 출력이다. **source preset 명령 자체는 `smoke.log`/`artifacts.json`의 literal**과 일치한다. 아래 경로와 `report.json/md/html`을 실제 생성·확인했다.
+
+- source CONFIG: `/private/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-i/final-review-wave/smoke-06fe7d7e/source-app/experiments/my-fixture-cd9c5e4e0219/experiment.toml`
+- source RUN: `/private/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-i/final-review-wave/smoke-06fe7d7e/source-app/runs/20261001T030736Z-a8b8b318`
+- source HTML: `/private/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-i/final-review-wave/smoke-06fe7d7e/source-app/runs/20261001T030736Z-a8b8b318/report.html`
+- wheel CONFIG: `/private/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-i/final-review-wave/smoke-06fe7d7e/wheel-app/experiments/wheel-readonly-681fb7c27f3f/experiment.toml`
+- wheel RUN: `/private/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-i/final-review-wave/smoke-06fe7d7e/wheel-app/runs/20261001T030737Z-9b2b3b50`
+- wheel HTML: `/private/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-i/final-review-wave/smoke-06fe7d7e/wheel-app/runs/20261001T030737Z-9b2b3b50/report.html`
+
+M1/M2 수정 완료·R14의 사용자 기본 환경 no-bytecode 증거를 보완했다. **R01~R30 집계는 완료 29·부분 1(R16)·차단 0**, native live는 여전히 not_run이다. 변경은 `cli.py`, `__init__.py`, `entrypoint.py`, 신규 `tests/test_plan_readonly.py`, 이 보고서의 사용법/append, status/verification/progress의 최신 근거 및 미변경 최종 리뷰 원문뿐이다. 로컬 한국어 커밋에서 원문 리뷰·수정·새 증거를 함께 인계하고 기존 branch/worktree를 보존한다.
+
+최종 문서/증거 검사 `env -i PATH=/usr/bin:/bin PYTHONDONTWRITEBYTECODE=1 "$PY" "$W/check_wave.py"`도 exit 0: 로컬 링크/anchor/코드 펜스 **60개 오류 0**, 과거 verification 본문 보존, R01~R30 30행·29완료/1부분 유지, 새 source/wheel의 exact argv/env/exit **13개**·flags 없음·실제 normalized report identity·scope 밖 cache negative control을 대조했다. `git diff --check` exit 0이다.

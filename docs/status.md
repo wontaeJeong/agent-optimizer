@@ -2,7 +2,7 @@
 
 ## 2026-10-01 최종 MVP(현재 정본)
 
-**A~H 승인 인계 후 I 최종 수용검증·결함 수정을 완료했다.** [I 최종 근거](verification/final-mvp-i-20261001.md)는 실제 `make test` **1157개 중 실행 1077 통과·기존 skip 80**, `make lint/demo`·새 환경의 실제 wheel build/install·source/wheel CLI/PTY·TUI·HTTP·custom local/Git command·사이트 build/link 검증이다. R01~R30은 **완료 29·부분 1(R16)·차단 0**이며, **native 실모델·실 CVDP Docker/EDA/cleanup·Ubuntu x86_64 native loop는 not_run**이다. 이전 [G 최종 §7](verification/final-mvp-g-20261001.md) 증거와 별도로 기록한다.
+**A~H 승인 인계 후 I 수용검증과 whole-branch 리뷰 M1/M2 수정 wave를 완료했다.** [I 최종 §8 근거](verification/final-mvp-i-20261001.md)는 실제 `make test` **1160개 중 실행 1080 통과·기존 skip 80**, covering 53개·lint·새 실제 wheel의 source-free module/console plan no-bytecode·필수 name를 포함한 preset CLI 실행이다. 이전 I의 make demo·CLI/PTY·TUI·HTTP·custom local/Git·사이트 결과는 같은 보고서 §1~§7에 보존한다. R01~R30은 **완료 29·부분 1(R16)·차단 0**이며, **native 실모델·실 CVDP Docker/EDA/cleanup·Ubuntu x86_64 native loop는 not_run**이다.
 
 - [README fixture](../README.md#개발환경-빠른-시작) → TUI/CLI → [native 조건](../examples/ace-rtl/NATIVE.md) 또는 내 Agent → History/report → [팀 템플릿](../experiments/README.md) 순서다.
 - TUI는 Home → 네 구성요소 → native CID/row/split → Model → Review → Preparing → Doctor → 명시 Running → Result/History다. Planned disabled·미준비·비호환·미검증을 구분한다. Endpoint/ID는 평문·key만 숨김, 환경/세션/명시 preset/Custom 출처를 표시한다.
@@ -11,6 +11,7 @@
 - native init은 사용자 선택 고정 **로컬 source/data** export/검증·CID/row/split 설정을 생성한다. prepare는 선택 자료/descriptor·source pin/asset/lock·native Python 3.12/yaml/pydantic_settings·outer benchmark만 검사한다(outer repo entrypoint/driver 파일·task 형태, identity 선언 시 image inspect). `--offline`은 자동 설치/온라인 보완·추가 전체 검사를 하지 않는다. **전체 정적 준비 진단은 doctor --plan**, 모델 URL/ID/key·inner/outer driver 패키지/image 등을 확인하며 실제 API는 **--model probe**다. 모델/driver imports/독립 inner 환경 미준비에도 prepare는 성공할 수 있다. CID002 94/94, CID004 55/55, CID007 40/13, CID016 35/35는 정적 eligible이지 정답 수가 아니며 GEPA/Meta는 실제 native 표면을 소비한다.
 - legacy OpenCode/Claude Code·고정 simple_feedback·개발 full setup/smoke/live는 별도다. 기존 `make setup`을 native 전체 준비로 표현하지 않는다. old first-party pin을 자동 갱신하지 않았으며 현재 native wheel 자산은 distribution metadata로 검증한다.
 - 일반 실험의 `prepare`는 기존 preflight를 통한 설정/등록/평가 자료 확인만 수행하며 `scope=preflight`, `live=not_run`이다. 설치·Agent/모델 실행·run 생성·전체 환경 준비를 뜻하지 않는다. native prepare는 source.subdir를 doctor/runtime과 같은 root로 해석하고 pin 변조를 계속 거부한다.
+- `plan`은 기존 doctor no-bytecode context로 실제 file-plugin import를 보호하며 `-B`/환경 flag 없는 사용자 호출에서도 프로젝트 cache를 생성하지 않는 회귀를 확인했다. 직접 main/callback의 이전 전역 값은 성공/실패 후 복구한다. 이 보호는 trusted plugin의 임의 write를 막는 OS sandbox가 아니다.
 
 복수 dataset session은 독립 프로세스로 기본 최대 2개를 실행하며 `--jobs`로 제한한다. 단일 실험 내부 병렬화·resume는 [보류](FUTURE.md)다. 고정 `examples/ace-rtl/experiment.toml`은 기존 coding live에 위임하는 legacy 실험이다. 과거 경로/화면과 실행 명령은 [날짜별 기록](verification.md)에 보존하고 현재 안내는 위 최종 정본을 따른다.
 

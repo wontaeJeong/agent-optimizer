@@ -34,7 +34,7 @@ from agent_optimizer.session import SessionInterrupted, run_session
 from agent_optimizer.terminal_style import style
 from agent_optimizer.locale import MESSAGES, current_language, human, render_diagnostic, report_language, t
 from agent_optimizer.results import write_json
-from agent_optimizer.readiness import collect_dataset, collect_plan
+from agent_optimizer.readiness import _no_bytecode, collect_dataset, collect_plan
 from agent_optimizer.app_paths import app_path, resolve_session_base
 
 
@@ -80,7 +80,7 @@ def main(argv=None):
             "rerank is deferred; configure the objective for a new run. Stored reports and frozen selections remain available; see deferred/README.md"), file=sys.stderr)
         return 2
     previous = sys.dont_write_bytecode
-    if argv and argv[0] in {"doctor", "catalog"}:
+    if argv and argv[0] in {"doctor", "catalog", "plan"}:
         sys.dont_write_bytecode = True
     try:
         command = typer.main.get_command(app)
@@ -307,7 +307,8 @@ def agents_command(root: Path = Path("examples")) -> int:
 @app.command("plan")
 def plan_command(experiment: Path) -> int:
     """실행 없이 실험 조합 확인."""
-    return _invoke("plan", experiment=experiment)
+    with _no_bytecode():
+        return _invoke("plan", experiment=experiment)
 
 
 @app.command("run")
