@@ -25,6 +25,8 @@ CLI/TUI는 같은 설정·readiness·runner를 사용합니다. private 평가 �
 
 **실행·선택:** `run`은 부족한 자산을 자동 설치하지 않습니다. baseline validation을 기록한 다음 train에서 후보를 탐색하고 validation 수치로 선택을 고정합니다. **선택 후:** `final_test`를 켠 경우에만 고정 후보와 baseline의 test를 실행하고 보고서를 생성합니다. 그림이 화면보다 넓으면 그림 영역만 좌우로 밀어 보세요.
 
+**native의 준비 범위:** init은 명시 고정 로컬 source export/선택 검증과 설정 생성, prepare는 선택 데이터/descriptor·source pin/asset/lock·Python 3.12/yaml/pydantic_settings·outer benchmark 제한 검사입니다. outer repo entrypoint/driver 파일·task 형태와 identity 선언 시 image inspect를 확인하며 모델·driver 패키지 imports·독립 inner 환경 전체를 검사하지 않습니다. native `--offline`은 추가 전체 검사/설치/다운로드/온라인 보완을 하지 않습니다. **전체 정적 준비는 doctor --plan**, 실제 API 연결은 **--model probe**이며 prepare 성공만으로 전체 환경 준비를 판단하지 않습니다. [명령별 범위표](/agent-optimizer/getting-started/presets/#준비와-모델-역할)를 따르세요.
+
 ## 최적화 반복
 
 ![공통 baseline에서 train 평가와 후보 제안을 반복하고 validation 수치로 stage별 승자를 선택하는 순서](../../../assets/diagram-iteration.svg)

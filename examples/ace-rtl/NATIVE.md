@@ -42,7 +42,18 @@ agent-opt plan "$CONFIG"
 agent-opt doctor --plan "$CONFIG" --model --json
 ```
 
-`--native-source /absolute/prepared-source`는 `--native-upstream` 대신 이미 export한 고정 소스를 사용할 때 지정한다. 두 옵션을 섞지 않는다. init은 선택 CID·row→split과 고정 로컬 소스/데이터를 검증·준비한다. **`prepare --offline`은 누락 interpreter/driver/image/모델 환경을 설치하거나 online으로 보완하지 않고 명시 오류로 끝난다.** G의 실제 정적 확인에서는 코어 yaml 누락·Docker 없음·image identity/모델 미설정으로 doctor/prepare가 종료 2였다. ready/probe 성공은 Agent/최종 평가 성공이 아니다.
+`--native-source /absolute/prepared-source`는 `--native-upstream` 대신 이미 export한 고정 소스를 사용할 때 지정한다. 두 옵션을 섞지 않는다. 다음 네 단계의 책임을 구분한다.
+
+| 명령 | 실제 native 지원 범위 | 성공의 의미/검사하지 않는 범위 |
+|---|---|---|
+| `init` | 사용자가 고른 로컬 고정 source export 또는 기존 export 검증, CID/row/split·고정 데이터·active surface 검증, 설정 생성 | 전체 실행환경 검사 아님 |
+| `prepare CONFIG [--offline]` | 선택 고정 데이터/descriptor·private 평가 row 대조 → source pin/asset/lock·native Python 3.12/yaml/pydantic_settings readiness → **outer evaluator.validate_benchmark** | outer CVDP repo의 run_benchmark.py·driver 파일·task 형태, **identity 선언 시에만** tag/image inspect·identity 대조. 모델 URL/ID/key·driver 패키지 import·독립 inner evaluator 환경 전체는 검사하지 않음 |
+| `doctor --plan CONFIG --json` | **전체 정적 준비 진단**: 현재 구현된 pair별 source/interpreter·ps/Docker 실행 파일·독립 inner/outer repo pin/driver Python 3.12·패키지 imports/image 선언·identity·모델 URL/ID/key·TLS/CA 등 | 모델 API 연결/Agent·실 EDA 평가는 실행하지 않음 |
+| `doctor --plan CONFIG --model --json` | 정적 진단에 실제 모델 API probe 추가 | probe 성공도 전체 Agent/최종 평가 성공 보장 아님 |
+
+**native prepare는 누락 환경을 자동 설치하거나 온라인으로 보완하지 않는다. `--offline`도 native 분기의 검사 범위를 추가하지 않는다.** 검사 대상 결함은 실패하지만 모델 환경이 없거나 driver 패키지/inner 환경이 미준비여도 prepare가 성공할 수 있다. `ready=true`는 위 제한된 검사 결과이며 전체 준비 완료는 다음 **doctor의 전체 정적 checks**로 확인한다.
+
+G의 당시 doctor/prepare 종료 2는 여러 미준비 조건이 함께 있던 증거다. prepare는 native source/interpreter readiness가 실패하면 outer benchmark 검사 전 중단하며, 그 사례를 Docker·image identity·모델 미설정 각각의 독립 prepare 검사 증거로 일반화하지 않는다. source/interpreter readiness와 전체 doctor·실제 probe·native live를 구분한다.
 
 ## 3. 작은 smoke → 선택 CID
 

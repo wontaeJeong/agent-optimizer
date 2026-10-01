@@ -29,7 +29,7 @@
 - 미지원/미구현 기능은 명시적으로 실패시킨다. baseline이나 합성 평가로 자동 대체하지 않는다.
 - 미수집 지표는 None. partial 사용량을 전체 사용량으로 이름 붙이지 않는다.
 - 데이터셋은 사용자가 명시적으로 고른다(자동 추천하지 않는다). 선택한 CVDP/Verilog-Eval은 고정 버전으로
-  선택 준비 경로로 준비한다. native ACE는 사용자가 고른 고정 로컬 source/data·CID/row/split과 별도 Python 3.12/native extra·평가 환경이 필요하며 prepare offline missing env는 명시 실패다. 사용자 데이터는 분리된 채점기 계약을 요구한다. 여러 데이터셋 결과를 같은 점수로 직접 순위화하지 않는다.
+  선택 준비 경로로 준비한다. native ACE는 고정 로컬 source/data·CID/row/split과 별도 Python 3.12/native extra·평가 환경을 요구한다. native prepare는 선택 자료·source/interpreter·outer benchmark 제한 검사이며 offline도 범위를 확대/설치/온라인 보완하지 않는다. 전체 정적 준비는 doctor --plan, 실제 API는 --model로 구분하고 모델·driver imports·독립 inner 환경 누락이 prepare에서 반드시 실패한다고 안내하지 않는다. 사용자 데이터는 분리된 채점기 계약을 요구한다. 여러 데이터셋 결과를 같은 점수로 직접 순위화하지 않는다.
 - 실행은 argv 배열과 shell=False. 자격증명은 환경/credential store에만 둔다.
 - 상용 EDA 도구의 실행 어댑터·설치·라이선스 설정을 추가하지 않는다.
 - 개발 로컬 설정 .claude/.codex/.vscode 등은 Git 제외. 공유 AGENTS.md/CLAUDE.md는 커밋 가능.

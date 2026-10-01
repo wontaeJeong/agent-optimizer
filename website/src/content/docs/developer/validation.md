@@ -43,7 +43,9 @@ git diff --check
 
 ## 4. ACE/CVDP 실행환경과 모델 검증
 
-**현재 native 경로는 [프리셋 가이드](/agent-optimizer/getting-started/presets/)**의 사용자 선택 고정 로컬 source/data·명시 CID/row/split·별도 Python 3.12/native extra(PyYAML)·평가 driver·Docker/image identity·API 조건부터 확인합니다. `prepare --offline`은 missing env를 자동 설치하지 않고 명시 오류로 반환합니다. 작은 row Baseline smoke 뒤 독립 연구 설정으로 넓히며 native live·실 cleanup·Ubuntu loop는 not_run입니다. 아래 make 명령은 **기존 coding 전체 경로**입니다.
+**현재 native 경로는 [프리셋 가이드](/agent-optimizer/getting-started/presets/)**의 사용자 선택 고정 로컬 source/data·명시 CID/row/split·별도 Python 3.12/native extra(PyYAML)·평가 driver·Docker/image identity·API 조건부터 확인합니다. init은 로컬 export/선택 검증·설정 생성, prepare는 고정 선택 자료/descriptor·source pin/asset/lock·native Python 3.12/yaml/pydantic_settings·outer benchmark 제한 검사입니다. outer repo entrypoint/driver 파일·task 형태와 **identity 선언 시에만** image inspect를 확인하며 모델·driver imports·독립 inner 환경 전체는 검사하지 않습니다. `--offline`은 범위 확대/자동 설치/다운로드/온라인 보완을 하지 않습니다.
+
+**전체 정적 환경 검증은 `doctor --plan CONFIG --json`**, 실제 API 연결은 `doctor --plan CONFIG --model --json`입니다. prepare는 모델 환경이 없어도 성공할 수 있으므로 준비 완료의 정본으로 사용하지 않습니다. doctor의 pair별 source·inner/outer driver/image·모델 URL/ID/key·TLS 등 checks를 확인한 뒤 작은 row Baseline smoke·독립 연구 설정으로 넓힙니다. native live·실 cleanup·Ubuntu loop는 not_run입니다. 아래 make 명령은 **기존 coding 전체 경로**입니다.
 
 **선택형 실환경 경로:** 코어 계약 테스트와 별도로 실제 Docker 자산·공식 채점기를 준비합니다. 저장소의 수동
 `official_cvdp=true` CI는 모델 자격증명 없이 공식 정답/오답과 ACE CLI의 인증 실패 경로를

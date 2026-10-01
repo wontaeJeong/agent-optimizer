@@ -107,3 +107,35 @@ Playwright `browser_run_code_unsafe`에서 loopback preview를 사용했다(제�
 - [ ] I 최종 전체 회귀/배포와 사용자 여정을 재확인한다. H 소유 밖 **새 기능 결함은 발견하지 않았다**. 기존 Astro directive/404 경고는 비차단 잔여이며 정리 여부는 I가 판단한다.
 
 verification-before-completion과 requesting-code-review 항목을 실제 명령·diff·소유권·요구사항으로 직접 검토했다. 사용자 지시로 하위 reviewer를 생성하지 않았다. 독립 H 재리뷰 승인 자체를 주장하지 않는다. 기능코드·source pins·개인 Home/키·공유 `.venv`는 변경하지 않았고 main과 기존 사용자 변경을 보존한다. 한국어 로컬 커밋만 남기며 push/PR은 하지 않는다.
+
+## 5. 수정 라운드 1 — H-R1 prepare/doctor 책임 정정
+
+확인일: 2026-10-01. 기준 HEAD `a0a8756cf5ff5cca9bfd41c0dd063c4fcda49dc3`. [독립 리뷰 원문](final-mvp-h-review-20261001.md) 전체를 읽고 P2 H-R1을 실제 구현과 대조했다. 리뷰 원문은 변경하지 않고 의도된 인계 파일로 함께 로컬 커밋한다. 이전 절은 당시 문서/검증 증거이며 **prepare가 모든 missing env를 거부한다는 §1 요약과 G/H 종료 2 사례의 해석은 아래 정정이 우선**이다. 당시 실제 종료 코드·live not_run·과거 원시 증거를 소급 변경하지 않는다.
+
+### 구현 근거와 실제 문서 수정
+
+- `cli.py:394-423` → 예제 `native_selection.write_native_selection:289-392`: native init은 로컬 고정 source export/기존 export 검증·CID/row/split·고정 자료/active surface·설정 생성이다. 전체 환경 진단을 호출하지 않는다.
+- `integrations.prepare_experiment:298-314`: 선택 데이터/descriptor·trusted row 대조 → 각 native source/interpreter readiness → 등록 **outer evaluator.validate_benchmark** 후 ready=true/live=not_run이다. 모델 설정/전체 doctor 호출이 없고 native 분기의 offline 인수는 추가 검사도 설치도 활성화하지 않는다.
+- `native_prepare.readiness:80-91`: source pin/asset/lock·native interpreter Python 3.12/yaml/pydantic_settings만 검사한다. 실패 시 prepare는 outer benchmark 이전에 중단한다.
+- `native_evaluator.validate_benchmark:25-31`·`evaluator.validate_benchmark:43-63`: outer repo run_benchmark.py·driver **파일**·task row/target 형태를 검사하고 **sim_image_id가 선언됐을 때만** tag/image inspect·identity를 확인한다. driver 패키지 imports·모델 URL/ID/key·독립 inner evaluator 환경 전체는 검사하지 않는다.
+- `native_selection.diagnose_selection:78-126`·`_evaluator_checks:35-75`: **doctor --plan의 전체 정적 준비 진단**에서 pair별 source/interpreter·ps/Docker 실행 파일·inner/outer repo pin·driver Python 3.12와 의존성 imports·image 선언/identity를 확인한다. `readiness.collect_plan:604-632`는 모델 URL/ID/key·TLS/CA 등 설정, `:633-641`은 **명시 --model일 때만 실제 API probe**다. doctor/probe도 전체 native Agent/실 EDA 성공 증거는 아니다.
+
+README·NATIVE·AGENTS·docs development/status/NEXT_STEPS/architecture와 사이트 presets/developer validation/concepts overview에서 해당 책임을 정정했다. 대표 native/site 가이드는 네 명령의 범위표를 제공한다. **모델·driver 패키지/독립 inner 환경 미준비에도 prepare는 성공할 수 있으며 ready=true는 제한된 검사 성공**임을 명시했다. 설치/다운로드/온라인 보완 없음은 유지했다. G의 source/interpreter 부족과 Docker/image/model 부족이 공존한 doctor/prepare 종료 2를 각 조건의 독립 prepare 차단 증거로 사용하지 않는다. 기능코드·pin·lock·package scripts·SVG/CSS 변경은 없다.
+
+### 영향 범위 검증
+
+H-R1은 명령 책임 설명 정정이며 제품 동작 변경이 아니다. 구현 source를 직접 대조하고 영향 문서의 링크/anchor/code fence·과거 verification 본문 보존과 기존 site build/link를 검사한다. shared Python 실행만, H 전용 임시 경계 정책을 유지한다. 실모델/native/실 Docker/EDA·새 wheel/전체 unit·브라우저 재캡처는 실행하지 않으며 최초 H/G 결과와 구분한다. I는 네 명령별 범위표를 새 정본으로 소비하고 native live는 not_run으로 유지한다.
+
+실제 명령(CWD는 지정 통합 워크트리; npm만 그 하위 website):
+
+```bash
+env PYTHONDONTWRITEBYTECODE=1 /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python /var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-h/check_docs.py
+git diff --check
+# website에서:
+npm run build
+npm run check:links
+```
+
+모두 종료 0. 영향 문서/리뷰·H 보고서의 로컬 링크/anchor/code fence **82개 오류 0**, `28b5367`의 과거 verification 본문 보존 OK. H 임시 링크 검사 script는 변경/미추적 리뷰·H 보고서를 중복 없이 포함하고 과거 본문 기준을 명시했다. site build **10 pages/1.02초**, check:links **10 pages/0.786초**, 모두 `All internal links are valid.` 실제 check:links=astro build·기존 내부 링크 validator이며 scripts/lock 변경·추가 install 없음. 기존 directive 2건·404 content 경고는 그대로이고 새 빌드 실패는 없다. 기존 H의 31개 계약·브라우저·G의 전체/wheel 결과를 이번 새 실행 결과로 재표현하지 않는다.
+
+전체 관련 Markdown/MDX의 prepare/offline/missing env 표현을 검색했다. 현재 안내의 전체환경 거부 과장은 제거됐으며 원문 리뷰/과거 H 해석은 이 append의 정정과 함께 보존한다. status/diff/log·소유권과 H-R1 요구를 직접 검토하고 한국어 로컬 커밋으로 인계한다. **H-R1 문서 수정 완료, 독립 재리뷰 승인은 별도 판정**이다. 하위 에이전트·push/PR·기능코드/main/공유 환경 변경은 없다.

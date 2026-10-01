@@ -2,7 +2,7 @@
 
 ## Agent 개발자: 실제 최적화 실행
 
-**현재 native 먼저:** [NATIVE 가이드](../examples/ace-rtl/NATIVE.md)의 고정 로컬 소스·데이터·별도 3.12/native extra·명시 CID/row/split·평가/API 조건을 준비한다. 작은 validation row Baseline → 독립 GEPA/Meta 비교 → History/report 순으로 넓힌다. `prepare --offline`은 missing env를 명시 거부한다. 아래 `make setup`/고정 simple_feedback은 legacy coding 경로다.
+**현재 native 먼저:** [NATIVE 가이드](../examples/ace-rtl/NATIVE.md)의 고정 로컬 소스·데이터·별도 3.12/native extra·명시 CID/row/split·평가/API 조건을 준비한다. init의 로컬 export/선택 검증 → prepare의 선택 자료·source/interpreter·outer benchmark 제한 검사 → **doctor --plan의 전체 정적 환경 진단** → 필요 시 **--model 실제 API probe** → 작은 validation row Baseline → 독립 GEPA/Meta 비교 → History/report 순이다. prepare는 모델·driver 패키지 imports·독립 inner 환경 전체를 검사하지 않으며 `--offline`도 범위 확대/자동 설치/온라인 보완을 하지 않는다. prepare 성공만으로 전체 준비됐다고 해석하지 않는다. 아래 `make setup`/고정 simple_feedback은 legacy coding 경로다.
 
 1. `make setup-core` 후 `.venv/bin/agent-opt datasets list` 또는 `.venv/bin/agent-opt tui`에서
    CVDP/Verilog-Eval/사용자 JSON 데이터셋을 **직접 선택**한다. 다운로드·고정 해시·평가 도구 준비는

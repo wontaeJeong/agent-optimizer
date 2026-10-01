@@ -8,7 +8,9 @@ JSON 키·상태 코드·`doctor --json`의 단일 stdout 문서는 바꾸지 �
 
 ## native·App Home과 개발 명령의 구분
 
-새 native 조건/명령은 [NATIVE](../examples/ace-rtl/NATIVE.md)다. 아래 옵션 없는 setup/doctor·smoke/live는 **기존 ACE coding 전체 경로**이며 native 전체 installer가 아니다. native는 사용자 선택 고정 **로컬 source/data**, CID/rows/splits·별도 3.12/native extra(PyYAML)·고정 driver·Docker/검토 image identity·API 환경을 요구한다. `agent-opt prepare CONFIG --offline` missing env는 명시 실패하며 online 설치로 자동 복구하지 않는다. [G 최종 §7](verification/final-mvp-g-20261001.md)의 wheel/fixture/진단 성공은 native live 성공이 아니다.
+새 native 조건/명령은 [NATIVE](../examples/ace-rtl/NATIVE.md)다. 아래 옵션 없는 setup/doctor·smoke/live는 **기존 ACE coding 전체 경로**이며 native 전체 installer가 아니다. native는 사용자 선택 고정 **로컬 source/data**, CID/rows/splits·별도 3.12/native extra(PyYAML)·고정 driver·Docker/검토 image identity·API 환경을 요구한다. native init은 로컬 export/선택 검증·설정 생성이고, `prepare`는 고정 선택 자료/descriptor·source pin/asset/lock·native Python 3.12/yaml/pydantic_settings와 **outer benchmark**만 검사한다. outer는 repo entrypoint/driver 파일·task 형태와 **identity 선언 시** image inspect를 확인한다. `--offline`은 검사 범위를 확대하지 않으며 설치/다운로드/온라인 보완을 하지 않는다.
+
+**전체 정적 환경 진단은 `agent-opt doctor --plan CONFIG --json`**이다. pair별 source/interpreter·inner/outer driver Python/imports/image·모델 URL/ID/key/TLS 등을 검사한다. 실제 API는 `--model` probe로 별도 확인한다. prepare는 모델 설정·driver 패키지 imports·독립 inner 환경 전체를 검사하지 않아 해당 미준비에도 성공할 수 있다. prepare ready를 전체 환경 ready로 사용하지 않는다. [G 최종 §7](verification/final-mvp-g-20261001.md)의 wheel/fixture/진단 성공은 native live 성공이 아니다.
 
 App Home 기본 `~/.agent-optimizer`, `AGENT_OPT_HOME`은 절대 override만. 설정은 Home/experiments UUID, output은 CLI > 명시 TOML > Home/runs의 **부모**다. 기존 minimal `output_dir="runs"`는 project runs이며 migration은 없다. init JSON의 experiment와 run JSON의 run_dir을 후속 명령에 사용한다.
 

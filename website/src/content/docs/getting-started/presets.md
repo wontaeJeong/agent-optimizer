@@ -21,7 +21,16 @@ GEPA와 Meta-Harness는 연구 이름을 쓴 **자체 구현**이며 upstream/�
 
 사용자가 고른 고정 **로컬 ACE checkout/export·HF JSONL**과 명시 row/split이 필요합니다. native Python은 **별도 3.12 + native extra(`PyYAML==6.0.2`)·pydantic_settings**, CVDP driver도 별도 3.12 고정 lock입니다. Docker/Compose·`ps`·검토한 OSS simulator tag/로컬 image ID와 모델 API를 준비하세요. `make setup-core`는 코어/합성만, 옵션 없는 `make setup/doctor`·`make smoke/live`는 기존 legacy ACE 전체 경로입니다. native 전체 installer가 아닙니다.
 
-native `init`/`prepare`는 명시 고정 로컬 source/data를 검증·준비합니다. **`prepare --offline`은 누락 interpreter/driver/image/모델 환경을 자동 설치하거나 online으로 보완하지 않고 명시 오류로 끝납니다.** source/data/driver pin은 문서 정리로 갱신하지 않습니다. 준비 경로·고정 값은 [NATIVE 가이드](https://github.com/wontaeJeong/agent-optimizer/blob/main/examples/ace-rtl/NATIVE.md), CA/proxy·offline 복구는 [개발 명령](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/development.md)을 확인하세요.
+native 명령의 책임은 다음처럼 구분합니다. 누락 환경을 자동 설치/다운로드/온라인 보완하지 않으며 **native `--offline`은 검사 범위를 확대하지 않습니다.** source/data/driver pin도 문서 정리로 갱신하지 않습니다.
+
+| 명령 | 실제 검사/지원 범위 | 성공의 의미 |
+|---|---|---|
+| init | 고정 로컬 source export 또는 기존 export 검증, 명시 CID/row/split·고정 자료/active surface 검증·설정 생성 | 전체 실행환경 진단 아님 |
+| prepare | 고정 선택 데이터/descriptor·private row 대조, native source pin/asset/lock·Python 3.12/yaml/pydantic_settings, **outer evaluator benchmark** | outer repo entrypoint/driver 파일·task 형태, **identity 선언 시** image inspect만 확인. 모델 URL/ID/key·driver 패키지 imports·독립 inner 환경 전체는 검사하지 않음 |
+| doctor --plan | **전체 정적 준비 진단**: 실제 pair별 source/interpreter·ps/Docker 실행 파일·inner/outer repo pin·driver Python/imports·image 선언/identity·모델 URL/ID/key·TLS/CA 등 | API 연결/Agent·실 EDA 평가 성공 아님 |
+| doctor --plan --model | 정적 진단에 실제 모델 API probe 추가 | 전체 native 실행 성공 보장 아님 |
+
+**모델/driver 패키지/독립 inner 환경이 없어도 prepare는 성공할 수 있습니다.** prepare ready를 전체 준비 완료로 해석하지 말고 다음 doctor의 전체 정적 checks를 확인하세요. 준비 경로·고정 값은 [NATIVE 가이드](https://github.com/wontaeJeong/agent-optimizer/blob/main/examples/ace-rtl/NATIVE.md), CA/proxy·offline 복구는 [개발 명령](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/development.md)을 확인하세요.
 
 | 역할 | 필요한 값 | 의미 |
 |---|---|---|

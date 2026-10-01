@@ -6,6 +6,8 @@
 
 private harness/golden/로그 원문은 trusted 평가에만 전달한다. 모델 수정 근거는 train이며 validation 수치 선택·frozen selection 이후 test와 구분한다. `doctor --plan`은 읽기 전용, `--model`은 명시 API probe다.
 
+native init은 로컬 export/선택 검증·설정 생성, prepare는 선택 데이터/descriptor·source pin/asset/lock·native Python 3.12/yaml/pydantic_settings·**outer evaluator.validate_benchmark**만 소비한다. outer는 repo entrypoint/driver 파일·task 형태, identity 선언 시 image inspect를 검사한다. 모델 설정·driver 패키지 imports·독립 inner 환경 전체는 prepare 범위가 아니며 offline도 범위를 확대/설치/온라인 보완하지 않는다. **전체 정적 준비 진단은 doctor --plan**의 pair별 source·inner/outer driver/image·모델 URL/ID/key/TLS 등 checks다. 실제 모델 API는 별도 --model probe이며 prepare ready를 전체 환경 ready로 승격하지 않는다.
+
 ## 프로젝트와 App Home
 
 ![프로젝트 소스와 App Home, explicit output 부모 우선순위와 legacy 보존](../website/src/assets/diagram-app-home.svg)

@@ -34,7 +34,9 @@ Planned는 미구현·비활성, 미준비는 자산/환경 부족, 비호환은
 
 ACE-RTL의 첫 Harness는 **Python native**입니다. CLI 선택은 `--harness-profile ace_native`(별칭 `ace-native`), Agent ID `ace-rtl-native`, adapter `ace_native`, profile `ace-native`, evaluator `cvdp_native`입니다. 고정 **로컬** ACE checkout/export·HF JSONL, 별도 Python **3.12 + native extra(PyYAML)**, 고정 CVDP driver/repo·검토한 OSS simulator image tag/identity·Docker·`ps`, Agent API URL/ID/key가 필요합니다. Baseline도 native Agent API를 요구하며 Optimizer API 필요 여부는 별도입니다.
 
-사용자가 `cid002/cid004/cid007/cid016`과 **실제 row ID→train/validation/test**를 고릅니다. 자동 추천·전체 CVDP 지원·자동 held-out 분할은 없습니다. CID007은 40개 중 13개만 정적 eligible이며 PNR/상용 helper 27개를 제외합니다. native `init`/`prepare`는 사용자가 고른 고정 로컬 소스·데이터를 검증/준비하는 경로입니다. **`prepare --offline`은 누락 interpreter/driver/image/모델 환경을 설치하거나 online으로 보완하지 않고 명시 오류로 끝납니다.**
+사용자가 `cid002/cid004/cid007/cid016`과 **실제 row ID→train/validation/test**를 고릅니다. 자동 추천·전체 CVDP 지원·자동 held-out 분할은 없습니다. CID007은 40개 중 13개만 정적 eligible이며 PNR/상용 helper 27개를 제외합니다. native `init`은 고정 로컬 source export/선택 검증과 설정 생성, `prepare`는 **선택 데이터/descriptor·native source pin/asset/lock·Python 3.12/yaml/pydantic_settings·outer evaluator의 benchmark 검사**만 수행합니다. outer 검사는 repo entrypoint/driver 파일·task 형태와 **image identity가 선언된 경우** image inspect를 확인합니다. native `--offline`은 설치/다운로드/온라인 보완도, 추가 전체환경 검사도 하지 않습니다.
+
+**전체 정적 준비 진단은 `doctor --plan CONFIG --json`**입니다. pair별 source·inner/outer driver 의존성/image·Agent 모델 URL/ID/key·TLS/CA 등 현재 구현된 검사들을 확인하고, 실제 API 연결은 별도 `--model` probe로 검사합니다. **prepare는 모델 설정·driver 패키지 import·독립 inner evaluator 환경 전체를 검사하지 않으므로 모델 환경이 없어도 성공할 수 있습니다.** prepare의 `ready=true`를 전체 준비 완료로 해석하지 마세요. doctor/probe도 실제 Agent/평가 성공 보장은 아닙니다.
 
 [native 실행 가이드](examples/ace-rtl/NATIVE.md)에 준비 → doctor → 작은 smoke → 선택 CID → 결과의 복사 가능한 명령과 지원표가 있습니다. GEPA는 `native/guidance.md`, Meta-Harness는 실제 import되는 `native/orchestration.py:guidance`를 수정합니다. outer Optimizer trial과 inner ACE attempt/iteration·trusted 최종 평가를 구분합니다. native live는 현재 **`not_run`**입니다.
 
