@@ -6,6 +6,8 @@ import importlib
 import io
 import os
 import socket
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -44,10 +46,20 @@ class ReportServerTests(unittest.TestCase):
             connection.close()
 
     def test_import_has_no_bind_or_browser_side_effects(self):
-        with patch("socket.socket.bind", side_effect=AssertionError("bind")), patch(
-            "webbrowser.open", side_effect=AssertionError("browser")
-        ):
-            importlib.reload(self.module)
+        # A fresh interpreter checks import purity without replacing exception
+        # classes already imported by other product modules in this test worker.
+        error_type = self.module.ReportServerError
+        script = '''from unittest.mock import patch
+with patch("socket.socket.bind", side_effect=AssertionError("bind")), patch(
+    "webbrowser.open", side_effect=AssertionError("browser")
+):
+    import agent_optimizer.report_server
+'''
+        result = subprocess.run([sys.executable, "-B", "-c", script],
+                                env={**os.environ, "PYTHONPATH": str(Path(__file__).resolve().parents[1] / "src")},
+                                capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIs(self.module.ReportServerError, error_type)
 
     def test_actual_url_get_head_root_and_headers(self):
         handle = self.start()
