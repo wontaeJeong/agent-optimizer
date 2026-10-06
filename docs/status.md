@@ -1,5 +1,13 @@
 # 현재 구현·검증 상태
 
+## 2026-10-07 TUI 입력 UX 개선
+
+최근·예제 설정 선택과 파일/폴더 탐색·자동완성, 목록 검색, CID·editable 다중 선택,
+지원 row의 일괄 split, evaluator 항목별 폼, 모델 Endpoint/ID 연결 재사용을 제공한다.
+고급 설정은 등록 목록·Agent 파일 선택을 거쳐 기존 init 계약으로 생성하며 Review 직접 수정과
+취소 후 세션 초안 보존을 지원한다. Dataset·split은 자동 선택하지 않고 준비·진단·실행은 각각 확인한다.
+검증 명령·결과·변경 전후 캡처는 [입력 UX 근거](verification/tui-input-ux-20261007.md)에 기록한다.
+
 ## 2026-10-01 최종 MVP(현재 정본)
 
 **A~H 승인 인계 후 I 수용검증과 whole-branch 리뷰 M1/M2 수정 wave를 완료했다.** [I 최종 §8 근거](verification/final-mvp-i-20261001.md)는 실제 `make test` **1160개 중 실행 1080 통과·기존 skip 80**, covering 53개·lint·새 실제 wheel의 source-free module/console plan no-bytecode·필수 name를 포함한 preset CLI 실행이다. 이전 I의 make demo·CLI/PTY·TUI·HTTP·custom local/Git·사이트 결과는 같은 보고서 §1~§7에 보존한다. R01~R30은 **완료 29·부분 1(R16)·차단 0**이며, **native 실모델·실 CVDP Docker/EDA/cleanup·Ubuntu x86_64 native loop는 not_run**이다.

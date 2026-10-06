@@ -67,6 +67,7 @@ class ChoiceTests(unittest.IsolatedAsyncioTestCase):
                     await pilot.press("enter", "enter")
                     self.assertEqual(app.page, "Workspace")
                     chosen = dict(app.selections)
+                    await choose_row(app, pilot, 'workspace.custom')
                     app.query_one(Input).value = "선택한 작업공간"
                     await pilot.press("enter")
                     self.assertEqual(app.selections, chosen)

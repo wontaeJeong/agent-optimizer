@@ -29,6 +29,7 @@ from agent_optimizer.models import DEFAULT_MODEL_ID, ModelSettings
 from agent_optimizer.preset_tui import ACE_GUIDANCE, ACE_SCAFFOLD, ChoiceRow, _tr, preset_options
 from agent_optimizer.registry import is_source_checkout
 from agent_optimizer.terminal_report import ProgressState, format_progress_event
+from agent_optimizer.tui_inputs import ChoiceDialog, FormDialog, PathDialog, SplitDialog, editable_files
 
 
 STEPS = ("Agent", "Harness", "Optimizer", "Dataset")
@@ -55,14 +56,15 @@ class ModelInput(Input):
     """Filter secret URLs before reactive storage, rendering, or Changed messages."""
 
     endpoint_mode = False
+    git_mode = False
     endpoint_rejected = False
 
     class EndpointRejected(Message):
         """Contains no rejected value, so message repr/logs cannot expose credentials."""
 
     def validate_value(self, value: str) -> str:
-        if self.endpoint_mode:
-            if endpoint_contains_credentials(value):
+        if self.endpoint_mode or self.git_mode:
+            if (git_contains_credentials(value) if self.git_mode else endpoint_contains_credentials(value)):
                 self.endpoint_rejected = True
                 self.post_message(self.EndpointRejected())
                 return ""
@@ -71,6 +73,17 @@ class ModelInput(Input):
             if value:
                 self.endpoint_rejected = False
         return value
+
+
+def git_contains_credentials(value: str) -> bool:
+    if '://' not in value:
+        return False  # SCP-style git@host:path has no password component.
+    if not value.startswith('ssh://'):
+        return endpoint_contains_credentials(value)
+    authority = value.split('://', 1)[1].split('/', 1)[0]
+    if '@' in authority:
+        return ':' in authority.rsplit('@', 1)[0] or '?' in value or '#' in value
+    return endpoint_contains_credentials(value)
 
 
 class ModelValues(dict):
@@ -168,6 +181,8 @@ class _ProgressCapture:
 class OptimizerApp(App[int]):
     TITLE = "Agent Optimizer"
     BINDINGS = [Binding("escape", "back", "Esc Back", priority=True),
+                Binding("ctrl+f", "search", "검색", priority=True),
+                Binding("ctrl+enter", "continue", "계속", priority=True),
                 Binding("q", "quit_app", "q Quit"),
                 Binding("ctrl+c", "quit_app", "Quit", show=False)]
     CSS = """
@@ -184,6 +199,7 @@ class OptimizerApp(App[int]):
     #run-state { height: 8; min-height: 5; border: round $primary; padding: 0 1; }
     #event-log { height: 1fr; min-height: 6; border: round $accent; padding: 0 1; }
     #entry { display: none; margin: 0 1; }
+    #search { display: none; margin: 0 1; }
     #hint { height: 2; padding: 0 2; color: $text-muted; }
     .narrow #columns { layout: vertical; }
     .narrow #options { width: 100%; min-width: 0; height: 45%; }
@@ -203,8 +219,15 @@ class OptimizerApp(App[int]):
         self.selections: dict[str, str] = {}
         self.focus_indices: dict[str, int] = {}
         self.rows: list[ChoiceRow] = []
+        self.all_rows: list[ChoiceRow] = []
+        self.searching = False
+        self.advanced_values = {'name': 'my-agent', 'editable': [], 'optimizer': [],
+                                'metric': 'passed', 'direction': 'maximize',
+                                'prompt_file': 'prompts/system.md'}
+        self.advanced_active = False
         self.focus_ids: dict[str, str] = {}
         self.input_drafts = ModelValues()
+        self.form_drafts = {}
         self.experiment: Path | None = None
         self.workspace = self.root
         self.history: list[dict] = []
@@ -257,6 +280,7 @@ class OptimizerApp(App[int]):
             yield RichLog(id="event-log", max_lines=300, min_width=1, wrap=True,
                           highlight=False, markup=False, auto_scroll=False)
         yield ModelInput(id="entry")
+        yield Input(placeholder='이름·ID 검색 · Enter 목록으로 · Esc 검색 닫기', id='search')
         yield Static(id="hint")
         yield Footer()
 
@@ -270,6 +294,10 @@ class OptimizerApp(App[int]):
 
     def _show(self, page: str) -> None:
         self.page = page
+        self.searching = False
+        search = self.query_one('#search', Input)
+        search.value = ''
+        search.styles.display = 'none'
         self.set_class(page in {"Review", "Result"}, "reviewing")
         options = self.query_one("#options", OptionList)
         options.border_title = {
@@ -302,7 +330,7 @@ class OptimizerApp(App[int]):
             hint = _tr("Tab: 이벤트 로그 focus · ↑↓: 로그 스크롤 · Esc/q: 실행 종료 후 사용",
                        "Tab: focus event log · ↑↓: scroll log · Esc/q: after completion")
         else:
-            hint = _tr("↑↓ 탐색 · Enter 선택 · Esc 이전 · q 종료 · Tab 입력/목록 전환",
+            hint = _tr("↑↓ 탐색 · Enter 선택 · Ctrl+F 검색 · Ctrl+Enter 계속 · Esc 이전",
                        "↑↓ Navigate · Enter Select · Esc Back · q Quit · Tab switch input/list")
         self.query_one("#hint", Static).update(hint)
         entry.password = False
@@ -318,24 +346,28 @@ class OptimizerApp(App[int]):
                           _tr("experiment.toml을 선택하고 진단 후 실행합니다.", "Choose an experiment.toml, check it, then run."), True),
                          ChoiceRow("history", "action", _tr("이전 실행", "Run History"),
                           _tr("저장된 실행과 보고서 경로를 확인합니다.", "Inspect stored runs and report paths."), True),
-                         ChoiceRow("advanced", "action", _tr("고급 설정", "Advanced Setup"),
-                          _tr("맞춤 Agent·Harness·Optimizer·Dataset에는 agent-opt init을 사용합니다.",
-                              "Use agent-opt init for custom Agent, Harness, Optimizer or Dataset."), True),
+                          ChoiceRow("advanced", "action", _tr("고급 설정", "Advanced Setup"),
+                           _tr("내 Agent와 수정 파일을 탐색하고 등록 구성요소를 선택합니다.",
+                               "Browse your Agent and editable files, then select registered components."), True),
                          ChoiceRow("quit", "action", _tr("종료", "Quit"), _tr("앱을 종료합니다.", "Exit the app."), True)]
         elif page in STEPS:
             self.rows = preset_options(self.root, page, self.selections.get("Agent", "ace-rtl"), harness=self.selections.get('Harness'))
         elif page == "Existing":
             from agent_optimizer.setup_wizard import recent_configurations
             recent = recent_configurations(self.root)
-            self.rows = [ChoiceRow(str(path), "configuration", str(path), _tr("최근 생성된 설정 · 선택하면 실행 전 확인으로 이동",
+            self.rows = [ChoiceRow(str(path), "configuration", f'{path.parent.name} / {path.name}', _tr("최근 생성된 설정 · 선택하면 실행 전 확인으로 이동",
                                           "Recent generated configuration · review before running"), True)
-                         for path in recent]
+                          for path in recent]
+            for path in sorted((self.root / 'examples').glob('*/experiment.toml')):
+                if path not in recent:
+                    self.rows.append(ChoiceRow(str(path), 'configuration', f'예제 · {path.parent.name}', f'{path}\n선택 후 준비 조건을 확인하세요.'))
+            self.rows.append(ChoiceRow('path.browse', 'action', '파일 탐색기로 선택', '폴더를 탐색하여 experiment.toml을 선택합니다.'))
             self.rows.append(ChoiceRow("path.custom", "action", _tr("경로 직접 입력", "Enter a path"),
                               _tr("아래에 experiment.toml 경로를 입력하세요.",
                                   "Enter an experiment.toml path below."), True))
             entry.placeholder = _tr("기존 experiment.toml 경로", "Path to existing experiment.toml")
             entry.value = self.input_drafts.get("Existing", "")
-            entry.styles.display = "block"
+            entry.styles.display = "none"
         elif page == "History":
             from agent_optimizer.app_paths import resolve_app_home, resolve_run_base
             from agent_optimizer.history import list_history
@@ -359,22 +391,22 @@ class OptimizerApp(App[int]):
                          f"실제 경로: {row['run_dir']}\n{row['diagnostic'] or 'Enter: HTML 보고서 보기'}") for row in self.session_history]
         elif page == 'Native':
             from agent_optimizer.locale import t
-            fields = {'cids': 'CID(쉼표 구분): cid002/cid004/cid007/cid016',
-                      'rows': 'row ID → split JSON: {"ROW_A":"train","ROW_B":"validation"}',
+            fields = {'cids': 'CID 선택',
+                      'rows': 'row 목록·split 선택',
                       'dataset': '고정 원본 CVDP JSONL 절대경로(trusted)',
                       'source': '준비된 native source 절대경로(upstream과 배타)',
                       'upstream': '고정 로컬 upstream 절대경로(source와 배타)',
                       'python': 'native Python 3.12 경로(미입력: 현재 interpreter)',
-                      'evaluator': '공식 evaluator repo/python/sim_image/sim_image_id JSON'}
-            self.rows = [ChoiceRow(field, 'native.field', t(label),
-                          f"{t(label)}\n{t('현재')}: {self.native_values.get(field, t('미설정'))}\n{t('CID007: PNR·상용 helper row는 선택 후 검증에서 명시 거부됩니다.')}") for field, label in fields.items()]
+                      'evaluator': '공식 evaluator 설정(repo·Python·image)'}
+            self.rows = [ChoiceRow(field, 'native.field', human(label) + (' · 설정됨' if self.native_values.get(field) else ' · 미설정'),
+                          f"{human(label)}\n{t('현재')}: {self.native_values.get(field, t('미설정'))}\n{t('CID007: PNR·상용 helper row는 선택 후 검증에서 명시 거부됩니다.')}") for field, label in fields.items() if field != 'rows']
             self.rows.append(ChoiceRow('rows.pick', 'action', t('고정 데이터의 row 목록에서 선택'),
                              t('CID와 dataset 경로 입력 후 과제 ID·target·지원 상태를 확인하고 split을 직접 선택합니다.')))
             self.rows.append(ChoiceRow('native.continue', 'action', t('모델 설정으로 계속'), t('선택을 검증합니다. 준비·다운로드·모델 호출 없음.')))
-            entry.placeholder = t(fields[self.native_field])
+            entry.placeholder = human(fields[self.native_field])
             value = self.native_values.get(self.native_field, '')
             entry.value = (','.join(value) if self.native_field == 'cids' else json.dumps(value, ensure_ascii=False) if isinstance(value, dict) else str(value))
-            entry.styles.display = 'block'
+            entry.styles.display = 'none'
         elif page == 'NativeRows':
             from agent_optimizer.locale import t
             selected = self.native_values.get('rows', {})
@@ -384,6 +416,7 @@ class OptimizerApp(App[int]):
                           (row['reason'] or t('row 형태 검토만 완료; 실환경 not_run. Enter로 split을 명시하세요.')),
                          row['supported'], row['reason']) for row in self.native_rows_catalog]
             self.rows.append(ChoiceRow('native.back', 'action', t('Native 설정으로 돌아가기'), t('선택한 row·split을 보존합니다.')))
+            self.rows.append(ChoiceRow('rows.batch', 'action', '여러 row의 split 한 번에 지정', '직접 고른 지원 row에만 split을 적용합니다. 기존 선택은 보존됩니다.'))
         elif page == 'NativeSplit':
             from agent_optimizer.locale import t
             self.rows = [ChoiceRow(split, 'native.split', split, t({
@@ -398,7 +431,12 @@ class OptimizerApp(App[int]):
                          ChoiceRow("prepare", "action", _tr("준비하고 실행", "Prepare and Run"),
                           _tr("진단을 통과한 뒤에만 실행합니다.", "Run only after readiness checks pass."), True),
                          ChoiceRow("cancel", "action", _tr("취소", "Cancel"), _tr("자산 준비나 설정 파일을 만들지 않고 돌아갑니다.",
-                                                 "Return without preparing assets or writing a configuration."), True)]
+                                                  "Return without preparing assets or writing a configuration."), True)]
+            if self.return_page != 'Existing' and (self.selections or self.advanced_active):
+                self.rows.extend([ChoiceRow(f'edit:{step}', 'action', f'{step} 수정', '선택 단계로 바로 돌아갑니다.') for step in
+                                  (('Advanced',) if self.advanced_active else STEPS)])
+                if self.selections.get('Harness') == 'ace-native':
+                    self.rows.append(ChoiceRow('edit:Native', 'action', 'native 선택 수정', 'CID·row·평가 환경을 수정합니다.'))
             self.query_one("#review-panel").styles.display = "block"
             review.update(self._review())
         elif page == "Preparing":
@@ -431,15 +469,15 @@ class OptimizerApp(App[int]):
             self.query_one("#review-panel").styles.display = "block"
             review.update(self._result_text())
         elif page == "Advanced":
-            self.rows = [ChoiceRow("existing", "action", _tr("기존 설정 선택", "Select existing config"),
-                          _tr("agent-opt init으로 생성한 설정을 실행합니다.", "Run a configuration created by agent-opt init."), True)]
+            self.rows = self._advanced_rows()
         elif page == "Workspace":
             entry.placeholder = _tr("ACE-RTL 작업공간 경로", "ACE-RTL workspace path")
             entry.value = self.input_drafts.get("Workspace", "" if self.workspace == self.root else str(self.workspace))
-            entry.styles.display = "block"
+            entry.styles.display = "none"
             self.rows = [ChoiceRow("workspace.custom", "action", _tr("작업공간 선택", "Select workspace"),
                           _tr("고정 Git·CVDP·driver·Docker 자산은 실행 확인 뒤 준비합니다.",
-                              "Pinned Git, CVDP, driver and Docker assets are prepared after review."), True)]
+                               "Pinned Git, CVDP, driver and Docker assets are prepared after review."), True)]
+            self.rows.insert(0, ChoiceRow('workspace.browse', 'action', '폴더 탐색기로 선택', '고정 작업공간 폴더를 선택합니다.'))
         elif page == "Model":
             if self.model_mode == "choices":
                 self.rows = self._model_choice_rows(self.model_field)
@@ -466,7 +504,8 @@ class OptimizerApp(App[int]):
                 else:
                     self.rows.append(ChoiceRow("review", "action", _tr("Review로 계속", "Continue to Review"),
                                       _tr("선택한 값과 실행 조건을 확인합니다.",
-                                          "Review the selected values and run requirements."), True))
+                                           "Review the selected values and run requirements."), True))
+                    self.rows.insert(len(self.model_fields), ChoiceRow('model.profile', 'action', '연결 프로필로 한 번에 설정', 'Endpoint·Model ID·compatible 선택자를 함께 설정합니다. API key는 세션/환경 값을 유지합니다.'))
         elif page == "Running":
             self.rows = []
             self.query_one("#run-panel").styles.display = "block"
@@ -477,6 +516,7 @@ class OptimizerApp(App[int]):
             self._refresh_run_state()
             self.query_one("#event-log", RichLog).focus()
             return
+        self.all_rows = list(self.rows)
         options.set_options([Option(Text(row.label + ("  ×" if not row.enabled else ""),
                                         style=self._option_style(page, index, row)), id=row.id)
                              for index, row in enumerate(self.rows)])
@@ -487,7 +527,7 @@ class OptimizerApp(App[int]):
             index = None
         options.highlighted = index
         self._detail(index)
-        if page in {"Existing", "Workspace"} or page == "Model" and self.model_mode == "input":
+        if page == "Model" and self.model_mode == "input":
             entry.focus()
         else:
             options.focus()
@@ -547,6 +587,9 @@ class OptimizerApp(App[int]):
             spec = load_experiment(self.experiment)
             optimizer_api = any(stage["optimizer"] in {"gepa", "meta_harness", "ecdysis"}
                                 for stage in spec.get("stages", []))
+        elif self.advanced_active:
+            optimizer_api = any(name in {'gepa', 'meta_harness', 'ecdysis'} for name in self.advanced_values.get('optimizer', []))
+            metadata = {}
         else:
             optimizer_api = self.selections.get("Optimizer") in {"gepa", "meta_harness", "ecdysis"}
         roles = ", ".join(metadata.get("model_roles", []))
@@ -734,7 +777,7 @@ class OptimizerApp(App[int]):
                        + _tr("대신 시도: 기존 실험 / 고급 설정", "Try instead: Existing Experiment / Advanced Setup")
                        if not row.enabled else f"{_tr('다음', 'Next')}: {_name(next_step) if next_step else row.id}"))
         if self.page == "Advanced":
-            detail += "\n\nagent-opt init\nagent-opt init --help"
+            detail += '\n\nCtrl+Enter: 필수 선택 확인 후 모델 설정으로 계속\n준비 승인 전에는 설정을 생성하지 않습니다.'
         self.query_one("#details", Static).update(detail)
 
     def on_preparation_line(self, message: PreparationLine) -> None:
@@ -837,18 +880,21 @@ class OptimizerApp(App[int]):
         self._detail(event.option_index)
 
     def on_option_list_option_selected(self, event: OptionList.OptionSelected) -> None:
-        if event.option_index >= len(self.rows):
+        self._select(event.option_index)
+
+    def _select(self, index: int) -> None:
+        if index >= len(self.rows):
             return
-        if not self.rows[event.option_index][2]:
+        if not self.rows[index][2]:
             self.notify(_tr("선택 불가 이유와 대안을 상세 영역에서 확인하세요.",
                             "Review the reason and alternatives in the details panel."))
             return
-        index = event.option_index
         row = self.rows[index]
         action = row.id
         if self.page == "Home":
             if action == "new":
                 self.experiment = None
+                self.advanced_active = False
                 self.workspace = self.root
                 self.selections.clear()
                 self.focus_indices.clear()
@@ -859,11 +905,16 @@ class OptimizerApp(App[int]):
             elif action == "history":
                 self._show("History")
             elif action == "advanced":
+                self.advanced_active = True
+                self.experiment = None
                 self._show("Advanced")
             else:
                 self.exit(0)
         elif self.page in STEPS:
             if row.kind == "action":
+                if action == 'advanced':
+                    self.advanced_active = True
+                    self.experiment = None
                 self._show({"advanced": "Advanced", "existing": "Existing"}[action])
                 return
             value = row.id
@@ -889,7 +940,11 @@ class OptimizerApp(App[int]):
                 self._show(next_page)
         elif self.page == "Existing":
             if action == "path.custom":
+                self.query_one(Input).styles.display = 'block'
                 self.query_one(Input).focus()
+            elif action == 'path.browse':
+                self.push_screen(PathDialog(self.root, title='실험 설정 파일 선택', suffix={'.toml'}),
+                                 lambda path: self._load_existing(path) if path else None)
             else:
                 self._load_existing(Path(row.id))
         elif self.page == "History":
@@ -909,7 +964,26 @@ class OptimizerApp(App[int]):
             if history['report_path']:
                 self.action_open_report(Path(history['report_path']), history['status'], row=history)
         elif self.page == 'Native':
-            if action == 'rows.pick':
+            if action == 'cids':
+                from agent_optimizer.native_selection import selection_policy
+                policy, _ = selection_policy(self.workspace)
+                self.push_screen(ChoiceDialog('CID 직접 선택 · 자동 선택 없음',
+                    [(cid, cid) for cid in sorted(policy.CIDS)], selected=self.native_values.get('cids', []), multiple=True),
+                    lambda value: self._save_native_field('cids', value))
+            elif action in {'dataset', 'source', 'upstream', 'python'}:
+                self.push_screen(PathDialog(self.workspace, title=row.label,
+                    directory=action in {'source', 'upstream'}, suffix={'.jsonl'} if action == 'dataset' else None,
+                    value=str(self.native_values.get(action, ''))),
+                    lambda path: self._save_native_field(action, str(path)) if path else None)
+            elif action == 'evaluator':
+                current = self.native_values.get('evaluator', {})
+                fields = [(key, label, current.get(key, ''), kind) for key, label, kind in (
+                    ('repo', '고정 CVDP evaluator repo', 'directory'), ('python', '평가 driver Python 경로', 'file'),
+                    ('sim_image', '검토한 OSS simulator image tag', 'text'), ('sim_image_id', '검증한 image identity', 'text'))]
+                self.push_screen(FormDialog('평가 환경 설정 · 빈 항목은 기존 기본값 사용', fields, base=self.workspace,
+                    validate=lambda values: self._validate_native_field('evaluator', values)),
+                    lambda value: self._save_native_field('evaluator', value))
+            elif action in {'rows.pick', 'rows'}:
                 try:
                     from agent_optimizer.native_selection import available_rows
                     if not self.native_values.get('dataset'):
@@ -933,7 +1007,11 @@ class OptimizerApp(App[int]):
                 self._show('Native')
                 self.query_one(Input).focus()
         elif self.page == 'NativeRows':
-            if action == 'native.back':
+            if action == 'rows.batch':
+                self.push_screen(ChoiceDialog('split을 지정할 row 직접 선택',
+                    [(r['id'], f"{r['id']} · {r['cid']} · {self.native_values.get('rows', {}).get(r['id'], '미선택')}")
+                     for r in self.native_rows_catalog if r['supported']], multiple=True), self._batch_rows_selected)
+            elif action == 'native.back':
                 self._show('Native')
             else:
                 self.native_row_id = action
@@ -949,7 +1027,9 @@ class OptimizerApp(App[int]):
                 self._invalidate_native_configuration()
             self._show('NativeRows')
         elif self.page == "Review":
-            if action == "model.edit":
+            if action.startswith('edit:'):
+                self._show(action.removeprefix('edit:'))
+            elif action == "model.edit":
                 self._open_model_setup("Review")
             elif action == "prepare":
                 self._start()
@@ -979,9 +1059,13 @@ class OptimizerApp(App[int]):
             else:
                 self._show("Doctor" if action == "doctor" else "Home")
         elif self.page == "Advanced":
-            self._show("Existing")
+            self._select_advanced(action)
         elif self.page == "Workspace":
-            self.query_one(Input).focus()
+            if action == 'workspace.browse':
+                self.push_screen(PathDialog(self.root, directory=True, title='작업공간 폴더 선택', value=str(self.workspace)), self._workspace_selected)
+            else:
+                self.query_one(Input).styles.display = 'block'
+                self.query_one(Input).focus()
         elif self.page == "Model":
             self._select_model_option(index)
 
@@ -1000,6 +1084,14 @@ class OptimizerApp(App[int]):
     def _select_model_option(self, index: int) -> None:
         row = self.rows[index]
         if self.model_mode == "fields":
+            if row.id == 'model.profile':
+                profiles = self._connection_profiles()
+                self.push_screen(ChoiceDialog('모델 연결 프로필 선택',
+                    [(name, f"{name} · {values['AGENT_OPT_MODEL_BASE_URL']} · {values['AGENT_OPT_MODEL_ID']}")
+                     for name, values in profiles.items()] + [('custom', '새 연결 입력 · Endpoint와 Model ID 함께 설정')]),
+                    lambda name: self._custom_connection_profile() if name == 'custom' else
+                        self._apply_connection_profile(profiles[name]) if name is not None else None)
+                return
             if row.kind == "model.field":
                 self.model_field = row.id
                 self.model_index = self.model_fields.index(row.id)
@@ -1025,7 +1117,7 @@ class OptimizerApp(App[int]):
             except ConfigurationError as exc:
                 self._error(exc)
                 return
-            if self.model_return_page in {"Dataset", "Workspace", 'Native'}:
+            if self.model_return_page in {"Dataset", "Workspace", 'Native', 'Advanced'}:
                 self.return_page = "Model"
             self._show("Review")
             return
@@ -1052,6 +1144,10 @@ class OptimizerApp(App[int]):
             self._show("Model")
 
     def on_input_changed(self, event: Input.Changed) -> None:
+        if event.input.id == 'search':
+            if self.searching:
+                self._filter_rows(event.value)
+            return
         # Endpoints remain plaintext; credentials are rejected rather than made executable.
         if event.input.has_focus and self.page in {"Existing", "Workspace", "Model"}:
             key = self.model_field if self.page == "Model" else self.page
@@ -1071,6 +1167,12 @@ class OptimizerApp(App[int]):
                 "정상 URL을 붙여넣거나 Esc 후 직접 입력을 다시 선택하세요."))
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
+        if event.input.id == 'search':
+            options = self.query_one('#options', OptionList)
+            options.focus()
+            if len(self.rows) == 1 and self.rows[0].enabled:
+                self._select(0)
+            return
         value = event.value.strip()
         if self.page == 'Native':
             try:
@@ -1131,8 +1233,260 @@ class OptimizerApp(App[int]):
             self._error(exc)
             return
         self.experiment = spec["_source"]
+        self.advanced_active = False
         self.return_page = "Existing"
         self._show("Review")
+
+    def action_search(self) -> None:
+        if self.busy or len(self.screen_stack) > 1 or not self.rows or self.page in {'Model', 'Review', 'Result'}:
+            return
+        self.searching = True
+        search = self.query_one('#search', Input)
+        search.styles.display = 'block'
+        search.focus()
+
+    def _filter_rows(self, term: str) -> None:
+        identity = self.focus_ids.get(self._focus_key())
+        term = term.casefold()
+        self.rows = [row for row in self.all_rows if term in row.label.casefold() or term in row.id.casefold()]
+        options = self.query_one('#options', OptionList)
+        options.set_options([Option(Text(row.label + ('  ×' if not row.enabled else '')), id=row.id) for row in self.rows])
+        options.highlighted = next((i for i, row in enumerate(self.rows) if row.id == identity), 0 if self.rows else None)
+        self._detail(options.highlighted)
+
+    def action_continue(self) -> None:
+        if len(self.screen_stack) > 1:
+            self.screen.action_apply()
+            return
+        if self.busy:
+            return
+        actions = {'Native': 'native.continue', 'Advanced': 'advanced.continue',
+                   'Model': 'review', 'NativeRows': 'native.back'}
+        action = actions.get(self.page)
+        if action:
+            index = next((i for i, row in enumerate(self.rows) if row.id == action), None)
+            if index is not None:
+                self._select(index)
+
+    def _workspace_selected(self, path):
+        if path is not None:
+            self.workspace = path
+            self._open_model_setup('Workspace')
+
+    def _validate_native_field(self, field, value):
+        from agent_optimizer.native_selection import validate_field
+        validate_field(self.workspace, field, value)
+
+    def _save_native_field(self, field, value):
+        if value is None:
+            return
+        try:
+            self._validate_native_field(field, value)
+            if self.native_values.get(field) != value:
+                self.native_values[field] = value
+                if field in {'source', 'upstream'}:
+                    self.native_values.pop('upstream' if field == 'source' else 'source', None)
+                self._invalidate_native_configuration()
+            self._show('Native')
+        except (ConfigurationError, OSError) as exc:
+            self._error(exc)
+
+    def _batch_rows_selected(self, rows):
+        if rows:
+            self.push_screen(SplitDialog(), lambda split: self._apply_batch_split(rows, split))
+
+    def _apply_batch_split(self, rows, split):
+        if split is None:
+            return
+        supported = {row['id'] for row in self.native_rows_catalog if row['supported']}
+        chosen = self.native_values.setdefault('rows', {})
+        previous = dict(chosen)
+        for row in rows:
+            if row not in supported:
+                continue
+            if split == 'remove':
+                chosen.pop(row, None)
+            else:
+                chosen[row] = split
+        if previous != chosen:
+            self._invalidate_native_configuration()
+        self._show('NativeRows')
+
+    def _connection_profiles(self):
+        profiles = {name: values for name, values in self.model_presets.items()
+                    if {'AGENT_OPT_MODEL_BASE_URL', 'AGENT_OPT_MODEL_ID'}.issubset(values)}
+        endpoint, _ = self._model_value('AGENT_OPT_MODEL_BASE_URL')
+        model, _ = self._model_value('AGENT_OPT_MODEL_ID')
+        if endpoint and model and display_endpoint(endpoint) == endpoint:
+            profiles['현재 연결 재사용'] = {'AGENT_OPT_MODEL_BASE_URL': endpoint, 'AGENT_OPT_MODEL_ID': model}
+        return profiles
+
+    def _custom_connection_profile(self):
+        endpoint, _ = self._model_value('AGENT_OPT_MODEL_BASE_URL')
+        model, _ = self._model_value('AGENT_OPT_MODEL_ID')
+        def validate(values):
+            validate_endpoint(values.get('AGENT_OPT_MODEL_BASE_URL', ''))
+            value = values.get('AGENT_OPT_MODEL_ID', '')
+            if not value or any(c.isspace() for c in value):
+                raise ConfigurationError('공백 없는 Model ID를 입력하세요.')
+        self.push_screen(FormDialog('모델 연결 · 비밀 값은 별도 설정', [
+            ('AGENT_OPT_MODEL_BASE_URL', 'API 기본 주소', endpoint if endpoint and display_endpoint(endpoint) == endpoint else '', 'endpoint'),
+            ('AGENT_OPT_MODEL_ID', 'API Model ID', model, 'text')], base=self.root, validate=validate),
+            lambda values: self._apply_connection_profile(values) if values is not None else None)
+
+    def _apply_connection_profile(self, values):
+        for field in ('AGENT_OPT_MODEL_BASE_URL', 'AGENT_OPT_MODEL_ID'):
+            self.model_values[field] = values[field]
+            self.model_sources[field] = 'file' if values in self.model_presets.values() else 'session'
+        for field in self._model_selector_fields():
+            self.model_values[field] = 'compatible/' + values['AGENT_OPT_MODEL_ID']
+            self.model_sources[field] = 'session'
+        self.model_fields = self._required_model_fields()
+        self._show('Model')
+
+    def _advanced_fields(self):
+        return {
+            'name': ('실험 이름', 'text'), 'agent': ('Agent 소스(로컬/Git)', 'directory'),
+            'git': ('고정 Git Agent 연결', 'text'), 'editable': ('수정 허용 파일', 'files'),
+            'harness': ('Harness', 'harnesses'), 'optimizer': ('Optimizer', 'optimizers'),
+            'dataset': ('Dataset', 'datasets'), 'evaluator': ('사용자 Dataset 채점기', 'evaluators'),
+            'command': ('Agent 실행 argv(명령 Harness)', 'text'),
+            'prompt_file': ('Agent prompt 파일', 'agent_file'),
+            'target_file': ('GEPA 수정 대상', 'agent_file'), 'scaffold_file': ('Meta/Ecdysis 활성 Python 파일', 'agent_file'),
+            'metric': ('채점 지표', 'text'), 'direction': ('점수 방향', ['maximize', 'minimize']),
+        }
+
+    def _advanced_rows(self):
+        rows = []
+        for field, (label, _kind) in self._advanced_fields().items():
+            value = self.advanced_values.get('revision' if field == 'git' else field, '')
+            shown = ', '.join(value) if isinstance(value, list) else str(value)
+            rows.append(ChoiceRow(field, 'advanced.field', f'{label} · {shown or "미설정"}',
+                '등록 목록·탐색기로 선택합니다. 실행 명령·Git URL·채점 지표는 사용자가 명시합니다.\n'
+                '설정 확정 전에는 자산 준비·설정 생성·Agent 실행을 하지 않습니다.'))
+        rows.extend([ChoiceRow('advanced.continue', 'action', '모델 설정으로 계속', '필수 선택을 확인하고 실행 전 Review로 이동합니다.'),
+                     ChoiceRow('existing', 'action', '기존 설정 선택', '전용 Harness 프로필은 기존 experiment.toml을 선택하세요.')])
+        return rows
+
+    def _save_advanced(self, field, value):
+        if value is None:
+            return
+        if field in {'agent', 'git'} and self.advanced_values.get(field) != str(value):
+            self.advanced_values['editable'] = []
+            self.advanced_values.pop('target_file', None)
+            self.advanced_values.pop('scaffold_file', None)
+            if field == 'agent':
+                self.advanced_values.pop('revision', None)
+        self.advanced_values[field] = str(value) if isinstance(value, Path) else value
+        self.experiment = None
+        self.preparation_complete = False
+        self.doctor_report = None
+        self._show('Advanced')
+
+    def _select_advanced(self, field):
+        if field == 'existing':
+            self._show('Existing')
+            return
+        if field == 'advanced.continue':
+            try:
+                self._advanced_arguments()  # Validate before any preparation.
+            except (ConfigurationError, OSError, ValueError) as exc:
+                self._error(exc)
+                return
+            self.advanced_active = True
+            self.experiment = None
+            self._open_model_setup('Advanced')
+            return
+        label, kind = self._advanced_fields()[field]
+        current = self.advanced_values.get(field, '')
+        if field == 'git':
+            from agent_optimizer.contracts import SourceSpec
+            from agent_optimizer.sources import validate_source
+            def validate(values):
+                validate_source(SourceSpec(kind='git', url=values.get('url', ''), revision=values.get('revision', '')))
+            def receive(values):
+                if values is not None:
+                    self._save_advanced('agent', values['url'])
+                    self.advanced_values['revision'] = values['revision']
+                    self._show('Advanced')
+            self.push_screen(FormDialog(label, [('url', 'Git URL', self.advanced_values.get('agent', '') if self.advanced_values.get('revision') else '', 'git'),
+                ('revision', '고정 full commit SHA', self.advanced_values.get('revision', ''), 'text')], base=self.root, validate=validate), receive)
+        elif isinstance(kind, str) and kind in {'harnesses', 'optimizers', 'datasets', 'evaluators'}:
+            from agent_optimizer.setup_wizard import component_inventory, supports_generated_profile
+            registry, _, _ = component_inventory(self.root)
+            items = [(name, name) for name in sorted(registry.factories[kind])
+                     if kind != 'harnesses' or supports_generated_profile(registry.resolve(kind, name))]
+            if kind == 'datasets':
+                items.append(('custom', '로컬 tasks.json 탐색'))
+            if kind == 'evaluators':
+                items.append(('custom', '신뢰한 file.py:Symbol 직접 지정'))
+            def receive(value):
+                if value == 'custom':
+                    if kind == 'datasets':
+                        self.push_screen(PathDialog(self.root, title='공개 tasks.json 선택', suffix={'.json'}), lambda path: self._save_advanced(field, path))
+                    else:
+                        self._advanced_text(field, label, str(current))
+                else:
+                    self._save_advanced(field, value)
+            self.push_screen(ChoiceDialog(label, items, multiple=kind == 'optimizers', selected=current if isinstance(current, list) else []), receive)
+        elif kind == 'directory':
+            self.push_screen(PathDialog(self.root, title=label, directory=True, value=str(current)), lambda path: self._save_advanced(field, path))
+        elif isinstance(kind, str) and kind in {'files', 'agent_file'}:
+            source = Path(self.advanced_values.get('agent', '')).expanduser()
+            source = source if source.is_absolute() else self.root / source
+            if self.advanced_values.get('revision'):
+                self._advanced_text(field, label + ' (Git 소스의 상대경로)', ','.join(current) if isinstance(current, list) else str(current))
+                return
+            if not source.is_dir() or not self.advanced_values.get('agent'):
+                self._error(ConfigurationError('Agent 소스 폴더를 먼저 선택하세요.'))
+                return
+            paths = editable_files(source)
+            if field in {'target_file', 'scaffold_file'}:
+                import fnmatch
+                paths = [p for p in paths if any(fnmatch.fnmatchcase(p, pattern) for pattern in self.advanced_values.get('editable', []))
+                         and (field != 'scaffold_file' or p.endswith('.py'))]
+            self.push_screen(ChoiceDialog(label, [(p, p) for p in paths], multiple=kind == 'files',
+                selected=current if isinstance(current, list) else []), lambda value: self._save_advanced(field, value))
+        else:
+            self._advanced_text(field, label, str(current), kind)
+
+    def _advanced_text(self, field, label, current, kind='text'):
+        def receive(values):
+            if values is not None:
+                value = values.get('value', '')
+                if field == 'editable':
+                    value = [item.strip() for item in value.split(',') if item.strip()]
+                self._save_advanced(field, value)
+        self.push_screen(FormDialog(label, [('value', label, current, kind)], base=self.root), receive)
+
+    def _advanced_arguments(self):
+        from agent_optimizer.config import identifier
+        from agent_optimizer.setup_wizard import component_inventory, requires_command, supports_generated_profile
+        values = self.advanced_values
+        for field in ('name', 'agent', 'editable', 'harness', 'optimizer', 'dataset'):
+            if not values.get(field):
+                raise ConfigurationError(f'{self._advanced_fields()[field][0]}을 선택하세요.')
+        identifier(values['name'])
+        registry, _, _ = component_inventory(self.root)
+        adapter = registry.resolve('harnesses', values['harness'])
+        if not supports_generated_profile(adapter):
+            raise ConfigurationError('전용 Harness 프로필은 기존 experiment.toml을 선택하세요.')
+        if requires_command(adapter) and not values.get('command'):
+            raise ConfigurationError('Agent 실행 argv를 입력하세요.')
+        if values['dataset'] not in registry.factories['datasets'] and not values.get('evaluator'):
+            raise ConfigurationError('로컬 tasks.json에는 별도 채점기를 명시하세요.')
+        arguments = ['init', '--project-root', str(self.root), '--name', values['name'], '--agent', values['agent'],
+                     '--harness', values['harness'], '--dataset', values['dataset'], '--yes']
+        for field in ('editable', 'optimizer'):
+            for value in values[field]:
+                arguments.extend(['--' + field, value])
+        for field in ('revision', 'evaluator', 'metric', 'direction', 'prompt_file', 'target_file', 'scaffold_file'):
+            if values.get(field):
+                arguments.extend(['--' + field.replace('_', '-'), values[field]])
+        if requires_command(adapter):
+            shlex.split(values['command'])
+            arguments.extend(['--command', values['command']])
+        return arguments
 
     def _invalidate_native_configuration(self) -> None:
         self.experiment = None
@@ -1177,6 +1531,19 @@ class OptimizerApp(App[int]):
         return lines
 
     def _review(self) -> str:
+        if self.advanced_active and self.experiment is None:
+            lines = ['내 Agent 실행 전 확인', '────────']
+            for field, (label, _) in self._advanced_fields().items():
+                value = self.advanced_values.get('revision' if field == 'git' else field)
+                if value:
+                    lines.append(f'{label}: {", ".join(value) if isinstance(value, list) else value}')
+            lines += ['', *self._model_summary(), '',
+                      '준비: 선택 Dataset의 자산 준비와 기존 init 계약의 설정 생성',
+                      '고정 Dataset은 다운로드·Docker 빌드가 필요할 수 있습니다.',
+                      '기본 예산: 최대 과제 9 · trial 최소 80(예약량에 따라 증가) · timeout 120s · wall time 3600s',
+                      '외부 호출: 지정한 Agent/Harness/Evaluator 및 Optimizer에 따라 발생할 수 있습니다.',
+                      '준비 완료 → 별도 진단 → 명시적 실행 순서로 진행합니다.']
+            return '\n'.join(lines)
         if self.experiment is not None:
             try:
                 spec = load_experiment(self.experiment)
@@ -1266,6 +1633,8 @@ class OptimizerApp(App[int]):
             return list(dict.fromkeys(p.get("model_env", "AGENT_OPT_MODEL") for p in spec["_profiles"]
                                       if p["adapter"] == "opencode" or
                                       p["adapter"] == "ace_opencode" and spec.get("preset_selection")))
+        if self.advanced_active:
+            return ['AGENT_OPT_MODEL'] if self.advanced_values.get('harness') == 'opencode' else []
         metadata = self.component_metadata.get(self.selections.get("Harness", ""), {})
         return (["AGENT_OPT_MODEL"] if self.selections.get("Agent") == "ace-rtl" and
                 metadata.get("execution_mode") != "native" else [])
@@ -1286,6 +1655,9 @@ class OptimizerApp(App[int]):
                                   {"AGENT_OPT_MODEL_BASE_URL", "AGENT_OPT_MODEL_API_KEY"}.issubset(
                                       p.get("runtime", {}).get("env_passthrough", []))
                                   for p in profiles)
+        elif self.advanced_active:
+            selectors = self._model_selector_fields()
+            api = any(name in {'gepa', 'meta_harness', 'ecdysis'} for name in self.advanced_values.get('optimizer', []))
         else:
             metadata = self.component_metadata.get(self.selections.get("Harness", ""), {})
             selectors = self._model_selector_fields()
@@ -1317,7 +1689,7 @@ class OptimizerApp(App[int]):
         if self._required_model_fields():
             return _tr("선택한 모델 provider가 실행 중 호출됩니다. 사전 connectivity probe는 수행하지 않습니다.",
                        "The selected model provider will be called during the run; no direct connectivity probe is available.")
-        if self.experiment is not None:
+        if self.experiment is not None or self.advanced_active:
             return _tr("선택한 Agent/Harness/Evaluator가 외부 서비스를 호출할 수 있습니다.",
                        "The selected Agent/Harness/Evaluator may call external services.")
         return _tr("Model API 호출 없음 · 합성 fixture 실행",
@@ -1346,7 +1718,7 @@ class OptimizerApp(App[int]):
         if "AGENT_OPT_MODEL_BASE_URL" in required:
             validate_endpoint(values.get("AGENT_OPT_MODEL_BASE_URL", ""))
         selector = values.get("AGENT_OPT_MODEL", "")
-        if "AGENT_OPT_MODEL" in required and self.selections.get("Agent") == "ace-rtl" and not (
+        if "AGENT_OPT_MODEL" in required and not self.advanced_active and self.selections.get("Agent") == "ace-rtl" and not (
                 selector.startswith("compatible/") or selector.startswith("openrouter/")):
             raise ConfigurationError("OpenCode 모델은 compatible/모델 또는 openrouter/모델을 선택하세요")
 
@@ -1444,7 +1816,18 @@ class OptimizerApp(App[int]):
                     self.call_from_thread(
                         self._preparation_line,
                         _tr("기존 experiment 선택 · 자산 자동 준비 안 함",
-                            "Existing experiment selected · no automatic asset preparation"))
+                             "Existing experiment selected · no automatic asset preparation"))
+                elif self.advanced_active:
+                    import io
+                    from agent_optimizer.cli import main
+                    output = io.StringIO()
+                    capture = _ProgressCapture(self)
+                    with contextlib.redirect_stdout(output), contextlib.redirect_stderr(capture):
+                        code = main(self._advanced_arguments())
+                    capture.flush()
+                    if code:
+                        raise ConfigurationError('내 Agent 설정 생성 실패. 위 준비 로그에서 원인과 입력을 확인하세요.')
+                    experiment = Path(json.loads(output.getvalue())['experiment'])
                 elif self.selections.get('Harness') == 'ace-native':
                     from agent_optimizer.native_selection import write_native_selection
                     experiment = write_native_selection(self.workspace, self.selections['Optimizer'], **{
@@ -1736,6 +2119,15 @@ class OptimizerApp(App[int]):
             + _tr("경로·선택 항목을 확인한 뒤 다시 시도하세요.", "Check the path or selection and try again."))
 
     def action_back(self) -> None:
+        if len(self.screen_stack) > 1:
+            self.screen.dismiss(None)
+            return
+        if self.searching:
+            self.searching = False
+            self.query_one('#search', Input).styles.display = 'none'
+            self._filter_rows('')
+            self.query_one('#options', OptionList).focus()
+            return
         if self.busy:
             self.notify(_tr("준비/진단/실행 중입니다. 완료 후 계속할 수 있습니다.",
                             "Preparation, checks, or a run is active; wait for completion."))
