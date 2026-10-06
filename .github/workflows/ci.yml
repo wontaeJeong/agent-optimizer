@@ -3,6 +3,10 @@ on:
   push:
     branches: [main]
   pull_request:
+    branches: [main]
+  merge_group:
+    types: [checks_requested]
+    branches: [main]
   workflow_dispatch:
     inputs:
       official_cvdp:
@@ -19,8 +23,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}-checks
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-checks
+  cancel-in-progress: ${{ github.event_name != 'merge_group' }}
 
 jobs:
   tests:
@@ -85,6 +89,25 @@ jobs:
         run: |
           wheel=$(.venv/bin/python scripts/select_wheel.py dist)
           python tests/test_installed_cli.py "$wheel"
+
+  ci-gate:
+    name: CI Gate
+    if: ${{ always() }}
+    needs: [tests]
+    runs-on: ${{ fromJSON(vars.CI_RUNNER_LABELS || '["ubuntu-latest"]') }}
+    timeout-minutes: 2
+    steps:
+      - name: 필수 검사 결과 확인
+        env:
+          TEST_RESULT: ${{ needs.tests.result }}
+          EVENT_NAME: ${{ github.event_name }}
+        shell: bash
+        run: |
+          echo "검증 단계: $EVENT_NAME / Python 검사: $TEST_RESULT"
+          if [[ "$TEST_RESULT" != "success" ]]; then
+            echo "::error::필수 Python 검사 실패·취소·건너뜀: $TEST_RESULT"
+            exit 1
+          fi
 
   official-cvdp:
     name: ACE/CVDP 실행환경·공식 평가 (수동, 모델 미사용)
