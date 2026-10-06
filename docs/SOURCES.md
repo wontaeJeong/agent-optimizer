@@ -95,6 +95,12 @@ Ubuntu 전체의 실제 결과는 [CI 전체 최적화 검증](verification.md#2
   timeout을 포함한다. `Prob099_m2014_q6c_ref.sv`와 같은 모드의 checker는 포트 선언이 다르다.
   이는 전체 검사 실패의 원본 자료 근거이며, 해당 reference/checker와 SHA·점수 판정은 수정하지 않았다.
   CI·병렬화 성공으로 156개 모두 통과했다고 표현하지 않는다.
+- OpenCode v1.18.31의 `packages/opencode/src/config/config.ts`와
+  `packages/core/src/npm.ts`에서 config 디렉터리의 `@opencode-ai/plugin` 의존성과
+  package-lock/node_modules 검사 후 설치 생략 흐름을 대조했다. 실제 offline 이미지의 DEBUG 로그에서
+  이 패키지의 registry 재시도가 약 70초를 소비함을 확인해, Agent Dockerfile이 CLI와 같은
+  `OPENCODE_VERSION`의 plugin을 이미지 빌드 때 설치하도록 했다. CLI 버전·endpoint plugin·모델 API 계약은
+  바꾸지 않았으며 설치 후 동일한 network-none tool round trip을 다시 검증했다.
 
 ## Task 5 pinned data / provider inspection (2026-09-20)
 
