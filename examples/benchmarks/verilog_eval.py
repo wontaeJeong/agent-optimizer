@@ -14,6 +14,7 @@ from agent_optimizer.datasets import acquire_pinned_git, split_families
 from agent_optimizer.results import write_json
 from agent_optimizer.readiness import check
 from agent_optimizer.workspace import safe_path
+from agent_optimizer.network import configured_build
 
 
 SOURCE_URL = "https://github.com/NVlabs/verilog-eval.git"
@@ -93,20 +94,22 @@ def prepare_runtime(cache: Path | None = None, *, offline: bool = False,
             with log.open("w", encoding="utf-8") as stream:
                 stream.write(json.dumps(argv) + "\n")
                 stream.flush()
-                build = subprocess.run(argv, stdout=stream, stderr=subprocess.STDOUT,
-                                       timeout=1800, shell=False, env=environment)
-            if build.returncode:
-                lines = diagnostics.summarize_log(log, environment=environment)
-                details = diagnostics.CommandOutcome(
-                    "docker build", build.returncode,
-                    str(getattr(build, "stdout", "") or ""),
-                    "\n".join(lines) if lines else str(getattr(build, "stderr", "") or ""),
-                )
-                cause = diagnostics.summarize_failure(details, environment=environment)
-                raise _runtime_failure(
-                    "Verilog-Eval evaluation image build", cause, log=log, retry=retry,
-                    fix="Check Docker build trust/registry access and preserve the pinned Dockerfile.",
-                ) from None
+                with configured_build(argv, dockerfile.parent, environment) as command:
+                    build = subprocess.run(command, stdout=stream, stderr=subprocess.STDOUT,
+                                           timeout=1800, shell=False, env=environment)
+                    if build.returncode:
+                        stream.flush()
+                        lines = diagnostics.summarize_log(log, environment=environment)
+                        details = diagnostics.CommandOutcome(
+                            "docker build", build.returncode,
+                            str(getattr(build, "stdout", "") or ""),
+                            "\n".join(lines) if lines else str(getattr(build, "stderr", "") or ""),
+                        )
+                        cause = diagnostics.summarize_failure(details, environment=environment)
+                        raise _runtime_failure(
+                            "Verilog-Eval evaluation image build", cause, log=log, retry=retry,
+                            fix="Check Docker build trust/registry access and preserve the pinned Dockerfile.",
+                        ) from None
             inspect = subprocess.run(["docker", "image", "inspect", RUNTIME_IMAGE],
                                       capture_output=True, text=True, timeout=20, shell=False,
                                       env=environment)
