@@ -8,6 +8,16 @@
 - [첫 release dry-run 37486890063](https://github.com/wontaeJeong/agent-optimizer/actions/runs/37486890063)은 Python 3.11에서 TUI 준비 로그의 UI-thread 재진입을 발견해 실패했다. 실제 headless UI 회귀로 재현했고, 이후 main에 병합된 `PreparationLine` 메시지 전달과 통합하여 재검증한다. 같은 run의 artifact 전달이 완료되기 전에는 release dry-run 성공으로 간주하지 않는다.
 - 완성된 Icarus layer export는 reference 평가 실패와 독립적으로 보존하도록 restore/save를 분리했다. 직렬 비교용 `verilog_jobs=1`과 기본 병렬 `2`의 concurrency도 분리했다. private 원시 자료·로그는 공개 artifact에 넣지 않고 기존 정제된 summary만 보존한다. 후속 실제 결과·cold/warm 시간은 아래에 추가한다.
 
+## 2026-10-01 I 최종 수용검증·실제 결함 수정
+
+[I 보고서](verification/final-mvp-i-20261001.md)에 exact 명령·절대 config/run/report 경로·skip 목록 근거·R01~R30 판정을 기록했다. 실제 `make test` **1157개 중 실행 1077 통과·기존 skip 80**, `make lint`·격리 checkout의 실제 `make demo`(합성 7 trial)·새 wheel 환경의 build/install·source/wheel fresh Home CLI/PTy·TUI·실제 HTTP/종료·custom local/Git command·사이트 build/link가 통과했다. 일반 prepare의 ACE pointer 오분기·native source.subdir 무시를 수정하고 make 환경 상속 테스트 격리를 보완했다. **완료 29·부분 1(R16)·차단 0**이며 native 실모델/실 EDA/live는 `not_run`이다. 과거 날짜별 성공을 native 근거로 바꾸지 않는다.
+
+**후속 whole-branch 리뷰 수정 단일 wave:** [리뷰 원문](verification/final-mvp-final-review-20261001.md)의 Critical/Important 0·Minor 2(M1 필수 name, M2 plan bytecode)를 수정했다. [I §8](verification/final-mvp-i-20261001.md)에 새 RED→GREEN·실제 사용자 no-`-B`/no-env plan과 값 복구·필수 name preset 실행·source-free wheel module/console smoke를 기록했다. covering **53개 통과**, 최종 실제 make **1160개 중 실행 1080 통과·기존 skip 80**, lint·offline wheel build/install 통과. R16 live 부분/나머지 범위는 유지하며 새 독립 재리뷰 승인이나 live 성공을 주장하지 않는다.
+
+## 2026-10-01 최종 MVP 통합·문서 근거
+
+A~G 승인·수정 결과는 [progress](verification/final-mvp-progress-20261001.md)와 각 담당 보고서에 보존한다. [G 최종 §7](verification/final-mvp-g-20261001.md)은 전체 1155개 중 실행 1075 통과·기존 skip 80개, Ruff·실제 wheel build/install/source-free 합성 CLI/native helper·진단/HTTP 근거다. **native 실모델·실 CVDP Docker/EDA/cleanup·Ubuntu native loop는 not_run**이다. [H 문서/사이트 명령·캡처·I 인계](verification/final-mvp-h-20261001.md)를 별도로 기록한다. 아래 날짜별 OpenCode/Claude/evaluator-only 성공은 당시 범위이며 native 성공으로 재표현하지 않는다.
+
 ## 2026-10-06 CI 실행 시간 최적화
 
 - 기준: `origin/main`의 `edbd2b8`에서 독립 `perf/ci-runtime` 워크트리를 생성했다. 최근 main [core-tests 36498578769](https://github.com/wontaeJeong/agent-optimizer/actions/runs/36498578769)는 전체 205초, Python 3.11/3.12 테스트 단계는 각각 147/128초, native simulator 설치는 각각 11초, build+설치 검증은 26/16초였다. [Pages 36498578714](https://github.com/wontaeJeong/agent-optimizer/actions/runs/36498578714)는 build job 20초·deploy job 8초이며 이미 npm cache를 사용한다.

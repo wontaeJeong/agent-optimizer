@@ -1,0 +1,22 @@
+id = "ace-native"
+adapter = "ace_native"
+allow_local = true
+
+[runtime]
+kind = "local"
+
+[native]
+max_iterations = 3
+llm_timeout = 60
+evaluator_timeout = 120
+# python/dataset/evaluator의 절대경로와 이미지 정체성은 F가 준비 결과로 채운다.
+# outer timeout은 기존 RunRequest.timeout_seconds를 소비한다.
+
+[compatibility]
+agent_ids = ["ace-rtl-native"]
+dataset_ids = ["cvdp"]
+reviewed_cids = ["cid002", "cid004", "cid007", "cid016"]
+execution_mode = "native"
+model_fields = ["AGENT_OPT_MODEL_BASE_URL", "AGENT_OPT_MODEL_ID", "AGENT_OPT_MODEL_API_KEY"]
+roles = ["generator", "reflector", "coordinator"]
+live_verification = "not_run"

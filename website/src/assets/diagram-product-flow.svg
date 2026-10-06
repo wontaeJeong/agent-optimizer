@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc" viewBox="0 0 760 340">
+  <title id="title">CLI/TUI에서 trusted 평가와 보고서까지</title>
+  <desc id="desc">CLI/TUI는 설정과 읽기 전용 readiness를 통해 runner를 호출한다. 공개 입력만 Agent/Harness에 전달하고 산출물은 trusted evaluator가 판정한다. private 평가 자료는 evaluator에만 전달한다. 보고서는 안전한 기록을 정규화한다.</desc>
+  <defs><marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0 0 L10 5 L0 10Z" fill="#245d73"/></marker><style>.box{fill:#fff;stroke:#31566b;stroke-width:2}.label{font:600 17px system-ui,sans-serif;fill:#142b3b}.small{font:14px system-ui,sans-serif;fill:#263b49}.edge{fill:none;stroke:#245d73;stroke-width:2;marker-end:url(#arrow)}</style></defs>
+  <rect width="760" height="340" rx="12" fill="#f5f8fb"/>
+  <path class="edge" d="M140 70H174"/><path class="edge" d="M380 70H414"/><path class="edge" d="M590 70H624"/><path class="edge" d="M678 110V205"/><path class="edge" d="M624 245H568"/><path class="edge" d="M380 245H340"/><path class="edge" d="M174 245H140"/>
+  <rect class="box" x="20" y="30" width="120" height="80" rx="8"/><text class="label" x="36" y="76">CLI / TUI</text>
+  <rect class="box" x="174" y="30" width="206" height="80" rx="8"/><text class="label" x="197" y="61">config / readiness</text><text class="small" x="197" y="88">정적 검사 · 명시 probe 별도</text>
+  <rect class="box" x="414" y="30" width="176" height="80" rx="8"/><text class="label" x="471" y="62">runner</text><text class="small" x="441" y="88">예산·후보·선택 고정</text>
+  <rect class="box" x="624" y="30" width="116" height="80" rx="8"/><text class="label" x="642" y="61">공개 입력</text><text class="small" x="637" y="88">prompt / files</text>
+  <rect class="box" x="624" y="205" width="116" height="80" rx="8"/><text class="label" x="646" y="237">Agent /</text><text class="label" x="640" y="263">Harness</text>
+  <rect class="box" x="380" y="205" width="188" height="80" rx="8"/><text class="label" x="402" y="238">trusted evaluator</text><text class="small" x="421" y="265">산출물 최종 판정</text>
+  <rect class="box" x="174" y="205" width="166" height="80" rx="8"/><text class="label" x="199" y="237">안전 실행 기록</text><text class="small" x="195" y="263">nullable / partial</text>
+  <rect class="box" x="20" y="205" width="120" height="80" rx="8"/><text class="label" x="49" y="239">report</text><text class="small" x="32" y="265">JSON/MD/HTML</text>
+  <rect class="box" x="380" y="128" width="188" height="44" rx="8"/><text class="small" x="399" y="156">private harness / golden</text><path class="edge" d="M474 172V205"/>
+  <text class="small" x="27" y="318">private 원문 → 모델 화살표 없음 · report server는 선택 HTML 한 파일만 공개</text>
+</svg>

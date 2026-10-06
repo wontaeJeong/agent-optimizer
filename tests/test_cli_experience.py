@@ -34,7 +34,11 @@ class CLIExperienceTests(unittest.TestCase):
         self.data = self.root / "examples/minimal/tasks.json"
 
     def command_harness_choice(self):
-        return str(sorted(Registry().factories["harnesses"]).index("command") + 1)
+        return self.harness_choice("command")
+
+    def harness_choice(self, name):
+        from agent_optimizer.setup_wizard import component_inventory
+        return str(sorted(component_inventory(self.root)[0].factories["harnesses"]).index(name) + 1)
 
     def test_top_level_help_points_to_setup_and_explains_run_and_report(self):
         output = io.StringIO()
@@ -1632,7 +1636,7 @@ class CLIExperienceTests(unittest.TestCase):
 
         def answer():
             if "하네스 번호" in terminal.getvalue().splitlines()[-1]:
-                return str(sorted(Registry().factories["harnesses"]).index("fixture") + 1)
+                return self.harness_choice("fixture")
             return next(answers)
 
         with patch("builtins.input", side_effect=answer), contextlib.redirect_stderr(terminal):
@@ -1640,9 +1644,9 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertIn("로컬 tasks.json·명시적 채점기를 확인", terminal.getvalue())
         self.assertEqual(arguments[arguments.index("--harness") + 1], "fixture")
         self.assertNotIn("--command-json", arguments)
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(arguments), 0)
-        spec = load_experiment(self.root / "runs/configs/chosen-harness/experiment.toml")
+        spec = load_experiment(Path(json.loads(output.getvalue())["experiment"]))
         self.assertEqual(spec["_profiles"][0]["adapter"], "fixture")
         run, summary = run_experiment(spec, Registry(), self.root / "runs")
         self.assertEqual(summary["status"], "completed")
@@ -1653,7 +1657,7 @@ class CLIExperienceTests(unittest.TestCase):
 
         answers = ["empty-editable", str(self.agent), "", str(self.data),
                    "examples/minimal/evaluator.py:TextFixtureEvaluator", "", "", "1",
-                   str(sorted(Registry().factories["harnesses"]).index("fixture") + 1), "y"]
+                    self.harness_choice("fixture"), "y"]
         with patch("builtins.input", side_effect=answers), \
              patch("agent_optimizer.setup_wizard.prepare_selection", side_effect=AssertionError("prepared")), \
              contextlib.redirect_stderr(io.StringIO()):
@@ -1750,7 +1754,7 @@ class CLIExperienceTests(unittest.TestCase):
         text = terminal.getvalue()
         for phrase in ("cvdp", "Docker", "sample_text", "합성", "command", "argv", "gepa",
                        "모델", "configs/strategy.json", "max_trials", "3600", "120",
-                       "runs/configs/preview", "report.html"):
+                       "experiments/preview", "report.html"):
             self.assertIn(phrase, text)
         self.assertLess(text.index("max_trials"), text.index("[y/N]"))
         self.assertFalse((self.root / "runs").exists())
@@ -1759,7 +1763,7 @@ class CLIExperienceTests(unittest.TestCase):
         from agent_optimizer.contracts import ConfigurationError
 
         answers = ["english-preview", str(self.agent), "configs/strategy.json", "sample_text",
-                   "1", str(sorted(Registry().factories["harnesses"]).index("fixture") + 1), "n"]
+                    "1", self.harness_choice("fixture"), "n"]
         terminal = io.StringIO()
         with patch.dict(os.environ, {"AGENT_OPT_LANG": "en"}), \
              patch("builtins.input", side_effect=answers), contextlib.redirect_stderr(terminal):
@@ -1872,9 +1876,9 @@ class CLIExperienceTests(unittest.TestCase):
                    '{python} "{agent_dir}/src/fixture agent.py" --target {task_dir}', "", "y"]
         with patch("builtins.input", side_effect=answers), contextlib.redirect_stderr(io.StringIO()):
             args = wizard_arguments(self.root)
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
-        spec = load_experiment(self.root / "runs/configs/harness-demo/experiment.toml")
+        spec = load_experiment(Path(json.loads(output.getvalue())["experiment"]))
         stage = spec["stages"][0]
         self.assertEqual(stage["optimizer"], "meta_harness")
         self.assertEqual(stage["config"]["file"], "src/fixture_agent.py")
@@ -1889,9 +1893,9 @@ class CLIExperienceTests(unittest.TestCase):
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--editable", "configs/strategy.json", "--optimizer", "baseline",
                   "--command", "{python} {agent_dir}/agent.py {task_dir}", "--yes"]
-        with contextlib.redirect_stdout(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()) as output:
             self.assertEqual(main(args), 0)
-        spec = load_experiment(self.root / "runs/configs/remote-demo/experiment.toml")
+        spec = load_experiment(Path(json.loads(output.getvalue())["experiment"]))
         self.assertEqual(spec["_agents"][0].source.url, url)
         self.assertEqual(spec["_agents"][0].source.revision, "a" * 40)
 
@@ -1902,9 +1906,9 @@ class CLIExperienceTests(unittest.TestCase):
                 "--editable", "configs/**", "--optimizer", "gepa",
                   "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "--yes"]
         error = io.StringIO()
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(error):
+        with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(error):
             self.assertEqual(main(args), 0, error.getvalue())
-        spec = load_experiment(self.root / "runs/configs/glob-demo/experiment.toml")
+        spec = load_experiment(Path(json.loads(output.getvalue())["experiment"]))
         self.assertEqual(spec["stages"][0]["config"]["file"], "configs/strategy.json")
 
     def test_init_accepts_agent_argv_with_dash_prefixed_options(self):
@@ -1914,9 +1918,9 @@ class CLIExperienceTests(unittest.TestCase):
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--optimizer", "baseline", "--editable", "configs/strategy.json",
                  "--command", " ".join(arguments), "--yes"]
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
-        profile = load_experiment(self.root / "runs/configs/flag-demo/experiment.toml")["_profiles"][0]
+        profile = load_experiment(Path(json.loads(output.getvalue())["experiment"]))["_profiles"][0]
         self.assertEqual(profile["command"], arguments)
 
     def test_init_command_text_preserves_quoted_and_dash_prefixed_argv(self):
@@ -1925,9 +1929,9 @@ class CLIExperienceTests(unittest.TestCase):
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--optimizer", "baseline", "--editable", "configs/strategy.json",
                 "--command", '{python} "{agent_dir}/src/fixture agent.py" --target {task_dir}', "--yes"]
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
-        profile = load_experiment(self.root / "runs/configs/text-command/experiment.toml")["_profiles"][0]
+        profile = load_experiment(Path(json.loads(output.getvalue())["experiment"]))["_profiles"][0]
         self.assertEqual(profile["command"], ["{python}", "{agent_dir}/src/fixture agent.py",
                                               "--target", "{task_dir}"])
 
@@ -1937,9 +1941,9 @@ class CLIExperienceTests(unittest.TestCase):
                 "--evaluator", "examples/minimal/evaluator.py:TextFixtureEvaluator",
                 "--optimizer", "baseline", "--editable", "configs/strategy.json",
                 "--harness", "opencode", "--yes"]
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
-        profile = load_experiment(self.root / "runs/configs/opencode-demo/experiment.toml")["_profiles"][0]
+        profile = load_experiment(Path(json.loads(output.getvalue())["experiment"]))["_profiles"][0]
         self.assertEqual(profile["adapter"], "opencode")
         self.assertNotIn("command", profile)
 
@@ -1969,9 +1973,9 @@ class CLIExperienceTests(unittest.TestCase):
                 "--optimizer", "gepa", "--max-tasks", "3", "--editable",
                   "configs/strategy.json", "--command",
                   "{python} {agent_dir}/src/fixture_agent.py {task_dir}", "--yes"]
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
-        spec = load_experiment(self.root / "runs/configs/sampled/experiment.toml")
+        spec = load_experiment(Path(json.loads(output.getvalue())["experiment"]))
         self.assertEqual(len(spec["_tasks"]), 3)
         self.assertLess(spec["stages"][0]["max_trials"], 20)
 
@@ -1993,9 +1997,9 @@ class CLIExperienceTests(unittest.TestCase):
                  "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                 "--max-trials", "12", "--max-wall-time-seconds", "90",
                 "--trial-timeout-seconds", "20", "--yes"]
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
-        spec = load_experiment(self.root / "runs/configs/bounded/experiment.toml")
+        spec = load_experiment(Path(json.loads(output.getvalue())["experiment"]))
         self.assertEqual(spec["budget"], {"max_trials": 12,
                                           "max_wall_time_seconds": 90,
                                           "trial_timeout_seconds": 20})
@@ -2008,9 +2012,9 @@ class CLIExperienceTests(unittest.TestCase):
                 "--optimizer", "gepa", "--editable", "configs/strategy.json",
                  "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                 "--yes"]
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
-        spec = load_experiment(self.root / "runs/configs/custom-metric/experiment.toml")
+        spec = load_experiment(Path(json.loads(output.getvalue())["experiment"]))
         self.assertEqual(spec["objective"]["metrics"][0],
                          {"name": "latency", "source": "latency", "direction": "minimize",
                           "aggregate": "mean"})
@@ -2052,9 +2056,9 @@ class CLIExperienceTests(unittest.TestCase):
                 "--optimizer", "file_variants", "--editable", "configs/strategy.json",
                  "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                 "--optimizer-config", json.dumps(options), "--yes"]
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
-        plan = self.root / "runs/configs/structured-options/experiment.toml"
+        plan = Path(json.loads(output.getvalue())["experiment"])
         spec = load_experiment(plan)
         self.assertEqual(spec["stages"][0]["config"]["variants"], options["file_variants"]["variants"])
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -2081,15 +2085,22 @@ class CLIExperienceTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(bad), 2)
         self.assertFalse((self.root / "runs/configs/invalid-once").exists())
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        self.assertFalse(list((Path(os.environ['AGENT_OPT_HOME']) / 'experiments').glob('invalid-once-*')))
+        with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
+        first = Path(json.loads(output.getvalue())['experiment'])
+        self.assertTrue(first.is_file())
 
         existing = self.root / "runs/configs/existing"
-        existing.mkdir()
+        existing.mkdir(parents=True)
         (existing / "sentinel").write_bytes(b"unchanged")
         args[args.index("invalid-once")] = "existing"
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(main(args), 2)
+        with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        second = Path(json.loads(output.getvalue())['experiment'])
+        self.assertTrue(second.is_file())
+        self.assertNotEqual(first, second)
+        self.assertNotEqual(second.parent, existing)
         self.assertEqual((existing / "sentinel").read_bytes(), b"unchanged")
 
     def test_multi_dataset_generation_failure_can_retry_without_leaving_first_plan(self):
@@ -2110,6 +2121,8 @@ class CLIExperienceTests(unittest.TestCase):
         self.assertFalse((config_root / "1-tasks").exists())
         self.assertFalse((config_root / "session.json").exists())
 
+        self.assertFalse(list((Path(os.environ['AGENT_OPT_HOME']) / 'experiments').glob('multi-retry-*')))
+
         document = json.loads(self.data.read_text())
         document["id"] = "second-dataset"
         second.write_text(json.dumps(document))
@@ -2118,8 +2131,9 @@ class CLIExperienceTests(unittest.TestCase):
             self.assertEqual(main(args), 0)
         prepared = json.loads(output.getvalue())
         self.assertEqual(len(prepared["experiments"]), 2)
-        self.assertTrue((config_root / "1-tasks/experiment.toml").is_file())
-        self.assertTrue((config_root / "2-second/experiment.toml").is_file())
+        self.assertTrue(all(Path(row["experiment"]).is_file() for row in prepared["experiments"]))
+        self.assertTrue(Path(prepared["session"]).is_file())
+        self.assertEqual((config_root / "sentinel").read_bytes(), b"keep")
 
     def test_generated_optimizer_strings_round_trip_del_character(self):
         value = "repair\x7fversion"
@@ -2132,9 +2146,9 @@ class CLIExperienceTests(unittest.TestCase):
                 "--optimizer", "file_variants", "--editable", "configs/strategy.json",
                  "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                 "--optimizer-config", json.dumps(options), "--yes"]
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
-        spec = load_experiment(self.root / "runs/configs/special-options/experiment.toml")
+        spec = load_experiment(Path(json.loads(output.getvalue())["experiment"]))
         self.assertEqual(spec["stages"][0]["config"]["variants"][0]["name"], value)
 
     def test_multi_dataset_output_failure_does_not_leave_dangling_session(self):
@@ -2151,14 +2165,19 @@ class CLIExperienceTests(unittest.TestCase):
                 "--yes"]
         with contextlib.redirect_stdout(BrokenOutput()), contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 2)
+        self.assertFalse(list((Path(os.environ['AGENT_OPT_HOME']) / 'experiments').glob('broken-output-*')))
         config_root = self.root / "runs/configs/broken-output"
         self.assertFalse((config_root / "session.json").exists())
         self.assertFalse((config_root / "1-tasks").exists())
         self.assertFalse((config_root / "2-sample_text").exists())
 
+        config_root.mkdir(parents=True)
         (config_root / "session.json").write_bytes(b"existing session")
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
-            self.assertEqual(main(args), 2)
+        with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(main(args), 0)
+        created = json.loads(output.getvalue())
+        self.assertTrue(Path(created['session']).is_file())
+        self.assertNotEqual(Path(created['session']), config_root / 'session.json')
         self.assertEqual((config_root / "session.json").read_bytes(), b"existing session")
         self.assertFalse((config_root / "1-tasks").exists())
 
@@ -2171,9 +2190,9 @@ class CLIExperienceTests(unittest.TestCase):
                 "--editable", "configs/strategy.json",
                  "--command", "{python} {agent_dir}/src/fixture_agent.py {task_dir}",
                 "--yes"]
-        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+        with contextlib.redirect_stdout(io.StringIO()) as output, contextlib.redirect_stderr(io.StringIO()):
             self.assertEqual(main(args), 0)
-        spec = load_experiment(self.root / "runs/configs/long-search/experiment.toml")
+        spec = load_experiment(Path(json.loads(output.getvalue())["experiment"]))
         self.assertEqual(spec["stages"][0]["config"]["iterations"], 6)
         self.assertGreaterEqual(spec["stages"][0]["max_trials"], 15)
 
@@ -2217,8 +2236,7 @@ class CLIExperienceTests(unittest.TestCase):
             answers = ["future-wizard", str(self.agent),
                        "configs/strategy.json", str(choices.index("future_set") + 1),
                        str(algorithms.index("future_opt") + 1),
-                       str(sorted([*Registry().factories["harnesses"], "future_harness"])
-                           .index("future_harness") + 1), "y"]
+                        self.harness_choice("future_harness"), "y"]
             with patch("builtins.input", side_effect=answers), contextlib.redirect_stderr(io.StringIO()):
                 wizard = wizard_arguments(self.root)
             self.assertIn("future_set", wizard)
@@ -2229,9 +2247,9 @@ class CLIExperienceTests(unittest.TestCase):
             args = ["init", "--project-root", str(self.root), "--agent", str(self.agent),
                     "--name", "future-demo", "--dataset", "future_set", "--harness", "future_harness",
                     "--optimizer", "future_opt", "--editable", "configs/strategy.json", "--yes"]
-            with contextlib.redirect_stdout(io.StringIO()):
+            with contextlib.redirect_stdout(io.StringIO()) as output:
                 self.assertEqual(main(args), 0)
-            experiment = self.root / "runs/configs/future-demo/experiment.toml"
+            experiment = Path(json.loads(output.getvalue())["experiment"])
             spec = load_experiment(experiment)
             self.assertNotIn("extensions", spec)
             self.assertNotIn("future_set", spec.get("plugins", {}).get("datasets", {}))

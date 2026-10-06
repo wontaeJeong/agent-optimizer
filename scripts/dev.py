@@ -30,14 +30,17 @@ def load(name, path):
 
 def run_core(command, *, human_output=False):
     """Use the project venv, never uv run's implicit environment installation."""
-    python = ROOT / ".venv/bin/python"  # Do not resolve executable symlinks.
+    python = Path(os.environ.get('AGENT_OPT_CORE_PYTHON', str(ROOT / '.venv/bin/python')))
+    if not python.is_absolute():
+        raise ConfigurationError('AGENT_OPT_CORE_PYTHON에는 기존 venv interpreter의 절대경로가 필요합니다')
+    prefix = python.parent.parent  # Do not resolve executable symlinks.
     environment = {key: value for key, value in os.environ.items()
                    if key not in {"PYTHONHOME", "PYTHONPATH"}}
     probe = subprocess.run(
         [str(python), "-I", "-B", "-c",
          "import sys; from pathlib import Path; assert sys.version_info >= (3, 11); "
          "assert sys.prefix != sys.base_prefix; "
-         "assert Path(sys.prefix).resolve() == Path(sys.argv[1]).resolve()", str(ROOT / ".venv")],
+         "assert Path(sys.prefix).resolve() == Path(sys.argv[1]).resolve()", str(prefix)],
         cwd=ROOT, env=environment, capture_output=True, timeout=15, shell=False,
     )
     if probe.returncode:
@@ -48,6 +51,7 @@ def run_core(command, *, human_output=False):
         "demo": ["agent_optimizer", "run", "examples/minimal/experiment.toml"],
     }
     child_options = ({"stdout": subprocess.PIPE, "text": True} if human_output else {})
+    environment['PYTHONPATH'] = str(ROOT / 'src')
     result = subprocess.run([str(python), "-m", *commands[command]], cwd=ROOT,
                             env=environment, shell=False, **child_options)
     code = result.returncode

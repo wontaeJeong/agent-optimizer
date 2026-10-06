@@ -6,6 +6,23 @@
 Git·Python·Docker 조회나 파일 생성 없이 동작합니다. `AGENT_OPT_LANG=en`은 사람용 안내만 영어로 바꾸며
 JSON 키·상태 코드·`doctor --json`의 단일 stdout 문서는 바꾸지 않습니다.
 
+## native·App Home과 개발 명령의 구분
+
+새 native 조건/명령은 [NATIVE](../examples/ace-rtl/NATIVE.md)다. 아래 옵션 없는 setup/doctor·smoke/live는 **기존 ACE coding 전체 경로**이며 native 전체 installer가 아니다. native는 사용자 선택 고정 **로컬 source/data**, CID/rows/splits·별도 3.12/native extra(PyYAML)·고정 driver·Docker/검토 image identity·API 환경을 요구한다. native init은 로컬 export/선택 검증·설정 생성이고, `prepare`는 고정 선택 자료/descriptor·source pin/asset/lock·native Python 3.12/yaml/pydantic_settings와 **outer benchmark**만 검사한다. outer는 repo entrypoint/driver 파일·task 형태와 **identity 선언 시** image inspect를 확인한다. `--offline`은 검사 범위를 확대하지 않으며 설치/다운로드/온라인 보완을 하지 않는다.
+
+**전체 정적 환경 진단은 `agent-opt doctor --plan CONFIG --json`**이다. pair별 source/interpreter·inner/outer driver Python/imports/image·모델 URL/ID/key/TLS 등을 검사한다. 실제 API는 `--model` probe로 별도 확인한다. prepare는 모델 설정·driver 패키지 imports·독립 inner 환경 전체를 검사하지 않아 해당 미준비에도 성공할 수 있다. prepare ready를 전체 환경 ready로 사용하지 않는다. [G 최종 §7](verification/final-mvp-g-20261001.md)의 wheel/fixture/진단 성공은 native live 성공이 아니다.
+
+App Home 기본 `~/.agent-optimizer`, `AGENT_OPT_HOME`은 절대 override만. 설정은 Home/experiments UUID, output은 CLI > 명시 TOML > Home/runs의 **부모**다. 기존 minimal `output_dir="runs"`는 project runs이며 migration은 없다. init JSON의 experiment와 run JSON의 run_dir을 후속 명령에 사용한다.
+
+기존 코어 환경을 다른 checkout에서 **실행에만** 쓸 때 `AGENT_OPT_CORE_PYTHON=/절대/기존-venv/bin/python`을 명시한다. venv identity·Python>=3.11 검사 후 현재 checkout src로 test/lint/demo·doctor-core를 실행한다. install 대상 변경이나 native 3.12 준비를 뜻하지 않는다.
+
+```bash
+AGENT_OPT_CORE_PYTHON=/absolute/existing-venv/bin/python make doctor-core
+AGENT_OPT_CORE_PYTHON=/absolute/existing-venv/bin/python make lint
+```
+
+CA는 개인키 없는 전체 PEM bundle, proxy/NO_PROXY는 [network](network.md)를 따른다. static doctor는 mkdir/download/model 없이 pin/파일/import/image identity를 검사하며 잘못된 Home·CA·source/data drift를 fallback하지 않는다. API probe는 `agent-opt doctor --plan CONFIG --model`로 명시한다. native inner/outer evaluator는 별도 검사하고 실제 선택 pair source/subdir/interpreter를 따른다. Stage/Cause/Blocked by/Fix/Retry와 code/errno를 확인하고 retry의 인용 경로·flags를 유지한다.
+
 | 개발 명령 | 범위·필요 도구 | 변경·호출과 실패 시 조치 |
 |---|---|---|
 | `setup-core` / `setup --core` | Mac/Ubuntu·Git, uv(없으면 curl/wget으로 설치), Python 3.11+ 가상환경(새로 준비할 때 3.12) | frozen 개발 의존성·`.venv` 동기화, 코어 진단, `runs/` 합성 데모 생성. 실패 시 `external/setup-logs/project-uv.log` 확인 후 같은 명령 재실행 |

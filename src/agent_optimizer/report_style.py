@@ -28,7 +28,7 @@ margin:.5rem .4rem 0 0;font-weight:650;font-size:.85rem}
 .warning{color:var(--warn)}.bad{color:var(--bad)}.good{color:var(--good)}
 .meta,.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,210px),1fr));gap:.7rem 1.4rem}
 .meta{padding:1rem 0;border-top:1px solid var(--border);border-bottom:1px solid var(--border);margin:1.25rem 0 0}
-.meta div{min-width:0}.meta dt{color:var(--muted);font-size:.76rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.meta div{min-width:0}.meta .wide{grid-column:1/-1}.meta dt{color:var(--muted);font-size:.76rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
 .meta dd{margin:.22rem 0 0;overflow-wrap:anywhere}.cards{margin:1rem 0 2rem}
 .card,.panel{border:1px solid var(--border);border-radius:7px;background:var(--surface)}
 .best{border-left:3px solid var(--good)}.best>strong{color:var(--good)}
@@ -44,6 +44,7 @@ thead th{color:var(--muted);font-size:.77rem;letter-spacing:.05em;background:var
 tbody tr:hover{background:color-mix(in srgb,var(--accent) 5%,transparent)}
 th[scope=row]{font-weight:600}.number{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 .table-scroll td:not(.number){min-width:7rem}.table-scroll td.evidence{min-width:16rem;max-width:35rem}
+.table-scroll th[scope=col]{min-width:5rem}.table-scroll th[scope=row]{min-width:7rem}
 .row-failed{border-left:3px solid var(--bad)}
 details{border-top:1px solid var(--border);margin:.75rem 0 0;padding:.55rem 0 0}
 summary{cursor:pointer;color:var(--accent);font-weight:600}details[open] summary{margin-bottom:.6rem}
@@ -146,6 +147,8 @@ gap:.3rem}.timeline-row .outcome{grid-column:1/-1;text-align:left}.headlines{gri
 .headline-group{border-right:0;border-bottom:1px solid var(--border)}}
 @media(max-width:650px){.quick-config{grid-template-columns:1fr 1fr}.quick-config>div:last-child{grid-column:1/-1}
 .chart .axis-label{display:none}}
+@media(max-width:480px){.quick-config,.meta{grid-template-columns:minmax(0,1fr)}
+.quick-config>div:last-child{grid-column:auto}.metric-heading,.panel,summary,h2,h3{overflow-wrap:anywhere}}
 @media print{ :root{color-scheme:light;--bg:#fff;--surface:#fff;--text:#151a20;
 --muted:#47515e;--border:#aab2ba;--accent:#155d70;--good:#12573d;--bad:#922536}
 body{background:#fff}nav,footer,#evaluations,#journey,#candidates,#stages,.cards{display:none}

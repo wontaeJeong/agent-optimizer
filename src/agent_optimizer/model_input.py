@@ -5,11 +5,22 @@ import getpass
 import os
 import sys
 import warnings
+import threading
 from contextlib import contextmanager
 
 from agent_optimizer.contracts import ConfigurationError
 from agent_optimizer.locale import t
 from agent_optimizer.models import DEFAULT_MODEL_ID, ModelSettings
+
+_execution_lock = threading.RLock()
+_snapshot_lock = threading.Lock()
+_base_environment = None
+
+
+def environment_snapshot() -> dict[str, str]:
+    """UI reads the ambient environment, never another worker's temporary credentials."""
+    with _snapshot_lock:
+        return dict(os.environ if _base_environment is None else _base_environment)
 
 
 def _ask(label: str) -> str:
@@ -52,10 +63,20 @@ def ensure_model_selector(env: dict[str, str], key: str) -> dict[str, str]:
 
 @contextmanager
 def session_environment(env: dict[str, str]):
-    previous = dict(os.environ)
-    try:
-        os.environ.update(env)
-        yield
-    finally:
-        os.environ.clear()
-        os.environ.update(previous)
+    """Serialize process-global execution contexts; nested contexts restore their owner."""
+    global _base_environment
+    with _execution_lock:
+        previous = dict(os.environ)
+        with _snapshot_lock:
+            outermost = _base_environment is None
+            if outermost:
+                _base_environment = previous
+        try:
+            os.environ.update(env)
+            yield
+        finally:
+            os.environ.clear()
+            os.environ.update(previous)
+            if outermost:
+                with _snapshot_lock:
+                    _base_environment = None

@@ -43,6 +43,10 @@ git diff --check
 
 ## 4. ACE/CVDP 실행환경과 모델 검증
 
+**현재 native 경로는 [프리셋 가이드](/agent-optimizer/getting-started/presets/)**의 사용자 선택 고정 로컬 source/data·명시 CID/row/split·별도 Python 3.12/native extra(PyYAML)·평가 driver·Docker/image identity·API 조건부터 확인합니다. init은 로컬 export/선택 검증·설정 생성, prepare는 고정 선택 자료/descriptor·source pin/asset/lock·native Python 3.12/yaml/pydantic_settings·outer benchmark 제한 검사입니다. outer repo entrypoint/driver 파일·task 형태와 **identity 선언 시에만** image inspect를 확인하며 모델·driver imports·독립 inner 환경 전체는 검사하지 않습니다. `--offline`은 범위 확대/자동 설치/다운로드/온라인 보완을 하지 않습니다.
+
+**전체 정적 환경 검증은 `doctor --plan CONFIG --json`**, 실제 API 연결은 `doctor --plan CONFIG --model --json`입니다. prepare는 모델 환경이 없어도 성공할 수 있으므로 준비 완료의 정본으로 사용하지 않습니다. doctor의 pair별 source·inner/outer driver/image·모델 URL/ID/key·TLS 등 checks를 확인한 뒤 작은 row Baseline smoke·독립 연구 설정으로 넓힙니다. native live·실 cleanup·Ubuntu loop는 not_run입니다. 아래 make 명령은 **기존 coding 전체 경로**입니다.
+
 **선택형 실환경 경로:** 코어 계약 테스트와 별도로 실제 Docker 자산·공식 채점기를 준비합니다. 저장소의 수동
 `official_cvdp=true` CI는 모델 자격증명 없이 공식 정답/오답과 ACE CLI의 인증 실패 경로를
 확인하며, 모델을 사용하는 live 성공은 뜻하지 않습니다.
@@ -66,3 +70,9 @@ sh scripts/bootstrap.sh doctor --model
 이 고정 `simple_feedback` 경로는 TUI Home의 **New Optimization** 또는 선택형 CLI의 [GEPA·Meta-Harness 프리셋](/agent-optimizer/getting-started/presets/)과 별개입니다. 2026-09-28 [source checkout 실환경 후속 기록](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/verification.md#2026-09-28-선택형-gepameta-harness-실모델공식-cvdp-후속-검증)에는 GEPA/Meta를 각각 **1 iteration, 실제 4/최대 5 trial**로 실행해 후보 사용과 공식 CVDP raw 각 4건을 확인한 근거가 있습니다. 둘 다 validation 동점으로 baseline을 선택했고 `final_test=[]`입니다. 기본 3회/최대 9 trial, 설치형 wheel의 GPT-5 plugin 후속 변경, 일반 성능 개선까지 검증한 것은 아닙니다.
 
 명령별 준비 조건과 부작용은 [개발 명령 기준](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/development.md)을 참고하고, 현재 검증된 범위와 미검증 항목은 [상태 문서](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/status.md)와 대조하세요.
+
+## 5. 배포·문서 검증
+
+[G 최종 §7](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/verification/final-mvp-g-20261001.md)은 전체 1155개 중 실행 1075 통과·기존 skip 80, Ruff·실제 source-free wheel build/install·합성 CLI/native helper/정적 진단·HTTP 근거입니다. 실모델/EDA 성공은 아닙니다. 기존 코어 환경 실행만 필요하면 `AGENT_OPT_CORE_PYTHON=/절대/기존-venv/bin/python make lint`로 현재 checkout을 검사합니다. setup 대상 변경은 아닙니다.
+
+사이트는 기존 Starlight를 사용합니다. Node 22.12+·website에서 `npm ci`, `npm run dev`, `npm run build`, `npm run check:links`를 사용합니다. 실제 check:links script는 astro build이며 내부 링크 validator를 포함합니다. `/agent-optimizer` base path·SVG/이미지·한글 anchor·code fence·360px/desktop을 확인하고 [H 증거](https://github.com/wontaeJeong/agent-optimizer/blob/main/docs/verification/final-mvp-h-20261001.md)를 남깁니다. 과거 날짜별 증거는 보존합니다.

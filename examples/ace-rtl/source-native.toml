@@ -1,0 +1,17 @@
+schema_version = 2
+id = "ace-rtl-native"
+description = "고정 ACE Python native run_attempt와 trusted CVDP 평가 연결"
+supported_harnesses = ["ace_native"]
+prompt_file = "native/guidance.md"
+editable = ["native/guidance.md", "native/orchestration.py"]
+
+# F의 writer가 prepare_source 반환 path를 절대경로로 기록한다.
+# 이 상대경로는 수동 준비용이며 자산 미준비 시 명시적으로 실패한다.
+[source]
+kind = "local"
+path = "native-source"
+timeout_seconds = 180
+
+# 고정 upstream: https://github.com/NVlabs/ACE-RTL.git
+# revision: fead921f18bb57345b5a41ef93ba625be208e99c
+# 실제 provenance는 준비된 native/source-lock.json에 기록한다.

@@ -716,6 +716,9 @@ class DeveloperCommandsTests(unittest.TestCase):
         self.output = io.StringIO()
         self.addCleanup(patch.stopall)
         patch.dict(os.environ, {}).start()
+        # Default-project fixtures must not consume make's external interpreter.
+        # Explicit override behavior is covered separately in test_g_integration.
+        os.environ.pop("AGENT_OPT_CORE_PYTHON", None)
         patch.object(self.dev.os, "chdir").start()
 
     def main(self, args):
@@ -741,7 +744,7 @@ class DeveloperCommandsTests(unittest.TestCase):
         self.assertIn("[doctor] check=environment complete", progress.getvalue())
 
     def test_direct_core_doctor_progress_does_not_require_rich_before_setup(self):
-        result = subprocess.run([str(ROOT / ".venv/bin/python"), "-S", "scripts/dev.py", "doctor", "--core", "--json"],
+        result = subprocess.run([sys.executable, "-S", "scripts/dev.py", "doctor", "--core", "--json"],
                                 cwd=ROOT, capture_output=True, text=True, timeout=60)
         report = json.loads(result.stdout)
         self.assertEqual(report["scope"], "core")

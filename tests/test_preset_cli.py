@@ -33,7 +33,7 @@ class PresetCLITests(unittest.TestCase):
         return status, output.getvalue(), error.getvalue()
 
     def init_ace(self, optimizer, name, *options):
-        with patch("agent_optimizer.preset_tui.prepare_ace_selection"):
+        with patch("agent_optimizer.preset_tui.prepare_ace_selection", return_value=self.root):
             result = self.call("init", "--name", name, "--agent-preset", "ace-rtl",
                                "--harness-profile", "ace-opencode", "--optimizer", optimizer,
                                "--dataset", "cvdp", "--yes", *options)
@@ -86,7 +86,7 @@ class PresetCLITests(unittest.TestCase):
                 spec = load_experiment(path)
                 tui = load_experiment(write_ace_selection(self.root, optimizer))
                 verify_ace_selection(spec)
-                self.assertEqual(path.parent.name, "cli-" + optimizer)
+                self.assertRegex(path.parent.name, "^cli-" + optimizer + "-[0-9a-f]{12}$")
                 self.assertEqual(json.loads(stdout)["stages"], [optimizer])
                 self.assertEqual(spec["stages"], tui["stages"])
                 self.assertEqual(spec["budget"], tui["budget"])
@@ -97,7 +97,7 @@ class PresetCLITests(unittest.TestCase):
                     scaffold = spec["stages"][0]["config"]["file"]
                     self.assertIn(scaffold, spec["_agents"][0].editable)
                     self.assertIn("runpy.run_path", " ".join(spec["_agents"][0].build))
-                    self.assertTrue((self.root / spec["candidate_seed_files"][scaffold]).is_file())
+                    self.assertTrue((spec["_seed_root"] / spec["candidate_seed_files"][scaffold]).is_file())
                 else:
                     self.assertEqual(spec["stages"][0]["config"]["file"],
                                      "skills/ace-rtl/references/role-guidance.md")
@@ -131,7 +131,9 @@ class PresetCLITests(unittest.TestCase):
             self.assertFalse((self.root / "runs/configs/invalid-ace").exists())
 
     def test_symlinked_config_root_is_rejected_before_ace_preparation(self):
-        (self.root / "runs").symlink_to(self.root / "examples", target_is_directory=True)
+        home = Path(os.environ["AGENT_OPT_HOME"])
+        home.mkdir()
+        (home / "experiments").symlink_to(self.root / "examples", target_is_directory=True)
         with patch("agent_optimizer.preset_tui.prepare_ace_selection",
                    side_effect=AssertionError("prepared before validating config root")):
             status, output, error = self.call(

@@ -5,8 +5,10 @@ import importlib.util
 import math
 import os
 import shutil
+import shlex
 import sys
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
 from agent_optimizer.catalog import DATASETS
@@ -16,6 +18,7 @@ from agent_optimizer.locale import current_language
 from agent_optimizer.registry import PROJECT_COMPONENTS, Registry, is_source_checkout
 from agent_optimizer.setup_wizard import _literal, _section, prepare_selection, write_experiment
 from agent_optimizer.workspace import safe_path
+from agent_optimizer.app_paths import app_path
 
 
 ACE_GUIDANCE = "skills/ace-rtl/references/role-guidance.md"
@@ -28,33 +31,51 @@ def _tr(korean: str, english: str) -> str:
     return english if current_language() == "en" else korean
 
 
-def preset_options(root: Path, page: str, agent: str = "ace-rtl") -> list[tuple]:
+@dataclass(frozen=True)
+class ChoiceRow:
+    """Stable component/action identity; tuple access preserves existing read-only consumers."""
+
+    id: str
+    kind: str
+    label: str
+    description: str
+    enabled: bool = True
+    reason: str = ""
+
+    def __getitem__(self, index):
+        return (self.label, self.description, self.enabled, self.reason)[index]
+
+    def __len__(self):
+        return 4
+
+
+def preset_options(root: Path, page: str, agent: str = "ace-rtl", *, harness: str | None = None) -> list[ChoiceRow]:
     """프리셋의 호환성·준비 조건을 UI와 분리해 한 곳에서 제공한다."""
-    agents = [("ACE-RTL", _tr(
+    agents = [ChoiceRow("ace-rtl", "component", "ACE-RTL", _tr(
         "RTL 문제 해결에 사용하는 외부 ACE Agent입니다.\n\nSource\n  pinned Git revision\n\n"
-        "Used with\n  OpenCode harness\n\nPreparation\n  Git source·CVDP 자산·Docker 준비가 필요할 수 있습니다",
+        "Used with\n  Python native 또는 명시 legacy skill harness\n\nPreparation\n  고정 source·CVDP·선택 평가 환경이 필요합니다",
         "External ACE Agent for RTL problem solving.\n\nSource\n  pinned Git revision\n\n"
-        "Used with\n  OpenCode harness\n\nPreparation\n  Git source, CVDP assets and Docker may be required"), True,
-               _tr("자산 준비 필요", "Assets to prepare"))]
+        "Used with\n  Python native or explicit legacy skill harness\n\nPreparation\n  Pinned source, CVDP and selected evaluation assets required"), True,
+               _tr("자산 준비 필요 · 구현됐으나 실환경 미검증", "Assets to prepare · live execution unverified"))]
     for path in sorted((root / "examples").glob("*/agent.toml")):
         registered_agent = load_agent(path)
-        agents.append((registered_agent.id, _tr(
+        agents.append(ChoiceRow(registered_agent.id, "component", registered_agent.id, _tr(
             "등록된 Agent입니다. 이번 preset과 연결된 실행 조합은 확인되지 않았습니다.",
             "Registered Agent; no execution combination is verified for this preset."), False,
                         _tr("이번 조합과 호환 불가", "Not compatible")))
     for path in (root / "examples/minimal/solo.toml", root / "examples/minimal/team.toml"):
         if path.is_file():
             registered_agent = load_agent(path)
-            agents.append((registered_agent.id, _tr(
+            agents.append(ChoiceRow(registered_agent.id, "component", registered_agent.id, _tr(
                 "합성 예제용 Agent입니다.\n\nSource\n  local fixture\n\n"
                 "Used with\n  Fixture harness\n\nDataset\n  sample_text",
                 "Synthetic fixture Agent.\n\nSource\n  local fixture\n\n"
                 "Used with\n  Fixture harness\n\nDataset\n  sample_text"), True,
                             _tr("구현됨", "Implemented")))
-    agents += [(_tr("내 Agent 연결하기", "Connect my Agent"),
+    agents += [ChoiceRow("advanced", "action", _tr("내 Agent 연결하기", "Connect my Agent"),
                 _tr("로컬/Git Agent와 editable을 입력하는 고급 설정", "Advanced local/Git Agent and editable configuration"), True,
                 _tr("입력/설정 필요", "Configuration needed")),
-               (_tr("기존 Agent 설정 선택", "Select existing Agent configuration"),
+               ChoiceRow("existing", "action", _tr("기존 Agent 설정 선택", "Select existing Agent configuration"),
                 _tr("기존 experiment.toml의 Agent·Harness·Optimizer·Dataset을 확인", "Use an existing experiment.toml configuration"), True,
                 _tr("입력/설정 필요", "Configuration needed"))]
     registry = Registry()
@@ -78,90 +99,101 @@ def preset_options(root: Path, page: str, agent: str = "ace-rtl") -> list[tuple]
                                   "Runs a baseline evaluation without edits.\n\nWhat it changes\n  nothing\n\n"
                                   "Requires\n  validation tasks\n\nEvaluation\n  baseline measurement"))):
         if name in registry.factories["optimizers"]:
-            optimizer_options.append(({"gepa": "GEPA", "meta_harness": "Meta-Harness",
+            optimizer_options.append(ChoiceRow(name, "component", {"gepa": "GEPA", "meta_harness": "Meta-Harness",
                                        "baseline": "Baseline"}[name], description, True,
                                       _tr("구현됨", "Implemented") if name == "baseline"
                                       else _tr("입력/설정 필요", "Configuration needed")))
     for name in sorted(registry.factories["optimizers"]):
         if name not in {"gepa", "meta_harness", "baseline"}:
-            optimizer_options.append((name, _tr("이번 ACE 프리셋의 수정 대상·실행 연결은 확인되지 않음; 고급 설정 사용", "No verified edit surface for this ACE preset; use advanced setup"), False,
+            optimizer_options.append(ChoiceRow(name, "component", name, _tr("이번 ACE 프리셋의 수정 대상·실행 연결은 확인되지 않음; 고급 설정 사용", "No verified edit surface for this ACE preset; use advanced setup"), False,
                                        _tr("이번 조합과 호환 불가", "Not compatible")))
     if is_source_checkout(root):
         for name in sorted(PROJECT_COMPONENTS["optimizers"]):
-            optimizer_options.append((name, _tr("프로젝트 등록 팀 Optimizer · 이번 프리셋의 옵션/수정 파일은 고급 설정에서 지정",
+            optimizer_options.append(ChoiceRow(name, "component", name, _tr("프로젝트 등록 팀 Optimizer · 이번 프리셋의 옵션/수정 파일은 고급 설정에서 지정",
                                                 "Project-registered team optimizer; configure its options/editable file in advanced setup"), False,
                                       _tr("입력/설정 필요", "Configuration needed")))
-    dataset_options = [("CVDP", _tr(
+    dataset_options = [ChoiceRow("cvdp", "component", "CVDP", _tr(
         "공식 RTL benchmark/evaluator를 사용합니다.\n\nTasks\n  train 1\n  validation 1\n\n"
         "Requires\n  준비된 CVDP assets",
         "Uses the official RTL benchmark and evaluator.\n\nTasks\n  train 1\n  validation 1\n\n"
         "Requires\n  prepared CVDP assets"), True,
                         _tr("자산 준비 필요", "Assets to prepare"))]
-    dataset_options.extend((name, _tr("ACE OpenCode 과제/평가기 호환성 미확인 · 기존 실험 사용",
+    if harness == 'ace-native':
+        dataset_options[0] = ChoiceRow('cvdp', 'component', 'CVDP',
+            '고정 데이터에서 CID·row·split을 직접 선택합니다. 실제 split 수와 final_test는 선택 결과를 사용합니다.\n평가 환경·지원 상태는 row별로 확인합니다.',
+            True, '자산 준비 필요 · row 형태 검토와 실환경 검증은 별개')
+    dataset_options.extend(ChoiceRow(name, "component", name, _tr("ACE OpenCode 과제/평가기 호환성 미확인 · 기존 실험 사용",
                                       "ACE OpenCode task/evaluator compatibility not established; use existing experiment"), False,
                             _tr("이번 조합과 호환 불가", "Not compatible"))
                            for name in sorted(DATASETS) if name != "cvdp")
     if is_source_checkout(root):
-        dataset_options.extend((name, _tr("프로젝트 등록 데이터셋 · ACE 출력/평가기 호환성 미확인",
+        dataset_options.extend(ChoiceRow(name, "component", name, _tr("프로젝트 등록 데이터셋 · ACE 출력/평가기 호환성 미확인",
                                           "Project-registered dataset; ACE output/evaluator compatibility not verified"), False,
                                 _tr("이번 조합과 호환 불가", "Not compatible"))
                                for name in sorted(PROJECT_COMPONENTS["datasets"]) if name not in DATASETS)
-    ace_harness = [("OpenCode", _tr(
+    ace_harness = [ChoiceRow('ace-native', 'component', 'Python native',
+                    '고정 Python run_attempt·세 역할 API·trusted CVDP 평가. 명시 CID/row/split과 로컬 고정 자산 선택 필요.\nGEPA: native/guidance.md\nMeta-Harness: native/orchestration.py\ncid007 PNR·상용 helper 제외; 실환경 not_run', True, '자산 준비 필요 · 실환경 미검증'),
+                    ChoiceRow("ace-opencode", "component", "OpenCode (legacy skill)", _tr(
         "선택한 ACE Agent를 OpenCode에서 실행합니다.\n\nRuntime\n  Docker\n\n"
         "Requires\n  OpenCode model selector\n  Docker",
         "Runs the selected ACE Agent through OpenCode.\n\nRuntime\n  Docker\n\n"
         "Requires\n  OpenCode-compatible model selector\n  Docker"), True,
                     _tr("자산 준비 필요", "Assets to prepare")),
-                   ("Claude Code", _tr("ACE 프로필 구현됨 · 선택형 조합은 기존 실험에서 지정",
+                    ChoiceRow("ace-claude-code", "component", "Claude Code", _tr("ACE 프로필 구현됨 · 선택형 조합은 기존 실험에서 지정",
                                        "ACE profile implemented · select it via existing experiment"), False,
                     _tr("이번 조합과 호환 불가", "Not compatible"))]
-    fixture_harness = [("Fixture", _tr(
+    fixture_harness = [ChoiceRow("fixture", "component", "Fixture", _tr(
                            "합성 fixture 과제만 실행합니다.\n\nRuntime\n  local fixture\n\n"
                            "Requires\n  no model or Docker",
                            "Runs synthetic fixture tasks only.\n\nRuntime\n  local fixture\n\n"
                            "Requires\n  no model or Docker"), True,
                         _tr("구현됨", "Implemented")),
-                       ("OpenCode", _tr("합성 과제용 OpenCode 프리셋 미검증 · 기존 실험 사용",
+                        ChoiceRow("ace-opencode", "component", "OpenCode", _tr("합성 과제용 OpenCode 프리셋 미검증 · 기존 실험 사용",
                                            "No verified OpenCode fixture preset; use existing experiment"), False,
                          _tr("이번 조합과 호환 불가", "Not compatible"))]
     if is_source_checkout(root):
         for name in sorted(PROJECT_COMPONENTS["harnesses"]):
-            row = (name, _tr("프로젝트 등록 팀 Harness · 전용 프로필/argv가 필요하면 고급 설정 사용",
+            row = ChoiceRow(name, "component", name, _tr("프로젝트 등록 팀 Harness · 전용 프로필/argv가 필요하면 고급 설정 사용",
                              "Project-registered team Harness; configure its profile/argv in advanced setup"), False,
                    _tr("입력/설정 필요", "Configuration needed"))
             ace_harness.append(row)
             fixture_harness.append(row)
-    own_harness = (_tr("내 Harness 연결하기", "Connect my Harness"),
+    own_harness = ChoiceRow("advanced", "action", _tr("내 Harness 연결하기", "Connect my Harness"),
                    _tr("argv 또는 등록된 파일 플러그인은 고급 설정 사용",
                        "Use advanced setup for argv or registered file plugins"), True,
                    _tr("입력/설정 필요", "Configuration needed"))
-    own_optimizer = (_tr("내 Optimizer 연결하기", "Connect my Optimizer"),
+    own_optimizer = ChoiceRow("advanced", "action", _tr("내 Optimizer 연결하기", "Connect my Optimizer"),
                      _tr("등록된 ID 또는 신뢰한 file.py:Symbol · 고급 설정에서 stage 옵션 검증",
                          "Registered ID or trusted file.py:Symbol · validate stage options in advanced setup"), True,
                      _tr("입력/설정 필요", "Configuration needed"))
-    own_dataset = (_tr("내 tasks.json 연결하기", "Connect my tasks.json"),
+    own_dataset = ChoiceRow("advanced", "action", _tr("내 tasks.json 연결하기", "Connect my tasks.json"),
                    _tr("로컬 공개 과제와 명시적 evaluator가 필요 · 채점기를 추측하지 않음",
                        "Local public tasks and explicit evaluator required; no inferred scoring"), True,
                    _tr("입력/설정 필요", "Configuration needed"))
-    existing_config = (_tr("기존 experiment.toml 선택", "Select existing experiment.toml"),
+    existing_config = ChoiceRow("existing", "action", _tr("기존 experiment.toml 선택", "Select existing experiment.toml"),
                        _tr("기존 파일의 네 선택과 호환성을 계획 검사로 확인",
                            "Validate all four selections in an existing file via plan checks"), True,
                        _tr("입력/설정 필요", "Configuration needed"))
-    fixture_optimizers = [("Baseline", _tr("변경 없는 합성 기준 측정", "Unchanged synthetic baseline"), True,
+    fixture_optimizers = [ChoiceRow("baseline", "component", "Baseline", _tr("변경 없는 합성 기준 측정", "Unchanged synthetic baseline"), True,
                            _tr("구현됨", "Implemented")),
-                          ("FileVariants", _tr("명시적 strategy.json 후보 · 모델 호출 없음",
+                           ChoiceRow("file_variants", "component", "FileVariants", _tr("명시적 strategy.json 후보 · 모델 호출 없음",
                                                "Explicit strategy.json candidate · no model call"), True,
                            _tr("구현됨", "Implemented"))]
-    fixture_optimizers.extend((name, _tr("이 합성 fixture의 수정/실행 계약 미연결 · 고급 설정 사용",
+    fixture_optimizers.extend(ChoiceRow(name, "component", name, _tr("이 합성 fixture의 수정/실행 계약 미연결 · 고급 설정 사용",
                                                "No verified edit/execution contract for this fixture; use advanced setup"), False,
                                _tr("이번 조합과 호환 불가", "Not compatible"))
                               for name in sorted(registry.factories["optimizers"])
                               if name not in {"baseline", "file_variants"})
     if is_source_checkout(root):
-        fixture_optimizers.extend((name, _tr("프로젝트 등록 팀 Optimizer · 고급 설정에서 옵션/평가기 확인",
+        fixture_optimizers.extend(ChoiceRow(name, "component", name, _tr("프로젝트 등록 팀 Optimizer · 고급 설정에서 옵션/평가기 확인",
                                                 "Project-registered team optimizer; check options/evaluator in advanced setup"), False,
                                    _tr("입력/설정 필요", "Configuration needed"))
                                   for name in sorted(PROJECT_COMPONENTS["optimizers"]))
+    if "gepa" in registry.factories["optimizers"]:
+        optimizer_options.append(ChoiceRow(
+            "gepa.merge", "planned", "GEPA merge · Planned",
+            "docs/FUTURE.md의 GEPA 병합 재활성화 계획입니다. 현재 merge=true는 거부됩니다.",
+            False, "미구현(Planned) · train/private 경계 회귀 후 검토 · GEPA merge=false 또는 기존 실험 사용"))
     optimizer_options.extend([own_optimizer, existing_config])
     fixture_optimizers.extend([own_optimizer, existing_config])
     dataset_options.extend([own_dataset, existing_config])
@@ -169,17 +201,23 @@ def preset_options(root: Path, page: str, agent: str = "ace-rtl") -> list[tuple]
     pages = {"Agent": agents,
              "Harness": [*(fixture_harness if fixture else ace_harness), own_harness, existing_config],
              "Optimizer": fixture_optimizers if fixture else optimizer_options,
-             "Dataset": [("sample_text", _tr(
+             "Dataset": [ChoiceRow("sample_text", "component", "sample_text", _tr(
                             "내장 합성 과제를 sample_eval로 채점합니다. 실제 RTL/LLM 점수가 아닙니다.\n\n"
                             "Tasks\n  synthetic train / validation / test\n\nRequires\n  없음",
                             "Scores built-in synthetic tasks with sample_eval; not RTL/LLM performance.\n\n"
                             "Tasks\n  synthetic train / validation / test\n\nRequires\n  none"), True,
                           _tr("구현됨", "Implemented")),
-                          ("CVDP", _tr("fixture 출력은 공식 CVDP 채점 형식과 호환되지 않음",
+                           ChoiceRow("cvdp", "component", "CVDP", _tr("fixture 출력은 공식 CVDP 채점 형식과 호환되지 않음",
                                             "Fixture outputs are incompatible with official CVDP scoring"), False,
                            _tr("이번 조합과 호환 불가", "Not compatible")), own_dataset, existing_config]
               if fixture else dataset_options}
-    return pages[page]
+    # Repeated manifests/registry metadata must not create duplicate Textual Option IDs.
+    rows = {}
+    for row in pages[page]:
+        previous = rows.get(row.id)
+        if previous is None or not previous.enabled and row.enabled:
+            rows[row.id] = row
+    return list(rows.values())
 
 
 def write_sample_selection(root: Path, agent_id: str, optimizer: str, *, name: str | None = None,
@@ -199,8 +237,7 @@ def write_sample_selection(root: Path, agent_id: str, optimizer: str, *, name: s
         stages = [{"id": "file-variants", "optimizer": "file_variants", "max_trials": 1,
                    "config": {"variants": [{"name": "repair", "files": {
                        "configs/strategy.json": '{"repair": true}\n'}}]}}]
-    return write_experiment(root / "runs/configs" / (identifier(name) if name else
-                                                   "fixture-" + uuid.uuid4().hex[:12]),
+    return write_experiment(app_path('experiments') / ((identifier(name) if name else 'fixture') + '-' + uuid.uuid4().hex[:12]),
                             agent=agent, harness={"adapter": "fixture", "id": "fixture"},
                             dataset=dataset, stages=stages, plugins=plugins, dependencies=dependencies,
                              name=name or f"{agent_id}-{optimizer.replace('_', '-')}-sample-text",
@@ -248,13 +285,15 @@ def ace_stage_config(optimizer: str, options: dict | None = None) -> dict:
 
 def write_ace_selection(root: Path, optimizer: str, *, name: str | None = None,
                         options: dict | None = None, max_trials: int | None = None,
-                        wall_time: float | None = None, trial_timeout: float | None = None) -> Path:
+                        wall_time: float | None = None, trial_timeout: float | None = None,
+                        asset_root: Path | None = None) -> Path:
     """고정 ACE 프리셋을 보존한 채 준비된 공개 두 과제의 독립 실험을 생성한다."""
     stage_config = ace_stage_config(optimizer, options)
     root = root.resolve()
     original = root / "examples/ace-rtl/experiment.toml"
     template = read_toml(original)
-    benchmark = root / template["benchmark"]
+    assets = asset_root or root
+    benchmark = assets / template["benchmark"]
     if not benchmark.is_file():
         raise ConfigurationError("ACE 공개 tasks.json 준비가 필요합니다")
     tasks, _ = load_tasks(benchmark)
@@ -274,21 +313,27 @@ def write_ace_selection(root: Path, optimizer: str, *, name: str | None = None,
     if (type(timeout) not in {int, float} or not math.isfinite(timeout) or timeout <= 0 or
             type(wall) not in {int, float} or not math.isfinite(wall) or wall <= 0):
         raise ConfigurationError("ACE 실행 시간 예산은 유한한 양수여야 합니다")
-    folder = root / "runs" / "configs" / (identifier(name) if name else "ace-" + uuid.uuid4().hex[:12])
-    if (root / "runs").is_symlink() or (root / "runs/configs").is_symlink():
-        raise ConfigurationError("실험 설정 디렉터리는 symlink일 수 없습니다")
+    folder = app_path('experiments') / ((identifier(name) if name else 'ace') + '-' + uuid.uuid4().hex[:12])
+    safe_path(folder, '.')
     if folder.exists() or folder.is_symlink():
         raise ConfigurationError(f"Generated configuration already exists: {folder}")
     folder.mkdir(parents=True, exist_ok=False)
     try:
-        prefix = folder.relative_to(root).as_posix()
         source = read_toml(root / template["agents"][0])
-        agent_path = template["agents"][0]
+        agent_path = 'agent.toml'
+        resolved_source = load_agent(root / template['agents'][0]).source
+        if resolved_source.kind == 'local':
+            source['source']['path'] = str(resolved_source.path)
+        elif resolved_source.url and '://' not in resolved_source.url and not resolved_source.url.startswith('git@'):
+            source['source']['url'] = str((root / Path(template['agents'][0]).parent / resolved_source.url).resolve())
+        agent_lines = ['schema_version = 2', *[f'{key} = {_literal(value)}' for key, value in source.items() if key not in {'source', 'schema_version'}], '', *_section('source', source['source'])]
+        (folder / 'agent.toml').write_text('\n'.join(agent_lines), encoding='utf-8')
+        shutil.copyfile(root / template['harnesses'][0], folder / 'harness.toml')
+        shutil.copyfile(benchmark, folder / 'tasks.json')
         seeds = {}
         if optimizer == "meta_harness":
             script = Path(__file__).with_name("ace_scaffold.py")
             shutil.copyfile(script, folder / "ace_scaffold.py")
-            agent_path = prefix + "/agent.toml"
             editable = [*source["editable"], ACE_SCAFFOLD]
             build = ["python3", "-c", SCAFFOLD_CALL, f"agent/{ACE_SCAFFOLD}", "task"]
             agent_lines = ["schema_version = 2", f"id = {_literal(source['id'])}",
@@ -298,16 +343,16 @@ def write_ace_selection(root: Path, optimizer: str, *, name: str | None = None,
                            f"editable = {_literal(editable)}", f"build = {_literal(build)}", ""]
             agent_lines += _section("source", source["source"])
             (folder / "agent.toml").write_text("\n".join(agent_lines), encoding="utf-8")
-            seeds[ACE_SCAFFOLD] = prefix + "/ace_scaffold.py"
+            seeds[ACE_SCAFFOLD] = 'ace_scaffold.py'
         experiment_name = name or "ace-rtl-opencode-" + optimizer.replace("_", "-")
         lines = ["schema_version = 1", f"name = {_literal(experiment_name)}",
-                 f"project_root = {_literal(os.path.relpath(root, folder))}",
+                 f"project_root = {_literal(str(root))}", 'config_root = "."',
+                 'candidate_seed_root = "config"',
                  f"agents = {_literal([agent_path])}",
-                 f"harnesses = {_literal(template['harnesses'])}",
-                 f"benchmark = {_literal(template['benchmark'])}",
+                 'harnesses = ["harness.toml"]', 'benchmark = "tasks.json"',
                  'evaluator = "cvdp"', "final_test = false",
                  f"final_stages = {_literal(['baseline'] if optimizer == 'baseline' else [optimizer])}",
-                 'output_dir = "runs"', ""]
+                 ""]
         if seeds:
             lines += _section("candidate_seed_files", seeds)
         lines += _section("preset_selection", {"agent": "ace-rtl", "harness": "ace-opencode",
@@ -315,8 +360,8 @@ def write_ace_selection(root: Path, optimizer: str, *, name: str | None = None,
         lines += _section("plugins.harnesses", template["plugins"]["harnesses"])
         lines += _section("budget", {"max_trials": maximum, "max_wall_time_seconds": wall,
                                       "trial_timeout_seconds": timeout})
-        lines += _section("evaluator_config", {"repo": str(root / "external/cvdp_benchmark"),
-                                                "python": str(root / "external/cvdp-venv/bin/python")})
+        lines += _section("evaluator_config", {"repo": str(assets / "external/cvdp_benchmark"),
+                                                "python": str(assets / "external/cvdp-venv/bin/python")})
         lines += ["[objective]", 'mode = "lexicographic"', "keep = 1", "",
                   "[[objective.metrics]]", 'name = "solve_rate"', 'source = "passed"',
                   'direction = "maximize"', 'aggregate = "mean"', ""]
@@ -359,13 +404,18 @@ def verify_ace_selection(spec: dict) -> None:
         expected_stage = ({} if optimizer == "baseline" else
                            {"id": optimizer, "optimizer": optimizer, "inputs": ["baseline"],
                             "max_trials": allowance, "config": expected_config})
-        expected_seed = ({ACE_SCAFFOLD: spec["_source"].parent.relative_to(root).as_posix()
-                          + "/ace_scaffold.py"} if optimizer == "meta_harness" else {})
+        external = spec.get('_config_root', root) != root
+        assets = Path(spec.get('evaluator_config', {}).get('repo', str(root / 'external/cvdp_benchmark'))).parent.parent if external else root
+        from agent_optimizer.integrations import verify_local_helpers
+        verify_local_helpers(root, assets, 'ace-rtl')
+        expected_seed = ({ACE_SCAFFOLD: ('ace_scaffold.py' if external else
+                          spec['_source'].parent.relative_to(root).as_posix() + '/ace_scaffold.py')}
+                         if optimizer == 'meta_harness' else {})
         valid = (
             choice == {"agent": "ace-rtl", "harness": "ace-opencode",
                        "optimizer": optimizer, "dataset": "cvdp"}
             and optimizer in {"gepa", "meta_harness", "baseline"}
-            and spec["_source"].is_relative_to(root / "runs/configs")
+            and (external or spec["_source"].is_relative_to(root / "runs/configs"))
             and source.source.kind == "git"
             and source.source.revision == "fead921f18bb57345b5a41ef93ba625be208e99c"
             and profile.get("adapter") == "ace_opencode"
@@ -381,13 +431,14 @@ def verify_ace_selection(spec: dict) -> None:
             and agent.supported_harnesses == source.supported_harnesses
             and agent.editable == expected_editable and agent.build == expected_build
             and spec["_profiles"][0] == profile
-            and spec["agents"] == [template["agents"][0] if optimizer != "meta_harness"
-                                   else spec["_source"].parent.relative_to(root).as_posix() + "/agent.toml"]
-            and spec["harnesses"] == template["harnesses"]
-            and spec["benchmark"] == template["benchmark"] and spec["evaluator"] == "cvdp"
+            and spec['agents'] == (['agent.toml'] if external else [template['agents'][0] if optimizer != 'meta_harness' else spec['_source'].parent.relative_to(root).as_posix() + '/agent.toml'])
+            and spec['harnesses'] == (['harness.toml'] if external else template['harnesses'])
+            and spec['benchmark'] == ('tasks.json' if external else template['benchmark']) and spec['evaluator'] == 'cvdp'
+            and (not external or safe_path(spec['_config_root'], spec['benchmark']).read_bytes()
+                 == safe_path(assets, template['benchmark']).read_bytes())
             and spec.get("candidate_seed_files", {}) == expected_seed
             and (optimizer != "meta_harness" or
-                 safe_path(root, expected_seed[ACE_SCAFFOLD]).read_bytes()
+                  safe_path(spec.get('_seed_root', root), expected_seed[ACE_SCAFFOLD]).read_bytes()
                  == Path(__file__).with_name("ace_scaffold.py").read_bytes())
             and spec["plugins"] == {"harnesses": template["plugins"]["harnesses"]}
             and type(spec["budget"]["max_trials"]) is int
@@ -403,10 +454,10 @@ def verify_ace_selection(spec: dict) -> None:
             and spec.get("stages", []) == ([] if optimizer == "baseline" else [expected_stage])
             and spec["objective"] == {"mode": "lexicographic", "keep": 1, "metrics": [
                 {"name": "solve_rate", "source": "passed", "direction": "maximize", "aggregate": "mean"}]}
-            and spec.get("output_dir") == "runs" and spec.get("repetitions", 1) == 1
+            and (spec.get('output_dir') is None if external else spec.get('output_dir') == 'runs') and spec.get("repetitions", 1) == 1
             and "pairs" not in spec and "plugin_dependencies" not in spec
-            and spec.get("evaluator_config") == {"repo": str(root / "external/cvdp_benchmark"),
-                                                  "python": str(root / "external/cvdp-venv/bin/python")}
+            and spec.get("evaluator_config") == {"repo": str(assets / "external/cvdp_benchmark"),
+                                                  "python": str(assets / "external/cvdp-venv/bin/python")}
         )
     except (ConfigurationError, OSError, ValueError, TypeError, KeyError, IndexError, AttributeError):
         valid = False
@@ -424,20 +475,24 @@ def _lifecycle(root: Path):
     return module
 
 
-def prepare_ace_selection(root: Path, *, offline: bool = False) -> None:
+def prepare_ace_selection(root: Path, *, offline: bool = False) -> Path:
     """확인 후 검증된 고정 연동 자산만 준비한다."""
     from agent_optimizer.registry import is_source_checkout
     if is_source_checkout(root):
-        _lifecycle(root).prepare(root, offline=offline)
+        from agent_optimizer.integrations import stage_local_integration
+        workspace = stage_local_integration(root, 'ace-rtl')
+        _lifecycle(workspace).prepare(workspace, offline=offline)
+        return workspace
     else:
         from agent_optimizer.integrations import prepare_pointer, write_pending_experiment
         pointer = root / "experiment.toml"
         if not pointer.exists():
             pointer = write_pending_experiment(root, "ace-rtl")
         prepare_pointer(pointer, offline=offline)
+        return root
 
 
-def execute_ace_selection(experiment: Path, *, on_event=None) -> tuple[Path, dict]:
+def execute_ace_selection(experiment: Path, *, on_event=None, output: Path | None = None) -> tuple[Path, dict]:
     """선택된 TOML을 검증·고정 평가 lock·runner에 연결한다."""
     from agent_optimizer.model_input import session_environment
     from agent_optimizer.models import ModelSettings
@@ -467,7 +522,8 @@ def execute_ace_selection(experiment: Path, *, on_event=None) -> tuple[Path, dic
         opencode_config = "/opt/agent-optimizer/opencode.json"
     else:
         raise ConfigurationError("ACE OpenCode 모델은 compatible/모델 또는 openrouter/모델을 선택하세요")
-    inspection = _lifecycle(root).inspect(root)
+    assets = Path(spec['evaluator_config']['repo']).parent.parent
+    inspection = _lifecycle(assets).inspect(assets)
     if not inspection["ready"]:
         failures = [f"{item['id']}: {render_diagnostic(item)}" for item in inspection["checks"]
                     if item["area"] == "evaluation" and item["status"] != "ok"]
@@ -485,20 +541,20 @@ def execute_ace_selection(experiment: Path, *, on_event=None) -> tuple[Path, dic
         for profile in spec["_profiles"]:
             if profile.get("runtime", {}).get("kind") == "docker":
                 profile["runtime"]["image"] = inspection["lock"]["images"]["agent"]["id"]
-        run_dir, summary = run_experiment(spec, Registry(), on_event=on_event)
+        run_dir, summary = run_experiment(spec, Registry(), output=output, on_event=on_event)
     return run_dir, summary
 
 
-def run_ace_selection(experiment: Path) -> int:
+def run_ace_selection(experiment: Path, *, output: Path | None = None) -> int:
     """비대화형 CLI의 기존 출력·종료 코드 유지."""
     from agent_optimizer.cli import next_command, show
     from agent_optimizer.terminal_report import ProgressDisplay
 
     with ProgressDisplay() as progress:
         progress.configure_budget(load_experiment(experiment)["budget"]["max_trials"])
-        run_dir, summary = execute_ace_selection(experiment, on_event=progress)
+        run_dir, summary = execute_ace_selection(experiment, on_event=progress, output=output)
     show({"run_dir": run_dir, "status": summary["status"], "trials_used": summary["trials_used"],
           "report_html": run_dir / "report.html"})
     print(f"결과 HTML: {run_dir / 'report.html'}", file=sys.stderr)
-    next_command(f"agent-opt report {run_dir}")
+    next_command(f"agent-opt report {shlex.quote(str(run_dir))}")
     return 0 if summary["status"] == "completed" else 3

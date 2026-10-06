@@ -100,11 +100,14 @@ def render_progress(group, objective, index=0):
     baseline = (f'<line class="baseline-line" x1="80" y1="{y(base):.2f}" x2="714" '
                 f'y2="{y(base):.2f}"/>' if base is not None else "")
     path = []
+    previous_stage = None
     for position, _, _, best in valid:
-        if not path:
+        stage = points[position].get("stage_id")
+        if not path or stage != previous_stage:
             path.append(f"M{x(position):.2f},{y(best):.2f}")
         else:
             path.append(f"H{x(position):.2f} V{y(best):.2f}")
+        previous_stage = stage
     dots = []
     boundaries = []
     tick_stride = max(1, math.ceil(len(points) / 8))
@@ -158,7 +161,9 @@ def render_progress(group, objective, index=0):
                       "선택은 전체 지표 우선순위·방향으로 결정되며 첫 지표 값이 같아도 후보가 바뀔 수 있습니다.",
                       "Dots show candidate values of the first metric; the step line shows the first metric of lexicographic leader. "
                       "Selection uses all metrics in priority order and their directions, even when the first metric is tied.")
-                   if multiple else _s("동일 그룹의 후보별 검증 집계만 비교합니다. 점은 후보 점수, 계단선은 지금까지의 최고점입니다. 최종 선택은 별도로 표시합니다."))
+                    if multiple else _s("동일 그룹의 후보별 검증 집계만 비교합니다. 점은 후보 점수, 계단선은 지금까지의 최고점입니다. 최종 선택은 별도로 표시합니다."))
+    description += _v(" 각 단계는 기준 후보에서 독립적으로 시작하며 단계 경계에서 선을 연결하지 않습니다.",
+                      " Each stage starts independently from the baseline; lines do not connect across stage boundaries.")
     curve_label = (_v("사전식 최고 후보의 첫 지표 값", "first metric of lexicographic leader")
                    if multiple else _s("최고점"))
     return (f'<section class="visual-section" id="progress-{index}"><div class="section-heading">'

@@ -683,7 +683,9 @@ class DriverLockTests(unittest.TestCase):
             self.assertEqual(result["evaluator_config"]["sim_image_id"], "sha256:" + "a" * 64)
             self.assertFalse(any(cmd[:2] == ["docker", "build"] and "docker/Dockerfile.sim" not in cmd
                                  for cmd in commands))
-            self.assertFalse(any("opencode" in str(cmd).lower() for cmd in commands))
+            self.assertFalse(any(Path(cmd[0]).name == "opencode" or
+                                 (cmd[:2] == ["docker", "build"] and
+                                  "docker/Dockerfile.agent" in cmd) for cmd in commands))
             commands.clear()
             reused = provider_module.Provider().prepare(self.external / "datasets/cvdp", offline=True)
             self.assertEqual(reused["evaluator_config"]["sim_image_id"], result["evaluator_config"]["sim_image_id"])

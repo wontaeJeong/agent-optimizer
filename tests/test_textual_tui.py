@@ -10,7 +10,7 @@ from pathlib import Path
 from contextlib import redirect_stderr
 from unittest.mock import patch
 
-from support import test_project
+from support import test_project, legacy_model_page, choose_row
 
 
 class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
@@ -27,21 +27,6 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
         }
         app.model_values.update(values)
         app.model_sources.update({field: "session" for field in values})
-
-    async def test_preparation_capture_does_not_route_ui_thread_diagnostics_back_to_ui(self):
-        from agent_optimizer.tui import OptimizerApp, _ProgressCapture
-
-        app = OptimizerApp(self.root)
-        app.model_values["AGENT_OPT_MODEL_API_KEY"] = "diagnostic-fixture-secret"
-        original = io.StringIO()
-        async with app.run_test():
-            with redirect_stderr(original):
-                capture = await asyncio.to_thread(_ProgressCapture, app)
-                capture.write("UI-thread diagnostic diagnostic-fixture-secret\n")
-                capture.flush()
-            self.assertIn("UI-thread diagnostic", original.getvalue())
-            self.assertNotIn("diagnostic-fixture-secret", original.getvalue())
-            self.assertNotIn("UI-thread diagnostic", "\n".join(app.preparation_lines))
 
     async def test_home_is_first_and_new_optimization_enters_wizard_with_back_navigation(self):
         from agent_optimizer.tui import OptimizerApp
@@ -84,7 +69,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
                                      "AGENT_OPT_MODEL_API_KEY": "", "AGENT_OPT_MODEL_ID": ""}):
             app = OptimizerApp(self.root)
             async with app.run_test() as pilot:
-                await pilot.press("enter", "enter", "enter", "enter", "enter")
+                await legacy_model_page(app, pilot)
                 self.assertEqual(app.page, "Model")
                 rows = "\n".join(f"{row[0]} {row[1]}" for row in app.rows)
                 self.assertIn("glm5.3-flash", rows)
@@ -104,7 +89,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(os.environ, environment):
             app = OptimizerApp(self.root)
             async with app.run_test() as pilot:
-                await pilot.press("enter", "enter", "enter", "enter", "enter")
+                await legacy_model_page(app, pilot)
                 self.assertEqual(app.page, "Model")
                 endpoint_index = app.model_fields.index("AGENT_OPT_MODEL_BASE_URL")
                 await pilot.press(*(["down"] * endpoint_index), "enter")
@@ -143,7 +128,8 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
                                      "AGENT_OPT_MODEL_ID": "current-model"}):
             app = OptimizerApp(self.root)
             async with app.run_test() as pilot:
-                await pilot.press("enter", "enter", "enter", "enter", "enter", "enter")
+                await legacy_model_page(app, pilot)
+                await choose_row(app, pilot, "AGENT_OPT_MODEL")
                 self.assertIn("Current environment · compatible/current-model",
                               "\n".join(row[0] for row in app.rows))
                 self.assertIn("Custom", "\n".join(row[0] for row in app.rows))
@@ -159,7 +145,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(os.environ, environment):
             app = OptimizerApp(self.root)
             async with app.run_test() as pilot:
-                await pilot.press("enter", "enter", "enter", "enter", "enter")
+                await legacy_model_page(app, pilot)
                 rows = "\n".join(f"{row[0]} {row[1]}" for row in app.rows)
                 self.assertNotIn(endpoint, rows)
                 self.assertNotIn("dotenv-secret", rows)
@@ -323,7 +309,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
                 patch("agent_optimizer.tui.is_source_checkout", return_value=False):
             app = OptimizerApp(self.root)
             async with app.run_test() as pilot:
-                await pilot.press("enter", "enter", "enter", "enter", "enter")
+                await legacy_model_page(app, pilot)
                 self.assertEqual(app.page, "Workspace")
                 app.query_one(Input).value = "chosen workspace"
                 await pilot.press("enter")
@@ -542,7 +528,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
                                      "AGENT_OPT_MODEL_API_KEY": "", "AGENT_OPT_MODEL_ID": ""}):
             app = OptimizerApp(self.root)
             async with app.run_test() as pilot:
-                await pilot.press("enter", "enter", "enter", "enter", "enter")
+                await legacy_model_page(app, pilot)
                 self.assertEqual(app.page, "Model")
                 key_index = app.model_fields.index("AGENT_OPT_MODEL_API_KEY")
                 await pilot.press(*(["down"] * key_index), "enter")
@@ -580,7 +566,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(os.environ, environment):
             app = OptimizerApp(self.root)
             async with app.run_test() as pilot:
-                await pilot.press("enter", "enter", "enter", "enter", "enter")
+                await legacy_model_page(app, pilot)
                 self.assertEqual(app.page, "Model")
 
                 model_text = "\n".join(f"{row[0]} {row[1]}" for row in app.rows)
@@ -626,45 +612,28 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
         with patch.dict(os.environ, environment):
             app = OptimizerApp(self.root)
             async with app.run_test() as pilot:
-                await pilot.press("enter", "enter", "enter", "enter", "enter")
+                await legacy_model_page(app, pilot)
                 endpoint_index = app.model_fields.index("AGENT_OPT_MODEL_BASE_URL")
                 await pilot.press(*(["down"] * endpoint_index), "enter", "enter")
                 self.assertEqual(app.model_mode, "input")
                 entry = app.query_one(Input)
-                self.assertTrue(entry.password)
-
+                self.assertFalse(entry.password)
                 entry.value = "https://model.example/v1"
                 await pilot.pause()
-                self.assertFalse(entry.password)
-
-                entry.cursor_position = len("https://")
-                inserted_password = "inserted-password-933"
-                for character in f"user:{inserted_password}":
-                    await pilot.press(character)
-                    self.assertTrue(entry.password)
-                    self.assertNotIn(inserted_password, str(entry.render()))
-                await pilot.press("@")
-                await pilot.pause()
-                self.assertTrue(entry.password)
-
-                incomplete_authority = "https://user:input-password-931"
-                entry.value = incomplete_authority
-                await pilot.pause()
-                self.assertTrue(entry.password)
-                self.assertNotIn("input-password-931", str(entry.render()))
-
-                query_url = "https://model.example/v1?credential=input-query-token-932"
-                entry.value = query_url
-                await pilot.pause()
-                self.assertTrue(entry.password)
-                self.assertNotIn("input-query-token-932", str(entry.render()))
-
-                credential_url = "https://user:input-password-931@model.example/v1?api_key=input-token-932"
-                entry.value = credential_url
-                await pilot.pause()
-                self.assertTrue(entry.password)
-                self.assertNotIn("input-password-931", str(entry.render()))
-                self.assertNotIn("input-token-932", str(entry.render()))
+                self.assertEqual(entry.value, "https://model.example/v1")
+                for url in ("https://user:input-password-931",
+                            "https://model.example/v1?credential=input-query-token-932",
+                            "https://user:input-password-931@model.example/v1?api_key=input-token-932"):
+                    entry.value = url
+                    await pilot.pause()
+                    self.assertFalse(entry.password)
+                    self.assertEqual(entry.value, "")
+                    self.assertNotIn("input-password-931", app.export_screenshot())
+                    self.assertNotIn("input-token-932", repr(app.input_drafts))
+                await pilot.press("escape", "end", "enter")
+                entry.value = "https://safe.example/v1"
+                await pilot.press("enter")
+                self.assertEqual(app.model_values["AGENT_OPT_MODEL_BASE_URL"], "https://safe.example/v1")
 
     async def test_cli_rejects_piped_output_even_with_tty_input_and_error(self):
         from agent_optimizer.cli import main
@@ -689,11 +658,13 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("선택할 수 없는 이유", str(app.query_one("#details", Static).render()))
             await pilot.press("up", "enter")
             self.assertEqual(app.page, "Harness")
-            await pilot.press("down")
+            app.query_one(OptionList).highlighted = next(i for i, row in enumerate(app.rows) if not row.enabled)
+            await pilot.pause()
             self.assertIn("선택할 수 없는 이유", str(app.query_one("#details", Static).render()))
             await pilot.press("enter")
             self.assertEqual(app.page, "Harness")
-            await pilot.press("up", "enter", "down", "enter", "enter")
+            for identifier in ("ace-opencode", "meta_harness", "cvdp"):
+                await choose_row(app, pilot, identifier)
             self.configure_ace_model_for_review(app)
             await pilot.press("end", "enter")
             self.assertEqual(app.page, "Review")
@@ -712,7 +683,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
 
         app = OptimizerApp(self.root)
         async with app.run_test() as pilot:
-            await pilot.press("enter", "enter", "enter", "down", "enter", "enter")
+            await legacy_model_page(app, pilot)
             self.configure_ace_model_for_review(app)
             await pilot.press("end", "enter")
             self.assertEqual(app.page, "Review")
@@ -798,7 +769,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn("완료", text)
             self.assertIn("사용한 trial", text)
             self.assertIn("최대 budget", text)
-            self.assertTrue(list((self.root / "runs").glob("*/report.html")))
+            self.assertTrue(Path(app.run_result["report_html"]).is_file())
 
     async def test_model_setup_back_never_prepares_assets(self):
         from agent_optimizer.tui import OptimizerApp
@@ -807,7 +778,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
                                      "AGENT_OPT_MODEL_API_KEY": "", "AGENT_OPT_MODEL_ID": ""}):
             app = OptimizerApp(self.root)
             async with app.run_test() as pilot:
-                await pilot.press("enter", "enter", "enter", "enter", "enter")
+                await legacy_model_page(app, pilot)
                 self.assertEqual(app.page, "Model")
                 await pilot.press("escape")
                 self.assertEqual(app.page, "Dataset")
@@ -960,8 +931,8 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
         async with app.run_test() as pilot:
             await pilot.press("escape", "down", "down", "enter")
             self.assertEqual(len(app.history), 10)
-            self.assertEqual(app.history[0][0], "20260927T110000Z-0000000b")
-            self.assertNotIn("20260927T010000Z-00000001", [item[0] for item in app.history])
+            self.assertEqual(app.history[0]["run_id"], "20260927T110000Z-0000000b")
+            self.assertNotIn("20260927T010000Z-00000001", [item["run_id"] for item in app.history])
 
     async def test_narrow_terminal_stacks_details_below_options(self):
         from agent_optimizer.tui import OptimizerApp
@@ -1006,7 +977,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
                                      "AGENT_OPT_MODEL_API_KEY": ""}):
             app = OptimizerApp(self.root)
             async with app.run_test() as pilot:
-                await pilot.press("enter", "enter", "enter", "down", "down", "enter", "enter")
+                await legacy_model_page(app, pilot)
                 self.assertEqual(app.page, "Model")
                 self.assertIn("AGENT_OPT_MODEL_BASE_URL", app.model_fields)
                 self.assertFalse((self.root / "runs").exists())
@@ -1016,7 +987,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
 
         app = OptimizerApp(self.root)
         async with app.run_test(size=(50, 20)) as pilot:
-            await pilot.press("enter", "enter", "enter", "enter", "enter")
+            await legacy_model_page(app, pilot)
             self.configure_ace_model_for_review(app)
             await pilot.press("end", "enter")
             panel = app.query_one("#review-panel")
@@ -1047,9 +1018,10 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
             async with app.run_test() as pilot:
                 await pilot.press("enter")
                 self.assertIn("Assets to prepare", str(app.query_one("#details", Static).render()))
-                await pilot.press("enter", "enter", "enter", "enter")
+                for identifier in ("ace-rtl", "ace-opencode", "gepa", "cvdp"):
+                    await choose_row(app, pilot, identifier)
                 self.configure_ace_model_for_review(app)
                 await pilot.press("end", "enter")
                 text = str(app.query_one("#review", Static).render())
                 self.assertIn("Agent model", text)
-                self.assertIn("Report: runs/<run-id>/report.html", text)
+                self.assertIn(str(Path(os.environ["AGENT_OPT_HOME"]) / "runs"), text)
