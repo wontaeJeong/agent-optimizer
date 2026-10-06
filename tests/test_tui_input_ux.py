@@ -294,3 +294,15 @@ class InputUXTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(await pilot.click('#path-apply'))
             await pilot.pause()
             self.assertEqual(app.page, 'Model')
+
+    async def test_advanced_to_run_preset_uses_preset_instead_of_custom_draft(self):
+        app = OptimizerApp(self.root)
+        async with app.run_test() as pilot:
+            await choose_row(app, pilot, 'advanced')
+            app.advanced_values['optimizer'] = ['gepa']
+            await pilot.press('escape')
+            await choose_row(app, pilot, 'presets')
+            await choose_row(app, pilot, 'fixture-solo-baseline')
+            self.assertFalse(app.advanced_active)
+            self.assertEqual(app._required_model_fields(), [])
+            self.assertIn('rtl-solo', app._review())

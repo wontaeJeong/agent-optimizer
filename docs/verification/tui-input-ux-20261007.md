@@ -61,3 +61,20 @@ PNG는 SVG를 로컬 브라우저에서 렌더링한 화면이다.
 고급 설정의 Agent·editable / Model의 연결 프로필을 확인한다.
 실행을 검증하려면 합성 Agent·Fixture·Baseline·sample_text를 명시 선택하고
 Review → 준비 → Doctor → 실행을 각각 확정한다.
+
+## 머지 전 CI 보완과 실행 프리셋 통합
+
+PR #68 첫 CI는 Python 3.11/3.12 전체 단위 검사·빌드 이후 설치형 PTY에서 실패했다.
+기존 검증 스크립트가 작업공간/기존 실험에서 즉시 입력 포커스를 전제로 했기 때문이다.
+새 목록에서 **경로 직접 입력 action을 먼저 확정**하도록 PTY 순서를 갱신했다.
+최근 실험의 행/상세에 겹치는 문구 대신 직접 입력 action이 렌더링된 시점을 기다린다.
+
+동시에 먼저 머지된 PR #69 실행 프리셋을 통합하여 Home 메뉴·기존 검증 기록을 보존했다.
+고급 설정 초안 → 실행 프리셋 전환에서 고급 설정 모드가 남지 않는 실제 Pilot 회귀도 추가했다.
+
+- 통합 전체 unittest: **1192개 중 실행 1112 통과·skip 80**(176.974s).
+- lint·wheel build: 통과.
+- **새 wheel 독립 설치 + 실제 PTY 메뉴/취소/기존 실험 실행 + HTML 보고서 생성**: 통과.
+  `python tests/test_installed_cli.py dist/agent_optimizer-0.3.0-py3-none-any.whl`을 실행했다.
+  ACE GEPA/Meta 설정 생성·prepare 부분은 외부 자산 준비를 모의하는 설치 계약 검사다.
+- native 실모델/평가 성공 여부는 PR #69의 별도 근거와 이 입력 UX의 미실행 범위를 구분한다.

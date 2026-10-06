@@ -1,6 +1,6 @@
 # Python native ACE·CVDP 실행 가이드
 
-**native 실모델·실 Docker/EDA loop는 현재 `not_run`**이다. CLI/TUI·loader·runner·진단·배포는 F/G에 통합됐고 정책은 예제 `native_selection.py`가 소유한다. 아래는 조건을 갖춘 사용자를 위한 안내이며 실행 성공 기록이 아니다. 과거 OpenCode/Claude Code·evaluator-only 성공과 구별한다.
+**native 정상 완료는 아직 미검증**이다. 2026-10-07 Mac TUI 프리셋에서 실제 Baseline CID002/004를 실행했고 prepare·doctor·모델 probe·실모델 호출·결과/History 저장까지 확인했지만 `no_eligible_candidate`로 실패했다. CID004의 별도 재현은 Markdown 모델 출력의 구조 검사 거부를 확인했다. [검증 기록](../../docs/verification/tui-run-presets-20261007.md)을 따른다. CLI/TUI·loader·runner·진단·배포는 F/G에 통합됐고 정책은 예제 `native_selection.py`가 소유한다. 아래는 조건을 갖춘 사용자를 위한 안내이며 실행 성공 기록이 아니다. 과거 OpenCode/Claude Code·evaluator-only 성공과 구별한다.
 
 | 구분 | native | 기존 coding(legacy) |
 |---|---|---|
@@ -70,7 +70,7 @@ agent-opt run "$CONFIG"
 --rows '{"cvdp_copilot_64b66b_decoder_0001":"train","cvdp_copilot_32_bit_Brent_Kung_PP_adder_0001":"validation"}'
 ```
 
-Meta는 다른 독립 init에서 `--optimizer meta_harness`로 선택한다. train/validation family와 필요 시 test를 사용자가 정하며 자동 held-out 분할은 없다. CLI/TUI는 명시 rows를 `max_tasks`로 재샘플링하지 않는다. TUI는 Home → 네 구성요소 → Native 경로/CID → row의 target·도구·지원/제외 사유 → split → Model → Review → Preparing → Doctor → 명시 실행 → Result/History다. test를 선택하면 Review의 final_test·예약 budget을 확인하고 **선택 고정 후**에만 평가한다.
+Meta는 다른 독립 init에서 `--optimizer meta_harness`로 선택한다. train/validation family와 필요 시 test를 사용자가 정하며 자동 held-out 분할은 없다. CLI/TUI는 명시 rows를 `max_tasks`로 재샘플링하지 않는다. TUI는 Home → 네 구성요소 → Native 경로/CID → row의 target·도구·지원/제외 사유 → split → Model → Review → Preparing → Doctor → 명시 실행 → Result/History다. Home의 **실행 프리셋**에서 CID002/004/016과 Optimizer 조합을 선택하면 상세 화면에 선언된 row·split을 함께 적용하고 Native로 이동한다. Baseline은 validation 한 row, GEPA/Meta는 서로 다른 family의 train 한 row·validation 한 row를 사용한다. test는 내장 프리셋에 없으며 사용자가 추가했을 때 Review의 final_test·예약 budget을 확인하고 **선택 고정 후**에만 평가한다.
 
 ## 4. CID 지원표
 
