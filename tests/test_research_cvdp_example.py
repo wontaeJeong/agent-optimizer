@@ -69,7 +69,7 @@ def loopback_model(*, invalid_agent=False, invalid_optimizer=False, agent_status
 
     system_prompt = (ROOT / "examples/model-rtl-agent/agent/prompts/system.md").read_text()
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    worker = threading.Thread(target=server.serve_forever, daemon=True)
+    worker = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
     worker.start()
     try:
         yield f"http://127.0.0.1:{server.server_port}/v1", requests

@@ -189,7 +189,7 @@ class LocalNetworkIntegrationTests(unittest.TestCase):
         server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
         if tls:
             server.socket = tls.wrap_socket(server.socket, server_side=True)
-        worker = threading.Thread(target=server.serve_forever, daemon=True)
+        worker = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01}, daemon=True)
         worker.start()
         def stop():
             server.shutdown()
