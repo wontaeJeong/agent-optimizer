@@ -36,3 +36,9 @@ env TMPDIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-p
 ```
 
 wheel build 종료 0, 설치형 catalog/TUI/사용자 설정 실제 실행과 legacy GEPA/Meta 생성·prepare의 외부 준비 모의 계약 통과. 이후 lint·공백 검사도 통과했다. 기존 임시 build-env의 build 모듈이 더 이상 준비돼 있지 않아 uv의 격리 build를 사용했다. 원래 공유 코어 환경은 재설치하지 않았다.
+
+## PR CI의 PTY 프레임 경합
+
+수동 CI `37481556906`는 Python 3.11·3.12 전체 단계 통과. 동시에 생성된 PR CI `37481563382`는 Python 3.11의 설치형 PTY 관측에서 실패했다. 입력이 없는 `준비 중` 관측이 한 번에 읽힌 동일 프레임의 `Doctor로 계속`까지 소비하여, 다음 단계가 재출력되지 않는 marker를 기다렸다. 실제 프로세스가 한 프레임에 세 marker를 출력하는 회귀로 12초 timeout을 재현했다. 관측만 하는 단계는 cursor를 유지하고 실제 입력을 보내는 단계만 이전 프레임을 소비하도록 수정했다. 제품 준비 상태·timeout·필수 marker assertion은 바꾸지 않았다.
+
+보완 후 `PYTHONPATH=src:tests PYTHONDONTWRITEBYTECODE=1 <공유 Python> -m unittest test_installed_cli_protocol -v`는 1개/0.269초 통과. 위 실제 설치형 smoke와 lint·공백 검사도 다시 통과했다. 진행 중 main에 PR #65의 CI Gate·squash 정책이 병합되어, 해당 최신 main을 작업 브랜치에 일반 merge로 반영하고 PR CI Gate의 새 성공을 확인한다. main이나 다른 작업의 변경을 덮어쓰지 않는다.

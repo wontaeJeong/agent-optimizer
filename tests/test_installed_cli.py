@@ -58,7 +58,10 @@ def interact_tui(cli: Path, project: Path, environment: dict,
                         transcript.extend(os.read(master, 65536))
                     except OSError as exc:
                         raise AssertionError(f"설치형 TUI PTY 읽기 실패: {exc}") from exc
-            cursor = len(transcript)
+            # Observations without input may share a single render with the next
+            # state; retain that frame until an action changes the application.
+            if keys:
+                cursor = len(transcript)
             os.write(master, keys)
         deadline = time.monotonic() + 12
         while child.poll() is None:
