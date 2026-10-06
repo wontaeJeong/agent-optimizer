@@ -1,5 +1,13 @@
 # 검증 기록
 
+## 2026-10-06 CI 전체 경로 최적화
+
+- PR #66 뒤 남은 Docker 준비·Verilog-Eval 전체 평가·native 다운로드·Pages·release를 독립 `perf/ci-integration-runtime`에서 보완했다. `AGENT_OPT_BUILD_CACHE_DIR`는 Buildx local cache·이미지별 잠금·실패 보존·성공 export 교체를 사용한다. 기존 고정 source/hash/driver/image 판정은 유지한다. 실제 러너 이미지별 `.deb` cache, 문서 무관 PR의 Pages 단계 생략, 같은 release run에서 검증한 sdist/wheel 재사용과 게시 없는 dry-run을 연결했다.
+- 초기 로컬 Mac ARM64/Python 3.12.12: 전체 **969개 중 890 통과·79 skip·실패 0, 61.884초**, cache 경계 7개·verifier 47개, lint/actionlint·합성 7 trial·sdist→wheel·독립 설치 검증 통과. 새 로그 회귀 추가 후 **970개 중 891 통과·79 skip·실패 0, 61.864초**였다. 이 수치는 당시 코드 기준이며 후속 main 통합 검증과 구분한다.
+- [첫 수동 전체 CI 37486884801](https://github.com/wontaeJeong/agent-optimizer/actions/runs/37486884801)의 Ubuntu x86_64/Icarus v12에서 두 모드의 **156×2 reference와 모드별 오답 sanity를 실제 실행**했다. spec은 152/156 통과, completion은 153/156 통과였고 오답 sanity는 둘 다 proven mismatch였다. 모든 과제를 방문했지만 **전체 검사는 실패**다. 원본 `Prob082_lfsr32`, `Prob141_count_clock`, `Prob156_review2015_fancytimer`에서 두 모드 모두 infrastructure_error, spec의 `Prob099_m2014_q6c`는 compile_failure였다. 고정 upstream의 timeout·port 불일치와 [SOURCES](SOURCES.md)를 대조하며 checker/reference/SHA/성공 조건은 변경하지 않았다.
+- [첫 release dry-run 37486890063](https://github.com/wontaeJeong/agent-optimizer/actions/runs/37486890063)은 Python 3.11에서 TUI 준비 로그의 UI-thread 재진입을 발견해 실패했다. 실제 headless UI 회귀로 재현했고, 이후 main에 병합된 `PreparationLine` 메시지 전달과 통합하여 재검증한다. 같은 run의 artifact 전달이 완료되기 전에는 release dry-run 성공으로 간주하지 않는다.
+- 완성된 Icarus layer export는 reference 평가 실패와 독립적으로 보존하도록 restore/save를 분리했다. 직렬 비교용 `verilog_jobs=1`과 기본 병렬 `2`의 concurrency도 분리했다. private 원시 자료·로그는 공개 artifact에 넣지 않고 기존 정제된 summary만 보존한다. 후속 실제 결과·cold/warm 시간은 아래에 추가한다.
+
 ## 2026-10-06 CI 실행 시간 최적화
 
 - 기준: `origin/main`의 `edbd2b8`에서 독립 `perf/ci-runtime` 워크트리를 생성했다. 최근 main [core-tests 36498578769](https://github.com/wontaeJeong/agent-optimizer/actions/runs/36498578769)는 전체 205초, Python 3.11/3.12 테스트 단계는 각각 147/128초, native simulator 설치는 각각 11초, build+설치 검증은 26/16초였다. [Pages 36498578714](https://github.com/wontaeJeong/agent-optimizer/actions/runs/36498578714)는 build job 20초·deploy job 8초이며 이미 npm cache를 사용한다.

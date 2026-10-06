@@ -76,7 +76,19 @@ upstream 패키지를 설치하거나 원본 소스를 복사·실행한 것은 
 이 분리는 외부 버전 변경이 아니며 모델/실 Agent 결과의 신규 검증을 뜻하지 않는다.
 
 Verilog-Eval v2의 Mac 단일 문제 실도구 판정과 **전체 156×2건 Ubuntu 실도구 검증**은 다르다.
-Ubuntu 전체는 병합 후 수동 CI 전까지 미검증이며 실제 Agent/모델 최적화도 검증하지 않았다.
+Ubuntu 전체의 실제 결과는 [CI 전체 최적화 검증](verification.md#2026-10-06-ci-전체-경로-최적화)에
+구분해 기록한다. 실제 Agent/모델 최적화도 검증하지 않았다.
+
+## CI 캐시와 전체 reference 검사 (2026-10-06)
+
+- [Docker local cache](https://docs.docker.com/build/cache/backends/local/)와
+  [Actions cache 예제](https://docs.docker.com/build/ci/github-actions/cache/)를 Context7 `/docker/docs`로 대조했다.
+  `network.py`의 local importer/exporter·`--load` 및 `ci.yml`의 고정 Buildx v0.21.3 연결 근거다.
+  최신 문서의 `reset=true` 대신 새 디렉터리 export 후 잠금 안에서 교체하여 해당 Buildx 버전과 호환한다.
+- 위 고정 Verilog-Eval SHA의 `Prob082_lfsr32_test.sv`는 stimulus의 종료보다 이른 시뮬레이션
+  timeout을 포함한다. `Prob099_m2014_q6c_ref.sv`와 같은 모드의 checker는 포트 선언이 다르다.
+  이는 전체 검사 실패의 원본 자료 근거이며, 해당 reference/checker와 SHA·점수 판정은 수정하지 않았다.
+  CI·병렬화 성공으로 156개 모두 통과했다고 표현하지 않는다.
 
 ## Task 5 pinned data / provider inspection (2026-09-20)
 
