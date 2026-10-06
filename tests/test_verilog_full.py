@@ -8,6 +8,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import threading
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import asdict
@@ -67,7 +68,37 @@ class VerilogFullTests(unittest.TestCase):
         (folder / (problem + "_test.sv")).write_text(PRIVATE)
         return Task(problem, "validation", "public prompt", {"solution.sv": ""},
                     {"source_dir": str(self.source), "problem_id": problem,
-                     "mode": mode, "dataset": dataset})
+                      "mode": mode, "dataset": dataset})
+
+    def test_parallel_cases_overlap_keep_all_verdicts_and_private_files_unchanged(self):
+        tasks = [self.task("Prob002"), self.task("Prob001_zero")]
+        barrier = threading.Barrier(2)
+        evaluator = RecordingEvaluator({
+            "Prob001_zero": Evaluation("passed", {"passed": 1.0}, "ok"),
+            "Prob002": Evaluation("failed", {"passed": 0.0}, "Verilog-Eval: 1 mismatches in 2 samples"),
+        }, self.source)
+        original = evaluator.evaluate
+        def evaluate(*args):
+            barrier.wait(timeout=2)
+            return original(*args)
+        evaluator.evaluate = evaluate
+        summary = verify_tasks(tasks, evaluator, self.run / "verilog-spec", "verilog-spec", jobs=2)
+        self.assertEqual(summary["attempted"], 2)
+        self.assertEqual(summary["failed"], 1)
+        self.assertEqual([case["id"] for case in summary["cases"]], ["Prob001_zero", "Prob002"])
+        self.assertEqual(summary["cases"][1]["reason"], "mismatch")
+        self.assertEqual(sorted(evaluator.calls), ["Prob001_zero", "Prob002"])
+        for task in tasks:
+            source = self.source / "dataset_spec-to-rtl"
+            self.assertEqual((source / f"{task.id}_test.sv").read_text(), PRIVATE)
+            self.assertEqual((source / f"{task.id}_ref.sv").read_text(), REFERENCE)
+
+    def test_invalid_parallelism_does_not_create_a_ledger(self):
+        for jobs in (0, -1, 17, True):
+            out = self.run / f"bad-{jobs}"
+            with self.subTest(jobs=jobs), self.assertRaises(ConfigurationError):
+                verify_tasks([], None, out, "verilog-spec", jobs=jobs)
+            self.assertFalse(out.exists())
 
     def test_reference_rewrites_only_single_line_start_declaration_in_both_modes(self):
         for dataset in ("verilog-spec", "verilog-completion"):
@@ -926,6 +957,8 @@ class VerilogFullWorkflowTests(unittest.TestCase):
             step = cls._fields(rows, 8)
             if "with" in step:
                 step["with"] = cls._fields(cls._block(rows, 8, "with"), 10)
+            if "env" in step:
+                step["env"] = cls._fields(cls._block(rows, 8, "env"), 10)
             if step.get("run") == "|":
                 index = rows.index("        run: |")
                 script = []
@@ -1017,7 +1050,8 @@ class VerilogFullWorkflowTests(unittest.TestCase):
                          "runs/verilog-eval-full/${{ matrix.dataset }}/summary.json")
         self.assertEqual(uploads[0]["with"].get("if-no-files-found"), "error")
         self.assertIn("${{ matrix.dataset }}", uploads[0]["with"]["name"])
-        self.assertTrue(all("env" not in step for step in steps))
+        for step in steps:
+            self.assertLessEqual(set(step.get("env", {})), {"CACHE_BUILDER"})
 
     def test_python_only_path_enforces_scope_and_artifact_contract(self):
         with patch("shutil.which", return_value=None):
@@ -1046,7 +1080,10 @@ class VerilogFullWorkflowTests(unittest.TestCase):
                 self.workflow = self._load_workflow(self.workflow_path, self.workflow_text)
                 with self.assertRaises(AssertionError):
                     self.test_each_full_mode_gets_pinned_environment_and_strict_host_check()
-                self.workflow_text = original.replace("          if-no-files-found: error", "", 1)
+                self.workflow_text = original.replace(
+                    "          path: runs/verilog-eval-full/${{ matrix.dataset }}/summary.json\n"
+                    "          if-no-files-found: error",
+                    "          path: runs/verilog-eval-full/${{ matrix.dataset }}/summary.json", 1)
                 self.workflow = self._load_workflow(self.workflow_path, self.workflow_text)
                 with self.assertRaises(AssertionError):
                     self.test_failure_artifact_contains_only_selected_mode_sanitized_summary()

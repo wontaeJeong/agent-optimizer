@@ -9,6 +9,7 @@ import re
 import subprocess
 import tempfile
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from agent_optimizer.config import load_tasks
@@ -110,12 +111,14 @@ def _initial_summary(mode: str, remaining: int, scope: str = "full") -> dict:
 
 def verify_tasks(tasks: list[Task], evaluator, out: Path, mode: str, *, timeout: float = 90,
                  _summary: dict | None = None, _finalize: bool = True,
-                 scope: str = "full") -> dict:
+                 scope: str = "full", jobs: int = 1) -> dict:
     """Visit all supplied tasks, recording only public IDs and categorized verdicts."""
     if not isinstance(mode, str) or mode not in _MODES:
         raise ConfigurationError("Unsupported Verilog-Eval dataset")
     if scope not in {"full", "smoke"}:
         raise ConfigurationError("Unsupported Verilog-Eval verification scope")
+    if type(jobs) is not int or not 1 <= jobs <= 16:
+        raise ConfigurationError("Verilog-Eval jobs must be an integer from 1 to 16")
     out = Path(out)
     if _summary is None:
         summary = _initial_summary(mode, len(tasks), scope)
@@ -133,17 +136,15 @@ def verify_tasks(tasks: list[Task], evaluator, out: Path, mode: str, *, timeout:
             raise ConfigurationError("Verilog-Eval initialized ledger is invalid")
         summary = _summary
 
-    seen = set()
-    for task in sorted(tasks, key=lambda row: row.id if isinstance(row.id, str) else ""):
+    def evaluate_case(task, duplicate):
         started = time.monotonic()
         case_id = task.id if isinstance(task.id, str) and _ID.fullmatch(task.id) else "<invalid>"
         case = {"id": case_id, "status": "failed", "passed": None,
                 "reason": "reference_invalid"}
         try:
             _public_id(task.id)
-            if task.id in seen or task.evaluation.get("problem_id") != task.id:
+            if duplicate or task.evaluation.get("problem_id") != task.id:
                 raise _ReferenceInvalid("Duplicate or mismatched Verilog-Eval problem ID")
-            seen.add(task.id)
             if task.evaluation.get("mode") != _MODES[mode]:
                 raise _ReferenceInvalid("Verilog-Eval task mode mismatch")
             source = task.evaluation.get("source_dir")
@@ -174,11 +175,32 @@ def verify_tasks(tasks: list[Task], evaluator, out: Path, mode: str, *, timeout:
                 case["status"] = "infrastructure_error"
                 case["reason"] = "infrastructure_error"
         case["elapsed_seconds"] = time.monotonic() - started
+        return case
+
+    def record(case):
         summary["cases"].append(case)
+        summary["cases"].sort(key=lambda row: row["id"])
         summary["attempted"] += 1
         summary["unattempted"] = len(tasks) - summary["attempted"]
         summary["failed"] += case["status"] != "passed"
         write_json(summary_path, summary)
+
+    seen = set()
+    scheduled = []
+    for task in sorted(tasks, key=lambda row: row.id if isinstance(row.id, str) else ""):
+        duplicate = isinstance(task.id, str) and task.id in seen
+        if isinstance(task.id, str):
+            seen.add(task.id)
+        scheduled.append((task, duplicate))
+    if jobs == 1:
+        for task, duplicate in scheduled:
+            record(evaluate_case(task, duplicate))
+    else:
+        # Only the coordinator writes the ledger; workers own disjoint case paths.
+        with ThreadPoolExecutor(max_workers=jobs) as executor:
+            futures = [executor.submit(evaluate_case, task, duplicate) for task, duplicate in scheduled]
+            for future in as_completed(futures):
+                record(future.result())
 
     if _finalize:
         summary["status"] = ("passed" if len(tasks) == summary["expected"]
@@ -282,11 +304,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--require-ubuntu-amd64", action="store_true")
     parser.add_argument("--smoke-one", action="store_true")
+    parser.add_argument("--jobs", type=int, default=1)
     try:
         args = parser.parse_args(argv)
     except SystemExit as exc:
         return int(exc.code)
-    if args.dataset not in _MODES or (args.smoke_one and args.require_ubuntu_amd64):
+    if (args.dataset not in _MODES or (args.smoke_one and args.require_ubuntu_amd64)
+            or not 1 <= args.jobs <= 16):
         try:
             parser.error("Unsupported Verilog-Eval dataset")
         except SystemExit:
@@ -323,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
         selected = ([next(task for task in tasks if task.id == "Prob001_zero")]
                     if args.smoke_one else tasks)
         summary = verify_tasks(selected, evaluator, out, args.dataset, _summary=summary,
-                               _finalize=False, scope=scope)
+                               _finalize=False, scope=scope, jobs=args.jobs)
         wrong = next(task for task in tasks if task.id == "Prob001_zero")
         output = safe_path(out, "sanity/Prob001_zero/output")
         candidate = safe_path(output, "solution.sv")

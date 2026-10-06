@@ -76,6 +76,17 @@ class CIRunnerTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("테스트", result.stdout + result.stderr)
 
+    def test_worker_import_does_not_mutate_snapshot_with_bytecode(self):
+        result, summary = self.run_fixture({
+            "candidate.py": "VALUE = 7\n",
+            "test_readonly.py": "import unittest\nfrom pathlib import Path\nimport candidate\n"
+                                "class A(unittest.TestCase):\n def test_readonly(self):\n"
+                                "  self.assertEqual(candidate.VALUE, 7)\n"
+                                "  self.assertFalse(Path(__file__).with_name('__pycache__').exists(), 'snapshot mutated by import')\n",
+        })
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(summary["tests"], 1)
+
     def test_repository_imports_work_without_pythonpath(self):
         result, summary = self.run_fixture({
             "test_import.py": "import unittest\nfrom examples.benchmarks.verilog_eval import REVISION\n"
