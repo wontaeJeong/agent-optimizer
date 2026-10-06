@@ -1,5 +1,15 @@
 # 검증 기록
 
+## 2026-10-06 CI 실행 시간 최적화
+
+- 기준: `origin/main`의 `edbd2b8`에서 독립 `perf/ci-runtime` 워크트리를 생성했다. 최근 main [core-tests 36498578769](https://github.com/wontaeJeong/agent-optimizer/actions/runs/36498578769)는 전체 205초, Python 3.11/3.12 테스트 단계는 각각 147/128초, native simulator 설치는 각각 11초, build+설치 검증은 26/16초였다. [Pages 36498578714](https://github.com/wontaeJeong/agent-optimizer/actions/runs/36498578714)는 build job 20초·deploy job 8초이며 이미 npm cache를 사용한다.
+- 수동 [공식 CVDP 36038288690](https://github.com/wontaeJeong/agent-optimizer/actions/runs/36038288690)의 과거 준비 단계는 797초였다. 이는 당시 Docker 준비의 병목 근거이며 이번 변경의 실행 증거가 아니다. 이번에는 Python 다운로드·고정 CVDP 데이터만 캐시하고 기존 데이터 hash·이미지 검사를 유지한다. Docker 레이어 캐시나 full Verilog-Eval 평가 병렬화는 추가하지 않았다.
+- Mac ARM64 / Python 3.12.12 / uv 0.10.7: 변경 전 시간 측정용 `unittest.TextTestResult`로 `PYTHONPATH=src .venv/bin/python`에서 전체 discovery 실행, **953개 중 874 통과·79 skip·실패 0, 125.515초**. 모듈 합산 TUI 35.9초, onboarding 24.6초, 모의 모델 HTTP 서버를 쓰는 여러 모듈에 기본 종료 polling 대기가 누적됐다.
+- HTTP fixture의 `serve_forever(poll_interval=0.01)`과 격리 실행기를 적용한 `.venv/bin/python scripts/run_tests.py --jobs 2`: **960개 중 881 통과·79 skip·실패/오류 0, 62.785초**. 추가 7개는 누락·중복·skip 합산, 실패/import 오류, 저장소 import 경로, worker crash, 프로세스 동시 실행, SIGINT/SIGTERM 취소와 TERM을 무시하는 후손 종료 회귀다. 초기 실행은 저장소 루트 import 경로 차이로 실패했고, 해당 회귀의 RED를 확인한 뒤 `python -m unittest`와 같은 cwd import 경로로 수정했다.
+- HTTP fixture 변경 후 직렬 `make test`는 취소/crash 회귀 2개 추가 전 **958개 중 879 통과·79 skip·실패 0, 107.160초**였다. 병렬 실행은 assertion·timeout 테스트의 의미를 유지하며 파일 크기를 기준으로 두 그룹의 부하를 나눈다. 성능 수치는 서로 다른 실행의 벽시계 시간이며 runner/캐시 상태에 따라 달라질 수 있다.
+- `make lint`, `make demo`(합성 `completed`, 7 trial), `node --test tests/endpoint-plugin.test.mjs`(2개), `uv build --python .venv/bin/python`(sdist→wheel), `.venv/bin/python tests/test_installed_cli.py dist/agent_optimizer-0.3.0-py3-none-any.whl` 통과. `actionlint .github/workflows/ci.yml .github/workflows/pages.yml .github/workflows/release.yml`도 통과했다. `runner.temp`는 job env에서 쓸 수 없어 step의 `$GITHUB_ENV`로 캐시 경로를 전달하도록 수정했다.
+- 로컬 skip에는 native Yosys/Icarus/vvp 및 선택적 Docker/Verilog/driver 검사와 기존 대체된 TUI 검사들이 포함된다. 실제 외부 모델, 공식 Docker 통합, Verilog-Eval 전체 평가, release 게시와 GitHub 캐시 hit의 속도 개선은 이 로컬 결과로 검증하지 않았다. PR CI의 실제 실행 결과는 별도 후속 기록으로 남긴다.
+
 ## 2026-09-29 Home-first Textual TUI UX
 
 - 기준: `origin/main`의 `c6a4bd4`에서 `feat/tui-ux-completion` worktree를 만들었다. Mac ARM64 / Python 3.12.12 / Textual 7.5.0에서 변경 전 `make setup-core`와 `make lint`가 통과했고, `make test`는 **885개 중 806 통과·79 skip·실패 0**이었다. setup-core 데모는 synthetic 7-trial 실행이며 외부 모델/공식 평가 근거가 아니다.

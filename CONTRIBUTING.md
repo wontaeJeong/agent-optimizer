@@ -62,6 +62,16 @@ wheel=$(.venv/bin/python scripts/select_wheel.py dist)
 ## CI와 PR 병합
 
 PR 코어 CI는 Python 3.11/3.12에서 lint·회귀·minimal·sdist/wheel·소스 밖 설치를 검사합니다.
+회귀는 `.venv/bin/python scripts/run_tests.py --jobs 2`로 평평한 `tests/test*.py` 모듈을
+두 격리 프로세스에 나눕니다. 프로세스 안에서는 직렬 실행하여 전역 patch 간섭을 피하고,
+완료된 프로세스부터 로그를 출력한 뒤 테스트·skip·실패·오류 수와 느린 테스트 상위 10개를 합산합니다.
+실패·import 오류·worker 비정상 종료·빈 테스트는 CI 실패이며, 취소 시 worker와 같은 프로세스 그룹의
+하위 프로세스를 제한 시간 안에 종료합니다. 로컬 `make test`는 직렬 재현 명령으로 유지합니다.
+CI와 release는 고정 uv 0.10.7의 `uv build`로 sdist를 만들고 그 sdist에서 wheel을 빌드합니다.
+release의 publish 단계는 검사 job을 통과한 뒤 빌드 도구만 설치하며 앱·개발 의존성을 다시 설치하지 않습니다.
+GitHub.com에서는 uv/pip 다운로드 캐시를 OS·arch·Python·lock 입력별로 재사용하고, 공식 CVDP의
+`external/cvdp-data`는 복원 후 기존 SHA-256 검사를 다시 수행합니다. 가상환경·이미지 lock·자격증명은
+캐시에 넣지 않습니다. 그 밖의 서버에서는 cache action을 건너뛰고 동일한 설치·검증 명령을 실행합니다.
 Ubuntu native Yosys/Icarus 검사는 공식 CVDP 이미지 버전 재현과 별개입니다. 모델 호출은 없습니다.
 공식 Docker 통합은 기존 `ci.yml`의 수동 `official_cvdp=true` 입력이며, 실행 성공은 실제 로그로 확인합니다.
 

@@ -41,6 +41,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - name: 의존성 캐시 경로 준비
+        run: |
+          echo "UV_CACHE_DIR=$RUNNER_TEMP/agent-opt-cache/uv" >> "$GITHUB_ENV"
+          echo "PIP_CACHE_DIR=$RUNNER_TEMP/agent-opt-cache/pip" >> "$GITHUB_ENV"
+      - name: 고정 Python 의존성 캐시
+        if: github.server_url == 'https://github.com'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/agent-opt-cache
+          key: python-${{ runner.os }}-${{ runner.arch }}-${{ matrix.python }}-uv-0.10.7-${{ hashFiles('uv.lock', 'pyproject.toml') }}
       - name: Install isolated development environment
         run: |
           python -m venv "$RUNNER_TEMP/agent-opt-uv"
@@ -61,7 +71,7 @@ jobs:
       - name: Lint
         run: make lint
       - name: Unit and contract tests
-        run: make test
+        run: .venv/bin/python scripts/run_tests.py --jobs 2
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
@@ -70,7 +80,7 @@ jobs:
       - name: Minimal demo
         run: make demo
       - name: Build sdist and wheel
-        run: .venv/bin/python -m build
+        run: '"$RUNNER_TEMP/agent-opt-uv/bin/uv" build --python .venv/bin/python'
       - name: 격리된 wheel CLI의 목록·사용자 실험 기능 확인
         run: |
           wheel=$(.venv/bin/python scripts/select_wheel.py dist)
@@ -91,6 +101,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: 의존성 캐시 경로 준비
+        run: |
+          echo "UV_CACHE_DIR=$RUNNER_TEMP/agent-opt-cache/uv" >> "$GITHUB_ENV"
+          echo "PIP_CACHE_DIR=$RUNNER_TEMP/agent-opt-cache/pip" >> "$GITHUB_ENV"
+      - name: 공식 통합의 Python 의존성·검증 대상 데이터 캐시
+        if: github.server_url == 'https://github.com'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/agent-opt-cache
+            external/cvdp-data
+          key: official-cvdp-${{ runner.os }}-${{ runner.arch }}-uv-0.10.7-${{ hashFiles('uv.lock', 'examples/ace-rtl/environment/setup.py', 'examples/ace-rtl/environment/requirements-cvdp-py312.txt') }}
       - name: Bootstrap pinned uv
         run: |
           python -m venv "$RUNNER_TEMP/agent-opt-uv"
@@ -159,6 +181,16 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+      - name: 의존성 캐시 경로 준비
+        run: |
+          echo "UV_CACHE_DIR=$RUNNER_TEMP/agent-opt-cache/uv" >> "$GITHUB_ENV"
+          echo "PIP_CACHE_DIR=$RUNNER_TEMP/agent-opt-cache/pip" >> "$GITHUB_ENV"
+      - name: 전체 평가의 Python 의존성 캐시
+        if: github.server_url == 'https://github.com'
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/agent-opt-cache
+          key: verilog-eval-${{ runner.os }}-${{ runner.arch }}-${{ matrix.dataset }}-uv-0.10.7-${{ hashFiles('uv.lock') }}
       - name: 고정 uv 준비
         run: |
           python -m venv "$RUNNER_TEMP/agent-opt-uv"
