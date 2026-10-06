@@ -22,3 +22,17 @@ git diff --check
 ```
 
 결과: 첫 묶음 72개 통과·두 번째 24개 통과, lint·공백 검사 통과. native 테스트는 pinned upstream·모의 모델/평가 계약이며 native 실모델·EDA 성공이 아니다. CI 수동 실행은 official_cvdp=false·verilog_eval_full=false로 코어·실제 Ubuntu Yosys/Icarus·패키징만 검증하며 전체 CVDP/모델 실행을 요청하지 않는다.
+
+## 전체 회귀 및 설치형 smoke 보완
+
+- 보완 후 로컬 전체 `CI=true`·TMPDIR 미설정 `make test`: **1161개 중 1081개 통과·기존 skip 80개**, 173.909초.
+- CI `37480271790`: Python 3.11·3.12의 unit·lint·실제 simulator·endpoint hook·demo·sdist/wheel build 통과. 최종 설치형 smoke만 native-first 이전 PTY 입력에 의존해 실패했다.
+- `tests/test_installed_cli.py`는 OpenCode legacy를 명시 선택하도록 입력을 보정하고, 생성 보고서 개수를 App Home에서 검사한다. HOME·AGENT_OPT_HOME을 해당 wheel 테스트 소유 경계로 고정하고, 취소·미구현·이력 조회의 무생성 검사를 App Home까지 강화했다. 외부 ACE 준비 mock은 실제 asset Path 반환 계약을 따른다. Mac의 `/var`·`/private/var`를 같은 실제 경로로 대조한다.
+- 최초 로컬 wheel 재현도 PTY 이후 마지막 prepare 경로 비교에서 Mac canonical 경로 차이로 실패했고 실제 경로 대조로 보완했다. 제품 경로나 부작용 계약을 완화하지 않았다.
+
+```bash
+env UV_CACHE_DIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-g/uv-cache UV_PYTHON_DOWNLOADS=never uv build --wheel --out-dir /var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-pr/dist
+env TMPDIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-pr UV_CACHE_DIR=/var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-g/uv-cache PYTHONDONTWRITEBYTECODE=1 /Users/wt.jeong/workspace/agent-optimizer/.venv/bin/python tests/test_installed_cli.py /var/folders/s0/kkh09qs52bv52h5n4nf4d2fw0000gq/T/opencode/final-mvp-pr/dist/agent_optimizer-0.3.0-py3-none-any.whl
+```
+
+wheel build 종료 0, 설치형 catalog/TUI/사용자 설정 실제 실행과 legacy GEPA/Meta 생성·prepare의 외부 준비 모의 계약 통과. 이후 lint·공백 검사도 통과했다. 기존 임시 build-env의 build 모듈이 더 이상 준비돼 있지 않아 uv의 격리 build를 사용했다. 원래 공유 코어 환경은 재설치하지 않았다.

@@ -99,8 +99,8 @@ def check_tui_menu(cli: Path, project: Path, environment: dict) -> None:
         ("표시할 항목이 없습니다", b"\x1b"),
         ("실행할 작업을 선택하세요", b"q"),
     ])
-    if (project / "runs").exists():
-        raise AssertionError("이력 조회가 사용자 프로젝트에 파일을 작성했습니다")
+    if (project / "runs").exists() or Path(environment["AGENT_OPT_HOME"]).exists():
+        raise AssertionError("이력 조회가 사용자 프로젝트 또는 App Home에 파일을 작성했습니다")
 
 
 def check_preset_cancel(cli: Path, project: Path, environment: dict) -> None:
@@ -108,7 +108,7 @@ def check_preset_cancel(cli: Path, project: Path, environment: dict) -> None:
     interact_tui(cli, project, environment, [
         ("새 최적화", b"\r"),
         ("ACE-RTL", b"\r"),
-        ("OpenCode", b"\r"),
+        ("OpenCode (legacy skill)", b"\x1b[B\r"),
         ("GEPA", b"\x1b[B\r"),
         ("CVDP", b"\r"),
         ("ACE 작업공간", (str(workspace) + "\r").encode()),
@@ -116,7 +116,7 @@ def check_preset_cancel(cli: Path, project: Path, environment: dict) -> None:
         ("ACE 작업공간", b"\x1b"),
         ("Dataset", b"q"),
     ])
-    if workspace.exists() or (project / "runs").exists():
+    if workspace.exists() or (project / "runs").exists() or Path(environment["AGENT_OPT_HOME"]).exists():
         raise AssertionError("wheel-only Textual TUI가 실행 취소 전에 자산을 생성했습니다")
 
 
@@ -129,7 +129,8 @@ def check_tui_existing_run(cli: Path, project: Path, environment: dict,
         raise AssertionError("PTY fixture evaluator no longer has its expected method boundary")
     evaluator.write_text(source.replace(needle, "        import time\n        time.sleep(0.2)\n" + needle),
                          encoding="utf-8")
-    before = len(list((project / "runs").glob("*/report.html")))
+    runs = Path(environment["AGENT_OPT_HOME"]) / "runs"
+    before = len(list(runs.glob("*/report.html")))
     transcript = interact_tui(cli, project, environment, [
         ("실행할 작업을 선택하세요", b"\x1b[B\r"),
         ("기존 experiment.toml 경로", (str(experiment) + "\r").encode()),
@@ -143,7 +144,7 @@ def check_tui_existing_run(cli: Path, project: Path, environment: dict,
     for marker in ("Trial budget", "평가 완료", "최적화 완료"):
         if marker not in transcript:
             raise AssertionError(f"설치형 TUI에서 {marker} PTY 근거를 찾지 못했습니다")
-    after = len(list((project / "runs").glob("*/report.html")))
+    after = len(list(runs.glob("*/report.html")))
     if after != before + 1:
         raise AssertionError(f"설치형 TUI 실행 보고서 수가 증가하지 않았습니다: {before} → {after}")
 
@@ -155,6 +156,8 @@ def main(wheel: Path) -> int:
         project = outside / "user workspace"
         environment = {key: value for key, value in os.environ.items()
                        if key not in {"PYTHONPATH", "PYTHONHOME"} and not key.startswith("AGENT_OPT_MODEL_")}
+        environment.update({"HOME": str(outside / "home"),
+                            "AGENT_OPT_HOME": str(outside / "app")})
         uv = shutil.which("uv")
         if uv:
             subprocess.run([uv, "venv", "--seed", "--python", sys.executable, str(virtualenv)],
@@ -203,7 +206,8 @@ def main(wheel: Path) -> int:
                                  cwd=project, env=environment, capture_output=True,
                                  text=True, timeout=30)
         if (invalid.returncode != 2 or invalid.stdout or (project / "external").exists()
-                or (project / "runs/configs/invalid-ace").exists()):
+                or (project / "runs/configs/invalid-ace").exists()
+                or Path(environment["AGENT_OPT_HOME"]).exists()):
             raise AssertionError(f"설치형 미구현 조합이 준비 전에 차단되지 않았습니다: {invalid}")
         check_tui_menu(cli, project, environment)
         check_preset_cancel(cli, project, environment)
@@ -244,7 +248,7 @@ from agent_optimizer.config import load_experiment
 from agent_optimizer.preset_tui import verify_ace_selection
 for optimizer in ("gepa", "meta_harness"):
     output = io.StringIO()
-    with patch("agent_optimizer.preset_tui.prepare_ace_selection"), contextlib.redirect_stdout(output):
+    with patch("agent_optimizer.preset_tui.prepare_ace_selection", return_value=Path.cwd()), contextlib.redirect_stdout(output):
         code = main(["init", "--name", "installed-" + optimizer, "--agent-preset", "ace-rtl",
                      "--harness-profile", "ace-opencode", "--optimizer", optimizer,
                      "--dataset", "cvdp", "--yes"])
@@ -253,9 +257,9 @@ for optimizer in ("gepa", "meta_harness"):
     spec = load_experiment(path)
     verify_ace_selection(spec)
     assert spec["stages"][0]["optimizer"] == optimizer
-    with patch("agent_optimizer.preset_tui.prepare_ace_selection"), contextlib.redirect_stdout(io.StringIO()) as prepared:
+    with patch("agent_optimizer.preset_tui.prepare_ace_selection", return_value=Path.cwd()), contextlib.redirect_stdout(io.StringIO()) as prepared:
         assert main(["prepare", str(path), "--offline"]) == 0
-    assert json.loads(prepared.getvalue())["experiment"] == str(path)
+    assert Path(json.loads(prepared.getvalue())["experiment"]).resolve() == path.resolve()
 print("설치형 GEPA/Meta 설정 생성·고정 계약: 외부 자산 준비 모의 확인")'''
         preset = subprocess.run([str(python), "-I", "-c", script], cwd=project,
                                 env=environment, capture_output=True, text=True, timeout=30)
