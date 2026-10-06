@@ -2,7 +2,7 @@
 
 먼저 [팀 템플릿 선택](../experiments/README.md) 후 필요한 절만 읽으세요.
 팀 소유 파일은 `experiments/<team>/`, 공통 타입은 `src/agent_optimizer/contracts.py`입니다.
-프로젝트 루트에서 CLI를 실행하며 팀 목록에 노출할 컴포넌트는 중앙 Python registry에 등록합니다.
+프로젝트 루트 또는 명시 `--project-root`로 provenance를 지정하며 팀 목록에 노출할 컴포넌트는 중앙 Python registry에 등록합니다.
 실험 하나에만 필요한 파일 플러그인은 기존 `[plugins.*]`를 계속 사용할 수 있습니다:
 
 ```toml
@@ -45,6 +45,8 @@ PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_preset_cli
 
 ## Dataset provider / 팀 확장 목록
 
+새 설정은 Home/experiments UUID에 생성한다. `init` JSON의 `experiment`를 CONFIG로 복사하며 config_root의 agents/harnesses/benchmark와 원본 project_root의 plugin/seed, Agent manifest 기준 local source를 구별한다. output 부모는 CLI > 명시 TOML > Home/runs이고 legacy/자동 migration 없음 계약은 [architecture](architecture.md#프로젝트와-app-home)를 따른다. native는 adapter `ace_native`·profile `ace-native`를 구별하고 예제 정책/검증 hook이 CID/row/surface를 소유한다. 상세는 [NATIVE](../examples/ace-rtl/NATIVE.md)다.
+
 [`experiments/dataset-template/`](../experiments/dataset-template/README.md)의 `provider.py`를 팀 폴더로 복사해
 `describe`/`prepare`/읽기 전용 `doctor`를 구현합니다. `src/agent_optimizer/registry.py`의
 `PROJECT_COMPONENTS`에 팀 Dataset/Harness/Optimizer/Evaluator ID→`file.py:Symbol`을 추가합니다.
@@ -65,9 +67,9 @@ Dataset provider의 `describe()`는 이름·과제 형태·평가기를 기술�
 `doctor(cache)`는 파일/해시/도구를 읽기 전용으로 확인하고 `id`/`area`/`status`/`message`/`remedy` 체크를 반환합니다.
 private 채점 자료는 Agent workspace나 공개 과제 파일에 넣지 않습니다.
 CLI 목록·wizard는 데이터셋을 추천하지 않고, 사용자가 선택한 provider의 `prepare`를 호출합니다.
-TUI 시작 시 바로 열리는 기본 선택 화면은 실제 지원 조합(`ACE-RTL/OpenCode/CVDP`, 합성 `rtl-solo`·`rtl-team/Fixture/sample_text`)을
+TUI Home의 새 최적화 선택 화면은 실제 지원 조합(`ACE-RTL/native 또는 OpenCode/CVDP`, 합성 `rtl-solo`·`rtl-team/Fixture/sample_text`)을
 한 종류씩 확정하고 `registry.py`의 구현 ID와 manifest/profile의 ID를 구분합니다. 팀의 새 구현은 먼저
-위 `PROJECT_COMPONENTS`에 등록하고 기존 2번 고급 설정/`init` 또는 기존 experiment.toml에서 검증하세요.
+위 `PROJECT_COMPONENTS`에 등록하고 Home 고급 설정/`init` 또는 기존 experiment.toml에서 검증하세요.
 기본 선택 화면에 새로운 **실행 가능** 조합을 노출하려면 `preset_tui.py:select_four`의 호환성·설명을
 실제 Agent manifest `supported_harnesses`, Harness profile/adapter, 데이터의 task 출력·evaluator,
 Optimizer 수정 파일에 맞춰 추가하고 확인 뒤의 설정 생성·실행 계약까지 검증해야 합니다. ID 등록만으로
@@ -85,8 +87,9 @@ CLI/doctor/run 경로를 점검할 수 있습니다(실제 팀 ID로 교체하�
   --editable configs/strategy.json --dataset sample_text \
   --harness sample_command --optimizer sample_baseline --yes
 .venv/bin/agent-opt doctor --dataset sample_text --json
-.venv/bin/agent-opt doctor --plan runs/configs/team-wiring/experiment.toml --json
-.venv/bin/agent-opt run runs/configs/team-wiring/experiment.toml
+# init JSON의 experiment 절대경로를 CONFIG로 복사한 뒤:
+.venv/bin/agent-opt doctor --plan "$CONFIG" --json
+.venv/bin/agent-opt run "$CONFIG"
 ```
 
 팀 등록 후에는 같은 옵션의 ID를 `team_dataset`/`team_harness`/`team_optimizer`로 바꿉니다.
@@ -184,7 +187,7 @@ trial workspace가 cwd이며 Docker 경로는 변환합니다. 임의 shell inte
 
 [외부 Agent 템플릿](../experiments/customer-template/README.md)의 placeholder를 실제 값으로 교체하세요.
 Agent schema_version=2, experiment/benchmark=1입니다. Agent `source.path`는 **manifest 기준**,
-experiment의 agents/harnesses/benchmark/plugins는 **project_root 기준**입니다.
+기존 config_root 없는 experiment의 agents/harnesses/benchmark/plugins는 **project_root 기준**입니다. 새 생성 설정은 agents/harnesses/benchmark만 **config_root 기준**, plugins는 원본 project_root 기준입니다.
 `supported_harnesses`는 사용하는 프로필의 adapter 등록 이름과 맞춥니다.
 
 ```toml

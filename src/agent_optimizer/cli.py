@@ -8,9 +8,8 @@ import os
 import re
 import shlex
 import shutil
-import stat
 import sys
-from datetime import datetime, timezone
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Literal
@@ -35,7 +34,8 @@ from agent_optimizer.session import SessionInterrupted, run_session
 from agent_optimizer.terminal_style import style
 from agent_optimizer.locale import MESSAGES, current_language, human, render_diagnostic, report_language, t
 from agent_optimizer.results import write_json
-from agent_optimizer.readiness import collect_dataset, collect_plan
+from agent_optimizer.readiness import _no_bytecode, collect_dataset, collect_plan
+from agent_optimizer.app_paths import app_path, resolve_session_base
 
 
 def show(value):
@@ -46,8 +46,30 @@ def next_command(command: str) -> None:
     print(f"{human('다음')}: {command}", file=sys.stderr)
 
 
+def serve_report(run_dir: Path, *, port: int = 0, no_open: bool = False, html: bool = False) -> int:
+    import time
+    from agent_optimizer.report_view import open_browser, report_row, start_view, view_status
+    retry = shlex.join(['agent-opt', 'report', str(run_dir), *(['--html'] if html else []),
+                        '--serve', *(['--no-open'] if no_open else []), '--port', str(port)])
+    handle = start_view(report_row(run_dir), port=port, retry=retry)
+    try:
+        print(f'HTML 보고서: {handle.url}', file=sys.stderr, flush=True)
+        opened = False if no_open else open_browser(handle.url)
+        print('\n'.join(view_status(handle.url, opened).splitlines()[1:]), file=sys.stderr, flush=True)
+        print('Ctrl+C로 보고서 서버를 종료합니다.', file=sys.stderr, flush=True)
+        while True:
+            time.sleep(0.25)
+    except KeyboardInterrupt:
+        return 130
+    finally:
+        handle.close()
+
+
 def main(argv=None):
     argv = list(sys.argv[1:] if argv is None else argv)
+    ci = os.environ.get('CI', '').strip().lower() not in {'', '0', 'false', 'no'}
+    if not argv and not ci and all(stream.isatty() for stream in (sys.stdin, sys.stdout, sys.stderr)) and os.environ.get('TERM', '') not in {'', 'dumb', 'unknown'}:
+        argv = ['tui']
     try:
         language = current_language()
     except ValueError as exc:
@@ -58,7 +80,7 @@ def main(argv=None):
             "rerank is deferred; configure the objective for a new run. Stored reports and frozen selections remain available; see deferred/README.md"), file=sys.stderr)
         return 2
     previous = sys.dont_write_bytecode
-    if argv and argv[0] in {"doctor", "catalog"}:
+    if argv and argv[0] in {"doctor", "catalog", "plan"}:
         sys.dont_write_bytecode = True
     try:
         command = typer.main.get_command(app)
@@ -107,134 +129,32 @@ def _invoke(command: str, **options) -> int:
 
 
 def _launch_existing(spec: dict, registry: Registry, *, output: Path | None = None) -> int | None:
-    if spec.get("preset_selection"):
-        from agent_optimizer.preset_tui import verify_ace_selection
-        verify_ace_selection(spec)
-        return None
-    registry.load_project(spec["_root"])
-    registry.load_plugins(spec["_root"], {"harnesses": spec.get("plugins", {}).get("harnesses", {})})
-    launchers = [getattr(registry.resolve("harnesses", profile["adapter"]), "launch_existing", None)
-                 for profile in spec["_profiles"]]
-    if any(launcher is not None for launcher in launchers):
-        if output is not None:
-            raise ConfigurationError("전용 실행 프로필은 --output을 지원하지 않습니다")
-        if len(spec["_profiles"]) != 1 or len(spec["_agents"]) != 1:
-            raise ConfigurationError("전용 실행 프로필은 단일 Agent·하네스 실험에서만 사용할 수 있습니다")
-        previous = Path.cwd()
-        try:
-            os.chdir(spec["_root"])
-            return launchers[0](spec)
-        finally:
-            os.chdir(previous)
-    return None
+    from agent_optimizer.integrations import launch_existing
+    return launch_existing(spec, registry, output=output)
 
 
 def _recent_configurations(project_root: Path) -> list[Path]:
     """List only generated experiment files, without following configuration symlinks."""
-    base = project_root / "runs" / "configs"
-    if (project_root / "runs").is_symlink() or base.is_symlink() or not base.is_dir():
-        return []
-    entries = []
-    for path in base.rglob("experiment.toml"):
-        relative = path.relative_to(base)
-        if path.is_symlink() or any((base / Path(*relative.parts[:index])).is_symlink()
-                                   for index in range(1, len(relative.parts))):
-            continue
-        try:
-            if path.is_file() and path.resolve().is_relative_to(base.resolve()):
-                entries.append((path.stat().st_mtime_ns, str(path), path))
-        except OSError:
-            continue
-    entries.sort(key=lambda row: (row[0], row[1]), reverse=True)
-    return [path for _, _, path in entries[:5]]
+    from agent_optimizer.setup_wizard import recent_configurations
+    return recent_configurations(project_root)
 
 
-def _history_run(runs_fd: int, parent: str, name: str) -> tuple[str, float, int] | None:
-    """Check a recorded run through directory-relative, non-following file descriptors."""
-    match = re.fullmatch(r"([0-9]{8}T[0-9]{6}Z)-[0-9a-f]{8}", name)
-    if match is None:
-        return None
-    directory_flags = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
-    file_flags = os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK
-    try:
-        created = datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
-        with contextlib.ExitStack() as opened:
-            parent_fd = runs_fd
-            if parent:
-                parent_fd = os.open(parent, directory_flags, dir_fd=runs_fd)
-                opened.callback(os.close, parent_fd)
-            run_fd = os.open(name, directory_flags, dir_fd=parent_fd)
-            opened.callback(os.close, run_fd)
-            with os.fdopen(os.open("summary.json", file_flags, dir_fd=run_fd), encoding="utf-8") as stream:
-                if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-                    return None
-                summary = json.loads(stream.read(16 * 1024 * 1024 + 1))
-            with os.fdopen(os.open("report.html", file_flags, dir_fd=run_fd), "rb") as stream:
-                if not stat.S_ISREG(os.fstat(stream.fileno()).st_mode):
-                    return None
-            if (not isinstance(summary, dict) or type(summary.get("schema_version")) is not int
-                    or summary["schema_version"] != 1 or summary.get("run_id") != name
-                    or not isinstance(summary.get("status"), str)
-                    or summary["status"] not in {"running", "completed", "partial",
-                                                 "no_eligible_candidate", "interrupted",
-                                                 "budget_exhausted", "source_error", "error"}
-                    or not isinstance(summary.get("groups"), list)
-                    or type(summary.get("trials_used")) is not int or summary["trials_used"] < 0):
-                return None
-            return summary["status"], created.timestamp(), summary["trials_used"]
-    except (OSError, ValueError, UnicodeError, RecursionError):
-        return None
-
-
-def recent_runs(project_root: Path) -> list[tuple[str, str, int, Path]]:
+def recent_runs(project_root: Path) -> list[tuple[str, str, int | None, Path | None]]:
     """안전하게 저장된 최근 실행만 표시한다. 선택 시 다시 검증한다."""
-    runs = project_root.absolute() / "runs"
-    found = []
-    try:
-        runs_fd = os.open(runs, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    except OSError:
-        return []
-    with contextlib.ExitStack() as opened:
-        opened.callback(os.close, runs_fd)
-        for parent in ("", "dev-live"):
-            try:
-                parent_fd = runs_fd if not parent else os.open(
-                    parent, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=runs_fd)
-            except OSError:
-                continue
-            try:
-                with os.scandir(parent_fd) as children:
-                    for child in children:
-                        if child.name == "configs" or (not parent and child.name == "dev-live"):
-                            continue
-                        recorded = _history_run(runs_fd, parent, child.name)
-                        if recorded is not None:
-                            found.append((recorded[1], parent, child.name, recorded[0], recorded[2]))
-            finally:
-                if parent:
-                    os.close(parent_fd)
-    found.sort(key=lambda row: (-row[0], row[1], row[2]))
-    found = found[:10]
-    return [(name, status, trials, runs / parent / name / "report.html")
-            for _, parent, name, status, trials in found]
+    from agent_optimizer.app_paths import resolve_app_home
+    from agent_optimizer.history import list_history
+    return [(row['run_id'], row['status'], row['trials_used'],
+             Path(row['report_path']) if row['report_path'] else None)
+            for row in list_history(app_home=resolve_app_home(), project_root=project_root)]
 
 
 def verified_run_report(project_root: Path, report: Path, status: str) -> Path:
-    runs = project_root.absolute() / "runs"
-    if report.parent.parent not in {runs, runs / "dev-live"}:
-        raise ConfigurationError(human("보고서를 안전하게 확인할 수 없습니다"))
-    parent = "dev-live" if report.parent.parent == runs / "dev-live" else ""
-    try:
-        runs_fd = os.open(runs, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
-    except OSError:
-        raise ConfigurationError(human("보고서를 안전하게 확인할 수 없습니다")) from None
-    try:
-        recorded = _history_run(runs_fd, parent, report.parent.name)
-    finally:
-        os.close(runs_fd)
-    if recorded is None or recorded[0] != status:
-        raise ConfigurationError(human("보고서를 안전하게 확인할 수 없습니다"))
-    return report
+    from agent_optimizer.report_view import report_row
+    from agent_optimizer.history import verified_report
+    row = report_row(report.parent, project_root=project_root)
+    if row['status'] != status:
+        raise ConfigurationError(human('보고서를 안전하게 확인할 수 없습니다'))
+    return verified_report(row)
 
 
 @app.command("plugins")
@@ -262,7 +182,7 @@ def catalog_show(kind: str, identifier: str, project_root: Path | None = None,
 
 @app.command("prepare")
 def prepare_command(experiment: Path, offline: bool = False) -> int:
-    """선택한 ACE/CVDP 고정 자산 준비·재사용(다운로드·Docker 빌드 가능)."""
+    """일반 실험 preflight 확인 또는 ACE/CVDP 자산 준비·재사용(다운로드·Docker 빌드 가능)."""
     return _invoke("prepare", experiment=experiment, offline=offline)
 
 
@@ -311,6 +231,13 @@ def init_command(project_root: Path | None = None,
                   harness: str | None = typer.Option(None, "--harness", help="일반 Harness adapter ID(기본 command; --harness-profile과 배타)"), optimizer: list[str] | None = typer.Option(None, "--optimizer", help="명시적으로 선택할 Optimizer ID(필수, 반복 가능; 예: baseline)"),
                  optimizer_config: str | None = None, scaffold_file: str | None = None,
                  target_file: str | None = None, max_tasks: int = 9, max_trials: int | None = None,
+                  cid: list[str] | None = typer.Option(None, '--cid', help='native CVDP CID 명시 선택(반복 가능)'),
+                  rows: str | None = typer.Option(None, '--rows', help='native row ID → split JSON 객체; 자동 선택 없음'),
+                  native_dataset: Path | None = typer.Option(None, '--native-dataset', help='고정 원본 CVDP JSONL(trusted)'),
+                  native_source: Path | None = typer.Option(None, '--native-source', help='준비된 고정 native source'),
+                  native_upstream: Path | None = typer.Option(None, '--native-upstream', help='명시 로컬 고정 upstream에서 native source 준비'),
+                  native_python: Path | None = typer.Option(None, '--native-python', help='Python 3.12 native interpreter'),
+                  native_evaluator: str | None = typer.Option(None, '--native-evaluator', help='CVDP repo/python/sim_image/sim_image_id JSON 객체'),
                   max_wall_time_seconds: float | None = None,
                   trial_timeout_seconds: float | None = None,
                  offline: bool = False,
@@ -351,7 +278,9 @@ def init_command(project_root: Path | None = None,
                    evaluator=evaluator, metric=metric, direction=direction,
                     harness=harness or "command", explicit_harness=harness is not None,
                     optimizer=optimizer, optimizer_config=optimizer_config,
-                   scaffold_file=scaffold_file, target_file=target_file, max_tasks=max_tasks,
+                     scaffold_file=scaffold_file, target_file=target_file, max_tasks=max_tasks,
+                     cid=cid, rows=rows, native_dataset=native_dataset, native_source=native_source,
+                     native_upstream=native_upstream, native_python=native_python, native_evaluator=native_evaluator,
                     max_trials=max_trials, max_wall_time_seconds=max_wall_time_seconds,
                     trial_timeout_seconds=trial_timeout_seconds, offline=offline, yes=yes)
 
@@ -378,7 +307,8 @@ def agents_command(root: Path = Path("examples")) -> int:
 @app.command("plan")
 def plan_command(experiment: Path) -> int:
     """실행 없이 실험 조합 확인."""
-    return _invoke("plan", experiment=experiment)
+    with _no_bytecode():
+        return _invoke("plan", experiment=experiment)
 
 
 @app.command("run")
@@ -389,9 +319,17 @@ def run_command(experiment: Path, output: Path | None = None) -> int:
 
 @app.command("report")
 def report_command(run_dir: Path, csv: Path | None = None,
-                   html: bool = typer.Option(False, "--html", help="독립 HTML 보고서 재생성")) -> int:
+                    html: bool = typer.Option(False, "--html", help="독립 HTML 보고서 재생성"),
+                    serve: bool = typer.Option(False, '--serve', help='loopback HTML 서버; Ctrl+C로 종료'),
+                    no_open: bool = typer.Option(False, '--no-open', help='브라우저를 자동으로 열지 않음; --serve 필요'),
+                    port: int | None = typer.Option(None, '--port', help='loopback 포트(기본 자동); --serve 필요'),
+                    json_output: bool = typer.Option(False, '--json', help='단일 JSON 출력; --serve와 배타')) -> int:
     """실행 요약 확인 또는 HTML 재생성."""
-    return _invoke("report", run_dir=run_dir, csv=csv, html=html)
+    if (json_output and serve or csv and (serve or html or json_output) or (no_open or port is not None) and not serve):
+        raise typer.BadParameter('--json/--csv와 --serve는 배타적이며 --no-open/--port는 --serve가 필요합니다')
+    if port is not None and not 0 <= port <= 65535:
+        raise typer.BadParameter('--port는 0~65535여야 합니다')
+    return _invoke("report", run_dir=run_dir, csv=csv, html=html, serve=serve, no_open=no_open, port=port, json=json_output)
 
 
 def _dispatch(args):
@@ -420,7 +358,7 @@ def _dispatch(args):
             show(registry.describe())
         elif args.command == "prepare":
             from agent_optimizer.integrations import prepare_experiment
-            print(human("ACE 준비: 고정 소스·데이터·driver 및 Docker 이미지 준비/재사용"), file=sys.stderr)
+            print(human("선택한 실험 준비 확인 · 실제 실행 아님"), file=sys.stderr)
             show(prepare_experiment(args.experiment, offline=args.offline))
         elif args.command == "datasets":
             root = args.project_root.absolute()
@@ -453,6 +391,39 @@ def _dispatch(args):
             show({"experiment": target, "profile": args.profile, "ready": False})
             next_command(f"agent-opt prepare {shlex.quote(str(target))}")
         elif args.command == "init":
+            app_path('experiments')  # Validate the publication boundary before asset preparation.
+            native_requested = args.harness_profile in {'ace-native', 'ace_native'}
+            if native_requested:
+                from agent_optimizer.native_selection import write_native_selection, validate_product_options
+                if args.agent_preset != 'ace-rtl' or args.dataset != ['cvdp'] or len(args.optimizer or []) != 1:
+                    raise ConfigurationError('native에는 ACE-RTL·CVDP·단일 Optimizer를 명시하세요')
+                if any((args.agent, args.revision, args.editable, args.command_text, args.explicit_harness, args.scaffold_file, args.target_file, args.evaluator)):
+                    raise ConfigurationError('native 프리셋과 일반 Agent/Harness/수정 파일 옵션은 배타적입니다')
+                if not args.yes or args.native_dataset is None:
+                    raise ConfigurationError('native 선택 확인에는 --yes와 --native-dataset이 필요합니다')
+                selected_rows = json.loads(args.rows) if args.rows else {}
+                validate_product_options(args.project_root, metric=args.metric, direction=args.direction,
+                    prompt_file=args.prompt_file, max_tasks=args.max_tasks, rows=selected_rows)
+                configs = json.loads(args.optimizer_config) if args.optimizer_config else {}
+                optimizer = args.optimizer[0]
+                if not isinstance(configs, dict) or set(configs) - {optimizer}:
+                    raise ConfigurationError('선택 Optimizer의 옵션만 지정하세요')
+                evaluator_config = json.loads(args.native_evaluator) if args.native_evaluator else None
+                target = write_native_selection(args.project_root, optimizer, cids=args.cid or [],
+                    rows=selected_rows, dataset=args.native_dataset,
+                    source=args.native_source, upstream=args.native_upstream, python=args.native_python,
+                    evaluator=evaluator_config, name=args.name, options=configs.get(optimizer),
+                    max_trials=args.max_trials, wall_time=args.max_wall_time_seconds if args.max_wall_time_seconds is not None else 3600,
+                    trial_timeout=args.trial_timeout_seconds if args.trial_timeout_seconds is not None else 600, offline=args.offline)
+                spec = load_experiment(target)
+                show({'experiment': target, 'dataset': 'cvdp', 'cids': args.cid,
+                      'rows': selected_rows, 'stages': [s['id'] for s in spec.get('stages', [])],
+                      'live': 'not_run'})
+                next_command(f'agent-opt doctor --plan {shlex.quote(str(target))} --json')
+                next_command(f'agent-opt run {shlex.quote(str(target))}')
+                return 0
+            if any(getattr(args, field, None) for field in ('cid', 'rows', 'native_dataset', 'native_source', 'native_upstream', 'native_python', 'native_evaluator')):
+                raise ConfigurationError('native 옵션에는 --harness-profile ace-native가 필요합니다')
             if args.agent_preset or args.harness_profile:
                 from agent_optimizer.config import identifier, positive
                 from agent_optimizer.preset_tui import (ACE_GUIDANCE, ACE_SCAFFOLD,
@@ -466,11 +437,6 @@ def _dispatch(args):
                     raise ConfigurationError("프리셋 설정에는 --name이 필요합니다")
                 identifier(args.name)
                 root = args.project_root.absolute()
-                folder = root / "runs/configs" / args.name
-                if (root / "runs").is_symlink() or (root / "runs/configs").is_symlink():
-                    raise ConfigurationError("실험 설정 디렉터리는 symlink일 수 없습니다")
-                if folder.exists() or folder.is_symlink():
-                    raise ConfigurationError(f"Generated configuration already exists: {folder}")
                 try:
                     configs = json.loads(args.optimizer_config) if args.optimizer_config else {}
                 except json.JSONDecodeError as exc:
@@ -520,11 +486,11 @@ def _dispatch(args):
                 if args.agent_preset == "ace-rtl":
                     print(human("ACE 준비: 고정 소스·데이터·driver 및 Docker 이미지 준비/재사용"),
                           file=sys.stderr)
-                    prepare_ace_selection(root, offline=args.offline)
+                    assets = prepare_ace_selection(root, offline=args.offline)
                     target = write_ace_selection(root, optimizer, name=args.name, options=configs.get(optimizer),
                                                  max_trials=args.max_trials,
                                                  wall_time=args.max_wall_time_seconds,
-                                                 trial_timeout=args.trial_timeout_seconds)
+                                                 trial_timeout=args.trial_timeout_seconds, asset_root=assets)
                 else:
                     target = write_sample_selection(root, args.agent_preset, optimizer, name=args.name,
                                                     max_trials=args.max_trials,
@@ -599,7 +565,14 @@ def _dispatch(args):
                 harness["revision"] = args.revision
             experiments = []
             multiple = len(args.dataset) > 1
+            config_name = name + '-' + uuid.uuid4().hex[:12]
             with contextlib.ExitStack() as rollback:
+                if multiple:
+                    configuration_root = app_path('experiments') / config_name
+                    from agent_optimizer.workspace import safe_path
+                    safe_path(configuration_root, '.')
+                    configuration_root.mkdir(parents=True, exist_ok=False)
+                    rollback.callback(shutil.rmtree, configuration_root)
                 for index, dataset_name in enumerate(args.dataset):
                     data, plugins, dependencies = prepare_selection(
                         root, dataset_name, evaluator=args.evaluator, offline=args.offline)
@@ -650,8 +623,8 @@ def _dispatch(args):
                                        "max_trials": max(1, limit)})
                     label = re.sub(r"[^a-zA-Z0-9_.-]", "-", Path(dataset_name).stem)
                     experiment_name = f"{name}-{index + 1}-{label}" if multiple else name
-                    folder = (root / "runs" / "configs" / name / f"{index + 1}-{label}" if multiple
-                              else root / "runs" / "configs" / name)
+                    folder = (app_path('experiments') / config_name / f"{index + 1}-{label}" if multiple
+                              else app_path('experiments') / config_name)
                     experiment = write_experiment(folder, agent=agent, harness=harness, dataset=data,
                                                   stages=stages, plugins=plugins, dependencies=dependencies,
                                                   name=experiment_name, editable=args.editable,
@@ -667,7 +640,7 @@ def _dispatch(args):
                     rollback.callback(shutil.rmtree, folder)
                     experiments.append({"dataset": dataset_name, "experiment": str(experiment)})
                 if multiple:
-                    target = root / "runs" / "configs" / name / "session.json"
+                    target = app_path('experiments') / config_name / "session.json"
                     if target.exists() or target.is_symlink():
                         raise ConfigurationError(f"Generated session already exists: {target}")
                     rollback.callback(target.unlink, missing_ok=True)
@@ -695,9 +668,8 @@ def _dispatch(args):
             if (data.get("schema_version") != 1 or not isinstance(data.get("experiments"), list)
                     or len(data["experiments"]) < 2):
                 raise ConfigurationError("run-session requires at least two prepared experiments")
-            base = args.output or args.session.parent.parents[1] / "sessions"
+            base = resolve_session_base(args.output)
             import time
-            import uuid
             session_started = time.monotonic()
             session_root = base / (time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
                                    + "-" + uuid.uuid4().hex[:8])
@@ -713,7 +685,8 @@ def _dispatch(args):
             from agent_optimizer.html_report import write_session_index
             index = write_session_index(session_root, entries, language=current_language())
             status = ("interrupted" if interrupted else "completed" if all(
-                e["status"] == "completed" for e in entries) else "partial")
+                e["status"] == "completed" for e in entries) else 'error' if all(
+                e['status'] in {'error', 'source_error'} for e in entries) else "partial")
             write_json(session_root / "summary.json", {"status": status, "experiments": entries,
                                                        "session_wall_time_seconds": time.monotonic() - session_started,
                                                        "report_language": current_language()})
@@ -764,10 +737,8 @@ def _dispatch(args):
             if args.command == "run":
                 if spec.get("preset_selection"):
                     _launch_existing(spec, registry, output=args.output)
-                    if args.output is not None:
-                        raise ConfigurationError("ACE 선택형 실행은 별도 --output을 지원하지 않습니다")
                     from agent_optimizer.preset_tui import run_ace_selection
-                    return run_ace_selection(spec["_source"])
+                    return run_ace_selection(spec["_source"], output=args.output)
                 launched = _launch_existing(spec, registry, output=args.output)
                 if launched is not None:
                     return launched
@@ -793,6 +764,8 @@ def _dispatch(args):
             print(human("정적 계획 확인; 실행 성공 아님"), file=sys.stderr)
             next_command(f"agent-opt doctor --plan {shlex.quote(str(args.experiment))}")
         elif args.command == "report":
+            if getattr(args, 'serve', False) and not args.html:
+                return serve_report(args.run_dir, port=args.port or 0, no_open=args.no_open)
             data = json.loads((args.run_dir / "summary.json").read_text())
             if args.html:
                 from agent_optimizer.results import write_report_artifacts
@@ -800,6 +773,8 @@ def _dispatch(args):
                     language = report_language(data, args.run_dir,
                                                override=os.environ.get("AGENT_OPT_LANG") or None)
                     target = write_report_artifacts(args.run_dir, data, language=language)
+                if getattr(args, 'serve', False):
+                    return serve_report(args.run_dir, port=args.port or 0, no_open=args.no_open, html=True)
                 show({"html": target, "status": data["status"]})
                 print(f"{human('결과 HTML')}: {target}", file=sys.stderr)
                 return 0

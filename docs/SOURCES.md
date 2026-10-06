@@ -6,6 +6,12 @@
 
 ## 고정 버전
 
+### 2026-10-01 native 소비 파일 대조(기존 pin 유지)
+
+`source-native.toml`, `native_prepare.py`/`native_selection.py`는 아래 ACE/CVDP/HF 고정 SHA/hash를 소비한다. `native_bridge.py`·`native_worker.py`는 export한 `ace_cvdp_native.cli.run_attempt`·FocusedDebugger/FreshStartCoordinator를 호출하며 public-only processor와 binary feedback을 연결한다. `native_cvdp.py`·`native_evaluator.py`는 reviewed row/공식 binary·inner/outer 평가를 분리한다. `native/guidance.md`·`native/orchestration.py`는 실제 후보 수정 표면이다.
+
+고정 302개 중 **선택 CID002/004/007/016의 224개 검토, eligible 197·제외 27**이며 [C 표](verification/final-mvp-c-20261001.md#cid-판정표)는 정적 판정이다. 과거 cid003 importer의 71/231과 다른 profile 범위이며 전체 지원으로 합치지 않는다. 기존 source pin·HF hash·driver lock·legacy first-party pin은 갱신하지 않았다. native helper는 명시 workspace/source checkout/현재 wheel metadata 자산 순으로 소비한다. old first-party commit에 신규 native가 있다고 주장하지 않는다. [G §7 실제 wheel](verification/final-mvp-g-20261001.md)은 배포/합성/정적 helper 근거, native live는 not_run이다.
+
 | 대상 | 전달 당시 고정 SHA | 현재 로컬 설정과 대조 |
 |---|---|---|
 | ACE-RTL | `fead921f18bb57345b5a41ef93ba625be208e99c` | `examples/ace-rtl/source.toml`의 revision과 `environment/setup.py`의 REPOS가 모두 일치 |
@@ -15,7 +21,7 @@
 아래 고정 URL의 본문은 같은 SHA의 raw 파일 및 실제 checkout과 대조했다.
 Task 5/6에서 실제 setup/평가를 실행한 범위는 [verification.md](verification.md)에 별도로 기록한다.
 
-wheel의 선택형 예제 코드는 별도의 **첫-party** 고정 commit
+wheel의 **legacy 획득 경로** 선택형 예제 코드는 별도의 **first-party** 고정 commit
 `ae0874fb94d94284a07a17d84ef60058ed9a97b6`에서만 가져온다.
 `src/agent_optimizer/catalog.py`의 URL/SHA를 `integrations.py`가 확인하고,
 선택한 예제/평가기/Optimizer 파일만 작업공간에 복사한다. 이 commit은 위 upstream

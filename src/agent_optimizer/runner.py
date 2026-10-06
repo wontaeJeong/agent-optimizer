@@ -12,6 +12,8 @@ from dataclasses import replace
 from pathlib import Path
 
 from agent_optimizer import __version__
+from agent_optimizer.app_paths import resolve_run_base
+from agent_optimizer.history import record_lifecycle
 from agent_optimizer.config import selected_pairs, validate_objective, validate_stages
 from agent_optimizer.contracts import (
     BudgetExceeded, Candidate, ConfigurationError, Evaluation, RunRequest, StageBudgetExceeded,
@@ -174,6 +176,9 @@ class GroupRunner:
         scaffold_used = None
         error = {}
         evaluation = Evaluation("error", {"passed": None})
+        outer_count, outer_wall_time = 0, None
+        native_mode = (self.profile.get('compatibility', {}).get('execution_mode') == 'native' or
+                       getattr(self.harness, 'execution_mode', None) == 'native')
         try:
             copy_tree(candidate.path, agent_dir)
             task_dir.mkdir(parents=True)
@@ -206,7 +211,8 @@ class GroupRunner:
                     execution = None
             if execution is None and time.monotonic() < trial_deadline:
                 request = RunRequest(workspace, agent_dir, task_dir, prompt, seed,
-                                     trial_deadline-time.monotonic(), self.profile, trial / "harness_logs")
+                                     trial_deadline-time.monotonic(), self.profile,
+                                     trial / ('logs' if native_mode else 'harness_logs'))
                 execution = self.harness.run(request)
             self.events.append({"event": "agent_completed", "phase": "agent", **identity})
             self.budget.remaining()
@@ -228,7 +234,12 @@ class GroupRunner:
                     evaluation = Evaluation("timeout", {"passed": 0.0}, "Per-trial timeout exhausted")
                 else:
                     self.events.append({"event": "evaluation_started", "phase": "evaluation", **identity})
-                    evaluation = self.evaluator.evaluate(task, eval_dir, remaining)
+                    outer_started = time.monotonic()
+                    outer_count += 1
+                    try:
+                        evaluation = self.evaluator.evaluate(task, eval_dir, remaining)
+                    finally:
+                        outer_wall_time = time.monotonic() - outer_started
                     self.events.append({"event": "evaluation_completed", "phase": "evaluation", **identity})
             self.budget.remaining()
             if evaluation.status == "timeout" and globally_limited:
@@ -256,7 +267,25 @@ class GroupRunner:
                       "metrics": metrics, "feedback": evaluation.feedback,
                       "execution": jsonable(execution), "artifacts": evaluation.artifacts,
                       **({"scaffold_attempted": scaffold_attempted} if scaffold_attempted is not None else {}),
-                      **({"scaffold_used": scaffold_used} if scaffold_used is not None else {}), **error}
+                       **({"scaffold_used": scaffold_used} if scaffold_used is not None else {}), **error}
+            if native_mode:
+                from agent_optimizer.native_summary import summarize_native
+                try:
+                    evidence_reader = getattr(self.harness, 'native_evidence', None)
+                    evidence = evidence_reader(candidate, task, self.profile) if evidence_reader else {}
+                    native = summarize_native(trial / 'logs', task_id=task.id,
+                        candidate_hash=candidate.content_hash, profile=self.profile['id'],
+                        outer_count=outer_count, outer_wall_time=outer_wall_time,
+                        **{key: value for key, value in evidence.items()
+                           if key in {'generated_targets', 'source_revision', 'source_hash'}})
+                except Exception:
+                    native = None
+                if native is not None:
+                    record['native_execution'] = native
+                else:
+                    record['native_execution_diagnostic'] = {'code': 'missing_or_invalid_sidecar'}
+                record['metrics'].update(native_outer_evaluation_count=outer_count,
+                                         native_outer_evaluation_wall_time_seconds=outer_wall_time)
             write_json(trial / "result.json", record)
             self.events.append({"event": "trial_completed", "dataset": identity["dataset"],
                                 "stage_id": identity["stage_id"], **record})
@@ -290,7 +319,7 @@ class GroupRunner:
 
     def run(self):
         seeds = self.spec.get("candidate_seed_files", {})
-        baseline = self.candidates.create(edits={path: safe_path(self.spec["_root"], source).read_text(
+        baseline = self.candidates.create(edits={path: safe_path(self.spec.get('_seed_root', self.spec['_root']), source).read_text(
             encoding="utf-8") for path, source in seeds.items()})
         self.events.append({"event": "candidate_created", "agent_id": self.agent.id,
                             "harness_id": self.profile["id"], "stage_id": "baseline",
@@ -368,12 +397,14 @@ def preflight(spec, registry):
                                               for path, source in seeds.items()):
         raise ConfigurationError("candidate_seed_files must map editable paths to project files")
     for path, source in seeds.items():
-        safe_path(spec["_root"], source)
+        seed_file = safe_path(spec.get('_seed_root', spec['_root']), source)
+        if seed_file == safe_path(spec.get('_config_root', spec['_root']), spec['benchmark']):
+            raise ConfigurationError('후보 seed로 private benchmark 평가 자료를 노출할 수 없습니다')
         safe_path(Path("/schema-validation"), path)
         if not all(any(fnmatch.fnmatchcase(path, editable) for editable in agent.editable)
                    for agent in spec["_agents"]):
             raise ConfigurationError(f"Candidate seed is not editable: {path}")
-        if not safe_path(spec["_root"], source).is_file():
+        if not safe_path(spec.get('_seed_root', spec['_root']), source).is_file():
             raise ConfigurationError(f"Candidate seed file missing: {source}")
         if not all("agent/" + path in agent.build for agent in spec["_agents"]):
             raise ConfigurationError(f"Candidate seed scaffold must run from the candidate: {path}")
@@ -393,7 +424,10 @@ def preflight(spec, registry):
     registry.selected_files(spec["_root"], spec)
     registry.load_plugins(spec["_root"], spec.get("plugins", {}))
     for profile in spec["_profiles"]:
-        registry.resolve("harnesses", profile["adapter"])
+        adapter = registry.resolve("harnesses", profile["adapter"])
+        validator = getattr(adapter, 'validate_experiment', None)
+        if validator is not None:
+            validator(spec, profile)
     evaluator = registry.resolve("evaluators", spec["evaluator"])(evaluator_settings(spec))
     for stage in spec.get("stages", []):
         registry.resolve("optimizers", stage["optimizer"])
@@ -425,10 +459,13 @@ def _failed_trial_diagnostic(records):
 
 def run_experiment(spec, registry, output: Path | None = None, on_event=None):
     preflight(spec, registry)
-    base = output or safe_path(spec["_root"], spec.get("output_dir", "runs"))
+    base = resolve_run_base(spec, output)
+    safe_path(base, '.')
     run_id = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime()) + "-" + uuid.uuid4().hex[:8]
     root = base.resolve() / run_id
     root.mkdir(parents=True, exist_ok=False)
+    lifecycle = record_lifecycle(root, status='running', experiment_name=spec['name'],
+                                 session_id=spec.get('_session_id'))
     run_started = time.monotonic()
     budget = Budget(spec.get("budget", {}))
     events = EventStore(root / "events.jsonl", on_event=on_event)
@@ -453,10 +490,10 @@ def run_experiment(spec, registry, output: Path | None = None, on_event=None):
             ref: hashlib.sha256(file.read_bytes()).hexdigest()
             for ref, file in registry.selected_files(spec["_root"], spec).items()}
         manifest["candidate_seed_sha256"] = {
-            path: hashlib.sha256(safe_path(spec["_root"], source).read_bytes()).hexdigest()
+            path: hashlib.sha256(safe_path(spec.get('_seed_root', spec['_root']), source).read_bytes()).hexdigest()
             for path, source in spec.get("candidate_seed_files", {}).items()}
         manifest["benchmark_sha256"] = hashlib.sha256(
-            safe_path(spec["_root"], spec["benchmark"]).read_bytes()).hexdigest()
+            safe_path(spec.get('_config_root', spec['_root']), spec["benchmark"]).read_bytes()).hexdigest()
         write_json(root / "manifest.json", manifest)
         phase = "source"
         for agent in spec["_agents"]:
@@ -508,6 +545,8 @@ def run_experiment(spec, registry, output: Path | None = None, on_event=None):
         events.append(error_event)
         raise
     finally:
+        record_lifecycle(root, status=summary['status'], experiment_name=spec['name'],
+                         session_id=spec.get('_session_id'), created_at=lifecycle['created_at'])
         if group is not None and group.summary["status"] == "running":
             for stage in group.summary["stages"]:
                 if stage["status"] == "running":

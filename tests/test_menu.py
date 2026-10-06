@@ -449,6 +449,8 @@ os.execv("/bin/sh", ["sh", *args])
             self.assertFalse((self.root / name).exists())
 
     def test_bootstrap_missing_python_guides_setup_without_installing(self):
+        # This fixture exercises PATH discovery, not an explicit interpreter.
+        self.env.pop("AGENT_OPT_CORE_PYTHON", None)
         for name in ["python3", "python"]:
             self.executable(name, "#!/bin/sh\nexit 1\n")
         result = subprocess.run(self.entries()[1], input="0\n", capture_output=True,

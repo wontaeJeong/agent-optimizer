@@ -7,6 +7,7 @@ import json
 import os
 import re
 import shutil
+import shlex
 import subprocess
 import sys
 import time
@@ -21,6 +22,7 @@ from agent_optimizer.registry import (PROJECT_COMPONENTS, PROJECT_DEPENDENCIES, 
                                       is_source_checkout, plugin_files)
 from agent_optimizer.sources import selected
 from agent_optimizer.workspace import safe_path
+from agent_optimizer.app_paths import app_path, resolve_run_base, resolve_dataset_cache
 
 
 class Runner:
@@ -35,14 +37,16 @@ class Runner:
     def add(self, name, ok, message, remedy, *, requires=(), cause=None, retry=None):
         failed = [dependency for dependency in requires if not self.ok(dependency)]
         status = "blocked" if failed else "ok" if ok else "error"
+        message = diagnostics.redact_guidance(message, self.environment)
         if failed:
             message = f"{message}\nBlocked by: {', '.join(failed)}"
         elif status == "error" and cause:
-            message = f"{message}\nCause: {cause}"
+            message = f"{message}\nCause: {diagnostics.redact_guidance(cause, self.environment)}"
         fix = ("Resolve " + ", ".join(failed) + " first. " + remedy
                if failed else "" if status == "ok" else remedy)
+        fix = diagnostics.redact_guidance(fix, self.environment)
         if status != "ok" and retry:
-            fix += f"\nRetry: {retry}"
+            fix += f"\nRetry: {diagnostics.safe_retry(retry, self.environment)}"
         self.checks.append({"id": name, "area": self.area, "status": status,
                             "message": message, "remedy": fix})
         return status == "ok"
@@ -118,11 +122,12 @@ def _command_label(argv: Sequence[str]) -> str:
 
 def check(identifier: str, area: str, ok: bool, message: str, remedy: str, *,
           cause: str | None = None, retry: str | None = None) -> dict:
+    message = diagnostics.redact_guidance(message)
     if not ok and cause:
-        message = f"{message}\nCause: {cause}"
-    fix = "" if ok else remedy
+        message = f"{message}\nCause: {diagnostics.redact_guidance(cause)}"
+    fix = "" if ok else diagnostics.redact_guidance(remedy)
     if not ok and retry:
-        fix += f"\nRetry: {retry}"
+        fix += f"\nRetry: {diagnostics.safe_retry(retry)}"
     return {"id": identifier, "area": area, "status": "ok" if ok else "error",
             "message": message, "remedy": fix}
 
@@ -184,7 +189,7 @@ def _dataset(root: Path, dataset_id: str, registry: Registry) -> list[dict]:
                        "Implement doctor(cache) for this dataset provider",
                        cause="provider has no doctor(cache) implementation")]
     try:
-        rows = provider.doctor(root / "external" / "datasets" / dataset_id)
+        rows = provider.doctor(resolve_dataset_cache(dataset_id))
         if (not isinstance(rows, list) or not rows or
                 any(not isinstance(row, dict) or set(row) != {"id", "area", "status", "message", "remedy"}
                     or not all(isinstance(value, str) for value in row.values())
@@ -208,7 +213,8 @@ def _registered(registry: Registry, plugins: dict, kind: str, name: str) -> bool
     if not isinstance(explicit, dict):
         return False
     if name in explicit and (name in registry.factories[kind] or name in PROJECT_COMPONENTS[kind]):
-        return False
+        return (explicit[name] == PROJECT_COMPONENTS[kind].get(name) and
+                (name not in registry.factories[kind] or (kind, name) in registry.loaded))
     return (name in registry.factories[kind] or name in PROJECT_COMPONENTS[kind]
             or name in explicit)
 
@@ -350,8 +356,8 @@ def _optimizer_options(spec: dict) -> dict:
 
 def _ace_asset_check(spec: dict) -> dict:
     """Read only the selected ACE lock and image identities; never run a container."""
-    root = spec["_root"]
-    retry = f"agent-opt prepare {spec['_source']}"
+    root = Path(spec.get('evaluator_config', {}).get('repo', str(spec['_root'] / 'external/cvdp_benchmark'))).parent.parent
+    retry = shlex.join(['agent-opt', 'prepare', str(spec['_source'])])
     if not is_source_checkout(root):
         from agent_optimizer.integrations import verified_integration
         try:
@@ -361,7 +367,7 @@ def _ace_asset_check(spec: dict) -> dict:
         except (ConfigurationError, OSError, ValueError) as exc:
             return check("integration.assets", "integration", False,
                          "Pinned ACE integration has not been prepared",
-                         retry, cause=diagnostics.summarize_exception(exc), retry=retry)
+                         "고정 ACE 연동 자산을 명시 준비하세요", cause=diagnostics.summarize_exception(exc), retry=retry)
     cause = None
     try:
         lock = json.loads((root / "external/environment-lock.json").read_text())
@@ -386,7 +392,7 @@ def _ace_asset_check(spec: dict) -> dict:
             ConfigurationError, UnavailableError) as exc:
         return check("integration.assets", "integration", False,
                      "Pinned ACE lock or Docker images are unavailable",
-                     retry, cause=cause or diagnostics.summarize_exception(exc), retry=retry)
+                     "고정 ACE lock·로컬 이미지를 준비하세요", cause=cause or diagnostics.summarize_exception(exc), retry=retry)
     return check("integration.assets", "integration", True,
                  "Pinned ACE lock and Docker image identities are available", "")
 
@@ -399,7 +405,9 @@ def _seed_check(spec: dict) -> dict:
             try:
                 valid = (isinstance(path, str) and isinstance(source, str)
                          and bool(safe_path(Path("/schema-validation"), path))
-                         and safe_path(spec["_root"], source).is_file()
+                         and safe_path(spec.get('_seed_root', spec['_root']), source).is_file()
+                         and safe_path(spec.get('_seed_root', spec['_root']), source) !=
+                             safe_path(spec.get('_config_root', spec['_root']), spec['benchmark'])
                          and all(any(fnmatch.fnmatchcase(path, pattern) for pattern in agent.editable)
                                  and "agent/" + path in agent.build for agent in spec["_agents"]))
             except (ConfigurationError, OSError, TypeError, ValueError):
@@ -414,6 +422,7 @@ def _seed_check(spec: dict) -> dict:
 
 def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict:
     rows = []
+    retry = shlex.join(['agent-opt', 'doctor', '--plan', str(path), *(['--model'] if model else [])])
     with _no_bytecode():
         try:
             raw = read_toml(path)
@@ -422,7 +431,7 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
                                             "Experiment file is missing or invalid",
                                             "Provide a valid experiment.toml",
                                             cause=diagnostics.summarize_exception(exc),
-                                            retry=f"agent-opt doctor --plan {path}")])
+                                             retry=retry)])
         if "integration" in raw:
             from agent_optimizer.integrations import resolve_pointer
             try:
@@ -432,13 +441,13 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
                                          "status": "blocked",
                                          "message": "선택한 연동의 준비가 필요합니다\nCause: "
                                                     + diagnostics.summarize_exception(exc),
-                                         "remedy": f"agent-opt prepare {path}\nRetry: agent-opt prepare {path}"}])
+                                          "remedy": '고정 연동을 명시 준비하세요\nRetry: ' + diagnostics.safe_retry(shlex.join(['agent-opt', 'prepare', str(path)]))}])
             except (ConfigurationError, OSError, ValueError, TypeError) as exc:
                 return _report("plan", [check("integration.pin", "integration", False,
                                                "선택형 연동의 ID·pin을 검증할 수 없습니다",
                                                "검토된 실험 선언을 복원하세요",
                                                cause=diagnostics.summarize_exception(exc),
-                                               retry=f"agent-opt doctor --plan {path}")])
+                                                retry=retry)])
             return collect_plan(prepared, registry, model=model)
         project_root = raw.get("project_root", "../..")
         if not isinstance(project_root, str):
@@ -454,7 +463,7 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
             rows.append(check("plan.schema", "plan", False, "Experiment schema or referenced input is invalid",
                               "Correct the experiment, Agent, harness, and benchmark declarations",
                               cause=diagnostics.summarize_exception(exc),
-                              retry=f"agent-opt doctor --plan {path}"))
+                               retry=retry))
         plugins = raw.get("plugins", {})
         files_cause = None
         try:
@@ -471,7 +480,7 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
                           "Registered component files and declared dependencies are available",
                           "Restore the selected registered component and declared dependency files",
                           cause=files_cause,
-                          retry=f"agent-opt doctor --plan {path}"))
+                           retry=retry))
         profiles = []
         profile_cause = None
         try:
@@ -492,7 +501,7 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
             rows.append(check("harness.registration", "harness", False,
                               "Harness or declared plugin files are unavailable",
                               "Register the harness and provide its declared plugin files",
-                              cause=profile_cause, retry=f"agent-opt doctor --plan {path}"))
+                               cause=profile_cause, retry=retry))
         claude_profiles = [profile for profile in profiles
                            if profile.get("adapter") in {"claude_code", "ace_claude_code"}]
         if claude_profiles:
@@ -513,7 +522,7 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
                           "Declared runtime binaries are available",
                           "Install the declared Docker, OpenCode, or Claude Code (claude) runtime executable",
                           cause=None if runtime_ok else "Missing runtime executable(s): "
-                          + ", ".join(missing_runtime), retry=f"agent-opt doctor --plan {path}"))
+                           + ", ".join(missing_runtime), retry=retry))
         try:
             if not _registered(registry, plugins, "evaluators", raw["evaluator"]):
                 raise UnavailableError("Unregistered evaluator")
@@ -522,7 +531,7 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
             rows.append(check("evaluator.registration", "evaluator", False, "Evaluator is not registered",
                               "Register the selected evaluator or supply an explicit evaluator plugin",
                               cause=diagnostics.summarize_exception(exc),
-                              retry=f"agent-opt doctor --plan {path}"))
+                               retry=retry))
         stages = raw.get("stages", [])
         try:
             for stage in stages:
@@ -533,10 +542,34 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
             rows.append(check("optimizer.registration", "optimizer", False, "Optimizer is not registered",
                               "Select a registered optimizer",
                               cause=diagnostics.summarize_exception(exc),
-                              retry=f"agent-opt doctor --plan {path}"))
+                               retry=retry))
         if spec is not None:
+            try:
+                paths = [app_path(name) for name in ('experiments', 'runs', 'sessions', 'assets', 'cache', 'logs')]
+                paths.append(resolve_run_base(spec))
+                for target in paths:
+                    safe_path(target, '.')
+                    parent = target
+                    while not parent.exists() and parent != parent.parent:
+                        parent = parent.parent
+                    if not parent.is_dir() or not os.access(parent, os.R_OK | os.W_OK | os.X_OK):
+                        raise ConfigurationError('App Home/output 경로·권한을 확인하세요')
+                rows.append(check('app.paths', 'application', True, 'App Home과 output 경로를 읽기 전용으로 확인했습니다', ''))
+            except (ConfigurationError, OSError, ValueError) as exc:
+                rows.append(check('app.paths', 'application', False, 'App Home/output 경로를 사용할 수 없습니다',
+                                  'AGENT_OPT_HOME 절대경로와 디렉터리·권한을 수정하세요',
+                                  cause=diagnostics.summarize_exception(exc), retry=retry))
             rows.extend(_source_checks(spec))
-            if spec.get("preset_selection"):
+            native_profiles = [profile for profile in profiles if profile.get('adapter') == 'ace_native']
+            if native_profiles:
+                from agent_optimizer.native_selection import diagnose_native_selection
+                try:
+                    rows.extend(diagnose_native_selection(spec, retry=retry))
+                except (ConfigurationError, UnavailableError, OSError, ValueError, TypeError) as exc:
+                    rows.append(check('native.assets', 'native', False, 'native 진단 자산이 없습니다',
+                                      '완전한 native 예제 자산을 포함한 배포/명시 workspace를 사용하세요',
+                                      cause=diagnostics.summarize_exception(exc), retry=retry))
+            elif spec.get("preset_selection"):
                 rows.append(_ace_asset_check(spec))
             rows.append(check("agent.output", "agent", all(task.files for task in spec["_tasks"]),
                               "Task output files are declared", "Declare task output file paths in the benchmark"))
@@ -558,7 +591,7 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
                                   "Selected dataset and evaluator match",
                                   "Use the registered evaluator ID from the selected dataset provider",
                                   cause=dataset_cause,
-                                  retry=f"agent-opt doctor --plan {path}"))
+                                   retry=retry))
             else:
                 rows.append(check("dataset.manifest", "dataset", True,
                                   "Custom benchmark schema and splits are valid", ""))
@@ -568,10 +601,21 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
                           if profile.get("adapter") == "opencode" or
                           (profile.get("adapter") == "ace_opencode" and spec is not None
                            and spec.get("preset_selection"))]
-        if research or harness_models:
+        native_agent = any(profile.get('adapter') == 'ace_native' for profile in profiles)
+        if research or harness_models or native_agent:
+            from agent_optimizer.network import network_environment
             try:
-                if research:
+                network_environment()
+                rows.append(check('model.transport', 'model', True, '모델 TLS/CA·proxy 설정 정적 확인(연결 검증 아님)', ''))
+            except (ConfigurationError, OSError, ValueError) as exc:
+                rows.append(check('model.transport', 'model', False, '모델 TLS/CA 설정을 사용할 수 없습니다',
+                                  'AGENT_OPT_CA_BUNDLE의 읽기 가능한 PEM CA를 복원하세요. TLS 검증은 비활성화하지 않습니다',
+                                  cause=diagnostics.summarize_exception(exc), retry=retry))
+            try:
+                if research or native_agent:
                     models.ModelSettings.from_env()
+                if native_agent and not os.environ.get('AGENT_OPT_MODEL_ID'):
+                    raise ConfigurationError('native Agent API model ID가 필요합니다')
                 configured = all(isinstance(key, str) and re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", key)
                                  and bool(os.environ.get(key)) for key in harness_models)
             except (ConfigurationError, UnavailableError) as exc:
@@ -581,10 +625,11 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
                 model_cause = None
             rows.append(check("model.configuration", "model", configured,
                               "Required model configuration is present",
-                               "Set AGENT_OPT_MODEL_BASE_URL and AGENT_OPT_MODEL_API_KEY for research optimizers; "
-                              "set " + ", ".join(harness_models or ["AGENT_OPT_MODEL"]) + " for OpenCode harnesses",
+                               ('native Agent(generator/reflector/coordinator)의 AGENT_OPT_MODEL_BASE_URL·AGENT_OPT_MODEL_ID·AGENT_OPT_MODEL_API_KEY를 지정하세요. Optimizer API는 연구 stage에만 필요합니다'
+                                if native_agent else "Set AGENT_OPT_MODEL_BASE_URL and AGENT_OPT_MODEL_API_KEY for research optimizers; "
+                                "set " + ", ".join(harness_models or ["AGENT_OPT_MODEL"]) + " for OpenCode harnesses"),
                               cause=model_cause,
-                              retry=f"agent-opt doctor --plan {path}"))
+                               retry=retry))
         if model:
             try:
                 models.probe_model()
@@ -593,5 +638,5 @@ def collect_plan(path: Path, registry: Registry, *, model: bool = False) -> dict
                 rows.append(check("model.probe", "model", False, "Model connectivity probe failed",
                                   "Verify model credentials, endpoint, connectivity, and tool-call support",
                                   cause=diagnostics.summarize_exception(exc),
-                                  retry=f"agent-opt doctor --plan {path} --model"))
+                                   retry=retry))
     return _report("plan", rows)

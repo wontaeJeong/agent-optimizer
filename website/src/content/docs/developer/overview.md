@@ -29,3 +29,9 @@ description: 팀 구현과 Runner의 책임, 후보 스냅샷, train·validation
 **탐색:** 모든 Optimizer stage가 공통 baseline에서 독립적으로 시작하고 **자기 stage와 baseline의 train 이력**만 사용합니다. [ACE 선택형 데모](/agent-optimizer/getting-started/presets/)는 GEPA **또는** Meta-Harness의 단일 stage이며, [사용자 정의 실험](/agent-optimizer/guides/experiment/)에서는 여러 독립 stage를 지정할 수 있습니다. **선택:** validation 수치로 후보를 고를 수 있지만 private 평가 자료와 test 결과는 수정 근거로 노출되지 않습니다. **최종 평가:** 후보 선택을 고정한 뒤에만 설정된 test를 실행합니다. 좁은 화면에서는 그림 영역을 좌우로 스크롤하세요.
 
 기본 최종 비교는 모든 stage winner를 대상으로 하며 선택은 lexicographic `keep=1`, 지표 집계는 `mean`/`sum`입니다. 서로 다른 데이터셋의 평가 점수를 하나로 합쳐 순위를 매기지 않습니다. 다음은 [검증 순서](/agent-optimizer/developer/validation/)입니다.
+
+## native 정책과 저장소 경계
+
+ACE/CVDP 정책은 `examples/ace-rtl/native_selection.py` 소유이고 코어는 출처/인자 전달 thin hook·등록 Harness의 optional validate_experiment/native_evidence를 소비합니다. native guidance/orchestration은 실제 editable 표면, bridge/evaluator/source-lock은 editable 밖입니다. [outer/inner 도식](/agent-optimizer/concepts/overview/#outer와-inner-native-ace)은 private 모델 입력 금지·inner pass/outer 재평가 차이를 보여줍니다.
+
+helper 출처는 명시 workspace → 실행 코어 source checkout → distribution metadata 자산입니다. old first-party pin에 신규 native가 있다고 주장하거나 pin을 자동 갱신하지 않습니다. [프로젝트와 Home](/agent-optimizer/concepts/overview/#프로젝트와-app-home)의 provenance·explicit output 부모·legacy/자동 migration 없음 규칙을 따릅니다. 같은 프로세스의 모델 세션 환경은 실행 context를 직렬화/복구하지만 임의 plugin thread를 OS 격리하는 기능은 아닙니다.

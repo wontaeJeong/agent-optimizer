@@ -2,6 +2,8 @@
 
 ## Agent 개발자: 실제 최적화 실행
 
+**현재 native 먼저:** [NATIVE 가이드](../examples/ace-rtl/NATIVE.md)의 고정 로컬 소스·데이터·별도 3.12/native extra·명시 CID/row/split·평가/API 조건을 준비한다. init의 로컬 export/선택 검증 → prepare의 선택 자료·source/interpreter·outer benchmark 제한 검사 → **doctor --plan의 전체 정적 환경 진단** → 필요 시 **--model 실제 API probe** → 작은 validation row Baseline → 독립 GEPA/Meta 비교 → History/report 순이다. prepare는 모델·driver 패키지 imports·독립 inner 환경 전체를 검사하지 않으며 `--offline`도 범위 확대/자동 설치/온라인 보완을 하지 않는다. prepare 성공만으로 전체 준비됐다고 해석하지 않는다. 아래 `make setup`/고정 simple_feedback은 legacy coding 경로다.
+
 1. `make setup-core` 후 `.venv/bin/agent-opt datasets list` 또는 `.venv/bin/agent-opt tui`에서
    CVDP/Verilog-Eval/사용자 JSON 데이터셋을 **직접 선택**한다. 다운로드·고정 해시·평가 도구 준비는
    선택 이후에 실행된다. 개발 checkout의 ACE 고정 실험은 `make setup`으로 전체 자산을 먼저 준비하고,
@@ -12,7 +14,7 @@
    `.venv/bin/agent-opt init`에서 고정 Git commit 또는 local 소스, 선택한 하네스에 필요한
    실제 CLI argv, prompt_file, editable 텍스트 범위를 지정한다. 명시적인 harness/scaffold
    파일이 없으면 Meta-Harness/Ecdysis를 선택할 수 없다.
-   `.venv/bin/agent-opt doctor --plan runs/configs/<name>/experiment.toml --json`으로
+   `init` JSON의 절대 `experiment`를 CONFIG로 복사해 `.venv/bin/agent-opt doctor --plan "$CONFIG" --json`으로
    실행 전에 선언/등록·선택 자산을 읽기 전용 진단한다. `plan`은 실제 Agent 성공이 아니다.
 3. 동일 모델/예산에서 GEPA·Meta-Harness·Ecdysis를 독립 stage로 실행하고 task/iteration 소요 시간을
    CLI/TUI에서 확인한다. 결과는 `report.html`의 validation 선택·frozen test·원본과 diff/partial usage로
@@ -22,6 +24,8 @@
    주장하기 전에는 실제 명령·모델·평가 결과를 [검증 기록](verification.md)에 추가한다.
 
 ## 팀 개발자: 새로운 컴포넌트 추가
+
+I는 [H 인계](verification/final-mvp-h-20261001.md)의 여정/명령/사이트 결과와 [G 최종 §7](verification/final-mvp-g-20261001.md)의 전체 1155개/실제 wheel 근거를 소비한다. native live·실 Docker cleanup·Ubuntu는 별도 조건부 검증 전까지 not_run이며 과거 OpenCode 성공을 전용하지 않는다.
 
 1. **코어 준비:** `make setup-core` → `make doctor-core`.
    완료 기준: Docker/모델 없이 core ready와 첫 합성 보고서. 번호 메뉴 1/2도 같은 경로다.

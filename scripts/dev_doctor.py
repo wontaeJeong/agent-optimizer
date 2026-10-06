@@ -45,7 +45,10 @@ def core_checks(root, environment=None):
             outcome, environment=runner.environment)
         runner.add(f"core.{tool}", outcome.succeeded, f"Host {tool} executable.", remedy,
                    cause=cause, retry=retry)
-    python = root / ".venv/bin/python"
+    override = runner.environment.get('AGENT_OPT_CORE_PYTHON')
+    python = Path(override) if override else root / '.venv/bin/python'
+    if not python.is_absolute():
+        raise ConfigurationError('AGENT_OPT_CORE_PYTHON에는 기존 interpreter 절대경로가 필요합니다')
     outcome = (runner.run([str(python), "-I", "-B", "-c",
                            "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
                           label="project Python") if python.is_file() else None)
@@ -63,7 +66,7 @@ def core_checks(root, environment=None):
                   "import sys; from pathlib import Path; "
                   "assert sys.prefix != sys.base_prefix; "
                   "assert Path(sys.prefix).resolve() == Path(sys.argv[1]).resolve()",
-                  str(root / ".venv")],
+                   str(python.parent.parent)],
                   "Interpreter belongs to the project virtualenv.", SETUP, requires=("core.python",),
                   retry="sh scripts/bootstrap.sh setup --core")
     runner.probe("core.package", [str(python), "-I", "-B", "-c",
@@ -71,7 +74,8 @@ def core_checks(root, environment=None):
                   "m.distribution('agent-optimizer')"],
                   "Installed project package in .venv.", SETUP, requires=("core.venv",),
                   retry="sh scripts/bootstrap.sh setup --core")
-    runner.probe("core.cli", [str(root / ".venv/bin/agent-opt"), "--help"],
+    runner.probe("core.cli", ([str(python), '-I', '-B', '-m', 'agent_optimizer', '--help'] if override
+                              else [str(root / '.venv/bin/agent-opt'), '--help']),
                   "Installed agent-opt executable.", SETUP, requires=("core.package",),
                   retry="sh scripts/bootstrap.sh setup --core")
     for tool in ("ruff", "build"):

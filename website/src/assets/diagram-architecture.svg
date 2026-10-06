@@ -24,5 +24,5 @@
   <rect class="box record" x="601" y="239" width="150" height="68" rx="9"/><text class="label" x="644" y="268">Trial</text><text class="small" x="617" y="289">실행·채점 기록</text>
   <rect class="box input" x="215" y="394" width="150" height="68" rx="9"/><text class="label" x="244" y="423">Optimizer</text><text class="small" x="227" y="445">editable만 변경</text>
   <rect class="box record" x="601" y="395" width="150" height="68" rx="9"/><text class="label" x="647" y="434">Report</text>
-  <text class="small" x="369" y="335">Trial을 바탕으로 후보 제안</text>
+  <text class="small" x="369" y="335">자기 stage·baseline train만 수정 근거</text>
 </svg>

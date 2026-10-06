@@ -38,10 +38,10 @@ def list_choices(kind, root):
     rows = {}
     if kind == "agent":
         rows["ace-rtl"] = {"id": "ace-rtl", "name": "ACE-RTL", "implemented": True,
-                           "ready": False, "description": "고정 ACE 스킬 소스; 자산 준비 및 모델 필요",
+                           "ready": False, "description": "ACE Agent 선택; Python native 또는 명시 legacy skill 프로필. 고정 자산·모델 필요",
                            "requirements": ["고정 Git 소스", "선택 Harness 프로필"]}
         if is_source_checkout(root):
-            for path in sorted({*(root / "examples").glob("*/source.toml"),
+            for path in sorted({*(root / "examples").glob("*/source*.toml"),
                                 *(root / "examples").glob("*/agent.toml")}):
                 agent = load_agent(path)
                 rows[agent.id] = {**rows.get(agent.id, {}), "id": agent.id,
@@ -65,6 +65,15 @@ def list_choices(kind, root):
             rows[identifier] = {"id": identifier, "name": identifier, "implemented": True,
                                 "ready": False, "adapter": adapter,
                                 "description": "ACE-RTL 전용 프로필; 고정 자산·도구·모델 준비 필요"}
+        rows['ace-native'] = {'id': 'ace-native', 'name': 'Python native (ACE-RTL)',
+                              'adapter': 'ace_native', 'implemented': True, 'ready': False,
+                              'execution_mode': 'native', 'requires_model_api': True,
+                              'model_roles': ['generator', 'reflector', 'coordinator'],
+                              'edit_surfaces': {'gepa': 'native/guidance.md', 'meta_harness': 'native/orchestration.py'},
+                              'reviewed_cids': ['cid002', 'cid004', 'cid007', 'cid016'],
+                              'description': '고정 Python run_attempt 연결; 명시 CID/row 선택 필요. cid007 PNR·상용 helper row 제외. 실환경 not_run',
+                              'requirements': ['고정 native 소스', 'Python 3.12/yaml/pydantic_settings', 'CVDP 고정 데이터·OSS 평가 환경', 'Agent 모델 API']}
+        rows['ace_native'] = {**rows['ace-native'], 'id': 'ace_native', 'profile_id': 'ace-native'}
         if is_source_checkout(root):
             for path in sorted((root / "examples").glob("*/harness*.toml")):
                 profile = read_toml(path)
@@ -73,6 +82,11 @@ def list_choices(kind, root):
                     "ready": False, "description": "등록된 Harness 프로필; Agent 지원과 실행 도구 확인 필요"})
                 rows[profile["id"]].update(adapter=profile["adapter"],
                                             runtime=profile.get("runtime", {}))
+                if profile.get('adapter') == 'ace_native':
+                    metadata = profile.get('compatibility', {})
+                    rows[profile['id']].update(execution_mode=metadata.get('execution_mode'),
+                        model_roles=metadata.get('roles', []), model_fields=metadata.get('model_fields', []),
+                        reviewed_cids=metadata.get('reviewed_cids', []))
     elif kind == "optimizer":
         descriptions = {"baseline": "수정 없는 기준 평가; Optimizer 모델 불필요",
                         "gepa": "train 피드백으로 텍스트 후보 생성, validation 비교; merge 미지원",
@@ -91,7 +105,7 @@ def list_choices(kind, root):
                "ace-claude-code": "Claude Code (ACE-RTL)", "gepa": "GEPA",
                "meta_harness": "Meta-Harness", "cvdp": "CVDP"}
     requirements = {
-        "ace-rtl": ["고정 ACE Git source", "모델 선택자", "Docker"],
+        "ace-rtl": ["고정 ACE 소스", "native API 또는 legacy 모델 선택자", "선택 평가 환경"],
         "ace-opencode": ["ACE-RTL", "고정 OpenCode Docker image", "AGENT_OPT_MODEL"],
         "ace-claude-code": ["ACE-RTL", "Claude CLI 및 인증"],
         "gepa": ["editable 텍스트 파일", "train/validation 과제", "Optimizer 모델 API"],
@@ -99,7 +113,9 @@ def list_choices(kind, root):
                          "Optimizer 모델 API"],
         "baseline": ["validation 과제", "Evaluator"],
         "cvdp": ["고정 공개 CVDP 과제", "cvdp 평가기", "Docker/driver"]}
-    related = {"ace-rtl": ["ace-opencode", "ace-claude-code"],
+    related = {"ace-rtl": ["ace-native", "ace-opencode", "ace-claude-code"],
+               'ace-rtl-native': ['ace-native'], 'ace-native': ['ace-rtl-native', 'cvdp'],
+               'ace_native': ['ace-rtl-native', 'cvdp'],
                "ace-opencode": ["ace-rtl"], "ace-claude-code": ["ace-rtl"],
                "gepa": ["editable 텍스트 Agent", "예: ace-rtl/ace-opencode/cvdp"],
                "meta_harness": ["실제로 실행되는 editable Python Agent", "예: ace-rtl/ace-opencode/cvdp"],

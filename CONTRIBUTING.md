@@ -19,6 +19,8 @@ Optimizer는 propose/evaluate, Harness는 RunRequest/ExecutionResult, 외부 Age
 
 ## 변경 범위별 로컬 검증
 
+native 수정은 [NATIVE 계약](examples/ace-rtl/NATIVE.md)의 CID/row/private·actual guidance/orchestration·inner/outer·nullable usage·실패 cleanup covering을 확인한다. 별도 Python 3.12/native extra·driver·Docker/image·API 조건이 없으면 live는 not_run이다. 아래 기존 full ACE setup/smoke/live와 과거 OpenCode 성공을 native 성공으로 기록하지 않는다. [G §7](docs/verification/final-mvp-g-20261001.md)의 실제 wheel build/install 근거와 설치 native 자산 hierarchy/metadata·누락 실패를 함께 대조한다.
+
 | 변경 | 필요한 검사 |
 |---|---|
 | 개발 명령·CLI UX | `PYTHONPATH=src .venv/bin/python -m unittest discover -s tests -p test_dev_onboarding.py -v` 및 `test_menu.py`·`test_dev_doctor.py`·`test_cli_experience.py` 관련 회귀 → `make lint`, `make test`, `make demo`, `git diff --check`; 합성/명령 전달 성공은 ACE 실행 성공과 구분 |
@@ -45,6 +47,7 @@ wheel=$(.venv/bin/python scripts/select_wheel.py dist)
 
 **작은 팀 플러그인 수정마다 이미지 rebuild나 wheel 설치는 필요 없습니다.** setup 없는 lint/test/demo는
 기존 `.venv`를 사용합니다. 문서 수정에는 링크·명령 대조를 수행하고 문구를 반복 검사하는 테스트를 만들지 않습니다.
+다른 격리 checkout에서 준비된 환경 실행만 할 때 `AGENT_OPT_CORE_PYTHON=/절대/기존-venv/bin/python make lint`를 사용할 수 있다. 새 설정은 Home UUID, legacy minimal의 명시 runs는 유지되며 결과 검증에는 실제 JSON run_dir을 소비한다. 사이트 문서는 website의 실제 `npm run build`/`npm run check:links`와 `/agent-optimizer` base/asset/anchor·360px/desktop을 확인한다.
 계약 테스트 결과는 임시이며, minimal demo는 `runs/<run-id>/`의 보고서·summary를 남깁니다.
 최소 데모는 두 합성 Agent·단일 repair stage·7 trial(solo 4/team 3)입니다.
 호스트 도구 부재 skip과 실제 Docker/모델 실행 성공을 구분하고 [검증 기록](docs/verification.md)에 범위를 적습니다.
