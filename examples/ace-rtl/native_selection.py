@@ -20,6 +20,49 @@ from agent_optimizer.workspace import safe_path
 CIDS = {'cid002', 'cid004', 'cid007', 'cid016'}
 
 
+def execution_presets():
+    """Explicit small task selections; choosing a preset also chooses its split."""
+    families = {
+        'cid002': ('cvdp_copilot_Attenuator_0001', 'cvdp_copilot_64b66b_decoder_0001'),
+        'cid004': ('cvdp_copilot_64b66b_encoder_0009', 'cvdp_copilot_8x3_priority_encoder_0013'),
+        'cid016': ('cvdp_copilot_64b66b_encoder_0005', 'cvdp_copilot_32_bit_Brent_Kung_PP_adder_0001'),
+    }
+    presets = []
+    for cid, (train, validation) in families.items():
+        for optimizer, label in [('baseline', 'Baseline'), ('gepa', 'GEPA'), ('meta_harness', 'Meta-Harness')]:
+            rows = ({validation: 'validation'} if optimizer == 'baseline' else
+                    {train: 'train', validation: 'validation'})
+            budget = native_trial_budget(optimizer, rows)
+            presets.append({
+                'id': f'native-{cid}-{optimizer}',
+                'label': f'ACE-RTL · native · {label} · {cid.upper()}',
+                'selections': {'Agent': 'ace-rtl', 'Harness': 'ace-native', 'Optimizer': optimizer, 'Dataset': 'cvdp'},
+                'native': {'cids': [cid], 'rows': rows},
+                'description': '\n'.join([
+                    f'ACE-RTL + Python native + {label} + CVDP {cid}',
+                    '', '선택 과제·split',
+                    *[f'  {row}: {split}' for row, split in rows.items()],
+                    '', f'예산: 최대 {budget} trials · trial 600초 · 전체 3600초',
+                    'final_test=false · 연구 stage는 기본 3회',
+                    '', 'Enter: 이 CID·과제·split을 적용합니다. Native 화면에서 수정할 수 있습니다.',
+                    '세션의 소스·데이터·Python·평가기 경로와 모델 설정을 재사용합니다.',
+                    '고정 로컬 자산이 필요합니다. row 형태 검토와 실제 모델·도구 검증은 별개입니다.',
+                ]),
+            })
+    for optimizer, label in [('baseline', 'Baseline'), ('gepa', 'GEPA'), ('meta_harness', 'Meta-Harness')]:
+        presets.append({
+            'id': f'legacy-opencode-{optimizer}',
+            'label': f'ACE-RTL · OpenCode (legacy) · {label} · CVDP',
+            'selections': {'Agent': 'ace-rtl', 'Harness': 'ace-opencode', 'Optimizer': optimizer, 'Dataset': 'cvdp'},
+            'description': f'기존 coding 실행 조합: ACE-RTL + OpenCode + {label} + CVDP\n'
+                           '고정 legacy 과제 train 1 / validation 1 · final_test=false\n'
+                           f'예산: 최대 {1 if optimizer == "baseline" else 9} trials · trial 600초\n'
+                           'Enter: 모델 설정으로 이동합니다. 고정 자산·Docker·모델 API가 필요합니다.\n'
+                           'native 역할 loop와 다른 기존 skill 실행입니다.',
+        })
+    return presets
+
+
 def _evaluator_checks(config, *, runner, prefix, suffix, retry, evaluator_class, outcomes):
     """Use the same effective CVDP settings as execution; cache only read-only probes."""
     from agent_optimizer import diagnostics

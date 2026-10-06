@@ -31,6 +31,31 @@ def _tr(korean: str, english: str) -> str:
     return english if current_language() == "en" else korean
 
 
+def execution_presets(root: Path) -> list[dict]:
+    """Read-only combinations; ACE task policy stays in the example helper."""
+    presets = []
+    for agent in ('rtl-solo', 'rtl-team'):
+        present = (root / 'examples/minimal/agents' / agent.removeprefix('rtl-') / 'prompts/system.md').is_file()
+        for optimizer, label in [('baseline', 'Baseline'), ('file_variants', 'FileVariants')]:
+            presets.append({
+                'id': f'fixture-{agent.removeprefix("rtl-")}-{optimizer.replace("_", "-")}',
+                'label': f'합성 · {agent} · Fixture · {label}',
+                'selections': {'Agent': agent, 'Harness': 'fixture', 'Optimizer': optimizer, 'Dataset': 'sample_text'},
+                'enabled': present,
+                'reason': '' if present else '합성 Agent 자산이 없습니다. 소스 checkout에서 실행하거나 기존 실험을 선택하세요.',
+                'description': f'{agent} + Fixture + {label} + sample_text\n'
+                               '합성 train / validation / test · 모델·Docker 불필요\n'
+                               f'예산: 최대 {3 if optimizer == "baseline" else 4} trials · trial 120초 · 전체 3600초\n'
+                               'Enter: 실행 전 확인으로 이동합니다. 실제 RTL/LLM 성능 검증이 아닙니다.',
+            })
+    from agent_optimizer.native_selection import selection_policy
+    try:
+        policy, _ = selection_policy(root)
+    except ConfigurationError:
+        return presets
+    return [*policy.execution_presets(), *presets]
+
+
 @dataclass(frozen=True)
 class ChoiceRow:
     """Stable component/action identity; tuple access preserves existing read-only consumers."""
