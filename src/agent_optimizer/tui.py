@@ -7,6 +7,7 @@ import math
 import threading
 import time
 import traceback
+import sys
 from pathlib import Path
 from urllib.parse import unquote, unquote_plus, urlsplit
 
@@ -50,10 +51,16 @@ class _ProgressCapture:
 
     def __init__(self, app):
         self.app = app
+        self.owner = threading.get_ident()
+        self.original_stderr = sys.stderr
         self.pending = ""
         self.lock = threading.Lock()
 
     def write(self, value: str) -> int:
+        # redirect_stderr is process-global; asyncio diagnostics originate on the UI thread.
+        if threading.get_ident() != self.owner:
+            self.original_stderr.write(self.app._redact_secrets(value))
+            return len(value)
         with self.lock:
             self.pending += value
             lines = self.pending.split("\n")
@@ -64,6 +71,9 @@ class _ProgressCapture:
         return len(value)
 
     def flush(self) -> None:
+        if threading.get_ident() != self.owner:
+            self.original_stderr.flush()
+            return
         with self.lock:
             line, self.pending = self.pending, ""
         if line.strip():

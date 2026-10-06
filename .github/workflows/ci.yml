@@ -17,13 +17,18 @@ on:
         description: Verify both pinned Verilog-Eval datasets on Ubuntu amd64
         type: boolean
         default: false
+      verilog_jobs:
+        description: Verilog-Eval 과제 동시 실행 수 (직렬 비교 검증은 1)
+        type: choice
+        options: ['1', '2']
+        default: '2'
   workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-checks
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-checks${{ inputs.verilog_eval_full && format('-verilog-{0}', inputs.verilog_jobs || '2') || '' }}
   cancel-in-progress: ${{ github.event_name != 'merge_group' }}
 
 jobs:
@@ -66,7 +71,8 @@ jobs:
         run: echo "version=${ImageOS:?}-${ImageVersion:?}" >> "$GITHUB_OUTPUT"
       - name: native 도구 다운로드 캐시
         if: runner.environment == 'github-hosted' && github.server_url == 'https://github.com'
-        uses: actions/cache@v4
+        id: native-cache
+        uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/native-apt/*.deb
           key: native-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-image.outputs.version }}-yosys-iverilog
@@ -82,6 +88,12 @@ jobs:
           yosys -V
           iverilog -V
           vvp -V
+      - name: 검증한 native 도구 다운로드 보존
+        if: runner.environment == 'github-hosted' && github.server_url == 'https://github.com' && steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/native-apt/*.deb
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
       - name: Developer command help
         run: make help
       - name: Lint
@@ -168,7 +180,8 @@ jobs:
           version: v0.21.3
       - name: 공식 Docker 레이어 캐시
         if: runner.environment == 'github-hosted' && github.server_url == 'https://github.com'
-        uses: actions/cache@v4
+        id: official-docker-cache
+        uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/docker-layer-cache
           key: official-docker-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('examples/ace-rtl/environment/setup.py', 'examples/rtl-debugger/Dockerfile', 'examples/rtl-debugger/*.json', 'examples/rtl-debugger/*.mjs', 'src/agent_optimizer/network.py') }}
@@ -178,6 +191,12 @@ jobs:
         run: echo "AGENT_OPT_BUILD_CACHE_DIR=$RUNNER_TEMP/docker-layer-cache" >> "$GITHUB_ENV"
       - name: Prepare native Docker environment
         run: make setup
+      - name: 검증한 공식 Docker 레이어 보존
+        if: runner.environment == 'github-hosted' && github.server_url == 'https://github.com' && steps.official-docker-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/docker-layer-cache
+          key: ${{ steps.official-docker-cache.outputs.cache-primary-key }}
       - name: Diagnose prepared environment
         run: make doctor
       - name: Verify offline reuse
@@ -260,7 +279,8 @@ jobs:
           version: v0.21.3
       - name: 고정 Icarus v12 Docker 레이어 캐시
         if: github.server_url == 'https://github.com'
-        uses: actions/cache@v4
+        id: verilog-docker-cache
+        uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/docker-layer-cache
           key: verilog-docker-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('examples/benchmarks/Dockerfile.iverilog12', 'src/agent_optimizer/network.py') }}
@@ -272,7 +292,22 @@ jobs:
         run: |
           uname -m
           docker version --format '{{.Server.Os}}/{{.Server.Arch}}'
-          .venv/bin/python examples/benchmarks/verify_verilog_eval_full.py --dataset '${{ matrix.dataset }}' --require-ubuntu-amd64 --jobs 2
+          .venv/bin/python examples/benchmarks/verify_verilog_eval_full.py --dataset '${{ matrix.dataset }}' --require-ubuntu-amd64 --jobs '${{ inputs.verilog_jobs || '2' }}'
+      - name: 완료된 Icarus v12 레이어 export 확인
+        if: always()
+        id: verilog-cache-export
+        run: |
+          if compgen -G "$RUNNER_TEMP/docker-layer-cache/*/index.json" > /dev/null; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: 평가 실패와 독립적으로 완료된 이미지 레이어 보존
+        if: always() && github.server_url == 'https://github.com' && steps.verilog-cache-export.outputs.ready == 'true' && steps.verilog-docker-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/docker-layer-cache
+          key: ${{ steps.verilog-docker-cache.outputs.cache-primary-key }}
       - name: 정제된 결과만 보존
         if: always() && github.server_url == 'https://github.com'
         uses: actions/upload-artifact@v4

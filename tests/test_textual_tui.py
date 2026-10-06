@@ -28,6 +28,21 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
         app.model_values.update(values)
         app.model_sources.update({field: "session" for field in values})
 
+    async def test_preparation_capture_does_not_route_ui_thread_diagnostics_back_to_ui(self):
+        from agent_optimizer.tui import OptimizerApp, _ProgressCapture
+
+        app = OptimizerApp(self.root)
+        app.model_values["AGENT_OPT_MODEL_API_KEY"] = "diagnostic-fixture-secret"
+        original = io.StringIO()
+        async with app.run_test():
+            with redirect_stderr(original):
+                capture = await asyncio.to_thread(_ProgressCapture, app)
+                capture.write("UI-thread diagnostic diagnostic-fixture-secret\n")
+                capture.flush()
+            self.assertIn("UI-thread diagnostic", original.getvalue())
+            self.assertNotIn("diagnostic-fixture-secret", original.getvalue())
+            self.assertNotIn("UI-thread diagnostic", "\n".join(app.preparation_lines))
+
     async def test_home_is_first_and_new_optimization_enters_wizard_with_back_navigation(self):
         from agent_optimizer.tui import OptimizerApp
 
