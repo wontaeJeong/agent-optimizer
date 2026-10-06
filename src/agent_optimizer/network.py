@@ -91,7 +91,8 @@ def ca_fingerprint(env=None) -> str | None:
 
 @contextmanager
 def _cached_build(command, env):
-    value = (os.environ if env is None else env).get("AGENT_OPT_BUILD_CACHE_DIR")
+    env = os.environ if env is None else env
+    value = env.get("AGENT_OPT_BUILD_CACHE_DIR")
     if not value:
         yield command
         return
@@ -103,6 +104,9 @@ def _cached_build(command, env):
     tag_index = next((index for index, arg in enumerate(command) if arg in {"-t", "--tag"}), None)
     if tag_index is None:
         raise ConfigurationError("Cached builds require an explicit image tag")
+    builder = env.get("AGENT_OPT_BUILD_CACHE_BUILDER")
+    if builder and (not isinstance(builder, str) or not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_.-]*", builder)):
+        raise ConfigurationError("Build cache builder must be a local builder name")
     key = hashlib.sha256(command[tag_index + 1].encode()).hexdigest()
     # Local build-cache mode targets the supported Mac/Linux hosts only.
     import fcntl
@@ -117,6 +121,8 @@ def _cached_build(command, env):
         if backup.exists():
             raise ConfigurationError("Previous build cache recovery is required before reuse")
         flags = ["--cache-from", f"type=local,src={source}"] if _cache_index(source) else []
+        if builder:
+            flags += ["--builder", builder]
         with tempfile.TemporaryDirectory(prefix="export-", dir=root) as temporary:
             destination = Path(temporary) / "cache"
             flags += ["--cache-to", f"type=local,dest={destination},mode=max"]

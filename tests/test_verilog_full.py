@@ -957,6 +957,8 @@ class VerilogFullWorkflowTests(unittest.TestCase):
             step = cls._fields(rows, 8)
             if "with" in step:
                 step["with"] = cls._fields(cls._block(rows, 8, "with"), 10)
+            if "env" in step:
+                step["env"] = cls._fields(cls._block(rows, 8, "env"), 10)
             if step.get("run") == "|":
                 index = rows.index("        run: |")
                 script = []
@@ -1048,7 +1050,8 @@ class VerilogFullWorkflowTests(unittest.TestCase):
                          "runs/verilog-eval-full/${{ matrix.dataset }}/summary.json")
         self.assertEqual(uploads[0]["with"].get("if-no-files-found"), "error")
         self.assertIn("${{ matrix.dataset }}", uploads[0]["with"]["name"])
-        self.assertTrue(all("env" not in step for step in steps))
+        for step in steps:
+            self.assertLessEqual(set(step.get("env", {})), {"CACHE_BUILDER"})
 
     def test_python_only_path_enforces_scope_and_artifact_contract(self):
         with patch("shutil.which", return_value=None):

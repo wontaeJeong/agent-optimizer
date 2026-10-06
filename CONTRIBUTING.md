@@ -87,8 +87,11 @@ Pages는 문서와 무관한 PR에서만 설치·빌드를 생략하고 `build` 
 전체 문서·링크 검사 및 기존 게시 흐름을 사용합니다.
 
 Mac/Linux에서 직접 Docker layer cache를 쓸 때는 `AGENT_OPT_BUILD_CACHE_DIR`에 쉼표·줄바꿈 없는
-절대 경로와 local exporter를 지원하는 Buildx builder를 지정합니다. 캐시는 이미지 태그별로 잠금하며,
-빌드 실패는 기존 캐시를 보존하고 성공한 export만 교체합니다. cache 내부 symlink·특수 파일은 거부합니다.
+절대 경로를 지정하고, `AGENT_OPT_BUILD_CACHE_BUILDER`에 local exporter를 지원하는 builder
+이름을 명시합니다. CI는 전역 기본 builder를
+바꾸지 않아 공식 Compose가 daemon에 load한 로컬 평가 이미지를 계속 사용할 수 있습니다.
+캐시는 이미지 태그별로 잠금하며 빌드 실패는 기존 캐시를 보존하고 성공한 export만 교체합니다.
+cache 내부 symlink·특수 파일은 거부합니다.
 교체 복구에 실패한 `.previous` 디렉터리는 보존되고 후속 실행이 명시적으로 실패하므로 기존 자료를
 확인해 복구해야 합니다. 변수 미지정과 offline setup은 기존 빌드·읽기 전용 재검증 흐름을 사용합니다.
 

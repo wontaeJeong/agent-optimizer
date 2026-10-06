@@ -59,6 +59,21 @@ class BuildCacheTests(unittest.TestCase):
         with configured_build(argv, Path("."), {"AGENT_OPT_BUILD_CACHE_DIR": "invalid"}) as command:
             self.assertEqual(command, argv)
 
+    def test_cache_builder_is_explicit_without_selecting_it_for_other_builds(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            argv = ["docker", "build", "-t", "fixture", "."]
+            env = {"AGENT_OPT_BUILD_CACHE_DIR": str(root / "cache"),
+                   "AGENT_OPT_BUILD_CACHE_BUILDER": "isolated-cache-builder"}
+            with configured_build(argv, root, env) as command:
+                self.assertIn("--builder", command)
+                self.assertEqual(command[command.index("--builder") + 1], "isolated-cache-builder")
+                destination = Path(command[command.index("--cache-to") + 1].split("dest=", 1)[1].split(",")[0])
+                destination.mkdir()
+                (destination / "index.json").write_text("cache")
+            with configured_build(argv, root, {}) as command:
+                self.assertEqual(command, argv)
+
     def test_network_cli_keeps_failed_exit_code_and_existing_cache(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
