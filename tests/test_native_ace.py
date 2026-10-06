@@ -25,7 +25,7 @@ class NativeACETests(unittest.TestCase):
             raise unittest.SkipTest('고정 prepared upstream/데이터 없음')
         cls.bridge = load('native_bridge')
         cls.prepare = load('native_prepare')
-        cls.tmp = tempfile.TemporaryDirectory(dir=os.environ['TMPDIR'])
+        cls.tmp = tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR'))
         cls.source = Path(cls.tmp.name) / 'source'
         cls.prepare.prepare_source(UPSTREAM, cls.source)
         cls.rows = load('native_cvdp').load_pinned_rows(DATA)
@@ -36,7 +36,7 @@ class NativeACETests(unittest.TestCase):
         cls.tmp.cleanup()
 
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(dir=os.environ['TMPDIR'])
+        self.temp = tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR'))
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
         # The core-only shared environment lacks PyYAML. The trusted public

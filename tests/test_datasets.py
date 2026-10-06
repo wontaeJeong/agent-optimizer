@@ -26,7 +26,7 @@ class DatasetTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory()
         self.addCleanup(temp.cleanup)
-        self.root = Path(temp.name)
+        self.root = Path(temp.name).resolve()
         for mode in ("dataset_spec-to-rtl", "dataset_code-complete-iccad2023"):
             directory = self.root / mode
             directory.mkdir()

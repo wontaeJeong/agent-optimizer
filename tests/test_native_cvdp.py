@@ -66,7 +66,7 @@ class NativeCVDPTests(unittest.TestCase):
             self.bridge.parse_outputs('module x; endmodule', ['../x.sv'])
 
     def test_output_symlink_rejected(self):
-        with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as tmp:
+        with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as tmp:
             root = Path(tmp)
             (root / 'rtl').mkdir()
             (root / 'outside').write_text('module a; endmodule')
@@ -78,7 +78,7 @@ class NativeCVDPTests(unittest.TestCase):
         if not DATA.exists():
             self.skipTest('고정 prepared 데이터 없음')
         prepare = load('native_prepare')
-        with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as tmp:
+        with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as tmp:
             output = Path(tmp) / 'tasks.json'
             with self.assertRaises(ConfigurationError):
                 prepare.prepare_dataset(DATA, output, cids=[])
@@ -109,7 +109,7 @@ class NativeCVDPTests(unittest.TestCase):
         native = load('native_evaluator')
         row = next(r for r in self.bridge.load_pinned_rows(DATA) if r['id'] == 'cvdp_copilot_64b66b_decoder_0001')
         for record, want in [({'tests': [{'result': 0}]}, 'passed'), ({'passed': True, 'tests': [{'result': 1}]}, 'failed'), ({'tests': [{'result': 127, 'error_msg': 'command not found'}]}, 'infrastructure_error'), ({'tests': []}, 'infrastructure_error')]:
-            with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as tmp:
+            with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as tmp:
                 output = Path(tmp) / 'output'
                 (output / 'rtl').mkdir(parents=True)
                 (output / 'rtl/decoder_64b66b.sv').write_text('module x; endmodule')
@@ -136,7 +136,7 @@ class NativeCVDPTests(unittest.TestCase):
             calls.append(argv)
             self.assertLessEqual(kwargs['timeout'], 1)
             return types.SimpleNamespace(returncode=0, stdout='b' * 12 if argv[1] == 'ps' else '', stderr='PRIVATE_SECRET')
-        with tempfile.TemporaryDirectory(dir=os.environ['TMPDIR']) as tmp:
+        with tempfile.TemporaryDirectory(dir=os.environ.get('TMPDIR')) as tmp:
             with patch.object(cleanup.subprocess, 'run', side_effect=run):
                 result = cleanup.cleanup_network(network, Path(tmp), deadline=time.monotonic() + 1)
             self.assertEqual(result['status'], 'completed')

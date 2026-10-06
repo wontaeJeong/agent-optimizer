@@ -131,6 +131,12 @@ def _name(page: str) -> str:
                 step: step for step in STEPS}}[page]
 
 
+class PreparationLine(Message):
+    def __init__(self, line: str):
+        super().__init__()
+        self.line = line
+
+
 class _ProgressCapture:
     """Capture preparation output and forward complete lines to the Textual app."""
 
@@ -146,14 +152,14 @@ class _ProgressCapture:
             self.pending = lines.pop()
         for line in lines:
             if line.strip():
-                self.app.call_from_thread(self.app._preparation_line, line.rstrip("\r"))
+                self.app.post_message(PreparationLine(line.rstrip("\r")))
         return len(value)
 
     def flush(self) -> None:
         with self.lock:
             line, self.pending = self.pending, ""
         if line.strip():
-            self.app.call_from_thread(self.app._preparation_line, line.rstrip("\r"))
+            self.app.post_message(PreparationLine(line.rstrip("\r")))
 
     def isatty(self) -> bool:
         return False
@@ -730,6 +736,9 @@ class OptimizerApp(App[int]):
         if self.page == "Advanced":
             detail += "\n\nagent-opt init\nagent-opt init --help"
         self.query_one("#details", Static).update(detail)
+
+    def on_preparation_line(self, message: PreparationLine) -> None:
+        self._preparation_line(message.line)
 
     def _preparation_line(self, line: str) -> None:
         safe = self._redact_secrets(line.strip())

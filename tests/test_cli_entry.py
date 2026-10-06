@@ -17,7 +17,7 @@ class EntryTests(unittest.TestCase):
             self.assertEqual(main([]), 2)
             run.assert_not_called()
     def test_no_arguments_interactive_enters_existing_tui(self):
-        with patch('sys.stdin.isatty', return_value=True), patch('sys.stdout.isatty', return_value=True), patch('sys.stderr.isatty', return_value=True), patch.dict(os.environ, {'TERM': 'xterm'}), patch('agent_optimizer.tui.OptimizerApp.run', return_value=0) as run:
+        with patch('sys.stdin.isatty', return_value=True), patch('sys.stdout.isatty', return_value=True), patch('sys.stderr.isatty', return_value=True), patch.dict(os.environ, {'TERM': 'xterm', 'CI': ''}), patch('agent_optimizer.tui.OptimizerApp.run', return_value=0) as run:
             self.assertEqual(main([]), 0)
             run.assert_called_once()
 

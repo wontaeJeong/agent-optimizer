@@ -1,6 +1,5 @@
 """사용자 기본 interpreter에서 plan의 실제 file-plugin cache 쓰기와 범위 복구."""
 import json
-import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -23,7 +22,7 @@ class PlanReadonlyTests(unittest.TestCase):
         self.home = self.base / 'app'
         self.config = self.project / 'examples/minimal/experiment.toml'
         self.environment = {'PATH': '/usr/bin:/bin', 'HOME': str(self.base / 'user'),
-                            'AGENT_OPT_HOME': str(self.home), 'TMPDIR': os.environ['TMPDIR'],
+                            'AGENT_OPT_HOME': str(self.home), 'TMPDIR': str(self.base),
                             'PYTHONPATH': str(self.core), 'AGENT_OPT_LANG': 'ko'}
 
     def snapshot(self):
