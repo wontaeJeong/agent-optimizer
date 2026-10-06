@@ -37,7 +37,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(app.page, "Home")
                 self.assertEqual([row[0] for row in app.rows], [
                     "New Optimization", "Existing Experiment", "Run History",
-                    "Advanced Setup", "Quit",
+                    "Advanced Setup", "Run Presets", "Quit",
                 ])
                 await pilot.press("enter")
                 self.assertEqual(app.page, "Agent")

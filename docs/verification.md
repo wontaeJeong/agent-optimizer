@@ -17,6 +17,10 @@
 - 같은 코드의 [최종 release dry-run 37498736356](https://github.com/wontaeJeong/agent-optimizer/actions/runs/37498736356)도 전체 성공이며 publish job **7초**, 검증 패키지 재사용·checksum·artifact 보존을 확인했다. release 게시·태그 생성·실모델 inference는 수행하지 않았다.
 - 최종 로컬 전체는 **1181개 중 1101 통과·80 skip·실패/오류 0, 100.349초**였다. Ubuntu CI는 두 버전 모두 **1161개 중 1085 통과·76 skip·실패/오류 0**였으며, optional upstream fixture 유무에 따른 collection 차이를 로컬 수치와 구분한다. SDK 의존성 추가 뒤에도 버전·평가 기준·benchmark pin은 유지했다. full Verilog-Eval의 원본 자료 실패 7건은 성공으로 바꾸거나 제외하지 않았다.
 
+## 2026-10-07 TUI 실행 프리셋·실제 native 실패 확인
+
+[실행 프리셋 검증](verification/tui-run-presets-20261007.md): 16개 조합·native 고정 row 9개 정적 검사, 새 합성 TUI E2E의 준비→진단→실행→결과→History→실제 HTTP HTML 열람 통과. `make test` **1174개 중 실행 1096 통과·skip 78**, lint·demo·build·설치형 CLI/source-free 목록 통과. 실제 native Baseline CID002/004는 준비·doctor·모델 probe 후 API를 호출했지만 `no_eligible_candidate`였다. CID004 replay에서 Markdown 출력 거부를 확인했으며 정상 완료·연구 stage·Ubuntu native loop는 미검증이다.
+
 ## 2026-10-01 I 최종 수용검증·실제 결함 수정
 
 [I 보고서](verification/final-mvp-i-20261001.md)에 exact 명령·절대 config/run/report 경로·skip 목록 근거·R01~R30 판정을 기록했다. 실제 `make test` **1157개 중 실행 1077 통과·기존 skip 80**, `make lint`·격리 checkout의 실제 `make demo`(합성 7 trial)·새 wheel 환경의 build/install·source/wheel fresh Home CLI/PTy·TUI·실제 HTTP/종료·custom local/Git command·사이트 build/link가 통과했다. 일반 prepare의 ACE pointer 오분기·native source.subdir 무시를 수정하고 make 환경 상속 테스트 격리를 보완했다. **완료 29·부분 1(R16)·차단 0**이며 native 실모델/실 EDA/live는 `not_run`이다. 과거 날짜별 성공을 native 근거로 바꾸지 않는다.
