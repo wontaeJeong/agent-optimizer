@@ -310,7 +310,9 @@ jobs:
         if: always()
         id: verilog-cache-export
         run: |
-          if compgen -G "$RUNNER_TEMP/docker-layer-cache/*/index.json" > /dev/null; then
+          # Runtime locks are never restored: this file proves this run prepared the image.
+          if compgen -G "$RUNNER_TEMP/docker-layer-cache/*/index.json" > /dev/null && \
+             [[ -f 'external/datasets/${{ matrix.dataset }}/runtime-lock.json' ]]; then
             echo "ready=true" >> "$GITHUB_OUTPUT"
           else
             echo "ready=false" >> "$GITHUB_OUTPUT"
