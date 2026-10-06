@@ -91,9 +91,63 @@ Buildx, 고정 소스·데이터·이미지의 접근 경로도 별도로 준비
 gh workflow run ci.yml --ref YOUR_BRANCH -f official_cvdp=true
 ```
 
-PR에는 변경·검증·skip·미검증 영역을 적습니다. Python 3.11/3.12 필수 검사와 리뷰를 확인하고
-저장소의 **rebase-only** 정책으로 병합합니다. 과거 CI 성공을 새 변경의 실행 증거로 재사용하지 않습니다.
+PR에는 변경·검증·skip·미검증 영역을 적습니다. Python 3.11/3.12 결과를 집계한 **CI Gate**와
+리뷰를 확인하고 **squash-only** 정책으로 병합합니다. linear history를 유지하며,
+대화 해결을 필수로 요구합니다. 과거 CI 성공을 새 변경의 실행 증거로 재사용하지 않습니다.
 러너 변경 시 `CI_RUNNER_LABELS`와 필요한 도구/액션 지원을 확인하고 실제 CI·릴리즈를 별도 검증합니다.
+
+### PR / Merge Queue 2단계
+
+- PR의 `pull_request`: 현재 변경을 검사하고 `CI Gate` 통과 후 병합 또는 큐 진입을 허용합니다.
+- 큐의 `merge_group` (`checks_requested`): 최신 main과 앞선 큐 항목을 합친 임시 커밋에서
+  동일한 검사를 다시 실행합니다. PR의 성공을 큐 검사 대신 사용하지 않습니다.
+- 필수 체크 이름은 두 단계 모두 **CI Gate** 하나입니다. 단계별로 서로 다른 필수 체크를
+  등록하면 다른 이벤트에서 체크가 생성되지 않아 병합이 대기할 수 있습니다.
+- Gate는 Python matrix 전체 성공만 허용합니다. 실패·취소·예상치 못한 job 건너뜀은 실패입니다.
+  수동 `official-cvdp`·`verilog-eval-full`은 PR/큐의 필수 검사가 아닙니다.
+- 이벤트별 concurrency를 분리하고 큐 실행의 자동 취소를 끕니다. workflow 수준 path 필터로
+  필수 체크 실행을 건너뛰지 않습니다.
+
+### 보호 규칙 적용과 큐 활성화
+
+`.github/rulesets/main.json`은 큐 활성화 전 기본 정책입니다. 기존 ruleset을 **갱신**하여
+중복 규칙을 만들지 않습니다. 기본 브랜치 생성·삭제·강제 push·직접 push를 차단하고,
+관리자 우회도 허용하지 않습니다. 필수 승인 수는 기존 0을 유지합니다.
+필수 체크는 GitHub Actions (`integration_id=15368`)에서만 받습니다. 다른 서버에서는
+해당 서버의 Actions 앱 ID를 확인하여 바꿔야 합니다.
+
+먼저 CI 변경 PR에서 새 `CI Gate`의 실제 성공을 확인한 뒤 기존 ruleset의 필수 체크를 교체합니다.
+이 PR을 squash로 병합해야 이후 PR에도 새 Gate가 생성됩니다. 저장소 설정도
+`allow_squash_merge=true`, `allow_merge_commit=false`, `allow_rebase_merge=false`로 맞춥니다.
+큐 활성화 전에는 최신 main 반영 필수(`strict_required_status_checks_policy=true`)를 유지합니다.
+
+GitHub.com의 Merge Queue는 Organization 소유 공개 저장소 또는 Enterprise Cloud의
+Organization 소유 비공개 저장소에서 지원합니다. 개인 소유 저장소에서는 이벤트 처리와
+큐 규칙 파일만 준비하며 큐가 활성화되었다고 간주하지 않습니다.
+
+지원되는 Organization으로 이전하고 CI 변경이 기본 브랜치에 반영된 뒤, 기존 ruleset에
+`.github/rulesets/merge-queue-rule.json`을 추가하고 strict를 해제합니다.
+기본 큐 값은 squash, 모든 항목 성공(ALLGREEN), 동시 빌드 2개, 병합 단위 1개,
+최소 1개·대기 0분, 체크 응답 제한 30분입니다. 현재 Python job 제한 15분과 Gate 2분에
+러너 대기 여유를 둡니다. 자체 러너 대기가 길면 응답 제한을 조정하세요.
+
+```bash
+# 이전 후 실제 저장소와 기존 ruleset ID를 지정합니다.
+REPO=YOUR_ORG/agent-optimizer
+RULESET_ID=YOUR_EXISTING_RULESET_ID
+jq --slurpfile queue .github/rulesets/merge-queue-rule.json \
+  '.rules += $queue | (.rules[] | select(.type == "required_status_checks") | .parameters.strict_required_status_checks_policy) = false' \
+  .github/rulesets/main.json |
+  gh api --method PUT "repos/$REPO/rulesets/$RULESET_ID" --input -
+```
+
+활성화 후 검증용 PR을 큐에 넣어 `merge_group` 실행·`CI Gate` 성공·squash 결과를 확인합니다.
+큐에서 실패한 항목이 제거되는지도 실제 실행으로 확인해야 하며, 이벤트 설정이나 JSON 검증은
+큐 통합 성공의 증거가 아닙니다.
+
+근거: [Merge Queue 지원·설정](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/configuring-pull-request-merges/managing-a-merge-queue),
+[필수 체크와 merge_group](https://docs.github.com/en/pull-requests/how-tos/merge-and-close-pull-requests/troubleshooting-required-status-checks),
+[ruleset API](https://docs.github.com/en/rest/repos/rules#update-a-repository-ruleset).
 
 ## 패키징·릴리즈
 
