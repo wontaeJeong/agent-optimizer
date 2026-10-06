@@ -24,7 +24,9 @@ make doctor-core
 .venv/bin/agent-opt catalog show optimizer gepa --json
 ```
 
-무인자 `agent-opt`는 정상 TTY에서 TUI를 열고 pipe/CI/dumb 터미널에서는 help와 종료 2를 반환합니다. Home의 **새 최적화 / 기존 실험 / 실행 이력 / 고급 설정 / 종료**에서 선택합니다. 새 흐름은 **Agent → Harness → Optimizer → Dataset → (native CID·row·split) → Model → Review → Preparing → Doctor → Running → Result/History**입니다. `↑/↓`, `Enter`, `Esc`를 사용하며 highlight는 조회만 합니다. 준비 완료 후 Doctor로, 진단 통과 후 실행으로 각각 명시적으로 계속해야 합니다.
+무인자 `agent-opt`는 정상 TTY에서 TUI를 열고 pipe/CI/dumb 터미널에서는 help와 종료 2를 반환합니다. Home의 **새 최적화 / 기존 실험 / 실행 이력 / 고급 설정 / 실행 프리셋 / 종료**에서 선택합니다. 새 흐름은 **Agent → Harness → Optimizer → Dataset → (native CID·row·split) → Model → Review → Preparing → Doctor → Running → Result/History**입니다. `↑/↓`, `Enter`, `Esc`를 사용하며 highlight는 조회만 합니다. 준비 완료 후 Doctor로, 진단 통과 후 실행으로 각각 명시적으로 계속해야 합니다.
+
+**실행 프리셋**에는 ACE-RTL native **CID002/004/016 × Baseline/GEPA/Meta-Harness(9개)**, legacy OpenCode(3개), 합성 solo/team × Baseline/FileVariants(4개)가 있습니다. 상세 화면의 과제 ID·split·예산을 확인하고 **Enter 한 번으로 조합을 적용**합니다. Native 화면에서 과제·split을 수정할 수 있고, 앱 세션에 입력한 자산 경로와 모델 설정을 재사용하며 부족한 경로부터 안내합니다. 합성은 바로 Review로 이동합니다. 프리셋 선택 자체는 자산 생성·모델 호출·실행을 하지 않습니다. [E2E 검증 결과](docs/verification/tui-run-presets-20261007.md)는 합성 정상 완료와 실제 native 실패를 구분합니다.
 
 Planned는 미구현·비활성, 미준비는 자산/환경 부족, 비호환은 선택 불가, 미검증은 실환경 성공 근거 부재입니다. **Endpoint와 Model ID는 평문, API key만 숨김 입력**입니다. 현재 환경·세션·기본값·명시 제공 named preset·Custom을 구분하며 preset은 URL/ID만 저장합니다. 자격증명 포함 URL은 거부하고 키는 세션/환경에만 둡니다. `.env` 자동 로딩은 없습니다. 상세는 [프리셋 가이드](https://wontaeJeong.github.io/agent-optimizer/getting-started/presets/)를 확인하세요.
 
@@ -38,7 +40,7 @@ ACE-RTL의 첫 Harness는 **Python native**입니다. CLI 선택은 `--harness-p
 
 **전체 정적 준비 진단은 `doctor --plan CONFIG --json`**입니다. pair별 source·inner/outer driver 의존성/image·Agent 모델 URL/ID/key·TLS/CA 등 현재 구현된 검사들을 확인하고, 실제 API 연결은 별도 `--model` probe로 검사합니다. **prepare는 모델 설정·driver 패키지 import·독립 inner evaluator 환경 전체를 검사하지 않으므로 모델 환경이 없어도 성공할 수 있습니다.** prepare의 `ready=true`를 전체 준비 완료로 해석하지 마세요. doctor/probe도 실제 Agent/평가 성공 보장은 아닙니다.
 
-[native 실행 가이드](examples/ace-rtl/NATIVE.md)에 준비 → doctor → 작은 smoke → 선택 CID → 결과의 복사 가능한 명령과 지원표가 있습니다. GEPA는 `native/guidance.md`, Meta-Harness는 실제 import되는 `native/orchestration.py:guidance`를 수정합니다. outer Optimizer trial과 inner ACE attempt/iteration·trusted 최종 평가를 구분합니다. native live는 현재 **`not_run`**입니다.
+[native 실행 가이드](examples/ace-rtl/NATIVE.md)에 준비 → doctor → 작은 smoke → 선택 CID → 결과의 복사 가능한 명령과 지원표가 있습니다. GEPA는 `native/guidance.md`, Meta-Harness는 실제 import되는 `native/orchestration.py:guidance`를 수정합니다. outer Optimizer trial과 inner ACE attempt/iteration·trusted 최종 평가를 구분합니다. 2026-10-07 Mac에서 native Baseline CID002/004를 실제 실행했지만 **`no_eligible_candidate`로 실패**했습니다. 정상 완료·연구 stage·Ubuntu native loop 검증은 남아 있습니다.
 
 기존 **OpenCode/Claude Code coding 프로필**은 별도 선택입니다. `ace-opencode`의 GEPA `role-guidance.md`/Meta `agent_opt_scaffold.py:prepare_task`는 native 표면이 아닙니다. `init --profile ace-rtl --workspace PATH`와 옵션 없는 `make setup/doctor`, `make smoke/live`는 **기존 ACE 전체 coding 경로**입니다. 코어/native 전체 준비로 재해석하지 마세요. [legacy 안내](examples/ace-rtl/README.md)와 [과거 실제 OpenCode 기록](docs/verification.md#2026-09-28-선택형-gepameta-harness-실모델공식-cvdp-후속-검증)은 native 성공 증거가 아닙니다.
 

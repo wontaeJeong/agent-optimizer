@@ -1,5 +1,11 @@
 # 현재 구현·검증 상태
 
+## 2026-10-07 TUI 실행 프리셋
+
+- Home 실행 프리셋에서 native CID002/004/016 × Baseline/GEPA/Meta-Harness 9개, legacy OpenCode 3개, 합성 4개를 Enter로 적용한다. 상세 row·split·예산과 세션 자산/모델 재사용, 부족한 경로 안내를 제공한다.
+- `make test`: **1174개 중 실행 1096 통과·skip 78**, lint·7-trial 합성 demo·sdist/wheel build·설치형 CLI·source-free 프리셋 조회 통과. 새 합성 TUI E2E는 준비→진단→실행→결과→History→실제 HTTP HTML 열람까지 통과했다.
+- 실제 Mac native Baseline CID002/004는 prepare·전체 doctor·모델 probe 통과 후 실제 모델을 호출했지만 **`no_eligible_candidate`**였다. CID004 replay에서 Markdown 출력 거부를 확인했다. 정상 완료·native 연구 stage·Ubuntu x86_64 검증은 남아 있다. [실제 명령·환경·근거](verification/tui-run-presets-20261007.md).
+
 ## 2026-10-01 최종 MVP(현재 정본)
 
 **A~H 승인 인계 후 I 수용검증과 whole-branch 리뷰 M1/M2 수정 wave를 완료했다.** [I 최종 §8 근거](verification/final-mvp-i-20261001.md)는 실제 `make test` **1160개 중 실행 1080 통과·기존 skip 80**, covering 53개·lint·새 실제 wheel의 source-free module/console plan no-bytecode·필수 name를 포함한 preset CLI 실행이다. 이전 I의 make demo·CLI/PTY·TUI·HTTP·custom local/Git·사이트 결과는 같은 보고서 §1~§7에 보존한다. R01~R30은 **완료 29·부분 1(R16)·차단 0**이며, **native 실모델·실 CVDP Docker/EDA/cleanup·Ubuntu x86_64 native loop는 not_run**이다.

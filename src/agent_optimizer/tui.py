@@ -118,7 +118,7 @@ def _name(page: str) -> str:
         from agent_optimizer.locale import t
         return t({'Native': 'Native CID·row 선택', 'NativeRows': 'Native row 선택',
                   'NativeSplit': '선택 row의 split 지정', 'SessionHistory': '세션 개별 실행'}[page])
-    return {"Home": _tr("시작", "Home"), "Review": _tr("실행 전 확인", "Review"),
+    return {"Home": _tr("시작", "Home"), "Presets": _tr("실행 프리셋", "Run Presets"), "Review": _tr("실행 전 확인", "Review"),
             "History": _tr("이전 실행", "Run History"),
             "Existing": _tr("기존 실험", "Existing Experiment"),
             "Workspace": _tr("ACE 작업공간", "ACE workspace"),
@@ -214,6 +214,8 @@ class OptimizerApp(App[int]):
         self._report_epoch = 0
         self._report_closing = False
         self.native_values = {}
+        self.preset_active = False
+        self.run_presets = {}
         self.native_field = 'cids'
         self.return_page = "Home"
         self.workspace_back = "Home"
@@ -319,9 +321,17 @@ class OptimizerApp(App[int]):
                          ChoiceRow("history", "action", _tr("이전 실행", "Run History"),
                           _tr("저장된 실행과 보고서 경로를 확인합니다.", "Inspect stored runs and report paths."), True),
                          ChoiceRow("advanced", "action", _tr("고급 설정", "Advanced Setup"),
-                          _tr("맞춤 Agent·Harness·Optimizer·Dataset에는 agent-opt init을 사용합니다.",
-                              "Use agent-opt init for custom Agent, Harness, Optimizer or Dataset."), True),
+                           _tr("맞춤 Agent·Harness·Optimizer·Dataset에는 agent-opt init을 사용합니다.",
+                               "Use agent-opt init for custom Agent, Harness, Optimizer or Dataset."), True),
+                         ChoiceRow('presets', 'action', _tr('실행 프리셋', 'Run Presets'),
+                                   'Agent·Harness·Optimizer·Dataset·CID/과제 조합을 Enter 한 번으로 적용합니다.\n필요한 자산 경로와 모델 설정을 확인한 뒤 준비·진단·실행합니다.'),
                          ChoiceRow("quit", "action", _tr("종료", "Quit"), _tr("앱을 종료합니다.", "Exit the app."), True)]
+        elif page == 'Presets':
+            from agent_optimizer.preset_tui import execution_presets
+            self.run_presets = {preset['id']: preset for preset in execution_presets(self.root)}
+            self.rows = [ChoiceRow(preset['id'], 'run.preset', preset['label'], preset['description'],
+                                   preset.get('enabled', True), preset.get('reason', ''))
+                         for preset in self.run_presets.values()]
         elif page in STEPS:
             self.rows = preset_options(self.root, page, self.selections.get("Agent", "ace-rtl"), harness=self.selections.get('Harness'))
         elif page == "Existing":
@@ -848,12 +858,15 @@ class OptimizerApp(App[int]):
         action = row.id
         if self.page == "Home":
             if action == "new":
+                self.preset_active = False
                 self.experiment = None
                 self.workspace = self.root
                 self.selections.clear()
                 self.focus_indices.clear()
                 self.focus_ids.clear()
                 self._show("Agent")
+            elif action == 'presets':
+                self._show('Presets')
             elif action == "existing":
                 self._show("Existing")
             elif action == "history":
@@ -862,6 +875,30 @@ class OptimizerApp(App[int]):
                 self._show("Advanced")
             else:
                 self.exit(0)
+        elif self.page == 'Presets':
+            preset = self.run_presets[action]
+            self._invalidate_native_configuration()
+            self.selections = dict(preset['selections'])
+            self.preset_active = True
+            self.focus_indices.clear()
+            self.focus_ids.clear()
+            self.return_page = 'Presets'
+            if self.selections['Harness'] == 'ace-native':
+                import copy
+                self.native_values.update(copy.deepcopy(preset['native']))
+                self.native_field = next((field for field in ('dataset', 'source', 'python', 'evaluator')
+                                          if not self.native_values.get(field) and
+                                          not (field == 'source' and self.native_values.get('upstream'))), 'cids')
+                self.focus_ids['Native'] = self.native_field
+                self._show('Native')
+            elif self.selections['Dataset'] == 'sample_text':
+                self.workspace = self.root
+                self._show('Review')
+            elif not is_source_checkout(self.root):
+                self.workspace_back = 'Presets'
+                self._show('Workspace')
+            else:
+                self._open_model_setup('Presets')
         elif self.page in STEPS:
             if row.kind == "action":
                 self._show({"advanced": "Advanced", "existing": "Existing"}[action])
@@ -1772,7 +1809,7 @@ class OptimizerApp(App[int]):
         elif self.page == "Workspace":
             self._show(self.workspace_back)
         elif self.page == 'Native':
-            self._show('Dataset')
+            self._show('Presets' if self.preset_active else 'Dataset')
         elif self.page == 'NativeRows':
             self._show('Native')
         elif self.page == 'NativeSplit':
