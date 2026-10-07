@@ -28,6 +28,12 @@ make doctor-core
 
 **실행 프리셋**에는 ACE-RTL native **CID002/004/016 × Baseline/GEPA/Meta-Harness(9개)**, legacy OpenCode(3개), 합성 solo/team × Baseline/FileVariants(4개)가 있습니다. 상세 화면의 과제 ID·split·예산을 확인하고 **Enter 한 번으로 조합을 적용**합니다. Native 화면에서 과제·split을 수정할 수 있고, 앱 세션에 입력한 자산 경로와 모델 설정을 재사용하며 부족한 경로부터 안내합니다. 합성은 바로 Review로 이동합니다. 프리셋 선택 자체는 자산 생성·모델 호출·실행을 하지 않습니다. [E2E 검증 결과](docs/verification/tui-run-presets-20261007.md)는 합성 정상 완료와 실제 native 실패를 구분합니다.
 
+**직접 입력보다 선택을 먼저 사용하세요.** 기존 실험은 최근 설정·예제·파일 탐색기에서, 작업공간과 native 자산은 폴더/파일 탐색기에서 고릅니다. 탐색기의 **프로젝트 / Home / 상위 폴더**, `Ctrl+L` 경로 입력·`→` 자동완성을 사용할 수 있습니다. 목록은 `Ctrl+F`로 검색하고, 다중 선택은 `Space`로 토글한 뒤 **적용 버튼 또는 `Ctrl+Enter`**로 확정합니다. `Esc`는 검색/창을 닫으며 적용 전 선택은 확정되지 않습니다.
+
+native CID는 체크 목록, row는 검색 가능한 목록과 **여러 row의 split 한 번에 지정**, evaluator는 **repo·Python·image·identity 항목별 폼**으로 설정합니다. Dataset·row·split은 사용자가 명시적으로 선택합니다. Model의 **연결 프로필로 한 번에 설정**은 현재 연결·명시 preset을 재사용하거나 Endpoint와 Model ID를 함께 입력하며, key는 별도 세션/환경 값입니다. 폼의 입력 초안은 취소 후에도 세션에서 보존됩니다.
+
+**고급 설정도 TUI에서 완료**할 수 있습니다. 로컬 Agent 폴더 또는 URL·고정 SHA, 수정 허용 파일, 등록 Harness·Optimizer·Dataset·Evaluator를 선택하고 필요한 argv·수정 대상·채점 지표를 지정합니다. 로컬 tasks.json에는 별도 채점기가 필요하며 전용 Harness 프로필은 기존 실험을 사용합니다. Review에서 해당 선택으로 바로 돌아가 수정할 수 있고, **준비 승인 전에는 자산 준비·설정 생성을 하지 않습니다.**
+
 Planned는 미구현·비활성, 미준비는 자산/환경 부족, 비호환은 선택 불가, 미검증은 실환경 성공 근거 부재입니다. **Endpoint와 Model ID는 평문, API key만 숨김 입력**입니다. 현재 환경·세션·기본값·명시 제공 named preset·Custom을 구분하며 preset은 URL/ID만 저장합니다. 자격증명 포함 URL은 거부하고 키는 세션/환경에만 둡니다. `.env` 자동 로딩은 없습니다. 상세는 [프리셋 가이드](https://wontaeJeong.github.io/agent-optimizer/getting-started/presets/)를 확인하세요.
 
 `catalog`는 읽기 전용 설명 조회, `init --yes`·`prepare`는 선택 자산 준비, `doctor --plan`·`plan`은 정적 검사, `run`은 실제 외부 실행이 가능한 명령입니다. `doctor --plan CONFIG --model`만 명시 모델 API probe를 추가하며 성공해도 전체 Agent/평가 성공은 아닙니다. 기계용 stdout JSON과 진행 stderr를 구분하세요. 별도 `serve` 명령은 없고 **`report --serve`**를 사용합니다.

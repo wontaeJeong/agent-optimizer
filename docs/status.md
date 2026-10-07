@@ -1,5 +1,13 @@
 # 현재 구현·검증 상태
 
+## 2026-10-07 TUI 입력 UX 개선
+
+최근·예제 설정 선택과 파일/폴더 탐색·자동완성, 목록 검색, CID·editable 다중 선택,
+지원 row의 일괄 split, evaluator 항목별 폼, 모델 Endpoint/ID 연결 재사용을 제공한다.
+고급 설정은 등록 목록·Agent 파일 선택을 거쳐 기존 init 계약으로 생성하며 Review 직접 수정과
+취소 후 세션 초안 보존을 지원한다. Dataset·split은 자동 선택하지 않고 준비·진단·실행은 각각 확인한다.
+검증 명령·결과·변경 전후 캡처는 [입력 UX 근거](verification/tui-input-ux-20261007.md)에 기록한다.
+
 ## 2026-10-07 TUI 실행 프리셋
 
 - Home 실행 프리셋에서 native CID002/004/016 × Baseline/GEPA/Meta-Harness 9개, legacy OpenCode 3개, 합성 4개를 Enter로 적용한다. 상세 row·split·예산과 세션 자산/모델 재사용, 부족한 경로 안내를 제공한다.

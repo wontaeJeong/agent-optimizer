@@ -241,6 +241,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
             app = OptimizerApp(self.root)
             async with app.run_test() as pilot:
                 await pilot.press("down", "enter")
+                await choose_row(app, pilot, 'path.custom')
                 app.query_one(Input).value = "examples/minimal/experiment.toml"
                 await pilot.press("enter", "down", "enter")
                 for _ in range(100):
@@ -282,6 +283,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
             app = OptimizerApp(self.root)
             async with app.run_test(size=(50, 20)) as pilot:
                 await pilot.press("down", "enter")
+                await choose_row(app, pilot, 'path.custom')
                 app.query_one(Input).value = "examples/minimal/experiment.toml"
                 await pilot.press("enter", "down", "enter")
                 for _ in range(100):
@@ -311,6 +313,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
             async with app.run_test() as pilot:
                 await legacy_model_page(app, pilot)
                 self.assertEqual(app.page, "Workspace")
+                await choose_row(app, pilot, 'workspace.custom')
                 app.query_one(Input).value = "chosen workspace"
                 await pilot.press("enter")
                 self.assertEqual(app.page, "Model")
@@ -431,6 +434,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
             app = OptimizerApp(self.root)
             async with app.run_test() as pilot:
                 await pilot.press("down", "enter")
+                await choose_row(app, pilot, 'path.custom')
                 app.query_one(Input).value = "examples/minimal/experiment.toml"
                 await pilot.press("enter", "down", "enter")
                 for _ in range(100):
@@ -717,6 +721,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn(name, str(app.query_one("#details", Static).render()))
             await pilot.press("escape", "up", "enter")
             self.assertEqual(app.page, "Existing")
+            await choose_row(app, pilot, 'path.custom')
             app.query_one(Input).value = "examples/minimal/experiment.toml"
             await pilot.press("enter")
             self.assertEqual(app.page, "Review")
@@ -815,6 +820,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
         app = OptimizerApp(self.root)
         async with app.run_test() as pilot:
             await pilot.press("escape", "down", "enter")
+            await choose_row(app, pilot, 'path.custom')
             app.query_one(Input).value = "examples/minimal/experiment.toml"
             await pilot.press("enter")
             self.assertEqual(app.page, "Review")
@@ -851,6 +857,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
         app = OptimizerApp(self.root)
         async with app.run_test() as pilot:
             await pilot.press("escape", "down", "enter")
+            await choose_row(app, pilot, 'path.custom')
             app.query_one(Input).value = "examples/minimal/experiment.toml"
             await pilot.press("enter")
             self.assertEqual(app.page, "Review")
@@ -890,6 +897,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
             app = OptimizerApp(self.root)
             async with app.run_test() as pilot:
                 await pilot.press("escape", "down", "enter")
+                await choose_row(app, pilot, 'path.custom')
                 app.query_one(Input).value = "examples/minimal/experiment.toml"
                 await pilot.press("enter")
                 await pilot.press("down")
@@ -962,6 +970,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
             app = OptimizerApp(self.root)
             async with app.run_test() as pilot:
                 await pilot.press("escape", "down", "enter")
+                await choose_row(app, pilot, 'path.custom')
                 app.query_one(Input).value = "examples/minimal/experiment.toml"
                 await pilot.press("enter", "enter")
                 self.assertEqual(app.page, "Model")
@@ -995,7 +1004,7 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
             await pilot.press("tab", "pagedown")
             self.assertGreater(panel.scroll_y, 0)
 
-    async def test_custom_route_leads_to_cli_setup_without_claiming_compatibility(self):
+    async def test_custom_route_leads_to_tui_setup_without_claiming_compatibility(self):
         from agent_optimizer.tui import OptimizerApp
         from textual.widgets import Static
 
@@ -1006,7 +1015,9 @@ class TextualFlowTests(unittest.IsolatedAsyncioTestCase):
             index = next(i for i, row in enumerate(app.rows) if "Harness" in row[0] and row[2])
             await pilot.press(*(["down"] * index), "enter")
             self.assertEqual(app.page, "Advanced")
-            self.assertIn("agent-opt init", str(app.query_one("#details", Static).render()))
+            self.assertTrue({'agent', 'editable', 'harness', 'optimizer', 'dataset'}.issubset(
+                {row.id for row in app.rows}))
+            self.assertNotIn('Harness', app.selections)
             self.assertFalse((self.root / "runs").exists())
 
     async def test_english_selection_and_review_are_localized(self):

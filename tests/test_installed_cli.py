@@ -114,7 +114,8 @@ def check_preset_cancel(cli: Path, project: Path, environment: dict) -> None:
         ("OpenCode (legacy skill)", b"\x1b[B\r"),
         ("GEPA", b"\x1b[B\r"),
         ("CVDP", b"\r"),
-        ("ACE 작업공간", (str(workspace) + "\r").encode()),
+        ("ACE 작업공간", b"\x1b[B\r"),
+        ("ACE-RTL 작업공간 경로", (str(workspace) + "\r").encode()),
         ("모델 설정", b"\x1b"),
         ("ACE 작업공간", b"\x1b"),
         ("Dataset", b"q"),
@@ -136,6 +137,7 @@ def check_tui_existing_run(cli: Path, project: Path, environment: dict,
     before = len(list(runs.glob("*/report.html")))
     transcript = interact_tui(cli, project, environment, [
         ("실행할 작업을 선택하세요", b"\x1b[B\r"),
+        ("경로 직접 입력", b"\x1b[B\x1b[B\r"),
         ("기존 experiment.toml 경로", (str(experiment) + "\r").encode()),
         ("실행 전 확인", b"\x1b[B\r"),
         ("준비 중", b""),
