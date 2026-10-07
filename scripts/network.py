@@ -19,7 +19,12 @@ def main():
     try:
         env = host_environment()
         with configured_build(args, Path.cwd(), env) as command:
-            return subprocess.run(command, env=env, shell=False).returncode
+            result = subprocess.run(command, env=env, shell=False)
+            if result.returncode:
+                raise subprocess.CalledProcessError(result.returncode, command)
+            return 0
+    except subprocess.CalledProcessError as exc:
+        return exc.returncode
     except ConfigurationError as exc:
         print(str(exc), file=sys.stderr)
         return 2

@@ -25,9 +25,13 @@ Ubuntu x86_64 전체 검사는 병합 후 수동 workflow의 두 독립 모드�
 고정 오답을 검사합니다. `--smoke-one`과 `--require-ubuntu-amd64`의 조합은 거부됩니다.
 
 ```bash
-PYTHONPATH=src .venv/bin/python examples/benchmarks/verify_verilog_eval_full.py --dataset verilog-spec --require-ubuntu-amd64
-PYTHONPATH=src .venv/bin/python examples/benchmarks/verify_verilog_eval_full.py --dataset verilog-completion --require-ubuntu-amd64
+PYTHONPATH=src .venv/bin/python examples/benchmarks/verify_verilog_eval_full.py --dataset verilog-spec --require-ubuntu-amd64 --jobs 2
+PYTHONPATH=src .venv/bin/python examples/benchmarks/verify_verilog_eval_full.py --dataset verilog-completion --require-ubuntu-amd64 --jobs 2
 ```
+
+`--jobs`는 1..16이며 기본 1(직렬), 수동 CI 기본 2입니다. 과제별 output·scoring 경로와
+평가 deadline을 분리하고 coordinator 하나가 완료된 판정을 기록합니다. 직렬 비교 CI는
+`verilog_jobs=1`을 지정합니다. 누락·실패를 생략하거나 통과로 바꾸지 않습니다.
 
 전체 요약 경로는 `runs/verilog-eval-full/<dataset>/summary.json`입니다. private
 `external/datasets/`의 `_test.sv`/`_ref.sv`, `runs/`의 제출물·평가 로그/출력,

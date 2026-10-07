@@ -83,7 +83,7 @@ def main():
                 report = Path(temporary) / f"{index}.json"
                 log = open(Path(temporary) / f"{index}.log", "w+", encoding="utf-8")
                 process = subprocess.Popen(
-                    [sys.executable, str(Path(__file__).resolve()), "--directory", str(directory),
+                    [sys.executable, "-B", str(Path(__file__).resolve()), "--directory", str(directory),
                      "--worker", *group, "--report", str(report)],
                     stdout=log, stderr=subprocess.STDOUT, shell=False, start_new_session=True,
                 )

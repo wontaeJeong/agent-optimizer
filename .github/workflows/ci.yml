@@ -17,13 +17,18 @@ on:
         description: Verify both pinned Verilog-Eval datasets on Ubuntu amd64
         type: boolean
         default: false
+      verilog_jobs:
+        description: Verilog-Eval 과제 동시 실행 수 (직렬 비교 검증은 1)
+        type: choice
+        options: ['1', '2']
+        default: '2'
   workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-checks
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-checks${{ inputs.verilog_eval_full && format('-verilog-{0}', inputs.verilog_jobs || '2') || '' }}
   cancel-in-progress: ${{ github.event_name != 'merge_group' }}
 
 jobs:
@@ -60,16 +65,35 @@ jobs:
           python -m venv "$RUNNER_TEMP/agent-opt-uv"
           "$RUNNER_TEMP/agent-opt-uv/bin/python" -m pip install uv==0.10.7
           "$RUNNER_TEMP/agent-opt-uv/bin/uv" sync --frozen --python '${{ matrix.python }}' --extra dev
+      - name: native 도구 러너 이미지 확인
+        if: runner.environment == 'github-hosted'
+        id: native-image
+        run: echo "version=${ImageOS:?}-${ImageVersion:?}" >> "$GITHUB_OUTPUT"
+      - name: native 도구 다운로드 캐시
+        if: runner.environment == 'github-hosted' && github.server_url == 'https://github.com'
+        id: native-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/native-apt/*.deb
+          key: native-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.native-image.outputs.version }}-yosys-iverilog
       - name: Install native Ubuntu simulators
         if: runner.environment == 'github-hosted'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends yosys iverilog
+          mkdir -p "$RUNNER_TEMP/native-apt"
+          sudo apt-get update -o Acquire::Languages=none
+          sudo apt-get -o Dir::Cache::archives="$RUNNER_TEMP/native-apt" \
+            -o APT::Keep-Downloaded-Packages=true install -y --no-install-recommends yosys iverilog
       - name: Require actual simulator coverage (preinstall on self-hosted runners)
         run: |
           yosys -V
           iverilog -V
           vvp -V
+      - name: 검증한 native 도구 다운로드 보존
+        if: runner.environment == 'github-hosted' && github.server_url == 'https://github.com' && steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/native-apt/*.deb
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
       - name: Developer command help
         run: make help
       - name: Lint
@@ -89,6 +113,14 @@ jobs:
         run: |
           wheel=$(.venv/bin/python scripts/select_wheel.py dist)
           python tests/test_installed_cli.py "$wheel"
+      - name: 검증한 릴리즈 패키지 보존
+        if: github.workflow == 'release' && matrix.python == '3.11' && github.server_url == 'https://github.com'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-packages
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 7
 
   ci-gate:
     name: CI Gate
@@ -141,8 +173,36 @@ jobs:
           python -m venv "$RUNNER_TEMP/agent-opt-uv"
           "$RUNNER_TEMP/agent-opt-uv/bin/python" -m pip install uv==0.10.7
           echo "$RUNNER_TEMP/agent-opt-uv/bin" >> "$GITHUB_PATH"
+      - name: 고정 Buildx 준비
+        if: runner.environment == 'github-hosted'
+        id: official-builder
+        uses: docker/setup-buildx-action@v3
+        with:
+          version: v0.21.3
+          use: false
+      - name: 공식 Docker 레이어 캐시
+        if: runner.environment == 'github-hosted' && github.server_url == 'https://github.com'
+        id: official-docker-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/docker-layer-cache
+          key: official-docker-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('examples/ace-rtl/environment/setup.py', 'examples/rtl-debugger/Dockerfile', 'examples/rtl-debugger/*.json', 'examples/rtl-debugger/*.mjs', 'src/agent_optimizer/network.py') }}
+          restore-keys: official-docker-${{ runner.os }}-${{ runner.arch }}-
+      - name: 공식 Docker 레이어 재사용 활성화
+        if: runner.environment == 'github-hosted'
+        env:
+          CACHE_BUILDER: ${{ steps.official-builder.outputs.name }}
+        run: |
+          echo "AGENT_OPT_BUILD_CACHE_DIR=$RUNNER_TEMP/docker-layer-cache" >> "$GITHUB_ENV"
+          echo "AGENT_OPT_BUILD_CACHE_BUILDER=$CACHE_BUILDER" >> "$GITHUB_ENV"
       - name: Prepare native Docker environment
         run: make setup
+      - name: 검증한 공식 Docker 레이어 보존
+        if: runner.environment == 'github-hosted' && github.server_url == 'https://github.com' && steps.official-docker-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/docker-layer-cache
+          key: ${{ steps.official-docker-cache.outputs.cache-primary-key }}
       - name: Diagnose prepared environment
         run: make doctor
       - name: Verify offline reuse
@@ -152,17 +212,17 @@ jobs:
       - name: 모델 키 없는 ACE CLI 실행의 명시적 차단 확인
         run: |
           .venv/bin/python - <<'PY'
-          import json
           import os
           import subprocess
 
           env = {key: value for key, value in os.environ.items() if key not in {
                "AGENT_OPT_MODEL_API_KEY", "AGENT_OPT_MODEL_BASE_URL"}}
+          # A valid loopback URL distinguishes missing authentication from missing configuration.
+          env["AGENT_OPT_MODEL_BASE_URL"] = "http://127.0.0.1:9/v1"
           result = subprocess.run([".venv/bin/agent-opt", "run", "examples/ace-rtl/experiment.toml"],
                                   env=env, capture_output=True, text=True, timeout=60, check=False)
           assert result.returncode == 2, (result.returncode, result.stdout, result.stderr)
-          status = json.loads(result.stdout.splitlines()[-1])
-          assert status["status"] == "blocked" and status["stage"] == "live", status
+          assert "blocked_auth" in result.stderr, (result.stdout, result.stderr)
           PY
       - name: Check actual image defaults and explicit provider configuration (no inference)
         run: |
@@ -219,13 +279,50 @@ jobs:
           python -m venv "$RUNNER_TEMP/agent-opt-uv"
           "$RUNNER_TEMP/agent-opt-uv/bin/python" -m pip install uv==0.10.7
           echo "$RUNNER_TEMP/agent-opt-uv/bin" >> "$GITHUB_PATH"
+      - name: 고정 Buildx 준비
+        id: verilog-builder
+        uses: docker/setup-buildx-action@v3
+        with:
+          version: v0.21.3
+          use: false
+      - name: 고정 Icarus v12 Docker 레이어 캐시
+        if: github.server_url == 'https://github.com'
+        id: verilog-docker-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/docker-layer-cache
+          key: verilog-docker-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('examples/benchmarks/Dockerfile.iverilog12', 'src/agent_optimizer/network.py') }}
+          restore-keys: verilog-docker-${{ runner.os }}-${{ runner.arch }}-
+      - name: Icarus v12 Docker 레이어 재사용 활성화
+        env:
+          CACHE_BUILDER: ${{ steps.verilog-builder.outputs.name }}
+        run: |
+          echo "AGENT_OPT_BUILD_CACHE_DIR=$RUNNER_TEMP/docker-layer-cache" >> "$GITHUB_ENV"
+          echo "AGENT_OPT_BUILD_CACHE_BUILDER=$CACHE_BUILDER" >> "$GITHUB_ENV"
       - name: 프로젝트 의존성 준비
         run: make setup-core
       - name: 선택 모드의 전체 평가
         run: |
           uname -m
           docker version --format '{{.Server.Os}}/{{.Server.Arch}}'
-          .venv/bin/python examples/benchmarks/verify_verilog_eval_full.py --dataset '${{ matrix.dataset }}' --require-ubuntu-amd64
+          .venv/bin/python examples/benchmarks/verify_verilog_eval_full.py --dataset '${{ matrix.dataset }}' --require-ubuntu-amd64 --jobs '${{ inputs.verilog_jobs || '2' }}'
+      - name: 완료된 Icarus v12 레이어 export 확인
+        if: always()
+        id: verilog-cache-export
+        run: |
+          # Runtime locks are never restored: this file proves this run prepared the image.
+          if compgen -G "$RUNNER_TEMP/docker-layer-cache/*/index.json" > /dev/null && \
+             [[ -f 'external/datasets/${{ matrix.dataset }}/runtime-lock.json' ]]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: 평가 실패와 독립적으로 완료된 이미지 레이어 보존
+        if: always() && github.server_url == 'https://github.com' && steps.verilog-cache-export.outputs.ready == 'true' && steps.verilog-docker-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/docker-layer-cache
+          key: ${{ steps.verilog-docker-cache.outputs.cache-primary-key }}
       - name: 정제된 결과만 보존
         if: always() && github.server_url == 'https://github.com'
         uses: actions/upload-artifact@v4

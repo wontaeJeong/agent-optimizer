@@ -71,12 +71,29 @@ PR 코어 CI는 Python 3.11/3.12에서 lint·회귀·minimal·sdist/wheel·소�
 실패·import 오류·worker 비정상 종료·빈 테스트는 CI 실패이며, 취소 시 worker와 같은 프로세스 그룹의
 하위 프로세스를 제한 시간 안에 종료합니다. 로컬 `make test`는 직렬 재현 명령으로 유지합니다.
 CI와 release는 고정 uv 0.10.7의 `uv build`로 sdist를 만들고 그 sdist에서 wheel을 빌드합니다.
-release의 publish 단계는 검사 job을 통과한 뒤 빌드 도구만 설치하며 앱·개발 의존성을 다시 설치하지 않습니다.
+GitHub.com release의 publish 단계는 같은 run의 Python 3.11에서 빌드·설치 검증한
+`release-packages` artifact를 재사용합니다. 별도 빌드와 앱·개발 의존성 재설치가 없습니다.
+다른 서버에서는 기존 고정 uv 재빌드 경로를 사용합니다.
 GitHub.com에서는 uv/pip 다운로드 캐시를 OS·arch·Python·lock 입력별로 재사용하고, 공식 CVDP의
 `external/cvdp-data`는 복원 후 기존 SHA-256 검사를 다시 수행합니다. 가상환경·이미지 lock·자격증명은
 캐시에 넣지 않습니다. 그 밖의 서버에서는 cache action을 건너뛰고 동일한 설치·검증 명령을 실행합니다.
 Ubuntu native Yosys/Icarus 검사는 공식 CVDP 이미지 버전 재현과 별개입니다. 모델 호출은 없습니다.
 공식 Docker 통합은 기존 `ci.yml`의 수동 `official_cvdp=true` 입력이며, 실행 성공은 실제 로그로 확인합니다.
+GitHub 제공 러너에서는 고정 Buildx v0.21.3의 local layer cache를 사용합니다. 이미지를 daemon에
+`--load`한 뒤 기존 source·driver·데이터 hash·실도구·이미지 ID 검사를 수행하며, cache hit 자체를
+환경 검증 성공으로 취급하지 않습니다. Icarus v12의 완료된 export는 전체 평가 실패와 독립적으로 보존합니다.
+native Yosys/Icarus의 `.deb`만 실제 러너 이미지 버전별로 보존하며 apt의 서명·설치·버전 확인을 유지합니다.
+Pages는 문서와 무관한 PR에서만 설치·빌드를 생략하고 `build` 체크를 완료합니다. main push와 수동 실행은
+전체 문서·링크 검사 및 기존 게시 흐름을 사용합니다.
+
+Mac/Linux에서 직접 Docker layer cache를 쓸 때는 `AGENT_OPT_BUILD_CACHE_DIR`에 쉼표·줄바꿈 없는
+절대 경로를 지정하고, `AGENT_OPT_BUILD_CACHE_BUILDER`에 local exporter를 지원하는 builder
+이름을 명시합니다. CI는 전역 기본 builder를
+바꾸지 않아 공식 Compose가 daemon에 load한 로컬 평가 이미지를 계속 사용할 수 있습니다.
+캐시는 이미지 태그별로 잠금하며 빌드 실패는 기존 캐시를 보존하고 성공한 export만 교체합니다.
+cache 내부 symlink·특수 파일은 거부합니다.
+교체 복구에 실패한 `.previous` 디렉터리는 보존되고 후속 실행이 명시적으로 실패하므로 기존 자료를
+확인해 복구해야 합니다. 변수 미지정과 offline setup은 기존 빌드·읽기 전용 재검증 흐름을 사용합니다.
 
 자체 러너를 사용할 때는 저장소 변수 `CI_RUNNER_LABELS`에 JSON 배열
 `["self-hosted","linux","x64"]`처럼 **실제 등록된 라벨**을 지정합니다. 기본값은
@@ -99,6 +116,7 @@ Buildx, 고정 소스·데이터·이미지의 접근 경로도 별도로 준비
 
 ```bash
 gh workflow run ci.yml --ref YOUR_BRANCH -f official_cvdp=true
+gh workflow run ci.yml --ref YOUR_BRANCH -f verilog_eval_full=true -f verilog_jobs=2
 ```
 
 PR에는 변경·검증·skip·미검증 영역을 적습니다. Python 3.11/3.12 결과를 집계한 **CI Gate**와
@@ -165,3 +183,8 @@ jq --slurpfile queue .github/rulesets/merge-queue-rule.json \
 전체 CI와 태그/버전 일치 검사를 거친 wheel·sdist·SHA256SUMS가 Draft Release에 첨부됩니다.
 게시 전 확인하고, 이미 게시한 버전은 덮어쓰지 않습니다. PyPI/실행 서버 자동 배포는 포함하지 않습니다.
 배포 라이선스는 팀에서 결정합니다. 자세한 현재 구현은 `.github/workflows/`를 기준으로 확인하세요.
+
+게시 없이 release의 검사·artifact 재사용·checksum 생성을 검증하려면
+`gh workflow run release.yml --ref YOUR_BRANCH`를 사용합니다. 수동 실행은 태그를 생성하지 않고
+release를 게시하지 않으며 `release-verification` artifact만 남깁니다. 실제 태그 실행의 버전 검사와
+게시 API는 이 dry-run 성공과 구분합니다.

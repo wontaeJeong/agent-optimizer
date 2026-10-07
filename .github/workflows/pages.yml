@@ -20,15 +20,33 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: 2
+      - name: 문서 관련 변경 확인
+        id: changes
+        shell: bash
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" != pull_request ]]; then
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          elif git diff --quiet HEAD^1 HEAD -- website docs README.md CONTRIBUTING.md THIRD_PARTY.md .github/workflows/pages.yml; then
+            echo "build=false" >> "$GITHUB_OUTPUT"
+            echo "문서 변경이 없어 설치·빌드를 생략합니다."
+          else
+            status=$?
+            if [[ "$status" != 1 ]]; then exit "$status"; fi
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
       - uses: actions/setup-node@v4
+        if: steps.changes.outputs.build == 'true'
         with:
           node-version: '22'
           cache: npm
           cache-dependency-path: website/package-lock.json
       - name: 문서 도구 설치
+        if: steps.changes.outputs.build == 'true'
         run: npm ci
         working-directory: website
       - name: 문서 및 링크 검사
+        if: steps.changes.outputs.build == 'true'
         run: npm run build
         working-directory: website
       - name: Pages 정적 파일 업로드

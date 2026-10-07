@@ -3,6 +3,7 @@ name: release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -32,16 +33,12 @@ jobs:
         with:
           python-version: '3.11'
       - name: 의존성 캐시 경로 준비
+        if: github.server_url != 'https://github.com'
         run: |
           echo "UV_CACHE_DIR=$RUNNER_TEMP/agent-opt-cache/uv" >> "$GITHUB_ENV"
           echo "PIP_CACHE_DIR=$RUNNER_TEMP/agent-opt-cache/pip" >> "$GITHUB_ENV"
-      - name: 릴리즈 빌드 의존성 캐시
-        if: github.server_url == 'https://github.com'
-        uses: actions/cache@v4
-        with:
-          path: ${{ runner.temp }}/agent-opt-cache
-          key: release-${{ runner.os }}-${{ runner.arch }}-3.11-uv-0.10.7-${{ hashFiles('uv.lock', 'pyproject.toml') }}
       - name: Check release tag matches package version
+        if: github.event_name == 'push'
         env:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
@@ -55,14 +52,29 @@ jobs:
               raise SystemExit(f'Tag {tag!r} must match package version v{version}')
           PY
       - name: Build release packages
+        if: github.server_url != 'https://github.com'
         run: |
           python -m venv "$RUNNER_TEMP/agent-opt-uv"
           "$RUNNER_TEMP/agent-opt-uv/bin/python" -m pip install uv==0.10.7
           "$RUNNER_TEMP/agent-opt-uv/bin/uv" build --python python
+      - name: CI에서 검증한 패키지 재사용
+        if: github.server_url == 'https://github.com'
+        uses: actions/download-artifact@v4
+        with:
+          name: release-packages
+          path: dist
       - name: Generate release checksums
         working-directory: dist
         run: sha256sum -- *.whl *.tar.gz > SHA256SUMS
+      - name: 수동 릴리즈 검증 산출물 보존
+        if: github.event_name == 'workflow_dispatch' && github.server_url == 'https://github.com'
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-verification
+          path: dist/*
+          if-no-files-found: error
       - name: Publish GitHub or GHES release
+        if: github.event_name == 'push'
         env:
           GH_TOKEN: ${{ github.token }}
           GH_ENTERPRISE_TOKEN: ${{ github.token }}
@@ -74,5 +86,5 @@ jobs:
           gh --version
           gh release create "$RELEASE_TAG" dist/*.whl dist/*.tar.gz dist/SHA256SUMS \
             --verify-tag --draft --title "$RELEASE_TAG" \
-            --notes "Validated demo package. See CONTRIBUTING.md for installation and verification."
+            --notes "검증된 데모 패키지입니다. 설치·검증은 CONTRIBUTING.md를 확인하세요."
           gh release edit "$RELEASE_TAG" --draft=false

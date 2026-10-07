@@ -78,3 +78,6 @@ PR #68 첫 CI는 Python 3.11/3.12 전체 단위 검사·빌드 이후 설치형 
   `python tests/test_installed_cli.py dist/agent_optimizer-0.3.0-py3-none-any.whl`을 실행했다.
   ACE GEPA/Meta 설정 생성·prepare 부분은 외부 자산 준비를 모의하는 설치 계약 검사다.
 - native 실모델/평가 성공 여부는 PR #69의 별도 근거와 이 입력 UX의 미실행 범위를 구분한다.
+
+CI 통과 대기 중 먼저 머지된 PR #67의 최신 main(`167b0f9`)도 통합했다.
+이후 전체 검사 **1204개 중 실행 1124 통과·skip 80**(175.672s), lint 통과를 확인했다.
