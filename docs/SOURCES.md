@@ -6,6 +6,15 @@
 
 ## 고정 버전
 
+### 2026-10-10 native 실행 경계 대조(기존 pin 유지)
+
+`native_bridge.py`의 고정 upstream `run_attempt` 연결과 공개 출력 계약, `native_adapter.py`의
+격리 HOME/기존 Docker 설정 전달, `evaluator.py`의 driver/private 로그 분류를 실제 CID004 실행과 대조했다.
+고정 CVDP driver는 Docker network 생성 실패에도 exit 0·`result=1/error_msg=null`을 남길 수 있었다.
+소유한 driver stdout/stderr의 Docker API 오류를 추가 확인하고 환경 실패를 null로 보존한다.
+[코어 검증](verification/core-audit-20261010.md)의 native inner/outer Baseline 통과와 연구 모델 timeout을 구별한다.
+ACE/CVDP/HF SHA·hash와 모델 기본값은 갱신하지 않았다.
+
 ### 2026-10-01 native 소비 파일 대조(기존 pin 유지)
 
 `source-native.toml`, `native_prepare.py`/`native_selection.py`는 아래 ACE/CVDP/HF 고정 SHA/hash를 소비한다. `native_bridge.py`·`native_worker.py`는 export한 `ace_cvdp_native.cli.run_attempt`·FocusedDebugger/FreshStartCoordinator를 호출하며 public-only processor와 binary feedback을 연결한다. `native_cvdp.py`·`native_evaluator.py`는 reviewed row/공식 binary·inner/outer 평가를 분리한다. `native/guidance.md`·`native/orchestration.py`는 실제 후보 수정 표면이다.

@@ -1066,7 +1066,7 @@ class EvaluatorRuntimeTests(unittest.TestCase):
 
 
 class PrivateResultLogTests(unittest.TestCase):
-    def evaluate_log(self, contents, *, path_kind="absolute", status=1):
+    def evaluate_log(self, contents, *, path_kind="absolute", status=1, driver_error=None):
         with tempfile.TemporaryDirectory() as d:
             root = Path(d).resolve()
             output = root / "output"
@@ -1074,6 +1074,9 @@ class PrivateResultLogTests(unittest.TestCase):
             (output / "rtl/dut.sv").write_text("module dut; endmodule")
             task = Task(**prepare.convert([official_row()])[0][0])
             def execute(argv, cwd, logs, timeout, env=None):
+                if driver_error is not None:
+                    logs.mkdir(parents=True)
+                    (logs / 'stderr.log').write_text(driver_error)
                 prefix = Path(argv[-1])
                 report = prefix / "demo/reports/1.txt"
                 report.parent.mkdir(parents=True)
@@ -1136,6 +1139,14 @@ class PrivateResultLogTests(unittest.TestCase):
                     result = self.evaluate_log("PRIVATE_SENTINEL\n" + diagnostic, path_kind=path_kind)
                     self.assertEqual(result.status, "infrastructure_error")
                     self.assertIsNone(result.metrics["passed"])
+
+    def test_driver_docker_api_failure_cannot_be_a_binary_score(self):
+        for status in (0, 1):
+            with self.subTest(status=status):
+                result = self.evaluate_log('Creating Docker network agent-opt-cvdp-fixture...', status=status,
+                    driver_error='PRIVATE_SENTINEL\nfailed to connect to the docker API at unix:///var/run/docker.sock')
+                self.assertEqual(result.status, 'infrastructure_error')
+                self.assertIsNone(result.metrics['passed'])
 
     def test_hdl_compile_and_functional_failures_remain_candidate_zero(self):
         for diagnostic in (

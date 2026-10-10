@@ -11,6 +11,14 @@ from agent_optimizer.workspace import safe_path
 from agent_optimizer.network import network_environment
 
 
+DOCKER_FAILURES = (
+    'pull access denied', 'insufficient_scope: authorization failed',
+    'failed to resolve source metadata for', 'cannot connect to the docker daemon',
+    'failed to connect to the docker api', 'failed to create docker network',
+    'error response from daemon:', 'oci runtime create failed',
+)
+
+
 def cleanup_network(network, logs):
     """Clean only this evaluation's unique network, including after driver SIGKILL."""
     logs.mkdir(parents=True, exist_ok=True)
@@ -108,6 +116,15 @@ class CVDPEvaluator:
             return Evaluation("infrastructure_error", {"passed": None}, "CVDP did not produce a valid evaluation", {"logs": str(scoring / "logs")})
         try:
             artifact = safe_path(scoring, "work/raw_result.json")
+            # Network creation failures can occur before the per-test log begins;
+            # upstream may still publish result=1/error_msg=null and exit zero.
+            for name in ('stdout.log', 'stderr.log'):
+                driver_log = safe_path(scoring, 'logs/' + name)
+                diagnostic = driver_log.read_text(errors='replace').lower() if driver_log.is_file() else ''
+                if any(term in diagnostic for term in DOCKER_FAILURES):
+                    return Evaluation('infrastructure_error', {'passed': None},
+                                      'CVDP environment failure; inspect private evaluator logs',
+                                      {'raw_result': str(artifact)})
             record = json.loads(artifact.read_text())[row["id"]]
             tests = record["tests"]
             if not tests or any(type(t.get("result")) is not int for t in tests):
@@ -127,11 +144,7 @@ class CVDPEvaluator:
                 private_log = safe_path(prefix, relative).read_text(errors="replace").lower()
                 # Keep these Docker-specific: HDL diagnostics can also say missing
                 # file, permission denied, compilation failed, or make Error 1/2.
-                if any(term in private_log for term in (
-                    "pull access denied", "insufficient_scope: authorization failed",
-                    "failed to resolve source metadata for", "cannot connect to the docker daemon",
-                    "error response from daemon:", "oci runtime create failed",
-                )):
+                if any(term in private_log for term in DOCKER_FAILURES):
                     return Evaluation("infrastructure_error", {"passed": None},
                                       "CVDP environment failure; inspect private evaluator logs", {"raw_result": str(artifact)})
             passed = all(t["result"] == 0 for t in tests)

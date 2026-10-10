@@ -8,6 +8,7 @@ import os
 import platform
 import time
 import uuid
+from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
 
@@ -16,7 +17,7 @@ from agent_optimizer.app_paths import resolve_run_base
 from agent_optimizer.history import record_lifecycle
 from agent_optimizer.config import selected_pairs, validate_objective, validate_stages
 from agent_optimizer.contracts import (
-    BudgetExceeded, Candidate, ConfigurationError, Evaluation, RunRequest, StageBudgetExceeded,
+    BudgetExceeded, Candidate, ConfigurationError, Evaluation, ExecutionResult, RunRequest, StageBudgetExceeded,
     UnavailableError, jsonable,
 )
 from agent_optimizer.objectives import aggregate, select
@@ -85,7 +86,7 @@ class Context:
     def evaluate(self, candidate: Candidate):
         if candidate.id not in self._candidate_ids:
             raise ConfigurationError("Cannot evaluate another stage's candidate")
-        return self._group.evaluate(candidate, "train")
+        return deepcopy(self._group.evaluate(candidate, "train"))
 
     def train_task_ids(self):
         return [task.id for task in self._group.spec["_tasks"] if task.split == "train"]
@@ -97,7 +98,7 @@ class Context:
         if (not isinstance(task_ids, list) or not task_ids or len(set(task_ids)) != len(task_ids)
                 or not all(type(task_id) is str and task_id in known for task_id in task_ids)):
             raise ConfigurationError("Optimization minibatch must contain distinct train task IDs")
-        return self._group.evaluate(candidate, "train", task_ids=task_ids)
+        return deepcopy(self._group.evaluate(candidate, "train", task_ids=task_ids))
 
     def evaluate_validation(self, candidate: Candidate):
         if candidate.id not in self._candidate_ids:
@@ -105,9 +106,9 @@ class Context:
         row = self._group.evaluate(candidate, "validation")
         records = [r for r in self._group.records
                    if r["candidate_id"] == candidate.id and r["split"] == "validation"]
-        return {"split": "validation", "valid": row["valid"], "metrics": row["metrics"],
-                "tasks": [{"task_id": r["task_id"], "metrics": r["metrics"], "valid": r["valid"]}
-                          for r in records]}
+        return deepcopy({"split": "validation", "valid": row["valid"], "metrics": row["metrics"],
+                 "tasks": [{"task_id": r["task_id"], "metrics": r["metrics"], "valid": r["valid"]}
+                           for r in records]})
 
     def emit(self, event: str, **fields):
         self._group.events.append({"event": event, **fields,
@@ -116,8 +117,8 @@ class Context:
                                    "stage_id": self._stage_id, "optimizer": self._optimizer})
 
     def history(self):
-        return [r for r in self._group.records
-                if r["split"] == "train" and r["candidate_id"] in self._candidate_ids]
+        return deepcopy([r for r in self._group.records
+                 if r["split"] == "train" and r["candidate_id"] in self._candidate_ids])
 
     def remaining_seconds(self):
         return self._group.budget.remaining()
@@ -214,6 +215,13 @@ class GroupRunner:
                                      trial_deadline-time.monotonic(), self.profile,
                                      trial / ('logs' if native_mode else 'harness_logs'))
                 execution = self.harness.run(request)
+                if (not isinstance(execution, ExecutionResult) or execution.status not in {
+                        'completed', 'process_error', 'timeout', 'infrastructure_error',
+                        'unsupported', 'agent_incomplete', 'interrupted'}):
+                    execution = None
+                    raise ConfigurationError('Harness는 지원된 상태의 ExecutionResult를 반환해야 합니다')
+                if execution.status == 'completed' and execution.returncode not in (None, 0):
+                    raise ConfigurationError('Harness completed 상태와 비정상 종료 코드가 충돌합니다')
             self.events.append({"event": "agent_completed", "phase": "agent", **identity})
             self.budget.remaining()
             if execution is not None and execution.status == "timeout" and globally_limited:
@@ -237,7 +245,12 @@ class GroupRunner:
                     outer_started = time.monotonic()
                     outer_count += 1
                     try:
-                        evaluation = self.evaluator.evaluate(task, eval_dir, remaining)
+                        evaluated = self.evaluator.evaluate(task, eval_dir, remaining)
+                        if not isinstance(evaluated, Evaluation) or evaluated.status not in {
+                                'passed', 'failed', 'timeout', 'infrastructure_error',
+                                'unsupported', 'error', 'interrupted'}:
+                            raise ConfigurationError('Evaluator는 지원된 상태의 Evaluation을 반환해야 합니다')
+                        evaluation = evaluated
                     finally:
                         outer_wall_time = time.monotonic() - outer_started
                     self.events.append({"event": "evaluation_completed", "phase": "evaluation", **identity})
@@ -347,6 +360,8 @@ class GroupRunner:
                 self.budget.remaining()
                 rows = stage_result["evaluated"]
                 for candidate in result.candidates:
+                    if candidate.id not in context._candidate_ids:
+                        raise ConfigurationError('다른 stage의 후보를 반환할 수 없습니다')
                     self.verify_candidate(candidate)
                     by_id[candidate.id] = candidate
                     rows.append(self.evaluate(candidate, "validation"))
@@ -524,7 +539,7 @@ def run_experiment(spec, registry, output: Path | None = None, on_event=None):
             summary["groups"][-1] = group.summary
             group.run()
         summary["status"] = ("completed" if all(g["status"] == "completed" for g in summary["groups"])
-                             else "partial" if any(g["status"] == "partial" for g in summary["groups"])
+                             else "partial" if any(g["status"] in {"completed", "partial"} for g in summary["groups"])
                              else "no_eligible_candidate")
     except KeyboardInterrupt:
         summary["status"] = "interrupted"

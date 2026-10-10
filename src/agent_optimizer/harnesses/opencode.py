@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import re
 from pathlib import Path
@@ -75,7 +76,7 @@ class OpenCodeHarness(CommandHarness):
 
     def run(self, request: RunRequest):
         result = super().run(request)
-        reported_tokens = 0.0
+        reported_tokens = 0
         reported_cost = 0.0
         saw_tokens = saw_cost = False
         invalid = 0
@@ -94,16 +95,29 @@ class OpenCodeHarness(CommandHarness):
                     result.detail = _error_detail(event)
                 if event.get("type") == "step_finish":
                     part = event.get("part", {})
+                    if not isinstance(part, dict):
+                        invalid += 1
+                        continue
                     tokens = part.get("tokens", {})
+                    tokens = tokens if isinstance(tokens, dict) else {}
                     # Keep this explicitly partial: child sessions may not be in this stream.
-                    if all(isinstance(tokens.get(k), (int, float)) for k in ("input", "output")):
+                    if all(type(tokens.get(k)) is int and tokens[k] >= 0 for k in ("input", "output")):
                         reported_tokens += tokens["input"] + tokens["output"]
                         saw_tokens = True
-                    if isinstance(part.get("cost"), (int, float)):
-                        reported_cost += part["cost"]
+                    cost = part.get('cost')
+                    try:
+                        valid_cost = type(cost) in (int, float) and math.isfinite(cost) and cost >= 0
+                    except OverflowError:
+                        valid_cost = False
+                    if valid_cost:
+                        reported_cost += cost
                         saw_cost = True
-        result.metrics.update(harness_reported_io_tokens=reported_tokens if saw_tokens else None,
-                              harness_reported_cost_usd=reported_cost if saw_cost else None,
+        try:
+            finite_tokens = math.isfinite(reported_tokens)
+        except OverflowError:
+            finite_tokens = False
+        result.metrics.update(harness_reported_io_tokens=reported_tokens if saw_tokens and finite_tokens else None,
+                              harness_reported_cost_usd=reported_cost if saw_cost and math.isfinite(reported_cost) else None,
                               unparsed_event_lines=float(invalid))
         # Complete agent totals intentionally remain unavailable until child-session accounting
         # is verified for a pinned OpenCode version. Never report a partial total as complete.

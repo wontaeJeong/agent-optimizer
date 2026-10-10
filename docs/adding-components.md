@@ -121,6 +121,9 @@ source clone/데이터 다운로드/설치 스크립트의 실제 실행 결과�
 
 각 stage의 seed는 같은 그룹 baseline입니다. baseline train cache는 공유하되 다른 stage의 후보 이력은
 공유하지 않습니다. 기본 최종 비교는 모든 stage winner이고 `final_stages`로 명시적 subset을 정할 수 있습니다.
+Context가 반환한 집계·validation 수치·history는 내부 기록과 분리된 복사본입니다.
+반환값을 수정해도 평가 원본·cache·선택은 바뀌지 않습니다. `OptimizationResult`에도
+baseline 또는 해당 stage에서 발급한 후보만 반환할 수 있습니다.
 GEPA·Meta-Harness의 내부 선택은 validation 수치 벡터를 볼 수 있으나 모델 수정 근거는 train에 둡니다.
 GEPA의 `merge=true`는 현재 명시적으로 거부합니다. 병합이 모델 변경에 validation 수치를 사용하지
 않도록 검증한 뒤에만 재활성화합니다.
@@ -182,6 +185,8 @@ private 평가 자산은 전달하지 않습니다. 실제 산출물을 task_dir
 trial workspace가 cwd이며 Docker 경로는 변환합니다. 임의 shell interpolation은 지원하지 않습니다.
 인증은 환경/credential store, timeout/프로세스 처리는 `process.execute` 계약을 따릅니다.
 전체가 아닌 사용량은 partial 이름으로, 미수집은 None으로 반환하고 CLI 실패를 성공으로 대체하지 않습니다.
+Harness 상태는 `completed/process_error/timeout/infrastructure_error/unsupported/agent_incomplete/interrupted`입니다.
+`completed`의 returncode는 0 또는 미수집 None이어야 하며 상태·exit 충돌은 명시적으로 실패합니다.
 
 ## Agent 소스
 
@@ -217,6 +222,8 @@ Git/local 공통으로 아래는 명시적 include로도 가져올 수 없습니
 
 constructor(config), `evaluate(task, output_dir, timeout_seconds) -> Evaluation`.
 실제 평가 근거로 passed를 정하며 Agent 자기보고는 성공 근거가 아닙니다.
+평가 상태는 `passed/failed/timeout/infrastructure_error/unsupported/error/interrupted`이며
+알 수 없는 상태는 성공으로 해석하지 않고 계약 오류로 실패합니다.
 환경 오류는 infrastructure_error/passed=None, 사용자 정의 지표는 `Evaluation.metrics`로 반환합니다.
 objective.metrics의 source로 참조하고 direction=maximize/minimize, aggregate=mean/sum을 지정합니다.
 선택은 **lexicographic, keep=1**만 지원합니다. validation으로 선택을 고정한 뒤 test를 실행합니다.

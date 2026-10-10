@@ -1,5 +1,11 @@
 # 현재 구현·검증 상태
 
+## 2026-10-10 코어 무결성·native 실실행
+
+- Context 반환값 변조·다른 stage 후보 반환·실행/평가 상태 충돌·복수 그룹 partial·수치/사용량 오류를 수정했다. native 출력 계약·요청 timeout·bytecode와 격리 HOME의 Docker context·공식 driver 환경 오류 분류도 보강했다.
+- `make test`: **1,220개 중 실행 1,142 통과·skip 78**, lint·합성 7-trial demo·sdist/wheel·소스 밖 설치형 CLI 검증 통과. 신규 회귀 16개, 독립 리뷰 Critical/Important 0건.
+- Mac native CID004 Baseline은 **inner 공식 평가와 outer 재평가 각 1.0, completed**다. GEPA validation 동점으로 Baseline 선택, train은 모델 timeout·무효/null이며 Meta-Harness는 제안 timeout으로 중단됐다. 정상 연구 최적화·성능 개선·Ubuntu x86_64 native loop는 미검증이다. [명령·실패 포함 근거](verification/core-audit-20261010.md).
+
 ## 2026-10-07 TUI 입력 UX 개선
 
 최근·예제 설정 선택과 파일/폴더 탐색·자동완성, 목록 검색, CID·editable 다중 선택,
