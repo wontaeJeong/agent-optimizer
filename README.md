@@ -46,7 +46,7 @@ ACE-RTL의 첫 Harness는 **Python native**입니다. CLI 선택은 `--harness-p
 
 **전체 정적 준비 진단은 `doctor --plan CONFIG --json`**입니다. pair별 source·inner/outer driver 의존성/image·Agent 모델 URL/ID/key·TLS/CA 등 현재 구현된 검사들을 확인하고, 실제 API 연결은 별도 `--model` probe로 검사합니다. **prepare는 모델 설정·driver 패키지 import·독립 inner evaluator 환경 전체를 검사하지 않으므로 모델 환경이 없어도 성공할 수 있습니다.** prepare의 `ready=true`를 전체 준비 완료로 해석하지 마세요. doctor/probe도 실제 Agent/평가 성공 보장은 아닙니다.
 
-[native 실행 가이드](examples/ace-rtl/NATIVE.md)에 준비 → doctor → 작은 smoke → 선택 CID → 결과의 복사 가능한 명령과 지원표가 있습니다. GEPA는 `native/guidance.md`, Meta-Harness는 실제 import되는 `native/orchestration.py:guidance`를 수정합니다. outer Optimizer trial과 inner ACE attempt/iteration·trusted 최종 평가를 구분합니다. 2026-10-07 Mac에서 native Baseline CID002/004를 실제 실행했지만 **`no_eligible_candidate`로 실패**했습니다. 정상 완료·연구 stage·Ubuntu native loop 검증은 남아 있습니다.
+[native 실행 가이드](examples/ace-rtl/NATIVE.md)에 준비 → doctor → 작은 smoke → 선택 CID → 결과의 복사 가능한 명령과 지원표가 있습니다. GEPA는 `native/guidance.md`, Meta-Harness는 실제 import되는 `native/orchestration.py:guidance`를 수정합니다. outer Optimizer trial과 inner ACE attempt/iteration·trusted 최종 평가를 구분합니다. 2026-10-10 Mac에서 native CID004 Baseline의 **inner 공식 평가·outer 재평가 각 1.0, 정상 완료**를 확인했습니다. 연구 train/제안은 모델 timeout이 남아 있으며 성능 개선·Ubuntu native loop는 미검증입니다. [실패 포함 검증 근거](docs/verification/core-audit-20261010.md).
 
 기존 **OpenCode/Claude Code coding 프로필**은 별도 선택입니다. `ace-opencode`의 GEPA `role-guidance.md`/Meta `agent_opt_scaffold.py:prepare_task`는 native 표면이 아닙니다. `init --profile ace-rtl --workspace PATH`와 옵션 없는 `make setup/doctor`, `make smoke/live`는 **기존 ACE 전체 coding 경로**입니다. 코어/native 전체 준비로 재해석하지 마세요. [legacy 안내](examples/ace-rtl/README.md)와 [과거 실제 OpenCode 기록](docs/verification.md#2026-09-28-선택형-gepameta-harness-실모델공식-cvdp-후속-검증)은 native 성공 증거가 아닙니다.
 

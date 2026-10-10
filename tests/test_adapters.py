@@ -115,6 +115,30 @@ class DockerEnvironmentTests(unittest.TestCase):
 
 
 class OpenCodeContractTests(unittest.TestCase):
+    def test_malformed_step_usage_does_not_abort_trace_or_publish_nonfinite_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output, err = root / 'out.jsonl', root / 'err.log'
+            output.write_text('\n'.join(json.dumps(event) for event in [
+                {'type': 'step_finish', 'part': []},
+                {'type': 'step_finish', 'part': {'tokens': None}},
+                {'type': 'step_finish', 'part': {'tokens': {'input': -1, 'output': True}, 'cost': float('nan')}},
+                {'type': 'step_finish', 'part': {'tokens': {'input': 1e308, 'output': 1e308}, 'cost': -1}},
+                {'type': 'step_finish', 'part': {'tokens': {'input': 10**400, 'output': 1}}},
+                {'type': 'error', 'error': {'message': 'provider failure'}},
+            ]))
+            err.write_text('')
+            request = RunRequest(root, root / 'agent', root / 'task', 'prompt', 0, 3,
+                                 {'model_env': 'TEST_AGENT_MODEL'}, root / 'logs')
+            fixture = ExecutionResult('completed', 0, .1, str(output), str(err))
+            with patch.dict(os.environ, {'TEST_AGENT_MODEL': 'provider/model'}), \
+                    patch('agent_optimizer.harnesses.command.execute', return_value=fixture):
+                result = OpenCodeHarness().run(request)
+            self.assertEqual(result.status, 'infrastructure_error')
+            self.assertIsNone(result.metrics['harness_reported_io_tokens'])
+            self.assertIsNone(result.metrics['harness_reported_cost_usd'])
+            json.dumps(result.metrics, allow_nan=False)
+
     def test_argv_usage_and_error_event(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

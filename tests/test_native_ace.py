@@ -172,6 +172,32 @@ class NativeACETests(unittest.TestCase):
                                        settings=ModelSettings('http://localhost/v1/chat/completions', 'fixture', 'token'), completion=completion)
         self.assertEqual(len(result['generated_files']), 3)
 
+    def test_generator_protocol_survives_candidate_guidance_changes(self):
+        request = self.request(iterations=1)
+        (request.agent_dir / 'native/guidance.md').write_text('일반적인 문제 해결 지침만 제공합니다')
+        captured = []
+        def completion(messages, **kwargs):
+            captured.append(messages[0]['content'])
+            return {'choices': [{'message': {'content': 'module x; endmodule'}}]}
+        self.bridge.run_native(request, self.row, evaluator=lambda *args: Evaluation('passed', {'passed': 1}),
+                               settings=ModelSettings('http://localhost/v1/chat/completions', 'fixture', 'token'),
+                               completion=completion)
+        self.assertIn('Markdown', captured[0])
+        self.assertIn('// TARGET_FILE:', captured[0])
+
+    def test_markdown_output_is_agent_incomplete_without_evaluator_call(self):
+        request = self.request(iterations=1)
+        def completion(*args, **kwargs):
+            return {'choices': [{'message': {'content': '```verilog\nmodule x; endmodule\n```'}}]}
+        def evaluator(*args):
+            self.fail('출력 계약 위반을 공식 평가기에 전달하면 안 됩니다')
+        with self.assertRaises((self.bridge.NativeCallError, ConfigurationError)) as raised:
+            self.bridge.run_native(request, self.row, evaluator=evaluator,
+                                   settings=ModelSettings('http://localhost/v1/chat/completions', 'fixture', 'token'),
+                                   completion=completion)
+        self.assertEqual(getattr(raised.exception, 'status', None), 'agent_incomplete')
+        self.assertFalse((request.task_dir / 'rtl/decoder_64b66b.sv').exists())
+
     def test_nested_targets_accept_reordered_complete_sections(self):
         row = copy.deepcopy(self.row)
         row['output']['context'] = {'rtl/a.sv': '', 'rtl/sub/b.sv': ''}
@@ -213,8 +239,20 @@ class NativeACETests(unittest.TestCase):
         transport = self.bridge.RoleTransport(request, settings, timeout)
         with self.assertRaises(self.bridge.NativeCallError) as raised:
             transport.call('generator', 'public')
-        self.assertEqual(raised.exception.status, 'timeout')
+        self.assertEqual(raised.exception.status, 'api_error')
+        self.assertEqual(transport.requests[-1]['status'], 'timeout')
         self.assertNotIn('PRIVATE_SECRET', json.dumps(transport.requests))
+
+    def test_model_timeout_at_outer_deadline_remains_execution_timeout(self):
+        request = self.request()
+        settings = ModelSettings('http://localhost/v1/chat/completions', 'fixture', 'token')
+        def timeout(*args, **kwargs):
+            transport.deadline = time.monotonic() - 1
+            raise TimeoutError('PRIVATE_SECRET')
+        transport = self.bridge.RoleTransport(request, settings, timeout)
+        with self.assertRaises(self.bridge.NativeCallError) as raised:
+            transport.call('generator', 'public')
+        self.assertEqual(raised.exception.status, 'timeout')
 
     def test_adapter_routes_native_worker_without_coding_binary(self):
         adapter = load('native_adapter')
@@ -241,6 +279,27 @@ class NativeACETests(unittest.TestCase):
         self.assertTrue(recorded[0][1].endswith('native_worker.py'))
         self.assertFalse(any(Path(arg).name in {'opencode', 'claude'} for arg in recorded[0]))
         self.assertLess(timeouts[0], request.timeout_seconds)
+
+    def test_isolated_worker_home_preserves_host_docker_configuration(self):
+        from agent_optimizer.contracts import ExecutionResult
+        adapter = load('native_adapter')
+        request = self.request()
+        (request.task_dir / 'native-task.json').write_text(json.dumps(load('native_cvdp').public_row(self.row)))
+        host = self.root / 'host-home'
+        (host / '.docker').mkdir(parents=True)
+        observed = {}
+        def run_worker(argv, cwd, logs, timeout, **kwargs):
+            observed.update(kwargs['env'])
+            return ExecutionResult('completed', 0, .01, '', '')
+        original = adapter.sibling
+        prep = original('native_prepare')
+        prep.readiness = lambda *args, **kwargs: {'ready': True, 'checks': []}
+        with patch.dict(os.environ, {'HOME': str(host)}, clear=True), \
+                patch.object(adapter, 'sibling', side_effect=lambda name: prep if name == 'native_prepare' else original(name)), \
+                patch.object(adapter, 'run_worker', side_effect=run_worker):
+            adapter.ACENative({'dataset': str(DATA)}).run(request)
+        self.assertNotEqual(observed['HOME'], str(host))
+        self.assertEqual(observed.get('DOCKER_CONFIG'), str(host / '.docker'))
 
     def test_native_agent_manifest_loads_existing_core_source_contract(self):
         from agent_optimizer.config import load_agent
@@ -283,7 +342,7 @@ class NativeACETests(unittest.TestCase):
                 with patch.object(adapter, 'sibling', side_effect=lambda name: prep if name == 'native_prepare' else original(name)), patch.object(adapter, 'run_worker', side_effect=run_worker):
                     result = adapter.ACENative({'dataset': str(DATA)}).run(request)
                 sidecar = json.loads((request.logs / 'native-execution.json').read_text())
-                self.assertEqual(result.status, 'infrastructure_error')
+                self.assertEqual(result.status, 'agent_incomplete' if mode == 'output' else 'infrastructure_error')
                 self.assertTrue(sidecar['requests'])
                 self.assertEqual(sidecar['requests'][0]['status'], 'completed')
                 self.assertIsNone(sidecar['requests'][0]['input_tokens'])

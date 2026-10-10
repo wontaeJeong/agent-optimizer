@@ -94,7 +94,8 @@ class RoleTransport:
         except Exception as exc:
             record['status'] = 'timeout' if isinstance(exc, TimeoutError) or 'total timeout' in str(exc) else 'api_error'
             # Never put provider error text/endpoint/key/prompt in metadata.
-            raise NativeCallError('native 모델 요청 실패; 자동 대체 없음', record['status']) from None
+            status = 'timeout' if time.monotonic() >= self.deadline else 'api_error'
+            raise NativeCallError('native 모델 요청 실패; 자동 대체 없음', status) from None
         finally:
             record['duration_seconds'] = time.monotonic() - started
             self.flush()
@@ -110,6 +111,8 @@ def snapshot_imports(agent_dir):
         return any(name == p or name.startswith(p + '.') for p in prefixes)
     saved = {k: v for k, v in sys.modules.items() if owned(k)}
     paths = sys.path[:]
+    previous_bytecode = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
     for name in saved:
         del sys.modules[name]
     sys.path.insert(0, str(agent_dir / 'skills/ace-rtl/scripts'))
@@ -121,6 +124,7 @@ def snapshot_imports(agent_dir):
                 del sys.modules[name]
         sys.modules.update(saved)
         sys.path[:] = paths
+        sys.dont_write_bytecode = previous_bytecode
 
 
 def safe_native_result(evaluation):
@@ -183,8 +187,15 @@ def run_native(request, row, *, evaluator=None, settings=None, completion=comple
                 instructions = '\n'.join(['공개 과제:\n' + prompt, 'Target files: ' + ', '.join(targets),
                                            'Coordinator:\n' + self.coordinator, 'Reflector:\n' + self.reflection,
                                            'Previous candidate:\n' + json.dumps(self.previous_candidate or {})])
-                content = transport.call('generator', instructions, '모든 선언 target의 완전한 RTL을 반환하세요.')
-                outputs = cvdp.parse_outputs(content, targets)
+                content = transport.call('generator', instructions,
+                    '모든 선언 target의 완전한 RTL을 반환하세요. Markdown 코드 펜스·설명문은 금지합니다. '
+                    '단일 target은 원문 RTL만, 다중 target은 각 파일 앞에 정확히 '
+                    '// TARGET_FILE: <path>를 넣고 모든 선언 경로를 한 번씩 제출하세요.')
+                try:
+                    outputs = cvdp.parse_outputs(content, targets)
+                except ConfigurationError:
+                    raise NativeCallError('native 모델 출력 계약 위반; target/Markdown 형식을 확인하세요',
+                                          'agent_incomplete') from None
                 for name, text in outputs.items():
                     path = safe_path(self.iteration_dir / 'candidate', name)
                     path.parent.mkdir(parents=True, exist_ok=True)

@@ -1,6 +1,6 @@
 # Python native ACE·CVDP 실행 가이드
 
-**native 정상 완료는 아직 미검증**이다. 2026-10-07 Mac TUI 프리셋에서 실제 Baseline CID002/004를 실행했고 prepare·doctor·모델 probe·실모델 호출·결과/History 저장까지 확인했지만 `no_eligible_candidate`로 실패했다. CID004의 별도 재현은 Markdown 모델 출력의 구조 검사 거부를 확인했다. [검증 기록](../../docs/verification/tui-run-presets-20261007.md)을 따른다. CLI/TUI·loader·runner·진단·배포는 F/G에 통합됐고 정책은 예제 `native_selection.py`가 소유한다. 아래는 조건을 갖춘 사용자를 위한 안내이며 실행 성공 기록이 아니다. 과거 OpenCode/Claude Code·evaluator-only 성공과 구별한다.
+**2026-10-10 Mac native CID004 Baseline은 inner 공식 평가·outer 재평가 각 1.0으로 정상 완료했다.** [최신 코어 검증](../../docs/verification/core-audit-20261010.md)은 단일 validation row·명시 120초 모델 timeout의 제한된 근거다. GEPA/Meta-Harness의 train/제안에는 모델 timeout이 남아 있으며 성능 개선·Ubuntu x86_64 native loop는 미검증이다. 2026-10-07의 CID002/004 `no_eligible_candidate`와 Markdown 출력 거부는 [당시 기록](../../docs/verification/tui-run-presets-20261007.md)에 보존한다. CLI/TUI·loader·runner·진단·배포는 F/G에 통합됐고 정책은 예제 `native_selection.py`가 소유한다. 아래는 준비 조건을 갖춘 사용자를 위한 안내이며 과거 OpenCode/Claude Code·evaluator-only 성공과 구별한다.
 
 | 구분 | native | 기존 coding(legacy) |
 |---|---|---|
@@ -107,7 +107,9 @@ History는 Home·선택 explicit output 부모·legacy 경계의 실패/중단/r
 
 `RunRequest.logs/native-execution.json` schema 1은 source revision/hash·candidate/task identity·실제 attempts/requests/generated_files/evidence_paths·active_surface_hashes를 기록한다. 없는 provenance/token/cost는 null, usage는 partial/unreported이고 전체 사용량으로 승격하지 않는다. sidecar의 outer count/time은 null이며 runner producer가 **실제 outer 평가**를 별도 계측하여 result/events로 연결한다. 손상/누락 sidecar는 native optional만 제외하고 경고하며 outer 성적을 바꾸지 않는다.
 
-실패에도 native-progress/native-requests journal을 보존한다. process group/관측 descendants와 소유 Docker network의 container만 deadline 안에서 정리한다. `min(1초,10%)`를 정리에 예약하고 명령은 개별 최대 1초/잔여 시간 이하다. 미완료는 incomplete/deferred이지 정리 성공이 아니다. 실 Docker cleanup은 아직 not_run이다.
+실패에도 native-progress/native-requests journal을 보존한다. process group/관측 descendants와 소유 Docker network의 container만 deadline 안에서 정리한다. `min(1초,10%)`를 정리에 예약하고 명령은 개별 최대 1초/잔여 시간 이하다. 미완료는 incomplete/deferred이지 정리 성공이 아니다. 2026-10-10의 선택 CID004 실행에서 실제 cleanup journal·잔여 container/network 없음을 확인했으며 전체 환경·모든 중단 경로의 정리 보장은 아니다.
+
+worker HOME을 격리해도 기존 `DOCKER_CONFIG` 또는 호스트 `.docker` 경로를 보존하여 같은 Docker context를 사용한다. 모델 출력 형식 위반은 `agent_incomplete`/무효/null, outer 잔여 시간이 있는 개별 모델 요청 timeout은 `infrastructure_error`/무효/null이다. 과제 전체 deadline timeout과 구별하며 공식 driver의 Docker 연결 실패도 RTL 오답 0점으로 바꾸지 않는다.
 
 ## 개발 API·배포 provenance
 

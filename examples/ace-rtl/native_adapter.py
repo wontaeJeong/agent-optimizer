@@ -214,6 +214,10 @@ class ACENative:
         environment = {**os.environ, 'PYTHONDONTWRITEBYTECODE': '1', 'PYTHONNOUSERSITE': '1',
                        'HOME': str(home), 'XDG_CACHE_HOME': str(home / 'cache'),
                        'PYTHONPATH': os.pathsep.join(str(Path(p).absolute()) for p in sys.path)}
+        # An isolated HOME must not silently replace the host's selected Docker context.
+        docker_config = Path(os.environ.get('DOCKER_CONFIG') or Path.home() / '.docker').absolute()
+        if docker_config.is_dir():
+            environment['DOCKER_CONFIG'] = str(docker_config)
         result = None
         try:
             result = run_worker([str(python), str(Path(__file__).with_name('native_worker.py')), str(request.logs / 'native-request.json')],
@@ -246,6 +250,9 @@ class ACENative:
                 # trusted evaluator. Inner pass is never a final score.
                 if sidecar['status'] == 'api_error':
                     result.status = 'infrastructure_error'
+                if sidecar['status'] == 'agent_incomplete':
+                    result.status = 'agent_incomplete'
+                    result.detail = 'native 모델 출력 계약 위반; target/Markdown 형식을 확인하세요'
                 if sidecar['status'] == 'timeout':
                     result.status = 'timeout'
                 result.metrics = {'agent_tokens': None, 'agent_cost_usd': None,

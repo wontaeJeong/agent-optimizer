@@ -7,6 +7,13 @@ from agent_optimizer.contracts import ConfigurationError
 from agent_optimizer.config import validate_objective
 
 
+def _finite_number(value) -> bool:
+    try:
+        return type(value) in (int, float) and math.isfinite(value)
+    except OverflowError:
+        return False
+
+
 def select(rows: list[dict[str, Any]], objective: dict) -> list[dict[str, Any]]:
     validate_objective(objective)
     metrics = objective["metrics"]
@@ -16,7 +23,7 @@ def select(rows: list[dict[str, Any]], objective: dict) -> list[dict[str, Any]]:
             continue
         values = row["metrics"]
         keys = [m["name"] for m in metrics]
-        if any(values.get(k) is None or not math.isfinite(values[k]) for k in keys):
+        if any(not _finite_number(values.get(k)) for k in keys):
             continue
         vector = tuple(values[m["name"]] * (1 if m["direction"] == "maximize" else -1)
                        for m in metrics)
@@ -32,11 +39,13 @@ def aggregate(records: list[dict], metric_specs: list[dict]) -> dict[str, float 
             raise ConfigurationError("Advanced metric aggregates are deferred; use mean or sum")
         name, source = spec["name"], spec.get("source", spec["name"])
         values = [r["metrics"].get(source) for r in records]
-        if not values or any(v is None or not math.isfinite(v) for v in values):
+        if not values or any(not _finite_number(v) for v in values):
             result[name] = None
             continue
-        if op == "mean":
-            result[name] = sum(values) / len(values)
-        else:
-            result[name] = sum(values)
+        try:
+            # Scale before summing: a finite mean must not overflow its intermediate sum.
+            value = math.fsum(v / len(values) for v in values) if op == "mean" else math.fsum(values)
+            result[name] = value if math.isfinite(value) else None
+        except OverflowError:
+            result[name] = None
     return result

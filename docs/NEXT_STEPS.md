@@ -2,6 +2,11 @@
 
 ## Agent 개발자: 실제 최적화 실행
 
+2026-10-10에는 Mac CID004 native Baseline의 inner/outer 공식 평가가 통과했다.
+다음 우선순위는 같은 선택 train의 모델 timeout 해소·정상 공식 평가, 연구 stage 반복 비교와
+선택 고정 후 test다. GEPA validation 동점과 Meta 제안 timeout은 개선 증거가 아니며
+Ubuntu x86_64 native 검증도 남아 있다. [최신 코어 검증](verification/core-audit-20261010.md)을 따른다.
+
 **현재 native 먼저:** [NATIVE 가이드](../examples/ace-rtl/NATIVE.md)의 고정 로컬 소스·데이터·별도 3.12/native extra·명시 CID/row/split·평가/API 조건을 준비한다. init의 로컬 export/선택 검증 → prepare의 선택 자료·source/interpreter·outer benchmark 제한 검사 → **doctor --plan의 전체 정적 환경 진단** → 필요 시 **--model 실제 API probe** → 작은 validation row Baseline → 독립 GEPA/Meta 비교 → History/report 순이다. prepare는 모델·driver 패키지 imports·독립 inner 환경 전체를 검사하지 않으며 `--offline`도 범위 확대/자동 설치/온라인 보완을 하지 않는다. prepare 성공만으로 전체 준비됐다고 해석하지 않는다. 아래 `make setup`/고정 simple_feedback은 legacy coding 경로다.
 
 1. `make setup-core` 후 `.venv/bin/agent-opt datasets list` 또는 `.venv/bin/agent-opt tui`에서
